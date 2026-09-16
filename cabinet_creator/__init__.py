@@ -1,11 +1,11 @@
 bl_info = {
-    "name": "Chapa G3 - Moveis Planejados",
+    "name": "Cabinet Creator",
     "author": "Douglas",
     "version": (33, 0, 0),
     "blender": (4, 0, 0),
-    "location": "View3D > N > Chapa G3",
+    "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
-    "description": "Chapas com malha editavel e espessura imune a escala em qualquer eixo",
+    "description": "Armarios parametricos: chapas com malha editavel e espessura imune a escala",
     "category": "Object",
 }
 
@@ -19,6 +19,10 @@ ESPESSURAS_PERMITIDAS = [15.0, 18.0, 20.0, 30.0]
 
 # Marcador ID. ATENCAO: propriedades criadas com bpy.props em
 # bpy.types.Object sao RNA e NAO aparecem em `"x" in obj`.
+# Os nomes das propriedades internas (chapa_*, eh_chapa, adj_*) sao
+# deliberadamente mantidos do nome antigo do add-on: eles estao gravados
+# dentro dos .blend dos presets. Renomea-los invalidaria toda a
+# biblioteca ja' salva.
 MARCA_CHAPA = "eh_chapa"
 MARCA_CONJUNTO = "eh_conjunto_chapa"
 
@@ -110,7 +114,7 @@ def normalizar_chapas(objs=None):
     try:
         aplicar_adjacencia()
     except Exception as e:
-        print("[Chapa G3] adjacencia:", e)
+        print("[Cabinet Creator] adjacencia:", e)
 
     return [o for o, _a, _b, _c in alvos]
 
@@ -595,7 +599,7 @@ def sincronizar_medidas_conjunto(conj):
 
 class OBJECT_OT_detectar_adjacencia(Operator):
     """Memoriza quais chapas encostam uma na outra (selecione todas)"""
-    bl_idname = "object.chapa_g3_detectar_adjacencia"
+    bl_idname = "object.cabinet_detectar_adjacencia"
     bl_label = "Detectar Adjacencia"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -611,7 +615,7 @@ class OBJECT_OT_detectar_adjacencia(Operator):
 
 class OBJECT_OT_sincronizar_conjunto(Operator):
     """Le as medidas reais das pecas e atualiza os campos do modulo"""
-    bl_idname = "object.chapa_g3_sincronizar"
+    bl_idname = "object.cabinet_sincronizar"
     bl_label = "Ler Medidas Atuais"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -626,7 +630,7 @@ class OBJECT_OT_sincronizar_conjunto(Operator):
 
 class OBJECT_OT_agrupar_conjunto(Operator):
     """Agrupa as chapas selecionadas num conjunto (Empty pai)"""
-    bl_idname = "object.chapa_g3_agrupar"
+    bl_idname = "object.cabinet_agrupar"
     bl_label = "Agrupar Conjunto"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -688,7 +692,7 @@ def absorver_conjuntos():
         try:
             sincronizar_medidas_conjunto(conj)
         except Exception as e:
-            print("[Chapa G3] sincronizar:", e)
+            print("[Cabinet Creator] sincronizar:", e)
 
 
 # ================================================== BIBLIOTECA / ASSETS
@@ -698,9 +702,9 @@ def absorver_conjuntos():
 # Cada preset vira um .blend proprio dentro da pasta da biblioteca.
 # Um arquivo por preset evita ter que reabrir e mesclar um .blend
 # compartilhado a cada gravacao.
-SUBPASTA_BIB = "Chapa G3"
-CAT_CHAPAS = "Chapa G3/Chapas"
-CAT_MODULOS = "Chapa G3/Modulos"
+SUBPASTA_BIB = "Cabinet Creator"
+CAT_CHAPAS = "Cabinet Creator/Chapas"
+CAT_MODULOS = "Cabinet Creator/Modulos"
 
 
 def _pasta_fabrica():
@@ -723,7 +727,7 @@ def _pasta_equipe():
     p = _prefs()
     if p and p.pasta_equipe:
         return bpy.path.abspath(p.pasta_equipe)
-    return os.path.join(os.path.expanduser("~"), "Documents", "Blender", "Assets", "Chapa G3")
+    return os.path.join(os.path.expanduser("~"), "Documents", "Blender", "Assets", "Cabinet Creator")
 
 
 def registrar_bibliotecas(silencioso=True):
@@ -731,13 +735,13 @@ def registrar_bibliotecas(silencioso=True):
     sem duplicar caso ja' estejam registradas."""
     registradas = []
     libs = bpy.context.preferences.filepaths.asset_libraries
-    for nome, caminho in (("Chapa G3 (fabrica)", _pasta_fabrica()),
-                          ("Chapa G3 (equipe)", _pasta_equipe())):
+    for nome, caminho in (("Cabinet Creator (fabrica)", _pasta_fabrica()),
+                          ("Cabinet Creator (equipe)", _pasta_equipe())):
         try:
             os.makedirs(caminho, exist_ok=True)
         except Exception as e:
             if not silencioso:
-                print("[Chapa G3] nao criei", caminho, e)
+                print("[Cabinet Creator] nao criei", caminho, e)
             continue
         alvo = os.path.normcase(os.path.normpath(caminho))
         ja = any(os.path.normcase(os.path.normpath(bpy.path.abspath(l.path))) == alvo
@@ -750,7 +754,7 @@ def registrar_bibliotecas(silencioso=True):
             registradas.append(nome)
         except Exception as e:
             if not silencioso:
-                print("[Chapa G3] registro falhou:", e)
+                print("[Cabinet Creator] registro falhou:", e)
     return registradas
 
 
@@ -829,7 +833,7 @@ def salvar_na_biblioteca(objs, nome, como_colecao):
     try:
         alvo_preview.asset_generate_preview()
     except Exception as e:
-        print("[Chapa G3] preview:", e)
+        print("[Cabinet Creator] preview:", e)
 
     arquivo = os.path.join(destino, _nome_arquivo_seguro(nome) + ".blend")
     bpy.data.libraries.write(arquivo, blocos, fake_user=True, compress=True)
@@ -909,7 +913,7 @@ def _ler_indice(pasta):
         with open(arq, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        print("[Chapa G3] indice ilegivel:", e)
+        print("[Cabinet Creator] indice ilegivel:", e)
         return []
 
 
@@ -918,7 +922,7 @@ def _gravar_indice(pasta, itens):
         with open(os.path.join(pasta, NOME_INDICE), "w", encoding="utf-8") as f:
             json.dump(itens, f, ensure_ascii=False, indent=1)
     except Exception as e:
-        print("[Chapa G3] nao gravei o indice:", e)
+        print("[Cabinet Creator] nao gravei o indice:", e)
 
 
 def indice_completo():
@@ -948,7 +952,7 @@ def _itens_de(categoria, subcategoria):
 
 class OBJECT_OT_inserir_preset(Operator):
     """Traz o preset da biblioteca para a cena"""
-    bl_idname = "object.chapa_g3_inserir_preset"
+    bl_idname = "object.cabinet_inserir_preset"
     bl_label = "Inserir"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1001,7 +1005,7 @@ class OBJECT_OT_inserir_preset(Operator):
 
 class OBJECT_OT_navegar(Operator):
     """Seleciona um nivel da cascata"""
-    bl_idname = "object.chapa_g3_navegar"
+    bl_idname = "object.cabinet_navegar"
     bl_label = "Navegar"
 
     nivel: bpy.props.IntProperty(default=1)
@@ -1159,7 +1163,7 @@ def item_bloqueado(it):
 
 class OBJECT_OT_alternar_bloqueio(Operator):
     """Bloqueia ou desbloqueia a edicao deste bloco"""
-    bl_idname = "object.chapa_g3_bloqueio"
+    bl_idname = "object.cabinet_bloqueio"
     bl_label = "Bloquear/Desbloquear"
 
     pasta: bpy.props.StringProperty()
@@ -1179,7 +1183,7 @@ class OBJECT_OT_alternar_bloqueio(Operator):
 
 class OBJECT_OT_renomear_item(Operator):
     """Renomear este bloco"""
-    bl_idname = "object.chapa_g3_renomear"
+    bl_idname = "object.cabinet_renomear"
     bl_label = "Renomear"
     bl_options = {'REGISTER'}
 
@@ -1215,7 +1219,7 @@ class OBJECT_OT_mover_item(Operator):
     UIList tem isso, ela usa setas. Estas setas sao o equivalente
     disponivel na API.
     """
-    bl_idname = "object.chapa_g3_mover"
+    bl_idname = "object.cabinet_mover"
     bl_label = "Mover"
 
     pasta: bpy.props.StringProperty()
@@ -1244,7 +1248,7 @@ class OBJECT_OT_mover_item(Operator):
 
 class OBJECT_OT_editar_modelo(Operator):
     """Editar nome, categoria e foto do modelo"""
-    bl_idname = "object.chapa_g3_editar_modelo"
+    bl_idname = "object.cabinet_editar_modelo"
     bl_label = "Editar Modelo"
     bl_options = {'REGISTER'}
 
@@ -1328,7 +1332,7 @@ class OBJECT_OT_editar_modelo(Operator):
 
 class OBJECT_OT_salvar_biblioteca(Operator):
     """Salva a selecao na biblioteca de assets do Blender"""
-    bl_idname = "object.chapa_g3_salvar_biblioteca"
+    bl_idname = "object.cabinet_salvar_biblioteca"
     bl_label = "Salvar na Biblioteca"
     bl_options = {'REGISTER'}
 
@@ -1389,7 +1393,7 @@ class OBJECT_OT_salvar_biblioteca(Operator):
 
 class OBJECT_OT_abrir_pasta_biblioteca(Operator):
     """Mostra o caminho da biblioteca no Explorer"""
-    bl_idname = "object.chapa_g3_abrir_biblioteca"
+    bl_idname = "object.cabinet_abrir_biblioteca"
     bl_label = "Abrir Pasta da Biblioteca"
 
     def execute(self, context):
@@ -1424,13 +1428,13 @@ def verificar_periodicamente():
             absorver_conjuntos()
             normalizar_chapas()
         except Exception as e:
-            print("[Chapa G3] erro no timer:", e)
+            print("[Cabinet Creator] erro no timer:", e)
     return INTERVALO_TIMER
 
 
 class OBJECT_OT_normalizar(Operator):
     """Recalcula as chapas selecionadas a partir da escala aplicada"""
-    bl_idname = "object.chapa_g3_normalizar"
+    bl_idname = "object.cabinet_normalizar"
     bl_label = "Recalcular Chapas"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1462,7 +1466,7 @@ def nova_chapa(nome, larg, comp, esp, loc_mm, rot_graus, context):
 
 class OBJECT_OT_criar_chapa(Operator):
     """Cria uma chapa avulsa (600 x 400 x 18mm)"""
-    bl_idname = "object.chapa_g3_criar"
+    bl_idname = "object.cabinet_criar"
     bl_label = "Criar Chapa"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1477,7 +1481,7 @@ class OBJECT_OT_criar_chapa(Operator):
 
 class OBJECT_OT_criar_nicho(Operator):
     """Cria um nicho sem fundo: 2 laterais + tampo + base"""
-    bl_idname = "object.chapa_g3_criar_nicho"
+    bl_idname = "object.cabinet_criar_nicho"
     bl_label = "Criar Nicho (sem fundo)"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1501,7 +1505,7 @@ class OBJECT_OT_criar_nicho(Operator):
 
 class OBJECT_OT_marcar_como_chapa(Operator):
     """Converte o objeto selecionado em chapa G3"""
-    bl_idname = "object.chapa_g3_marcar"
+    bl_idname = "object.cabinet_marcar"
     bl_label = "Marcar como Chapa"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -1577,7 +1581,7 @@ def _upd_grupo_espessura(self, context):
 
 class OBJECT_OT_sincronizar_grupo(Operator):
     """Le as medidas reais do grupo e atualiza os campos"""
-    bl_idname = "object.chapa_g3_sincronizar_grupo"
+    bl_idname = "object.cabinet_sincronizar_grupo"
     bl_label = "Ler Medidas do Grupo"
 
     def execute(self, context):
@@ -1585,7 +1589,7 @@ class OBJECT_OT_sincronizar_grupo(Operator):
         return {'FINISHED'}
 
 
-class ChapaG3Preferences(bpy.types.AddonPreferences):
+class CabinetCreatorPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
     pasta_equipe: bpy.props.StringProperty(
@@ -1600,12 +1604,12 @@ class ChapaG3Preferences(bpy.types.AddonPreferences):
         layout.prop(self, "pasta_equipe")
         layout.label(text="De fabrica: " + _pasta_fabrica(), icon='FILE_FOLDER')
         layout.label(text="Em uso: " + _pasta_equipe(), icon='ASSET_MANAGER')
-        layout.operator("object.chapa_g3_registrar_bibliotecas", icon='FILE_REFRESH')
+        layout.operator("object.cabinet_registrar_bibliotecas", icon='FILE_REFRESH')
 
 
 class OBJECT_OT_registrar_bibliotecas(Operator):
     """Registra as pastas do addon como bibliotecas de assets"""
-    bl_idname = "object.chapa_g3_registrar_bibliotecas"
+    bl_idname = "object.cabinet_registrar_bibliotecas"
     bl_label = "Registrar Bibliotecas no Blender"
 
     def execute(self, context):
@@ -1617,12 +1621,12 @@ class OBJECT_OT_registrar_bibliotecas(Operator):
         return {'FINISHED'}
 
 
-class VIEW3D_PT_chapa_g3(Panel):
-    bl_label = "Chapa G3"
-    bl_idname = "VIEW3D_PT_chapa_g3"
+class VIEW3D_PT_cabinet_creator(Panel):
+    bl_label = "Cabinet Creator"
+    bl_idname = "VIEW3D_PT_cabinet_creator"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Chapa G3"
+    bl_category = "Cabinet Creator"
 
     def draw(self, context):
         layout = self.layout
@@ -1643,7 +1647,7 @@ class VIEW3D_PT_chapa_g3(Panel):
             b.separator()
             b.prop(obj, "conj_espessura_mm")
             b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
-            b.operator("object.chapa_g3_sincronizar", icon='FILE_REFRESH')
+            b.operator("object.cabinet_sincronizar", icon='FILE_REFRESH')
         elif obj is None or MARCA_CHAPA not in obj:
             layout.label(text="Selecione uma chapa ou um modulo", icon='INFO')
         else:
@@ -1664,14 +1668,14 @@ class VIEW3D_PT_chapa_g3(Panel):
                 b.separator()
                 b.prop(sc, "grupo_espessura_mm")
                 b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
-                b.operator("object.chapa_g3_sincronizar_grupo", icon='FILE_REFRESH')
+                b.operator("object.cabinet_sincronizar_grupo", icon='FILE_REFRESH')
 
         layout.separator()
         c = layout.column(align=True)
         c.label(text="Montagem:")
-        c.operator("object.chapa_g3_agrupar", icon='OUTLINER_OB_EMPTY')
-        c.operator("object.chapa_g3_detectar_adjacencia", icon='SNAP_ON')
-        c.operator("object.chapa_g3_normalizar", icon='FILE_REFRESH')
+        c.operator("object.cabinet_agrupar", icon='OUTLINER_OB_EMPTY')
+        c.operator("object.cabinet_detectar_adjacencia", icon='SNAP_ON')
+        c.operator("object.cabinet_normalizar", icon='FILE_REFRESH')
 
     # ---------------------------------------------------- BIBLIOTECA
     # Cascata HORIZONTAL: cada nivel e' uma linha de botoes. O nivel
@@ -1687,7 +1691,7 @@ class VIEW3D_PT_chapa_g3(Panel):
                 n = _conta(itens, pai, v)
             else:
                 n = _conta(itens, pai[0], pai[1], v)
-            op = linha.operator("object.chapa_g3_navegar",
+            op = linha.operator("object.cabinet_navegar",
                                 text="%s (%d)" % (v, n),
                                 depress=(sel == v))
             op.nivel = nivel
@@ -1702,7 +1706,7 @@ class VIEW3D_PT_chapa_g3(Panel):
                  icon='TRIA_DOWN' if s.chapa_bib_aberta else 'TRIA_RIGHT',
                  text="Biblioteca (%d)" % len(itens), toggle=True)
         # o "+" adiciona a selecao atual a biblioteca
-        cab.operator("object.chapa_g3_salvar_biblioteca", text="", icon='ADD')
+        cab.operator("object.cabinet_salvar_biblioteca", text="", icon='ADD')
         if not s.chapa_bib_aberta:
             return
 
@@ -1735,7 +1739,7 @@ class VIEW3D_PT_chapa_g3(Panel):
         cab2.prop(s, "chapa_tam_bloco", text="")
         if not daqui:
             lista.label(text="nenhum modelo aqui", icon='INFO')
-            lista.operator("object.chapa_g3_abrir_biblioteca", icon='FILE_FOLDER')
+            lista.operator("object.cabinet_abrir_biblioteca", icon='FILE_FOLDER')
             return
 
         # columns=0 faz o grid_flow calcular sozinho quantas colunas cabem
@@ -1769,7 +1773,7 @@ class VIEW3D_PT_chapa_g3(Panel):
                 vazio.scale_y = float(s.chapa_tam_bloco) * 0.5
                 vazio.label(text="", icon='IMAGE_DATA')
 
-            oi = bloco.operator("object.chapa_g3_inserir_preset",
+            oi = bloco.operator("object.cabinet_inserir_preset",
                                 text=it["nome"], icon='IMPORT')
             oi.pasta = it["pasta"]
             oi.arquivo = it["arquivo"]
@@ -1777,19 +1781,19 @@ class VIEW3D_PT_chapa_g3(Panel):
 
             if not travado:
                 setas = bloco.row(align=True)
-                oa = setas.operator("object.chapa_g3_mover", text="", icon='TRIA_LEFT')
+                oa = setas.operator("object.cabinet_mover", text="", icon='TRIA_LEFT')
                 oa.pasta = it["pasta"]; oa.arquivo = it["arquivo"]; oa.direcao = -1
-                ob = setas.operator("object.chapa_g3_mover", text="", icon='TRIA_RIGHT')
+                ob = setas.operator("object.cabinet_mover", text="", icon='TRIA_RIGHT')
                 ob.pasta = it["pasta"]; ob.arquivo = it["arquivo"]; ob.direcao = 1
-                oe = setas.operator("object.chapa_g3_editar_modelo", text="", icon='GREASEPENCIL')
+                oe = setas.operator("object.cabinet_editar_modelo", text="", icon='GREASEPENCIL')
                 oe.pasta = it["pasta"]; oe.arquivo = it["arquivo"]
 
         lista.separator()
-        lista.operator("object.chapa_g3_abrir_biblioteca", icon='FILE_FOLDER')
+        lista.operator("object.cabinet_abrir_biblioteca", icon='FILE_FOLDER')
 
     def _cadeado(self, linha, it, travado):
         """Cadeado clicavel, alternando entre os dois sprites."""
-        oc = linha.operator("object.chapa_g3_bloqueio", text="",
+        oc = linha.operator("object.cabinet_bloqueio", text="",
                             icon='LOCKED' if travado else 'UNLOCKED',
                             depress=travado)
         oc.pasta = it["pasta"]
@@ -1800,13 +1804,13 @@ class VIEW3D_PT_chapa_g3(Panel):
         if travado:
             linha.label(text="", icon='BLANK1')
             return
-        om = linha.operator("object.chapa_g3_renomear", text="", icon='COLLAPSEMENU')
+        om = linha.operator("object.cabinet_renomear", text="", icon='COLLAPSEMENU')
         om.pasta = it["pasta"]
         om.arquivo = it["arquivo"]
 
 
 CLASSES = (
-    ChapaG3Preferences,
+    CabinetCreatorPreferences,
     OBJECT_OT_sincronizar_grupo,
     OBJECT_OT_sincronizar_conjunto,
     OBJECT_OT_registrar_bibliotecas,
@@ -1824,7 +1828,7 @@ CLASSES = (
     OBJECT_OT_criar_nicho,
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
-    VIEW3D_PT_chapa_g3,
+    VIEW3D_PT_cabinet_creator,
 )
 
 

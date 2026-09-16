@@ -1,6 +1,6 @@
 {
   "python.analysis.extraPaths": [
-    "./chapa_g3"
+    "./cabinet_creator"
   ],
   "files.encoding": "utf8",
   "files.eol": "\n",

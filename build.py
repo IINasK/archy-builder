@@ -1,14 +1,14 @@
-"""Empacota o add-on em dist/chapa_g3.zip."""
+"""Empacota o add-on em dist/cabinet_creator.zip."""
 import os, zipfile, shutil
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
-PKG = os.path.join(RAIZ, "chapa_g3")
+PKG = os.path.join(RAIZ, "cabinet_creator")
 DIST = os.path.join(RAIZ, "dist")
 
 
 def main():
     os.makedirs(DIST, exist_ok=True)
-    destino = os.path.join(DIST, "chapa_g3.zip")
+    destino = os.path.join(DIST, "cabinet_creator.zip")
     if os.path.exists(destino):
         os.remove(destino)
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:

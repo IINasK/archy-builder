@@ -1,6 +1,6 @@
-# Chapa G3
+# Cabinet Creator
 
-Add-on de Blender para modelagem de moveis planejados na G3.
+Add-on de Blender para gerar armarios de moveis planejados na G3.
 
 ## O que resolve
 
@@ -12,23 +12,23 @@ Edit Mode.
 ## Estrutura
 
 ```
-chapa_g3/
+cabinet_creator/
   __init__.py        # o add-on inteiro
   biblioteca/        # presets de fabrica (viajam com o add-on)
     *.blend
     indice.json      # catalogo dos presets (3 niveis)
-build.py             # gera dist/chapa_g3.zip
+build.py             # gera dist/cabinet_creator.zip
 vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 ```
 
 ## Desenvolvimento
 
-1. `python vincular_blender.py` — cria um junction de `chapa_g3/` para a
+1. `python vincular_blender.py` — cria um junction de `cabinet_creator/` para a
    pasta de add-ons do Blender. A partir dai, editar o codigo aqui altera
    o add-on carregado.
 2. No Blender, recarregue o add-on (desabilitar/habilitar em Preferences,
    ou reiniciar).
-3. `python build.py` — empacota `dist/chapa_g3.zip` para instalar em outras
+3. `python build.py` — empacota `dist/cabinet_creator.zip` para instalar em outras
    maquinas.
 
 ## Conceitos centrais
