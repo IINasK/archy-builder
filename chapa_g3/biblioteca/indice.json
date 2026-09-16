@@ -1,0 +1,18 @@
+[
+ {
+  "nome": "Chapa 600x400x18",
+  "arquivo": "Chapa_600x400x18.blend",
+  "tipo": "objeto",
+  "n1": "Chapas",
+  "n2": "Avulsas",
+  "n3": ""
+ },
+ {
+  "nome": "Nicho 600x400x300",
+  "arquivo": "Nicho_600x400x300.blend",
+  "tipo": "modulo",
+  "n1": "Armarios",
+  "n2": "Cozinha",
+  "n3": "Inferiores"
+ }
+]
