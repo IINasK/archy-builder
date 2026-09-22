@@ -12,8 +12,10 @@ que implemente a funcionalidade posteriormente. Ele descreve requisitos,
 restricoes, formulas, arquitetura sugerida, integracao com o codigo atual,
 etapas de implementacao, casos extremos e criterios de aceite.
 
-Este documento e' apenas planejamento. A funcionalidade ainda nao deve ser
-considerada implementada.
+Status em 22/09/2026: implementado no add-on 34.0.0. A projecao, o limite de
+crescimento, a rasterizacao, o cache, o ciclo register/unregister e a exibicao
+real no painel foram validados no Blender 5.2. O carregamento, a rasterizacao e
+o ciclo register/unregister tambem foram validados no Blender 4.2.
 
 
 ## 2. Resumo funcional

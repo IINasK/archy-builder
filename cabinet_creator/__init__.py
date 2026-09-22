@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (33, 0, 0),
+    "version": (34, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -1025,14 +1025,179 @@ class OBJECT_OT_navegar(Operator):
         return {'FINISHED'}
 
 
-# ================================================ MINIATURAS (FOTOS)
+# ======================================= MINIATURAS E WIREFRAME DE MEDIDAS
 _previews = [None]
+
+# O canvas e o scale do template sao fixos de proposito: alargar a sidebar
+# nao deve ampliar a representacao. A escala geometrica, por outro lado,
+# cresce com as medidas ate tocar a margem interna do canvas.
+WIREFRAME_TAMANHO_PX = 128
+WIREFRAME_MARGEM_PX = 10.0
+WIREFRAME_LINHA_PX = 1.8
+WIREFRAME_ESCALA_BASE = 0.11  # pixels por milimetro antes do limite
+WIREFRAME_ESCALA_UI = 5.0
+WIREFRAME_CACHE_MAX = 48
+WIREFRAME_PREFIXO = "wireframe:v1:"
+_wireframe_ordem = []
+
+# Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
+_ARESTAS_WIREFRAME = (
+    (0, 1), (1, 5), (5, 4), (4, 0),
+    (2, 3), (3, 7), (7, 6), (6, 2),
+    (0, 2), (1, 3), (5, 7), (4, 6),
+)
 
 
 def _colecao_previews():
     if _previews[0] is None:
         _previews[0] = bpy.utils.previews.new()
     return _previews[0]
+
+
+def _cor_wireframe(context):
+    """Cor de texto do tema, para contrastar em temas claros e escuros."""
+    try:
+        cor = context.preferences.themes[0].user_interface.wcol_regular.text
+        return tuple(max(0.0, min(1.0, float(v))) for v in cor[:3])
+    except Exception:
+        return (0.9, 0.9, 0.9)
+
+
+def _pontos_wireframe(largura, altura, profundidade):
+    """Projeta um box em 45 graus, limita o crescimento e o centraliza."""
+    medidas = (float(largura), float(altura), float(profundidade))
+    if not all(math.isfinite(v) and v > 0.0 for v in medidas):
+        return None
+    L, A, P = medidas
+    vertices = (
+        (0.0, 0.0, 0.0), (L, 0.0, 0.0),
+        (0.0, P, 0.0), (L, P, 0.0),
+        (0.0, 0.0, A),   (L, 0.0, A),
+        (0.0, P, A),     (L, P, A),
+    )
+    diagonal = math.sqrt(0.5)  # cos(45) == sin(45)
+    projetados = [(x - y * diagonal, z + y * diagonal)
+                  for x, y, z in vertices]
+    min_x = min(p[0] for p in projetados)
+    max_x = max(p[0] for p in projetados)
+    min_y = min(p[1] for p in projetados)
+    max_y = max(p[1] for p in projetados)
+    largura_proj = max_x - min_x
+    altura_proj = max_y - min_y
+    util = WIREFRAME_TAMANHO_PX - 2.0 * WIREFRAME_MARGEM_PX
+    if largura_proj <= 0.0 or altura_proj <= 0.0 or util <= 0.0:
+        return None
+
+    escala_limite = min(util / largura_proj, util / altura_proj)
+    escala = min(WIREFRAME_ESCALA_BASE, escala_limite)
+    desenho_l = largura_proj * escala
+    desenho_a = altura_proj * escala
+    dx = (WIREFRAME_TAMANHO_PX - desenho_l) / 2.0 - min_x * escala
+    dy = (WIREFRAME_TAMANHO_PX - desenho_a) / 2.0 - min_y * escala
+    return [(x * escala + dx, y * escala + dy) for x, y in projetados]
+
+
+def _desenhar_segmento(buffer, p0, p1, cor):
+    """Rasteriza um segmento antialias somente dentro de sua caixa local."""
+    largura = WIREFRAME_TAMANHO_PX
+    altura = WIREFRAME_TAMANHO_PX
+    x0, y0 = p0
+    x1, y1 = p1
+    vx, vy = x1 - x0, y1 - y0
+    comp2 = vx * vx + vy * vy
+    if comp2 <= 1e-12:
+        return
+    raio = WIREFRAME_LINHA_PX / 2.0
+    alcance = raio + 1.0
+    xa = max(0, int(math.floor(min(x0, x1) - alcance)))
+    xb = min(largura - 1, int(math.ceil(max(x0, x1) + alcance)))
+    ya = max(0, int(math.floor(min(y0, y1) - alcance)))
+    yb = min(altura - 1, int(math.ceil(max(y0, y1) + alcance)))
+    cr, cg, cb = cor
+
+    for y in range(ya, yb + 1):
+        py = y + 0.5
+        for x in range(xa, xb + 1):
+            px = x + 0.5
+            t = ((px - x0) * vx + (py - y0) * vy) / comp2
+            t = max(0.0, min(1.0, t))
+            perto_x = x0 + t * vx
+            perto_y = y0 + t * vy
+            distancia = math.hypot(px - perto_x, py - perto_y)
+            cobertura = max(0.0, min(1.0, raio + 0.75 - distancia))
+            if cobertura <= 0.0:
+                continue
+            # ImagePreview usa a origem embaixo; os pontos tambem usam Y para
+            # cima, portanto nao e' preciso inverter a linha neste buffer.
+            i = (y * largura + x) * 4
+            if cobertura > buffer[i + 3]:
+                buffer[i] = cr
+                buffer[i + 1] = cg
+                buffer[i + 2] = cb
+                buffer[i + 3] = cobertura
+
+
+def _rasterizar_wireframe(largura, altura, profundidade, cor):
+    """Devolve pixels RGBA transparentes das 12 arestas do box."""
+    pontos = _pontos_wireframe(largura, altura, profundidade)
+    if pontos is None:
+        return None
+    n = WIREFRAME_TAMANHO_PX * WIREFRAME_TAMANHO_PX * 4
+    buffer = [0.0] * n
+    for a, b in _ARESTAS_WIREFRAME:
+        _desenhar_segmento(buffer, pontos[a], pontos[b], cor)
+    return buffer
+
+
+def _chave_wireframe(modo, largura, altura, profundidade, cor):
+    medidas = tuple(round(float(v), 1)
+                    for v in (largura, altura, profundidade))
+    rgb = tuple(round(float(v) * 255.0) for v in cor)
+    return WIREFRAME_PREFIXO + "%s:%.1f:%.1f:%.1f:%d:%d:%d" % (
+        modo, medidas[0], medidas[1], medidas[2], rgb[0], rgb[1], rgb[2])
+
+
+def _registrar_uso_wireframe(chave, colecao):
+    if chave in _wireframe_ordem:
+        _wireframe_ordem.remove(chave)
+    _wireframe_ordem.append(chave)
+    while len(_wireframe_ordem) > WIREFRAME_CACHE_MAX:
+        antiga = _wireframe_ordem.pop(0)
+        if antiga in colecao:
+            try:
+                del colecao[antiga]
+            except Exception:
+                pass
+
+
+def _icone_wireframe(context, modo, largura, altura, profundidade):
+    """Cria ou reutiliza o icon_id procedural para estas medidas."""
+    cor = _cor_wireframe(context)
+    chave = _chave_wireframe(modo, largura, altura, profundidade, cor)
+    colecao = _colecao_previews()
+    if chave not in colecao:
+        pixels = _rasterizar_wireframe(largura, altura, profundidade, cor)
+        if pixels is None:
+            return 0
+        try:
+            preview = colecao.new(chave)
+            tamanho = (WIREFRAME_TAMANHO_PX, WIREFRAME_TAMANHO_PX)
+            # Preenche os dois niveis: template_icon pode escolher o buffer
+            # de icone ou o de imagem conforme a escala e a versao do Blender.
+            preview.icon_size = tamanho
+            preview.icon_pixels_float = pixels
+            preview.image_size = tamanho
+            preview.image_pixels_float = pixels
+        except Exception as e:
+            if chave in colecao:
+                try:
+                    del colecao[chave]
+                except Exception:
+                    pass
+            print("[Cabinet Creator] wireframe:", e)
+            return 0
+    _registrar_uso_wireframe(chave, colecao)
+    return colecao[chave].icon_id
 
 
 def _chave_preview(pasta, arquivo):
@@ -1635,15 +1800,33 @@ class VIEW3D_PT_cabinet_creator(Panel):
         self.desenhar_biblioteca(context, layout)
 
     # ------------------------------------------------------- MEDIDAS
+    def _visual_wireframe(self, layout, context, modo, medidas):
+        """Desenha o preview em tamanho fixo, independente da sidebar."""
+        coluna = layout.column(align=False)
+        coluna.ui_units_x = 6.0
+        coluna.alignment = 'CENTER'
+        icone = _icone_wireframe(context, modo, *medidas)
+        if icone:
+            coluna.template_icon(icon_value=icone,
+                                 scale=WIREFRAME_ESCALA_UI)
+        else:
+            coluna.label(text="", icon='MESH_CUBE')
+
     def desenhar_medidas(self, context, layout):
         obj = context.object
 
         if obj is not None and MARCA_CONJUNTO in obj:
             b = layout.box()
             b.label(text="Modulo (%d pecas)" % len(_chapas_do_conjunto(obj)), icon='MOD_BUILD')
-            b.prop(obj, "conj_largura_mm")
-            b.prop(obj, "conj_altura_mm")
-            b.prop(obj, "conj_profundidade_mm")
+            corpo = b.row(align=False)
+            campos = corpo.column(align=True)
+            campos.prop(obj, "conj_largura_mm")
+            campos.prop(obj, "conj_altura_mm")
+            campos.prop(obj, "conj_profundidade_mm")
+            self._visual_wireframe(
+                corpo, context, 'GRUPO',
+                (obj.conj_largura_mm, obj.conj_altura_mm,
+                 obj.conj_profundidade_mm))
             b.separator()
             b.prop(obj, "conj_espessura_mm")
             b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
@@ -1654,17 +1837,29 @@ class VIEW3D_PT_cabinet_creator(Panel):
             layout.prop(obj, "chapa_modo", expand=True)
             b = layout.box()
             if obj.chapa_modo == 'INDIVIDUAL':
-                b.prop(obj, "chapa_largura_mm")
-                b.prop(obj, "chapa_comprimento_mm")
-                b.prop(obj, "chapa_espessura_mm")
+                corpo = b.row(align=False)
+                campos = corpo.column(align=True)
+                campos.prop(obj, "chapa_largura_mm")
+                campos.prop(obj, "chapa_comprimento_mm")
+                campos.prop(obj, "chapa_espessura_mm")
+                self._visual_wireframe(
+                    corpo, context, 'INDIVIDUAL',
+                    (obj.chapa_largura_mm, obj.chapa_espessura_mm,
+                     obj.chapa_comprimento_mm))
                 b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
                 b.prop(obj, "chapa_auto")
             else:
                 b.label(text="Grupo: %d peca(s)" % len(grupo_de(obj)), icon='MOD_BUILD')
                 sc = context.scene
-                b.prop(sc, "grupo_largura_mm")
-                b.prop(sc, "grupo_altura_mm")
-                b.prop(sc, "grupo_profundidade_mm")
+                corpo = b.row(align=False)
+                campos = corpo.column(align=True)
+                campos.prop(sc, "grupo_largura_mm")
+                campos.prop(sc, "grupo_altura_mm")
+                campos.prop(sc, "grupo_profundidade_mm")
+                self._visual_wireframe(
+                    corpo, context, 'GRUPO',
+                    (sc.grupo_largura_mm, sc.grupo_altura_mm,
+                     sc.grupo_profundidade_mm))
                 b.separator()
                 b.prop(sc, "grupo_espessura_mm")
                 b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
@@ -1891,6 +2086,7 @@ def unregister():
         except Exception:
             pass
         _previews[0] = None
+    _wireframe_ordem.clear()
     if bpy.app.timers.is_registered(verificar_periodicamente):
         bpy.app.timers.unregister(verificar_periodicamente)
     if ao_atualizar_depsgraph in bpy.app.handlers.depsgraph_update_post:
