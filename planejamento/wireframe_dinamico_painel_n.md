@@ -17,6 +17,31 @@ crescimento, a rasterizacao, o cache, o ciclo register/unregister e a exibicao
 real no painel foram validados no Blender 5.2. O carregamento, a rasterizacao e
 o ciclo register/unregister tambem foram validados no Blender 4.2.
 
+Refinamento 35.0.0: os campos visuais passaram a usar proxies de comprimento
+do Blender, aceitando entradas como `600`, `60cm` e `0.6m`, sem converter o
+armazenamento interno em milimetros. Os quatro campos e a lista de espessuras
+foram compactados, centralizados e reunidos na coluna esquerda do wireframe.
+
+Refinamento 36.0.0: a coluna de medidas foi ancorada a esquerda e cada campo
+passou a ter o rotulo completo acima da caixa de texto. O preview fixo foi
+ampliado, centralizado no espaco restante e recebeu indicadores procedurais.
+Grupo usa `L`, `A` e `P`; Individual usa `L` e `C`. Espessura nunca recebe
+letra no desenho. As abas Individual/Grupo agora tambem aparecem quando o
+Empty do modulo esta selecionado. Escolher Individual nesse estado seleciona
+a primeira chapa do modulo para tornar a acao funcional.
+
+Refinamento 37.0.0: o canvas passou a ser horizontal, os espacadores verticais
+foram removidos e a escala de UI foi reduzida para eliminar os grandes vazios
+acima e abaixo dos controles. As linhas do box e os indicadores ficaram mais
+finos. O preview permanece uma unica imagem para nao criar emendas nas arestas.
+
+Refinamento 38.0.0: rotulos, caixas de texto e a lista de espessuras passaram
+a ficar alinhados a esquerda dentro de uma coluna de controles independente.
+O preview continua centralizado somente na coluna restante. A escala-base do
+desenho aumentou de 0.26 para 0.46 pixel por milimetro, ainda limitada pelas
+margens fixas do canvas, para aproveitar melhor a area sem responder ao
+redimensionamento do painel N.
+
 
 ## 2. Resumo funcional
 

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (34, 0, 0),
+    "version": (38, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -1031,13 +1031,15 @@ _previews = [None]
 # O canvas e o scale do template sao fixos de proposito: alargar a sidebar
 # nao deve ampliar a representacao. A escala geometrica, por outro lado,
 # cresce com as medidas ate tocar a margem interna do canvas.
-WIREFRAME_TAMANHO_PX = 128
-WIREFRAME_MARGEM_PX = 10.0
-WIREFRAME_LINHA_PX = 1.8
-WIREFRAME_ESCALA_BASE = 0.11  # pixels por milimetro antes do limite
-WIREFRAME_ESCALA_UI = 5.0
+WIREFRAME_LARGURA_PX = 320
+WIREFRAME_ALTURA_PX = 160
+WIREFRAME_MARGEM_X_PX = 28.0
+WIREFRAME_MARGEM_Y_PX = 28.0
+WIREFRAME_LINHA_PX = 1.4
+WIREFRAME_ESCALA_BASE = 0.46  # pixels por milimetro antes do limite
+WIREFRAME_ESCALA_UI = 8.0
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v1:"
+WIREFRAME_PREFIXO = "wireframe:v6:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -1046,6 +1048,15 @@ _ARESTAS_WIREFRAME = (
     (2, 3), (3, 7), (7, 6), (6, 2),
     (0, 2), (1, 3), (5, 7), (4, 6),
 )
+
+# Fonte minima 5x7. Os indicadores fazem parte do buffer procedural e nao
+# dependem de fontes instaladas no sistema.
+_FONTE_WIREFRAME = {
+    'A': ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    'C': ("01111", "10000", "10000", "10000", "10000", "10000", "01111"),
+    'L': ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    'P': ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+}
 
 
 def _colecao_previews():
@@ -1084,23 +1095,25 @@ def _pontos_wireframe(largura, altura, profundidade):
     max_y = max(p[1] for p in projetados)
     largura_proj = max_x - min_x
     altura_proj = max_y - min_y
-    util = WIREFRAME_TAMANHO_PX - 2.0 * WIREFRAME_MARGEM_PX
-    if largura_proj <= 0.0 or altura_proj <= 0.0 or util <= 0.0:
+    util_l = WIREFRAME_LARGURA_PX - 2.0 * WIREFRAME_MARGEM_X_PX
+    util_a = WIREFRAME_ALTURA_PX - 2.0 * WIREFRAME_MARGEM_Y_PX
+    if (largura_proj <= 0.0 or altura_proj <= 0.0 or
+            util_l <= 0.0 or util_a <= 0.0):
         return None
 
-    escala_limite = min(util / largura_proj, util / altura_proj)
+    escala_limite = min(util_l / largura_proj, util_a / altura_proj)
     escala = min(WIREFRAME_ESCALA_BASE, escala_limite)
     desenho_l = largura_proj * escala
     desenho_a = altura_proj * escala
-    dx = (WIREFRAME_TAMANHO_PX - desenho_l) / 2.0 - min_x * escala
-    dy = (WIREFRAME_TAMANHO_PX - desenho_a) / 2.0 - min_y * escala
+    dx = (WIREFRAME_LARGURA_PX - desenho_l) / 2.0 - min_x * escala
+    dy = (WIREFRAME_ALTURA_PX - desenho_a) / 2.0 - min_y * escala
     return [(x * escala + dx, y * escala + dy) for x, y in projetados]
 
 
 def _desenhar_segmento(buffer, p0, p1, cor):
     """Rasteriza um segmento antialias somente dentro de sua caixa local."""
-    largura = WIREFRAME_TAMANHO_PX
-    altura = WIREFRAME_TAMANHO_PX
+    largura = WIREFRAME_LARGURA_PX
+    altura = WIREFRAME_ALTURA_PX
     x0, y0 = p0
     x1, y1 = p1
     vx, vy = x1 - x0, y1 - y0
@@ -1137,15 +1150,65 @@ def _desenhar_segmento(buffer, p0, p1, cor):
                 buffer[i + 3] = cobertura
 
 
-def _rasterizar_wireframe(largura, altura, profundidade, cor):
+def _desenhar_indicador(buffer, letra, x, y, cor, escala=2):
+    """Desenha uma letra 5x7 centralizada em (x, y)."""
+    glifo = _FONTE_WIREFRAME.get(letra)
+    if glifo is None:
+        return
+    largura = len(glifo[0]) * escala
+    altura = len(glifo) * escala
+    inicio_x = int(round(x - largura / 2.0))
+    inicio_y = int(round(y - altura / 2.0))
+    cr, cg, cb = cor
+    for linha, bits in enumerate(reversed(glifo)):
+        for coluna, bit in enumerate(bits):
+            if bit != '1':
+                continue
+            for sy in range(escala):
+                py = inicio_y + linha * escala + sy
+                if py < 0 or py >= WIREFRAME_ALTURA_PX:
+                    continue
+                for sx in range(escala):
+                    px = inicio_x + coluna * escala + sx
+                    if px < 0 or px >= WIREFRAME_LARGURA_PX:
+                        continue
+                    i = (py * WIREFRAME_LARGURA_PX + px) * 4
+                    buffer[i] = cr
+                    buffer[i + 1] = cg
+                    buffer[i + 2] = cb
+                    buffer[i + 3] = 1.0
+
+
+def _meio_wireframe(p0, p1):
+    return ((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0)
+
+
+def _desenhar_indicadores(buffer, pontos, cor, modo):
+    """Identifica as direcoes sem adicionar cotas ou linhas auxiliares."""
+    topo = _meio_wireframe(pontos[6], pontos[7])
+    fundo = _meio_wireframe(pontos[0], pontos[2])
+    _desenhar_indicador(buffer, 'L', topo[0], topo[1] + 16.0, cor)
+    if modo == 'INDIVIDUAL':
+        _desenhar_indicador(
+            buffer, 'C', fundo[0] - 15.0, fundo[1] - 14.0, cor)
+    else:
+        vertical = _meio_wireframe(pontos[2], pontos[6])
+        _desenhar_indicador(
+            buffer, 'A', vertical[0] - 18.0, vertical[1], cor)
+        _desenhar_indicador(
+            buffer, 'P', fundo[0] - 15.0, fundo[1] - 14.0, cor)
+
+
+def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO'):
     """Devolve pixels RGBA transparentes das 12 arestas do box."""
     pontos = _pontos_wireframe(largura, altura, profundidade)
     if pontos is None:
         return None
-    n = WIREFRAME_TAMANHO_PX * WIREFRAME_TAMANHO_PX * 4
+    n = WIREFRAME_LARGURA_PX * WIREFRAME_ALTURA_PX * 4
     buffer = [0.0] * n
     for a, b in _ARESTAS_WIREFRAME:
         _desenhar_segmento(buffer, pontos[a], pontos[b], cor)
+    _desenhar_indicadores(buffer, pontos, cor, modo)
     return buffer
 
 
@@ -1171,19 +1234,20 @@ def _registrar_uso_wireframe(chave, colecao):
 
 
 def _icone_wireframe(context, modo, largura, altura, profundidade):
-    """Cria ou reutiliza o icon_id procedural para estas medidas."""
+    """Cria ou reutiliza o icon_id horizontal para estas medidas."""
     cor = _cor_wireframe(context)
     chave = _chave_wireframe(modo, largura, altura, profundidade, cor)
     colecao = _colecao_previews()
     if chave not in colecao:
-        pixels = _rasterizar_wireframe(largura, altura, profundidade, cor)
+        pixels = _rasterizar_wireframe(
+            largura, altura, profundidade, cor, modo=modo)
         if pixels is None:
             return 0
         try:
             preview = colecao.new(chave)
-            tamanho = (WIREFRAME_TAMANHO_PX, WIREFRAME_TAMANHO_PX)
+            tamanho = (WIREFRAME_LARGURA_PX, WIREFRAME_ALTURA_PX)
             # Preenche os dois niveis: template_icon pode escolher o buffer
-            # de icone ou o de imagem conforme a escala e a versao do Blender.
+            # de icone ou imagem conforme a escala do Blender.
             preview.icon_size = tamanho
             preview.icon_pixels_float = pixels
             preview.image_size = tamanho
@@ -1786,6 +1850,36 @@ class OBJECT_OT_registrar_bibliotecas(Operator):
         return {'FINISHED'}
 
 
+class OBJECT_OT_modo_medidas(Operator):
+    """Alterna a edicao entre uma chapa e o conjunto"""
+    bl_idname = "object.cabinet_modo_medidas"
+    bl_label = "Modo de Medidas"
+    bl_options = {'INTERNAL'}
+
+    modo: StringProperty()
+
+    def execute(self, context):
+        obj = context.object
+        if obj is None:
+            return {'CANCELLED'}
+        if self.modo == 'INDIVIDUAL' and MARCA_CONJUNTO in obj:
+            chapas = _chapas_do_conjunto(obj)
+            if not chapas:
+                self.report({'WARNING'}, "Modulo sem chapas")
+                return {'CANCELLED'}
+            alvo = chapas[0]
+            for selecionado in context.selected_objects:
+                selecionado.select_set(False)
+            alvo.select_set(True)
+            context.view_layer.objects.active = alvo
+            alvo.chapa_modo = 'INDIVIDUAL'
+        elif MARCA_CHAPA in obj:
+            obj.chapa_modo = self.modo
+        elif self.modo != 'GRUPO':
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class VIEW3D_PT_cabinet_creator(Panel):
     bl_label = "Cabinet Creator"
     bl_idname = "VIEW3D_PT_cabinet_creator"
@@ -1800,69 +1894,106 @@ class VIEW3D_PT_cabinet_creator(Panel):
         self.desenhar_biblioteca(context, layout)
 
     # ------------------------------------------------------- MEDIDAS
+    def _abas_modo(self, layout, ativo):
+        linha = layout.row(align=True)
+        for modo, texto in (('INDIVIDUAL', "Individual"), ('GRUPO', "Grupo")):
+            op = linha.operator(
+                "object.cabinet_modo_medidas", text=texto,
+                depress=(ativo == modo))
+            op.modo = modo
+
     def _visual_wireframe(self, layout, context, modo, medidas):
         """Desenha o preview em tamanho fixo, independente da sidebar."""
         coluna = layout.column(align=False)
-        coluna.ui_units_x = 6.0
         coluna.alignment = 'CENTER'
         icone = _icone_wireframe(context, modo, *medidas)
         if icone:
-            coluna.template_icon(icon_value=icone,
-                                 scale=WIREFRAME_ESCALA_UI)
+            coluna.template_icon(
+                icon_value=icone, scale=WIREFRAME_ESCALA_UI)
         else:
             coluna.label(text="", icon='MESH_CUBE')
+
+    def _campo_medida(self, layout, dados, propriedade, texto):
+        """Rotulo completo acima e campo compacto logo abaixo."""
+        bloco = layout.column(align=True)
+        bloco.alignment = 'LEFT'
+        rotulo = bloco.row(align=True)
+        rotulo.alignment = 'LEFT'
+        rotulo.label(text=texto)
+        valor = bloco.row(align=True)
+        valor.alignment = 'LEFT'
+        valor.prop(dados, propriedade, text="")
+
+    def _lista_espessuras(self, layout):
+        linha = layout.row(align=True)
+        linha.alignment = 'LEFT'
+        linha.label(text="15/18/20/30")
 
     def desenhar_medidas(self, context, layout):
         obj = context.object
 
         if obj is not None and MARCA_CONJUNTO in obj:
+            self._abas_modo(layout, 'GRUPO')
             b = layout.box()
             b.label(text="Modulo (%d pecas)" % len(_chapas_do_conjunto(obj)), icon='MOD_BUILD')
             corpo = b.row(align=False)
             campos = corpo.column(align=True)
-            campos.prop(obj, "conj_largura_mm")
-            campos.prop(obj, "conj_altura_mm")
-            campos.prop(obj, "conj_profundidade_mm")
+            campos.alignment = 'LEFT'
+            campos.ui_units_x = 9.2
+            self._campo_medida(campos, obj, "ui_conj_largura", "Largura")
+            self._campo_medida(campos, obj, "ui_conj_altura", "Altura")
+            self._campo_medida(
+                campos, obj, "ui_conj_profundidade", "Profundidade")
+            self._campo_medida(
+                campos, obj, "ui_conj_espessura", "Espessura")
+            self._lista_espessuras(campos)
             self._visual_wireframe(
                 corpo, context, 'GRUPO',
                 (obj.conj_largura_mm, obj.conj_altura_mm,
                  obj.conj_profundidade_mm))
-            b.separator()
-            b.prop(obj, "conj_espessura_mm")
-            b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
             b.operator("object.cabinet_sincronizar", icon='FILE_REFRESH')
         elif obj is None or MARCA_CHAPA not in obj:
             layout.label(text="Selecione uma chapa ou um modulo", icon='INFO')
         else:
-            layout.prop(obj, "chapa_modo", expand=True)
+            self._abas_modo(layout, obj.chapa_modo)
             b = layout.box()
             if obj.chapa_modo == 'INDIVIDUAL':
                 corpo = b.row(align=False)
                 campos = corpo.column(align=True)
-                campos.prop(obj, "chapa_largura_mm")
-                campos.prop(obj, "chapa_comprimento_mm")
-                campos.prop(obj, "chapa_espessura_mm")
+                campos.alignment = 'LEFT'
+                campos.ui_units_x = 9.2
+                self._campo_medida(
+                    campos, obj, "ui_chapa_largura", "Largura")
+                self._campo_medida(
+                    campos, obj, "ui_chapa_comprimento", "Comprimento")
+                self._campo_medida(
+                    campos, obj, "ui_chapa_espessura", "Espessura")
+                self._lista_espessuras(campos)
                 self._visual_wireframe(
                     corpo, context, 'INDIVIDUAL',
                     (obj.chapa_largura_mm, obj.chapa_espessura_mm,
                      obj.chapa_comprimento_mm))
-                b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
                 b.prop(obj, "chapa_auto")
             else:
                 b.label(text="Grupo: %d peca(s)" % len(grupo_de(obj)), icon='MOD_BUILD')
                 sc = context.scene
                 corpo = b.row(align=False)
                 campos = corpo.column(align=True)
-                campos.prop(sc, "grupo_largura_mm")
-                campos.prop(sc, "grupo_altura_mm")
-                campos.prop(sc, "grupo_profundidade_mm")
+                campos.alignment = 'LEFT'
+                campos.ui_units_x = 9.2
+                self._campo_medida(
+                    campos, sc, "ui_grupo_largura", "Largura")
+                self._campo_medida(
+                    campos, sc, "ui_grupo_altura", "Altura")
+                self._campo_medida(
+                    campos, sc, "ui_grupo_profundidade", "Profundidade")
+                self._campo_medida(
+                    campos, sc, "ui_grupo_espessura", "Espessura")
+                self._lista_espessuras(campos)
                 self._visual_wireframe(
                     corpo, context, 'GRUPO',
                     (sc.grupo_largura_mm, sc.grupo_altura_mm,
                      sc.grupo_profundidade_mm))
-                b.separator()
-                b.prop(sc, "grupo_espessura_mm")
-                b.label(text="15 / 18 / 20 / 30 mm", icon='INFO')
                 b.operator("object.cabinet_sincronizar_grupo", icon='FILE_REFRESH')
 
         layout.separator()
@@ -2009,6 +2140,7 @@ CLASSES = (
     OBJECT_OT_sincronizar_grupo,
     OBJECT_OT_sincronizar_conjunto,
     OBJECT_OT_registrar_bibliotecas,
+    OBJECT_OT_modo_medidas,
     OBJECT_OT_criar_chapa,
     OBJECT_OT_salvar_biblioteca,
     OBJECT_OT_abrir_pasta_biblioteca,
@@ -2025,6 +2157,46 @@ CLASSES = (
     OBJECT_OT_normalizar,
     VIEW3D_PT_cabinet_creator,
 )
+
+
+_PROPS_MEDIDA_UI_OBJETO = (
+    "ui_chapa_largura", "ui_chapa_comprimento", "ui_chapa_espessura",
+    "ui_conj_largura", "ui_conj_altura", "ui_conj_profundidade",
+    "ui_conj_espessura",
+)
+_PROPS_MEDIDA_UI_CENA = (
+    "ui_grupo_largura", "ui_grupo_altura", "ui_grupo_profundidade",
+    "ui_grupo_espessura",
+)
+
+
+def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
+    """Expoe em metros para o parser nativo, mantendo o dado real em mm."""
+    def obter(self):
+        return float(getattr(self, nome_mm)) / 1000.0
+
+    def definir(self, valor):
+        setattr(self, nome_mm, float(valor) * 1000.0)
+
+    setattr(dono, nome_ui, FloatProperty(
+        name=nome,
+        description="Sem sufixo usa a unidade da cena; aceita mm, cm e m",
+        subtype='DISTANCE',
+        unit='LENGTH',
+        min=minimo_mm / 1000.0,
+        precision=3,
+        step=10,
+        get=obter,
+        set=definir))
+
+
+def _garantir_unidade_padrao_mm():
+    """Campos do addon usam milimetros como unidade implicita da cena."""
+    for cena in bpy.data.scenes:
+        unidades = cena.unit_settings
+        unidades.system = 'METRIC'
+        unidades.scale_length = 1.0
+        unidades.length_unit = 'MILLIMETERS'
 
 
 def register():
@@ -2056,6 +2228,20 @@ def register():
         name="Modo", default='INDIVIDUAL',
         items=[('INDIVIDUAL', "Individual", "Medidas desta chapa"),
                ('GRUPO', "Grupo", "Medidas do modulo inteiro")])
+    _registrar_medida_ui(
+        O, "ui_chapa_largura", "chapa_largura_mm", "Largura", 1.0)
+    _registrar_medida_ui(
+        O, "ui_chapa_comprimento", "chapa_comprimento_mm", "Comprimento", 1.0)
+    _registrar_medida_ui(
+        O, "ui_chapa_espessura", "chapa_espessura_mm", "Espessura", 1.0)
+    _registrar_medida_ui(
+        O, "ui_conj_largura", "conj_largura_mm", "Largura", 20.0)
+    _registrar_medida_ui(
+        O, "ui_conj_altura", "conj_altura_mm", "Altura", 20.0)
+    _registrar_medida_ui(
+        O, "ui_conj_profundidade", "conj_profundidade_mm", "Profundidade", 20.0)
+    _registrar_medida_ui(
+        O, "ui_conj_espessura", "conj_espessura_mm", "Espessura", 1.0)
 
     S = bpy.types.Scene
     S.chapa_bib_aberta = BoolProperty(name="Biblioteca", default=False)
@@ -2070,6 +2256,16 @@ def register():
     S.grupo_altura_mm = FloatProperty(name="Altura (mm)", default=400.0, min=20.0, update=_upd_grupo_dim)
     S.grupo_profundidade_mm = FloatProperty(name="Profundidade (mm)", default=300.0, min=20.0, update=_upd_grupo_dim)
     S.grupo_espessura_mm = FloatProperty(name="Espessura (mm)", default=18.0, min=1.0, update=_upd_grupo_espessura)
+    _registrar_medida_ui(
+        S, "ui_grupo_largura", "grupo_largura_mm", "Largura", 20.0)
+    _registrar_medida_ui(
+        S, "ui_grupo_altura", "grupo_altura_mm", "Altura", 20.0)
+    _registrar_medida_ui(
+        S, "ui_grupo_profundidade", "grupo_profundidade_mm", "Profundidade", 20.0)
+    _registrar_medida_ui(
+        S, "ui_grupo_espessura", "grupo_espessura_mm", "Espessura", 1.0)
+
+    _garantir_unidade_padrao_mm()
 
     if ao_atualizar_depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(ao_atualizar_depsgraph)
@@ -2091,6 +2287,12 @@ def unregister():
         bpy.app.timers.unregister(verificar_periodicamente)
     if ao_atualizar_depsgraph in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(ao_atualizar_depsgraph)
+    for nome in _PROPS_MEDIDA_UI_OBJETO:
+        if hasattr(bpy.types.Object, nome):
+            delattr(bpy.types.Object, nome)
+    for nome in _PROPS_MEDIDA_UI_CENA:
+        if hasattr(bpy.types.Scene, nome):
+            delattr(bpy.types.Scene, nome)
     for c in reversed(CLASSES):
         bpy.utils.unregister_class(c)
 
