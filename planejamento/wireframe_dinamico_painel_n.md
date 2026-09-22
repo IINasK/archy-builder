@@ -50,11 +50,13 @@ aproveitar a coluna normalmente larga do painel N sem crescer alem disso.
 
 Refinamento 40.0.0: o preview usa uma unica imagem quadrada de 160 x 160 pixels
 para respeitar a alocacao quadrada obrigatoria de `template_icon`. Exibido com
-escala 10 de UI, o componente ocupa aproximadamente 200 x 200 pixels. O box
+escala 8.5 de UI, o componente ocupa aproximadamente 170 x 170 pixels. O box
 continua proporcional dentro desse canvas: 600 x 400 x 300 ocupa cerca de
-165 x 124 pixels na interface e 600 x 2100 x 300 ocupa cerca de 46 x 130. Isso
-elimina emendas e grandes vazios acima ou abaixo. Os controles permanecem
-alinhados a esquerda e centralizados verticalmente ao lado do desenho.
+140 x 112 pixels na interface e 600 x 2100 x 300 ocupa cerca de 45 x 128. A
+margem vertical interna e' 20 pixels e o traco usa 0.45 pixel no buffer. Isso
+reduz o vazio inferior e devolve linhas visualmente finas. Os controles
+permanecem alinhados a esquerda e centralizados verticalmente ao lado do
+desenho.
 
 
 ## 2. Resumo funcional

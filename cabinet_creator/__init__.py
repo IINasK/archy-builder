@@ -1034,11 +1034,11 @@ _previews = [None]
 WIREFRAME_LARGURA_PX = 160
 WIREFRAME_ALTURA_PX = 160
 WIREFRAME_MARGEM_X_PX = 14.0
-WIREFRAME_MARGEM_Y_PX = 28.0
-WIREFRAME_LINHA_PX = 1.4
-WIREFRAME_ESCALA_UI = 10.0
+WIREFRAME_MARGEM_Y_PX = 20.0
+WIREFRAME_LINHA_PX = 0.45
+WIREFRAME_ESCALA_UI = 8.5
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v10:"
+WIREFRAME_PREFIXO = "wireframe:v11:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -1185,16 +1185,16 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
     """Identifica as direcoes sem adicionar cotas ou linhas auxiliares."""
     topo = _meio_wireframe(pontos[6], pontos[7])
     fundo = _meio_wireframe(pontos[0], pontos[2])
-    _desenhar_indicador(buffer, 'L', topo[0], topo[1] + 16.0, cor)
+    _desenhar_indicador(buffer, 'L', topo[0], topo[1] + 10.0, cor)
     if modo == 'INDIVIDUAL':
         _desenhar_indicador(
-            buffer, 'C', fundo[0] - 9.0, fundo[1] - 14.0, cor)
+            buffer, 'C', fundo[0] - 9.0, fundo[1] - 8.0, cor)
     else:
         vertical = _meio_wireframe(pontos[2], pontos[6])
         _desenhar_indicador(
             buffer, 'A', vertical[0] - 9.0, vertical[1], cor)
         _desenhar_indicador(
-            buffer, 'P', fundo[0] - 9.0, fundo[1] - 14.0, cor)
+            buffer, 'P', fundo[0] - 9.0, fundo[1] - 8.0, cor)
 
 
 def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO'):
@@ -1940,7 +1940,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
             campos = corpo.column(align=True)
             campos.alignment = 'LEFT'
             campos.ui_units_x = 9.2
-            campos.separator(factor=0.6)
+            campos.separator(factor=0.4)
             self._campo_medida(campos, obj, "ui_conj_largura", "Largura")
             self._campo_medida(campos, obj, "ui_conj_altura", "Altura")
             self._campo_medida(
@@ -1963,7 +1963,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 campos = corpo.column(align=True)
                 campos.alignment = 'LEFT'
                 campos.ui_units_x = 9.2
-                campos.separator(factor=1.5)
+                campos.separator(factor=1.0)
                 self._campo_medida(
                     campos, obj, "ui_chapa_largura", "Largura")
                 self._campo_medida(
@@ -1983,7 +1983,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 campos = corpo.column(align=True)
                 campos.alignment = 'LEFT'
                 campos.ui_units_x = 9.2
-                campos.separator(factor=0.6)
+                campos.separator(factor=0.4)
                 self._campo_medida(
                     campos, sc, "ui_grupo_largura", "Largura")
                 self._campo_medida(
