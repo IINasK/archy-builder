@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (39, 0, 0),
+    "version": (40, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -1031,14 +1031,14 @@ _previews = [None]
 # O canvas e o scale do template sao fixos de proposito: alargar a sidebar
 # nao deve ampliar a representacao. Cada proporcao e' normalizada para ocupar
 # a area util maxima sem deformar ou ultrapassar as margens internas.
-WIREFRAME_LARGURA_PX = 320
+WIREFRAME_LARGURA_PX = 160
 WIREFRAME_ALTURA_PX = 160
-WIREFRAME_MARGEM_X_PX = 28.0
+WIREFRAME_MARGEM_X_PX = 14.0
 WIREFRAME_MARGEM_Y_PX = 28.0
 WIREFRAME_LINHA_PX = 1.4
-WIREFRAME_ESCALA_UI = 20.0
+WIREFRAME_ESCALA_UI = 10.0
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v7:"
+WIREFRAME_PREFIXO = "wireframe:v10:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -1188,13 +1188,13 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
     _desenhar_indicador(buffer, 'L', topo[0], topo[1] + 16.0, cor)
     if modo == 'INDIVIDUAL':
         _desenhar_indicador(
-            buffer, 'C', fundo[0] - 15.0, fundo[1] - 14.0, cor)
+            buffer, 'C', fundo[0] - 9.0, fundo[1] - 14.0, cor)
     else:
         vertical = _meio_wireframe(pontos[2], pontos[6])
         _desenhar_indicador(
-            buffer, 'A', vertical[0] - 18.0, vertical[1], cor)
+            buffer, 'A', vertical[0] - 9.0, vertical[1], cor)
         _desenhar_indicador(
-            buffer, 'P', fundo[0] - 15.0, fundo[1] - 14.0, cor)
+            buffer, 'P', fundo[0] - 9.0, fundo[1] - 14.0, cor)
 
 
 def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO'):
@@ -1244,8 +1244,8 @@ def _icone_wireframe(context, modo, largura, altura, profundidade):
         try:
             preview = colecao.new(chave)
             tamanho = (WIREFRAME_LARGURA_PX, WIREFRAME_ALTURA_PX)
-            # Preenche os dois niveis: template_icon pode escolher o buffer
-            # de icone ou imagem conforme a escala do Blender.
+            # Preenche ambos porque a versao do Blender decide qual nivel
+            # usar conforme a escala pedida por template_icon.
             preview.icon_size = tamanho
             preview.icon_pixels_float = pixels
             preview.image_size = tamanho
@@ -1906,7 +1906,9 @@ class VIEW3D_PT_cabinet_creator(Panel):
         coluna.alignment = 'CENTER'
         icone = _icone_wireframe(context, modo, *medidas)
         if icone:
-            coluna.template_icon(
+            linha = coluna.row(align=True)
+            linha.alignment = 'CENTER'
+            linha.template_icon(
                 icon_value=icone, scale=WIREFRAME_ESCALA_UI)
         else:
             coluna.label(text="", icon='MESH_CUBE')
@@ -1938,6 +1940,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
             campos = corpo.column(align=True)
             campos.alignment = 'LEFT'
             campos.ui_units_x = 9.2
+            campos.separator(factor=0.6)
             self._campo_medida(campos, obj, "ui_conj_largura", "Largura")
             self._campo_medida(campos, obj, "ui_conj_altura", "Altura")
             self._campo_medida(
@@ -1960,6 +1963,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 campos = corpo.column(align=True)
                 campos.alignment = 'LEFT'
                 campos.ui_units_x = 9.2
+                campos.separator(factor=1.5)
                 self._campo_medida(
                     campos, obj, "ui_chapa_largura", "Largura")
                 self._campo_medida(
@@ -1979,6 +1983,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 campos = corpo.column(align=True)
                 campos.alignment = 'LEFT'
                 campos.ui_units_x = 9.2
+                campos.separator(factor=0.6)
                 self._campo_medida(
                     campos, sc, "ui_grupo_largura", "Largura")
                 self._campo_medida(
