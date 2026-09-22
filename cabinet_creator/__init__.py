@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (38, 0, 0),
+    "version": (39, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -1029,17 +1029,16 @@ class OBJECT_OT_navegar(Operator):
 _previews = [None]
 
 # O canvas e o scale do template sao fixos de proposito: alargar a sidebar
-# nao deve ampliar a representacao. A escala geometrica, por outro lado,
-# cresce com as medidas ate tocar a margem interna do canvas.
+# nao deve ampliar a representacao. Cada proporcao e' normalizada para ocupar
+# a area util maxima sem deformar ou ultrapassar as margens internas.
 WIREFRAME_LARGURA_PX = 320
 WIREFRAME_ALTURA_PX = 160
 WIREFRAME_MARGEM_X_PX = 28.0
 WIREFRAME_MARGEM_Y_PX = 28.0
 WIREFRAME_LINHA_PX = 1.4
-WIREFRAME_ESCALA_BASE = 0.46  # pixels por milimetro antes do limite
-WIREFRAME_ESCALA_UI = 8.0
+WIREFRAME_ESCALA_UI = 20.0
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v6:"
+WIREFRAME_PREFIXO = "wireframe:v7:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -1075,7 +1074,7 @@ def _cor_wireframe(context):
 
 
 def _pontos_wireframe(largura, altura, profundidade):
-    """Projeta um box em 45 graus, limita o crescimento e o centraliza."""
+    """Projeta a 45 graus e ajusta a proporcao a area util do canvas."""
     medidas = (float(largura), float(altura), float(profundidade))
     if not all(math.isfinite(v) and v > 0.0 for v in medidas):
         return None
@@ -1101,8 +1100,7 @@ def _pontos_wireframe(largura, altura, profundidade):
             util_l <= 0.0 or util_a <= 0.0):
         return None
 
-    escala_limite = min(util_l / largura_proj, util_a / altura_proj)
-    escala = min(WIREFRAME_ESCALA_BASE, escala_limite)
+    escala = min(util_l / largura_proj, util_a / altura_proj)
     desenho_l = largura_proj * escala
     desenho_a = altura_proj * escala
     dx = (WIREFRAME_LARGURA_PX - desenho_l) / 2.0 - min_x * escala
@@ -2192,6 +2190,13 @@ def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
 
 def _garantir_unidade_padrao_mm():
     """Campos do addon usam milimetros como unidade implicita da cena."""
+    # Durante addon_enable o Blender protege bpy.data com _RestrictData.
+    # Adiar evita falha de ativacao e mantem esta configuracao fora do register.
+    if not hasattr(bpy.data, "scenes"):
+        if not bpy.app.timers.is_registered(_garantir_unidade_padrao_mm):
+            bpy.app.timers.register(
+                _garantir_unidade_padrao_mm, first_interval=0.0)
+        return None
     for cena in bpy.data.scenes:
         unidades = cena.unit_settings
         unidades.system = 'METRIC'
@@ -2276,6 +2281,8 @@ def register():
 
 
 def unregister():
+    if bpy.app.timers.is_registered(_garantir_unidade_padrao_mm):
+        bpy.app.timers.unregister(_garantir_unidade_padrao_mm)
     if _previews[0] is not None:
         try:
             bpy.utils.previews.remove(_previews[0])

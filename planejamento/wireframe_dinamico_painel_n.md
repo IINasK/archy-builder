@@ -42,6 +42,12 @@ desenho aumentou de 0.26 para 0.46 pixel por milimetro, ainda limitada pelas
 margens fixas do canvas, para aproveitar melhor a area sem responder ao
 redimensionamento do painel N.
 
+Refinamento 39.0.0: o desenho deixou de usar escala-base e passou a ajustar
+sempre a maior extensao projetada a area util do canvas. Objetos pequenos e
+grandes ocupam a mesma area maxima; suas proporcoes continuam diferentes. A
+escala fixa do componente visual aumentou de 8 para 20 unidades de UI para
+aproveitar a coluna normalmente larga do painel N sem crescer alem disso.
+
 
 ## 2. Resumo funcional
 
@@ -57,7 +63,7 @@ Adicionar ao painel `N > Cabinet Creator` um desenho wireframe dinamico que:
 8. nao tenha pontos coloridos, legendas ou marcadores dentro da imagem;
 9. tenha uma area de visualizacao com tamanho fixo;
 10. nao aumente quando o usuario alargar o painel N;
-11. cresca conforme as medidas ate atingir o limite interno do canvas;
+11. ocupe a area util maxima, independentemente do tamanho absoluto;
 12. nunca ultrapasse ou seja cortado pelos limites do canvas;
 13. seja atualizado automaticamente quando as medidas ou o modo mudarem;
 14. seja gerado em memoria, sem criar objetos auxiliares na cena;
@@ -175,26 +181,25 @@ A projecao deve ser obliqua, nao uma camera 3D real.
 - O desenho deve ficar centralizado dentro de sua area fixa.
 - Deve existir margem transparente em todos os lados.
 
-### 4.4 Requisitos de crescimento e limite
+### 4.4 Requisitos de ajuste e limite
 
-O wireframe nao deve ocupar automaticamente todo o canvas para qualquer
-medida. Ele deve ter uma escala natural inicial.
+O wireframe deve ocupar automaticamente a maior area possivel do canvas para
+qualquer conjunto valido de medidas.
 
 Comportamento exigido:
 
-1. medidas pequenas produzem um box visualmente pequeno;
-2. aumentar uma medida faz o box crescer;
-3. o crescimento continua ate uma aresta projetada atingir a area util;
-4. a partir desse ponto, o desenho permanece dentro do limite;
+1. medidas absolutas pequenas e grandes usam a mesma area maxima;
+2. alterar a relacao entre as medidas altera a forma visivel do box;
+3. pelo menos uma extensao projetada atinge a area util;
+4. o desenho permanece sempre dentro do limite;
 5. nenhuma linha e' cortada;
 6. a proporcao entre as dimensoes permanece preservada;
 7. a espessura do traco permanece constante em pixels.
 
 Exemplo importante:
 
-- Se apenas a altura aumentar indefinidamente, a altura desenhada cresce ate
-  o limite vertical.
-- Depois de atingir o limite, a altura desenhada permanece nesse limite.
+- Se apenas a altura aumentar indefinidamente, a altura desenhada permanece
+  no limite vertical.
 - Largura e profundidade passam a parecer menores em relacao a altura porque
   a proporcao matematica deve continuar correta.
 
@@ -317,7 +322,7 @@ WIREFRAME_ALTURA_PX = 192
 WIREFRAME_MARGEM_PX = 14
 WIREFRAME_ANGULO_GRAUS = 45.0
 WIREFRAME_ESPESSURA_LINHA_PX = 2.0
-WIREFRAME_ESCALA_BASE_PX_MM = 0.12
+WIREFRAME_ESCALA_UI = 20.0
 WIREFRAME_CACHE_MAX = 48
 WIREFRAME_ARREDONDAMENTO_MM = 0.1
 ```
@@ -330,7 +335,7 @@ Regras para ajuste:
 - nao aumentar a resolucao sem necessidade;
 - manter o canvas visualmente fixo;
 - usar margem suficiente para antialiasing e espessura do traco;
-- fazer o modulo padrao ficar legivel sem ja' ocupar todo o limite;
+- fazer o modulo padrao ocupar o limite disponivel;
 - assegurar que uma chapa de espessura comum ainda tenha leitura visual.
 
 
@@ -437,25 +442,23 @@ util_altura = canvas_altura - 2 * margem
 
 Validar que ambos sejam maiores que zero.
 
-### 9.6 Escala natural e escala limite
+### 9.6 Escala de ajuste ao limite
 
 ```text
 escala_largura = util_largura / largura_projetada_mm
 escala_altura = util_altura / altura_projetada_mm
-escala_limite = min(escala_largura, escala_altura)
-
-escala_final = min(escala_base_px_mm, escala_limite)
+escala_final = min(escala_largura, escala_altura)
 ```
 
 Consequencias intencionais:
 
-- abaixo do limite, o tamanho em pixels cresce com as medidas;
-- ao atingir uma borda, a escala final passa a ser limitada pelo canvas;
+- qualquer tamanho absoluto e' ajustado ao mesmo limite visual;
+- pelo menos uma dimensao projetada ocupa toda a area util correspondente;
 - nenhuma dimensao ultrapassa a area util;
 - a escala e' uniforme em X e Y;
 - a proporcao nao e' distorcida;
-- aumentar todas as medidas pelo mesmo fator, depois que o limite foi
-  atingido, produz o mesmo tamanho externo e a mesma proporcao visual.
+- aumentar todas as medidas pelo mesmo fator produz o mesmo tamanho externo e
+  a mesma proporcao visual.
 
 Nunca usar escalas X e Y independentes. Isso distorceria as proporcoes.
 
@@ -470,8 +473,7 @@ deslocamento_y = (canvas_altura - desenho_altura) / 2 - min_y_escalado
 
 Aplicar o mesmo deslocamento a todos os vertices.
 
-O box deve permanecer centralizado tanto antes quanto depois de atingir o
-limite de crescimento.
+O box deve permanecer centralizado depois do ajuste ao limite.
 
 
 ## 10. Rasterizacao
@@ -613,7 +615,7 @@ Uma mudanca em qualquer item abaixo deve selecionar ou gerar outro preview:
 - altura ou comprimento;
 - profundidade ou espessura;
 - resolucao do canvas;
-- escala-base;
+- escala fixa do componente de UI;
 - margem;
 - cor do tema;
 - versao interna do algoritmo.
@@ -1039,8 +1041,8 @@ abaixo forem verdadeiros:
 - [ ] A profundidade permanece a 45 graus.
 - [ ] As tres dimensoes influenciam o desenho.
 - [ ] A escala usada em X e Y e' uniforme.
-- [ ] O desenho cresce com as medidas antes de atingir o limite.
-- [ ] O desenho nao cresce alem da area util.
+- [ ] Objetos pequenos e grandes ocupam a mesma area maxima.
+- [ ] O desenho nao ultrapassa a area util.
 - [ ] Nenhuma linha e' cortada nas medidas extremas testadas.
 - [ ] O desenho permanece centralizado.
 - [ ] A espessura do traco permanece constante.
@@ -1141,8 +1143,8 @@ reabertas durante a implementacao sem nova orientacao:
 8. Nao desenhar elementos internos.
 9. Nao preencher faces.
 10. O tamanho do componente nao responde a largura do painel N.
-11. O desenho cresce somente ate o limite interno do canvas.
-12. A proporcao deve ser preservada depois de atingir o limite.
+11. O desenho sempre se ajusta ao limite interno do canvas.
+12. A proporcao deve ser preservada durante esse ajuste.
 13. Os pontos coloridos da referencia nao fazem parte do resultado.
 14. A implementacao nao deve criar objetos auxiliares na cena.
 
@@ -1153,7 +1155,7 @@ Estas questoes nao bloqueiam o inicio da implementacao e podem ser resolvidas
 por prototipo visual:
 
 - resolucao final exata do canvas;
-- valor final da escala-base em pixels por milimetro;
+- valor final da escala fixa do componente de UI;
 - margem final em pixels;
 - espessura final do traco;
 - cor exata derivada do tema;
