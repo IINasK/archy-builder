@@ -1,9 +1,9 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (73, 0, 0),
+    "version": (74, 0, 0),
     "blender": (4, 0, 0),
-    "location": "View3D > gaveta esquerda (N como alternativa)",
+    "location": "View3D > gaveta esquerda",
     "doc_url": "",
     "description": "Armarios parametricos: chapas com malha editavel e espessura imune a escala",
     "category": "Object",
@@ -1616,15 +1616,24 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._mouse_inicio = (event.mouse_x, event.mouse_y)
             self._moveu = False
         else:
-            self._arrastando = False
+            self._arrastando = _eh_area_gaveta(context)
             self._mouse_inicio = (event.mouse_x, event.mouse_y)
-            self._moveu = True
+            self._moveu = not self._arrastando
 
         # a grade vive na sidebar, entao a regiao do evento NAO e' a
         # viewport: a janela de desenho tem de ser procurada na area
+        self._area_preview = context.area
+        if _eh_area_gaveta(context):
+            self._area_preview = next(
+                (a for a in context.screen.areas
+                 if a.type == 'VIEW_3D' and a != context.area
+                 and a.x > context.area.x
+                 and a.y == context.area.y), None)
         self._regiao = next(
-            (r for r in context.area.regions if r.type == 'WINDOW'), None)
-        self._rv3d = getattr(context.space_data, "region_3d", None)
+            (r for r in self._area_preview.regions if r.type == 'WINDOW'), None
+        ) if self._area_preview else None
+        self._rv3d = getattr(self._area_preview.spaces.active, "region_3d", None
+                             ) if self._area_preview else None
         if self._regiao is None or self._rv3d is None:
             self.report({'ERROR'}, "Sem viewport 3D para posicionar")
             return {'CANCELLED'}
@@ -1767,6 +1776,8 @@ class OBJECT_OT_arrastar_preset(Operator):
             pass
         if context.area is not None:
             context.area.tag_redraw()
+        if getattr(self, '_area_preview', None) is not None:
+            self._area_preview.tag_redraw()
 
     def _desenhar_preview(self):
         """Desenha box e mira sobre a viewport sem criar geometria."""
@@ -1833,7 +1844,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         """Usa raycast na cena e plano do cursor como contingencia."""
         if not self._na_viewport(event):
             self._valido = False
-            context.area.tag_redraw()
+            self._area_preview.tag_redraw()
             return
         coord = (event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y)
         try:
@@ -1864,7 +1875,7 @@ class OBJECT_OT_arrastar_preset(Operator):
                 Vector((0.0, 0.0, 1.0)))
         if alvo is None:        # raio paralelo ao plano: nada a fazer
             self._valido = False
-            context.area.tag_redraw()
+            self._area_preview.tag_redraw()
             return
         deslocamento = alvo - self._ancora_base
         for o in self._raizes:
@@ -1875,7 +1886,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._normal = normal
         self._bbox_atual = [p + deslocamento for p in self._bbox_base]
         self._valido = True
-        context.area.tag_redraw()
+        self._area_preview.tag_redraw()
 
     def _apagar(self):
         for o in list(self._novos):
@@ -3171,6 +3182,10 @@ def registrar_keymaps():
     kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
                               'LEFTMOUSE', 'PRESS', head=True)
     _keymaps.append((km, kmi))
+    for evento in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE'):
+        kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
+                                  evento, 'PRESS', head=True)
+        _keymaps.append((km, kmi))
     for valor, shift, modo, props in _ENTRADAS_KEYMAP:
         kmi = km.keymap_items.new("object.cabinet_selecionar",
                                   'LEFTMOUSE', valor, shift=shift)
@@ -3953,8 +3968,11 @@ def _abreviar(texto, limite):
 # POST_PIXEL e os eventos abaixo nao passam pelo handler de UILayout;
 # portanto a barra recebe PRESS/MOUSEMOVE/RELEASE de verdade.
 _handler_gaveta = [None]
+_fotos_gaveta = {}
+_imagens_gaveta = set()
 _CHAVE_GAVETA = "cabinet_gaveta_area"
 _CHAVE_PENDENTE = "cabinet_gaveta_pendente"
+_CHAVE_ROLAGEM = "cabinet_gaveta_rolagem"
 
 
 def _area_gaveta(screen):
@@ -4056,21 +4074,98 @@ def _texto_gaveta(x, y, texto, tamanho=12, cor=(0.88, 0.88, 0.88, 1)):
     blf.draw(0, texto)
 
 
+def _medidas_gaveta(context):
+    obj = context.object
+    if obj is not None and MARCA_CONJUNTO in obj:
+        campos = [('Largura', obj.conj_largura_mm, 'ui_conj_largura'),
+                  ('Altura', obj.conj_altura_mm, 'ui_conj_altura'),
+                  ('Profundidade', obj.conj_profundidade_mm,
+                   'ui_conj_profundidade'),
+                  ('Espessura', obj.conj_espessura_mm,
+                   'ui_conj_espessura')]
+        return 'GRUPO', campos, 'objeto'
+    if obj is not None and MARCA_CHAPA in obj:
+        if obj.chapa_modo == 'GRUPO':
+            s = context.scene
+            campos = [('Largura', s.grupo_largura_mm, 'ui_grupo_largura'),
+                      ('Altura', s.grupo_altura_mm, 'ui_grupo_altura'),
+                      ('Profundidade', s.grupo_profundidade_mm,
+                       'ui_grupo_profundidade'),
+                      ('Espessura', s.grupo_espessura_mm,
+                       'ui_grupo_espessura')]
+            return 'GRUPO', campos, 'cena'
+        campos = [('Largura', obj.chapa_largura_mm, 'ui_chapa_largura'),
+                  ('Altura', obj.chapa_comprimento_mm,
+                   'ui_chapa_comprimento'),
+                  ('Espessura', obj.chapa_espessura_mm,
+                   'ui_chapa_espessura')]
+        return 'INDIVIDUAL', campos, 'objeto'
+    medido = medir_selecao(context)
+    if medido:
+        editavel = obj is not None and medido[3] == 1
+        if editavel:
+            valores = (obj.dimensions.x * 1000.0,
+                       obj.dimensions.z * 1000.0,
+                       obj.dimensions.y * 1000.0)
+        else:
+            valores = medido[:3]
+        return 'LIVRE', [
+            ('Largura', valores[0], 'dimensions_0' if editavel else ''),
+            ('Altura', valores[1], 'dimensions_2' if editavel else ''),
+            ('Profundidade', valores[2], 'dimensions_1' if editavel else '')
+        ], 'livre' if editavel else ''
+    return 'LIVRE', [], ''
+
+
+def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
+                         indice, pai=None):
+    if not valores:
+        return y
+    colunas = 2 if len(valores) > 1 else 1
+    bw = (largura - 6 * (colunas - 1)) / colunas
+    for i, valor in enumerate(sorted(valores, key=str.casefold)):
+        if nivel == 1:
+            conta = _conta(indice, valor)
+        elif nivel == 2:
+            conta = _conta(indice, pai, valor)
+        else:
+            conta = _conta(indice, pai[0], pai[1], valor)
+        linha, coluna = divmod(i, colunas)
+        itens.append((x + coluna * (bw + 6), y - linha * 30,
+                      bw, 25, '%s (%d)' % (_abreviar(valor, 13), conta),
+                      ('navegar', nivel, valor, selecionado == valor)))
+    return y - math.ceil(len(valores) / colunas) * 30 - 8
+
+
 def _widgets_gaveta(context, largura, altura):
     """Retangulos (x,y,w,h,rotulo,acao) compartilhados por desenho e hit-test."""
     s = context.scene
     x, w = 12, max(80, largura - 24)
-    y = altura - 40
     itens = []
     metade = (w - 6) / 2
     for i, (rotulo, acao) in enumerate((('Modulos', 'MODULOS'),
                                        ('Portas', 'PORTAS'))):
-        itens.append((x + i * (metade + 6), y, metade, 29,
+        itens.append((x + i * (metade + 6), altura - 40, metade, 29,
                       rotulo, ('aba', acao)))
-    y -= 61
+    y = altura - 105 - int(context.screen.get(_CHAVE_ROLAGEM, 0))
     if s.cabinet_aba == 'PORTAS':
-        itens.append((x, y, w, 31, 'Criar / configurar portas',
-                      ('operador', 'object.cabinet_portas')))
+        grupo = _grupo_portas(context.object)
+        if grupo is not None:
+            itens.append((x, y, w, 26,
+                          'Vao: %.1f x %.1f mm' % (
+                              grupo['porta_vao_largura_mm'],
+                              grupo['porta_vao_altura_mm']), None))
+            y -= 32
+            itens.append((x, y, w, 26,
+                          '%d folha(s)' % len(_folhas_portas(grupo)), None))
+            y -= 36
+        else:
+            itens.append((x, y, w, 26,
+                          'Selecione 2 vertices diagonais do vao', None))
+            y -= 36
+        itens.append((x, y, w, 31,
+                      'Configurar Portas' if grupo else 'Criar Portas',
+                      ('portas', bool(grupo))))
         return itens
     obj = context.object
     if obj is not None and MARCA_CONJUNTO in obj:
@@ -4079,24 +4174,158 @@ def _widgets_gaveta(context, largura, altura):
         rotulo = 'Chapa: %s' % obj.name
     else:
         rotulo = 'Selecao: %s' % (obj.name if obj else 'nenhuma')
-    itens.append((x, y, w, 30, rotulo, None))
-    y -= 45
+    itens.append((x, y, w, 25, rotulo, None))
+    y -= 34
+    modo, campos, dono = _medidas_gaveta(context)
+    if obj is not None and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj):
+        for i, nome in enumerate(('Individual', 'Grupo')):
+            itens.append((x + i * (metade + 6), y, metade, 25, nome,
+                          ('modo', nome.upper(), modo == nome.upper())))
+        y -= 33
+    if campos:
+        for i, (nome, valor, prop) in enumerate(campos):
+            linha, coluna = divmod(i, 2)
+            itens.append((x + coluna * (metade + 6), y - linha * 43,
+                          metade, 37, '%s: %.1f mm' % (nome, valor),
+                          ('medida', dono, prop, nome, valor) if prop else None))
+        y -= math.ceil(len(campos) / 2) * 43 + 4
+        valores = [v for _, v, _ in campos]
+        if modo == 'INDIVIDUAL':
+            dimensoes = (valores[0], valores[2], valores[1])
+        else:
+            dimensoes = tuple(valores[:3])
+        itens.append((x + max(0, (w - 160) / 2), y - 164, 160, 160,
+                      '', ('wireframe', modo, *dimensoes)))
+        y -= 177
+        if obj is not None and MARCA_CONJUNTO in obj:
+            itens.append((x, y, w, 27, 'Sincronizar conjunto',
+                          ('operador', 'object.cabinet_sincronizar')))
+            y -= 33
+        elif obj is not None and MARCA_CHAPA in obj:
+            if modo == 'INDIVIDUAL':
+                itens.append((x, y, w, 26,
+                              'Auto-regenerar: %s' % ('Sim' if obj.chapa_auto else 'Nao'),
+                              ('auto',)))
+                y -= 31
+            else:
+                itens.append((x, y, w, 27, 'Sincronizar grupo',
+                              ('operador', 'object.cabinet_sincronizar_grupo')))
+                y -= 33
+        if obj is not None and MARCA_CHAPA not in obj and MARCA_CONJUNTO not in obj:
+            itens.append((x, y, w, 28, 'Marcar como Chapa',
+                          ('operador', 'object.cabinet_marcar')))
+            y -= 35
+    elif obj is not None and obj.type == 'MESH':
+        itens.append((x, y, w, 28, 'Marcar como Chapa',
+                      ('operador', 'object.cabinet_marcar')))
+        y -= 35
+    itens.append((x, y, w, 23, 'Montagem', None))
+    y -= 31
     for rotulo, op in (('Agrupar', 'object.cabinet_agrupar'),
                        ('Adjacencia', 'object.cabinet_detectar_adjacencia'),
                        ('Recalcular', 'object.cabinet_normalizar')):
         itens.append((x, y, w, 28, rotulo, ('operador', op)))
         y -= 34
-    y -= 17
-    itens.append((x, y, w, 23, 'Biblioteca', None))
-    y -= 39
-    itens.append((x, y, w, 22, 'Tamanho das miniaturas', ('slider', None)))
-    y -= 36
-    itens.append((x, y, w, 31, 'Abrir prateleira de assets',
-                  ('operador', 'object.cabinet_prateleira')))
-    y -= 36
-    itens.append((x, y, w, 31, 'Salvar selecao na biblioteca',
-                  ('operador', 'object.cabinet_salvar_biblioteca')))
+    y -= 10
+    indice = indice_completo()
+    itens.append((x, y, w, 26, 'Biblioteca (%d)' % len(indice),
+                  ('biblioteca',)))
+    y -= 34
+    if not s.chapa_bib_aberta:
+        return itens
+    for i, (rotulo, op) in enumerate((('Pasta', 'object.cabinet_abrir_biblioteca'),
+                                     ('Assets', 'object.cabinet_prateleira'),
+                                     ('Salvar +', 'object.cabinet_salvar_biblioteca'))):
+        bw = (w - 12) / 3
+        itens.append((x + i * (bw + 6), y, bw, 25, rotulo,
+                      ('operador', op)))
+    y -= 34
+    y = _linha_cascata_gaveta(itens, x, y, w,
+                              list(ARVORE.keys()), 1, s.chapa_n1, indice)
+    if s.chapa_n1:
+        y = _linha_cascata_gaveta(itens, x, y, w, _filhos_n2(s.chapa_n1),
+                                  2, s.chapa_n2, indice, s.chapa_n1)
+    if s.chapa_n1 and s.chapa_n2:
+        filhos = _filhos_n3(s.chapa_n1, s.chapa_n2)
+        y = _linha_cascata_gaveta(itens, x, y, w, filhos,
+                                  3, s.chapa_n3, indice,
+                                  (s.chapa_n1, s.chapa_n2))
+        if not filhos or s.chapa_n3:
+            itens.append((x, y, w, 22, 'Tamanho das miniaturas',
+                          ('slider', None)))
+            y -= 37
+            daqui = [it for it in indice
+                     if _niveis_de(it)[:2] == (s.chapa_n1, s.chapa_n2)
+                     and (not filhos or _niveis_de(it)[2] == s.chapa_n3)]
+            daqui.sort(key=lambda it: it.get('nome', '').casefold())
+            bw = (w - 8) / 2
+            altura_bloco = 126 + (s.chapa_tam_bloco - 2) * 10
+            for i, it in enumerate(daqui):
+                linha, coluna = divmod(i, 2)
+                bx = x + coluna * (bw + 8)
+                by = y - altura_bloco - linha * (altura_bloco + 30)
+                itens.append((bx, by, bw, altura_bloco,
+                              _abreviar(it.get('nome', ''), 17), ('preset', it)))
+                acao = ('item', it)
+                for j, rotulo in enumerate(('Inserir', 'Editar', 'Travar')):
+                    sw = (bw - 8) / 3
+                    itens.append((bx + j * (sw + 4), by - 24,
+                                  sw, 21, rotulo, (*acao, j)))
     return itens
+
+
+def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade):
+    pontos = _pontos_wireframe(largura, altura, profundidade)
+    if not pontos:
+        return
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    segmentos = []
+    for a, b in _ARESTAS_WIREFRAME:
+        segmentos.extend(((x + pontos[a][0], y + pontos[a][1]),
+                          (x + pontos[b][0], y + pontos[b][1])))
+    shader.bind()
+    shader.uniform_float('color', (0.92, 0.93, 0.95, 1))
+    batch_for_shader(shader, 'LINES', {'pos': segmentos}).draw(shader)
+    def rotulo(letra, ponto, dx=0, dy=0):
+        _texto_gaveta(x + ponto[0] + dx, y + ponto[1] + dy,
+                       letra, 14, (0.95, 0.95, 0.97, 1))
+    rotulo('L', _meio_wireframe(pontos[6], pontos[7]), 0, 11)
+    if modo == 'INDIVIDUAL':
+        rotulo('E', _meio_wireframe(pontos[2], pontos[6]), -13)
+        rotulo('A', _meio_wireframe(pontos[0], pontos[2]), -12, -8)
+    else:
+        rotulo('A', _meio_wireframe(pontos[2], pontos[6]), -13)
+        rotulo('P', _meio_wireframe(pontos[0], pontos[2]), -12, -8)
+        if modo == 'GRUPO':
+            rotulo('E', pontos[1], 4, -13)
+
+
+def _desenhar_foto_gaveta(it, x, y, w, h):
+    png = it.get('foto') or os.path.splitext(it['arquivo'])[0] + '.png'
+    caminho = os.path.join(it['pasta'], png)
+    if not os.path.isfile(caminho):
+        _texto_gaveta(x + 8, y + h / 2, 'Sem foto', 11)
+        return
+    try:
+        entrada = _fotos_gaveta.get(caminho)
+        stamp = os.path.getmtime(caminho)
+        if entrada is None or entrada[0] != stamp:
+            imagem = bpy.data.images.load(caminho, check_existing=False)
+            _imagens_gaveta.add(imagem.name)
+            entrada = (stamp, gpu.texture.from_image(imagem))
+            _fotos_gaveta[caminho] = entrada
+        shader = gpu.shader.from_builtin('IMAGE')
+        batch = batch_for_shader(shader, 'TRIS', {
+            'pos': ((x, y), (x + w, y), (x + w, y + h),
+                    (x, y), (x + w, y + h), (x, y + h)),
+            'texCoord': ((0, 0), (1, 0), (1, 1),
+                         (0, 0), (1, 1), (0, 1))})
+        shader.bind()
+        shader.uniform_sampler('image', entrada[1])
+        batch.draw(shader)
+    except Exception as e:
+        print('[Cabinet Creator] foto na gaveta:', e)
+        _texto_gaveta(x + 8, y + h / 2, 'Foto indisponivel', 11)
 
 
 def _desenhar_gaveta():
@@ -4107,13 +4336,25 @@ def _desenhar_gaveta():
     gpu.state.blend_set('ALPHA')
     _retangulo_gaveta(0, 0, largura, altura, (0.105, 0.11, 0.12, 1))
     _retangulo_gaveta(largura - 2, 0, 2, altura, (0.30, 0.31, 0.33, 1))
-    _texto_gaveta(12, altura - 61, 'CABINET CREATOR', 11,
-                   (0.72, 0.74, 0.77, 1))
     widgets = _widgets_gaveta(context, largura, altura)
-    for x, y, w, h, rotulo, acao in widgets:
+    # O cabecalho e' desenhado por ultimo, acima do conteudo rolavel.
+    for x, y, w, h, rotulo, acao in widgets[2:] + widgets[:2]:
+        if y + h < 0 or y > altura:
+            continue
+        if acao and acao[0] == 'wireframe':
+            _desenhar_wireframe_gaveta(x, y, *acao[1:])
+            continue
+        if acao and acao[0] == 'preset':
+            _retangulo_gaveta(x, y, w, h, (0.20, 0.21, 0.23, 1))
+            _desenhar_foto_gaveta(acao[1], x + 5, y + 22,
+                                  w - 10, h - 27)
+            _texto_gaveta(x + 5, y + 5, rotulo, 11)
+            continue
         if acao is None:
             cor = (0.16, 0.17, 0.19, 1)
         elif acao[0] == 'aba' and context.scene.cabinet_aba == acao[1]:
+            cor = (0.28, 0.40, 0.57, 1)
+        elif acao[0] in {'navegar', 'modo'} and acao[-1]:
             cor = (0.28, 0.40, 0.57, 1)
         else:
             cor = (0.22, 0.23, 0.25, 1)
@@ -4125,7 +4366,49 @@ def _desenhar_gaveta():
                                (0.36, 0.38, 0.41, 1))
             _retangulo_gaveta(x + 9 + (w - 18) * valor - 5,
                                y - 15, 10, 13, (0.95, 0.72, 0.08, 1))
+    _retangulo_gaveta(0, altura - 48, largura, 48,
+                       (0.105, 0.11, 0.12, 1))
+    for x, y, w, h, rotulo, acao in widgets[:2]:
+        cor = ((0.28, 0.40, 0.57, 1)
+               if context.scene.cabinet_aba == acao[1]
+               else (0.22, 0.23, 0.25, 1))
+        _retangulo_gaveta(x, y, w, h, cor)
+        _texto_gaveta(x + 9, y + 8, rotulo)
     gpu.state.blend_set('NONE')
+
+
+class OBJECT_OT_editar_medida_gaveta(Operator):
+    """Edita uma medida usando a mesma propriedade parametrica do painel N."""
+    bl_idname = 'object.cabinet_editar_medida_gaveta'
+    bl_label = 'Editar Medida'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    dono: StringProperty(options={'SKIP_SAVE'})
+    objeto: StringProperty(options={'SKIP_SAVE'})
+    propriedade: StringProperty(options={'SKIP_SAVE'})
+    valor: FloatProperty(name='Medida', subtype='DISTANCE', unit='LENGTH',
+                         min=0.001, options={'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        alvo = (context.scene if self.dono == 'cena'
+                else bpy.data.objects.get(self.objeto))
+        if alvo is None:
+            self.report({'WARNING'}, 'Alvo da medida nao encontrado')
+            return {'CANCELLED'}
+        if self.dono == 'livre' and self.propriedade.startswith('dimensions_'):
+            indice = int(self.propriedade[-1])
+            dimensoes = list(alvo.dimensions)
+            dimensoes[indice] = self.valor
+            alvo.dimensions = dimensoes
+            return {'FINISHED'}
+        if not hasattr(alvo, self.propriedade):
+            self.report({'WARNING'}, 'Propriedade da medida nao encontrada')
+            return {'CANCELLED'}
+        setattr(alvo, self.propriedade, self.valor)
+        return {'FINISHED'}
 
 
 class OBJECT_OT_interagir_gaveta(Operator):
@@ -4138,6 +4421,12 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return _eh_area_gaveta(context)
 
     def invoke(self, context, event):
+        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+            atual = int(context.screen.get(_CHAVE_ROLAGEM, 0))
+            passo = -85 if event.type == 'WHEELUPMOUSE' else 85
+            context.screen[_CHAVE_ROLAGEM] = max(0, min(5000, atual + passo))
+            context.area.tag_redraw()
+            return {'FINISHED'}
         x, y = event.mouse_region_x, event.mouse_region_y
         for wx, wy, w, h, _rotulo, acao in _widgets_gaveta(
                 context, context.region.width, context.region.height):
@@ -4148,8 +4437,45 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 continue
             if acao is None:
                 return {'FINISHED'}
+            if acao[0] == 'wireframe':
+                return {'FINISHED'}
             if acao[0] == 'aba':
                 context.scene.cabinet_aba = acao[1]
+                context.screen[_CHAVE_ROLAGEM] = 0
+            elif acao[0] == 'biblioteca':
+                context.scene.chapa_bib_aberta = not context.scene.chapa_bib_aberta
+            elif acao[0] == 'auto':
+                context.object.chapa_auto = not context.object.chapa_auto
+            elif acao[0] == 'navegar':
+                bpy.ops.object.cabinet_navegar(nivel=acao[1], valor=acao[2])
+            elif acao[0] == 'modo':
+                bpy.ops.object.cabinet_modo_medidas(modo=acao[1])
+            elif acao[0] == 'medida':
+                bpy.ops.object.cabinet_editar_medida_gaveta(
+                    'INVOKE_DEFAULT', dono=acao[1],
+                    objeto=context.object.name if context.object else '',
+                    propriedade=acao[2], valor=acao[4] / 1000.0)
+            elif acao[0] == 'portas':
+                bpy.ops.object.cabinet_portas('INVOKE_DEFAULT', editar=acao[1])
+            elif acao[0] == 'preset':
+                it = acao[1]
+                bpy.ops.object.cabinet_arrastar_preset(
+                    'INVOKE_DEFAULT', pasta=it['pasta'],
+                    arquivo=it['arquivo'], tipo=it.get('tipo', 'modulo'))
+            elif acao[0] == 'item':
+                it, indice = acao[1], acao[2]
+                if indice == 0:
+                    bpy.ops.object.cabinet_inserir_preset(
+                        pasta=it['pasta'], arquivo=it['arquivo'],
+                        tipo=it.get('tipo', 'modulo'))
+                elif indice == 1:
+                    if not item_bloqueado(it):
+                        bpy.ops.object.cabinet_editar_modelo(
+                            'INVOKE_DEFAULT', pasta=it['pasta'],
+                            arquivo=it['arquivo'])
+                else:
+                    bpy.ops.object.cabinet_bloqueio(
+                        pasta=it['pasta'], arquivo=it['arquivo'])
             elif acao[0] == 'slider':
                 self._inicio = wx + 9
                 self._largura = w - 18
@@ -4871,11 +5197,11 @@ CLASSES = (
     OBJECT_OT_detectar_adjacencia,
     OBJECT_OT_criar_nicho,
     OBJECT_OT_portas_parametricas,
+    OBJECT_OT_editar_medida_gaveta,
     OBJECT_OT_interagir_gaveta,
     OBJECT_OT_alternar_gaveta,
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
-    VIEW3D_PT_cabinet_creator,
     VIEW3D_GGT_cabinet_gaveta,
     VIEW3D_AST_cabinet_creator,
 )
@@ -5020,6 +5346,12 @@ def unregister():
     if _handler_gaveta[0] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler_gaveta[0], 'WINDOW')
         _handler_gaveta[0] = None
+    _fotos_gaveta.clear()
+    for nome in _imagens_gaveta:
+        imagem = bpy.data.images.get(nome)
+        if imagem is not None:
+            bpy.data.images.remove(imagem)
+    _imagens_gaveta.clear()
     if bpy.app.timers.is_registered(_configurar_gavetas):
         bpy.app.timers.unregister(_configurar_gavetas)
     if bpy.app.timers.is_registered(_reconectar_gavetas):

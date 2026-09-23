@@ -47,18 +47,19 @@ vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 O Cabinet Creator agora tem uma area propria na esquerda da viewport,
 independente do painel N. A alca amarela abre e fecha essa gaveta; aberta,
 ela ocupa toda a altura da viewport e reduz a largura da area de modelagem.
-Sua borda pode ser arrastada para ajustar a largura. A gaveta ja' possui
-abas **Modulos** e **Portas**, acoes principais e uma barra de tamanho que
-responde a arraste. A grade de miniaturas e os campos de medidas ainda
-estao no painel **N > Cabinet Creator** durante a migracao; o N continua
-normalmente a direita e nao e' deslocado pela gaveta.
+Sua borda pode ser arrastada para ajustar a largura. A gaveta contem as
+abas **Modulos** e **Portas**, medidas editaveis, wireframe do modulo,
+montagem e biblioteca em cascata com fotos e acoes por preset. A barra de
+tamanho recebe arraste. O posicionador pode ser iniciado na foto ou nome
+do preset e acompanha o cursor ate' a viewport principal. O painel N nao
+e' usado pelo addon; continua disponivel para os demais paineis do Blender.
 
 1. Selecione a malha do movel ou as duas chapas que contem os cantos.
    Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.
 2. Selecione exatamente **dois vertices opostos em diagonal**, nos cantos
    **internos** do vao e na mesma borda frontal (como superior esquerdo e
    inferior direito). Podem pertencer a objetos diferentes em edicao conjunta.
-3. Em **N > Cabinet Creator**, clique no botao **Portas** no topo do painel
+3. Na gaveta esquerda, clique em **Portas** no topo do painel
    (ao lado de **Modulos**) e depois em **Criar Portas**.
    Escolha abertura, folhas e espessura. Para giro/basculante, a escolha da
    dobradica e' obrigatoria no dialogo; nenhuma folha e' criada antes de confirmar.
@@ -110,6 +111,7 @@ um vao alterado, crie um novo grupo. Movimentos do pai comum acompanham o grupo.
 
 ```powershell
 & 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_portas_blender.py
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_gaveta_blender.py
 ```
 
 Executa os testes em uma cena descartavel: coberturas, recuos, limites de
@@ -119,8 +121,9 @@ na cena de trabalho: ele limpa a cena de testes.
 
 ## Limitacoes conhecidas
 
-- Reordenacao da grade e' por setas: o bpy nao expoe arraste em paineis.
-- Icone sobre a imagem nao e' possivel: o layout do bpy nao tem sobreposicao.
-- Largura da sidebar e' controlada pelo usuario, nao pelo add-on.
+- A gaveta e' uma area separada da viewport; a largura e' ajustada pelo
+  usuario arrastando a divisoria entre as duas areas.
+- O arraste de presets entre a gaveta e a viewport usa um operador modal
+  proprio; o fluxo completo depende de teste interativo no Blender.
 - Blender 5.2 tem um bug que impede escrever inputs de modificador Geometry
   Nodes via Python (issue #160038) — por isso a malha e' gerada com bmesh.
