@@ -1,15 +1,15 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (72, 0, 0),
+    "version": (73, 0, 0),
     "blender": (4, 0, 0),
-    "location": "View3D > N > Cabinet Creator",
+    "location": "View3D > gaveta esquerda (N como alternativa)",
     "doc_url": "",
     "description": "Armarios parametricos: chapas com malha editavel e espessura imune a escala",
     "category": "Object",
 }
 
-import bpy, bmesh, math, os, uuid, json, gpu
+import bpy, bmesh, math, os, uuid, json, gpu, blf
 import bpy.utils.previews
 from gpu_extras.batch import batch_for_shader
 from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
@@ -3107,7 +3107,8 @@ class OBJECT_OT_selecionar(Operator):
         if p is not None and not p.selecao_por_grupo:
             return False
         return (context.mode == 'OBJECT' and context.area is not None
-                and context.area.type == 'VIEW_3D')
+                and context.area.type == 'VIEW_3D'
+                and not _eh_area_gaveta(context))
 
     def invoke(self, context, event):
         self.location = (event.mouse_region_x, event.mouse_region_y)
@@ -3166,6 +3167,10 @@ def registrar_keymaps():
     if kc is None:          # Blender em background nao monta keyconfig
         return
     km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
+    # Esta entrada so' aceita eventos na area exclusiva da gaveta.
+    kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
+                              'LEFTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km, kmi))
     for valor, shift, modo, props in _ENTRADAS_KEYMAP:
         kmi = km.keymap_items.new("object.cabinet_selecionar",
                                   'LEFTMOUSE', valor, shift=shift)
@@ -3781,7 +3786,7 @@ class VIEW3D_AST_cabinet_creator(bpy.types.AssetShelf):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT'
+        return context.mode == 'OBJECT' and not _eh_area_gaveta(context)
 
     @classmethod
     def asset_poll(cls, asset):
@@ -3944,41 +3949,281 @@ def _abreviar(texto, limite):
 
 
 # ===================================================== GAVETA ESQUERDA
-# A regiao UI nativa pode trocar de lado. Assim todos os controles do
-# painel continuam funcionais, inclusive campos, miniaturas e operadores.
+# Area VIEW_3D independente: nao mover a regiao N do usuario. O desenho
+# POST_PIXEL e os eventos abaixo nao passam pelo handler de UILayout;
+# portanto a barra recebe PRESS/MOUSEMOVE/RELEASE de verdade.
+_handler_gaveta = [None]
+_CHAVE_GAVETA = "cabinet_gaveta_area"
+_CHAVE_PENDENTE = "cabinet_gaveta_pendente"
+
+
+def _area_gaveta(screen):
+    ptr = int(screen.get(_CHAVE_GAVETA, 0)) if screen else 0
+    return next((a for a in screen.areas
+                 if a.type == 'VIEW_3D' and a.as_pointer() == ptr), None)
+
+
+def _eh_area_gaveta(context):
+    return (context.area is not None and context.screen is not None
+            and context.area == _area_gaveta(context.screen))
+
+
+def _configurar_gavetas():
+    # A geometria da area nova so' fica disponivel no tique seguinte ao split.
+    pendente = False
+    for janela in bpy.context.window_manager.windows:
+        screen = janela.screen
+        ptr = int(screen.get(_CHAVE_PENDENTE, 0))
+        if not ptr:
+            continue
+        principal = next((a for a in screen.areas
+                          if a.as_pointer() == ptr), None)
+        if principal is None:
+            screen[_CHAVE_PENDENTE] = 0
+            continue
+        candidatas = [a for a in screen.areas
+                      if a.type == 'VIEW_3D' and a != principal
+                      and a.y == principal.y and a.height == principal.height
+                      and a.x < principal.x]
+        if not candidatas:
+            pendente = True
+            continue
+        painel = max(candidatas, key=lambda a: a.x)
+        espaco = painel.spaces.active
+        espaco.show_region_ui = False
+        espaco.show_region_toolbar = False
+        espaco.show_region_header = False
+        espaco.show_region_tool_header = False
+        espaco.show_region_hud = False
+        espaco.show_gizmo = False
+        espaco.overlay.show_overlays = False
+        screen[_CHAVE_GAVETA] = str(painel.as_pointer())
+        screen[_CHAVE_PENDENTE] = 0
+        painel.tag_redraw()
+        principal.tag_redraw()
+    return 0.05 if pendente else None
+
+
+def _reconectar_gavetas():
+    # Ponteiros de areas nao sobrevivem a recarga de um arquivo .blend.
+    for janela in bpy.context.window_manager.windows:
+        screen = janela.screen
+        if not screen.get(_CHAVE_GAVETA) or _area_gaveta(screen):
+            continue
+        candidatos = [a for a in screen.areas
+                      if a.type == 'VIEW_3D' and a.width < 600
+                      and not a.spaces.active.show_region_header
+                      and not a.spaces.active.show_region_toolbar
+                      and not a.spaces.active.overlay.show_overlays]
+        if len(candidatos) == 1:
+            screen[_CHAVE_GAVETA] = str(candidatos[0].as_pointer())
+            candidatos[0].tag_redraw()
+        else:
+            screen[_CHAVE_GAVETA] = 0
+    return None
+
+
+def _fechar_gavetas_registradas():
+    for janela in bpy.context.window_manager.windows:
+        screen = janela.screen
+        painel = _area_gaveta(screen)
+        screen[_CHAVE_GAVETA] = 0
+        screen[_CHAVE_PENDENTE] = 0
+        if painel is None:
+            continue
+        try:
+            with bpy.context.temp_override(window=janela, screen=screen,
+                                           area=painel):
+                bpy.ops.screen.area_close()
+        except Exception as e:
+            print("[Cabinet Creator] fechar gaveta ao desativar:", e)
+
+
+def _retangulo_gaveta(x, y, largura, altura, cor):
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    batch = batch_for_shader(shader, 'TRIS', {'pos': (
+        (x, y), (x + largura, y), (x + largura, y + altura),
+        (x, y), (x + largura, y + altura), (x, y + altura))})
+    shader.bind()
+    shader.uniform_float('color', cor)
+    batch.draw(shader)
+
+
+def _texto_gaveta(x, y, texto, tamanho=12, cor=(0.88, 0.88, 0.88, 1)):
+    blf.size(0, tamanho)
+    blf.color(0, *cor)
+    blf.position(0, x, y, 0)
+    blf.draw(0, texto)
+
+
+def _widgets_gaveta(context, largura, altura):
+    """Retangulos (x,y,w,h,rotulo,acao) compartilhados por desenho e hit-test."""
+    s = context.scene
+    x, w = 12, max(80, largura - 24)
+    y = altura - 40
+    itens = []
+    metade = (w - 6) / 2
+    for i, (rotulo, acao) in enumerate((('Modulos', 'MODULOS'),
+                                       ('Portas', 'PORTAS'))):
+        itens.append((x + i * (metade + 6), y, metade, 29,
+                      rotulo, ('aba', acao)))
+    y -= 61
+    if s.cabinet_aba == 'PORTAS':
+        itens.append((x, y, w, 31, 'Criar / configurar portas',
+                      ('operador', 'object.cabinet_portas')))
+        return itens
+    obj = context.object
+    if obj is not None and MARCA_CONJUNTO in obj:
+        rotulo = 'Modulo: %s' % obj.name
+    elif obj is not None and MARCA_CHAPA in obj:
+        rotulo = 'Chapa: %s' % obj.name
+    else:
+        rotulo = 'Selecao: %s' % (obj.name if obj else 'nenhuma')
+    itens.append((x, y, w, 30, rotulo, None))
+    y -= 45
+    for rotulo, op in (('Agrupar', 'object.cabinet_agrupar'),
+                       ('Adjacencia', 'object.cabinet_detectar_adjacencia'),
+                       ('Recalcular', 'object.cabinet_normalizar')):
+        itens.append((x, y, w, 28, rotulo, ('operador', op)))
+        y -= 34
+    y -= 17
+    itens.append((x, y, w, 23, 'Biblioteca', None))
+    y -= 39
+    itens.append((x, y, w, 22, 'Tamanho das miniaturas', ('slider', None)))
+    y -= 36
+    itens.append((x, y, w, 31, 'Abrir prateleira de assets',
+                  ('operador', 'object.cabinet_prateleira')))
+    y -= 36
+    itens.append((x, y, w, 31, 'Salvar selecao na biblioteca',
+                  ('operador', 'object.cabinet_salvar_biblioteca')))
+    return itens
+
+
+def _desenhar_gaveta():
+    context = bpy.context
+    if not _eh_area_gaveta(context) or context.region.type != 'WINDOW':
+        return
+    largura, altura = context.region.width, context.region.height
+    gpu.state.blend_set('ALPHA')
+    _retangulo_gaveta(0, 0, largura, altura, (0.105, 0.11, 0.12, 1))
+    _retangulo_gaveta(largura - 2, 0, 2, altura, (0.30, 0.31, 0.33, 1))
+    _texto_gaveta(12, altura - 61, 'CABINET CREATOR', 11,
+                   (0.72, 0.74, 0.77, 1))
+    widgets = _widgets_gaveta(context, largura, altura)
+    for x, y, w, h, rotulo, acao in widgets:
+        if acao is None:
+            cor = (0.16, 0.17, 0.19, 1)
+        elif acao[0] == 'aba' and context.scene.cabinet_aba == acao[1]:
+            cor = (0.28, 0.40, 0.57, 1)
+        else:
+            cor = (0.22, 0.23, 0.25, 1)
+        _retangulo_gaveta(x, y, w, h, cor)
+        _texto_gaveta(x + 9, y + (h - 12) / 2, rotulo[:38])
+        if acao and acao[0] == 'slider':
+            valor = (context.scene.chapa_tam_bloco - 2) / 6.0
+            _retangulo_gaveta(x + 9, y - 10, w - 18, 3,
+                               (0.36, 0.38, 0.41, 1))
+            _retangulo_gaveta(x + 9 + (w - 18) * valor - 5,
+                               y - 15, 10, 13, (0.95, 0.72, 0.08, 1))
+    gpu.state.blend_set('NONE')
+
+
+class OBJECT_OT_interagir_gaveta(Operator):
+    """Recebe clique e arraste diretamente na interface independente."""
+    bl_idname = "object.cabinet_interagir_gaveta"
+    bl_label = "Interagir com Gaveta Cabinet Creator"
+
+    @classmethod
+    def poll(cls, context):
+        return _eh_area_gaveta(context)
+
+    def invoke(self, context, event):
+        x, y = event.mouse_region_x, event.mouse_region_y
+        for wx, wy, w, h, _rotulo, acao in _widgets_gaveta(
+                context, context.region.width, context.region.height):
+            dentro = wx <= x <= wx + w and wy <= y <= wy + h
+            if acao and acao[0] == 'slider':
+                dentro = wx <= x <= wx + w and wy - 17 <= y <= wy + h
+            if not dentro:
+                continue
+            if acao is None:
+                return {'FINISHED'}
+            if acao[0] == 'aba':
+                context.scene.cabinet_aba = acao[1]
+            elif acao[0] == 'slider':
+                self._inicio = wx + 9
+                self._largura = w - 18
+                self._atualizar(context, x)
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
+            else:
+                try:
+                    modulo, nome = acao[1].split('.')
+                    getattr(getattr(bpy.ops, modulo), nome)('INVOKE_DEFAULT')
+                except Exception as e:
+                    self.report({'WARNING'}, str(e))
+            context.area.tag_redraw()
+            return {'FINISHED'}
+        return {'FINISHED'}
+
+    def _atualizar(self, context, x):
+        fracao = min(1.0, max(0.0, (x - self._inicio) / self._largura))
+        context.scene.chapa_tam_bloco = 2 + round(fracao * 6)
+        context.area.tag_redraw()
+
+    def modal(self, context, event):
+        if event.type == 'MOUSEMOVE':
+            self._atualizar(context, event.mouse_region_x)
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            return {'FINISHED'}
+        if event.type in {'ESC', 'RIGHTMOUSE'}:
+            return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
+
+
 class OBJECT_OT_alternar_gaveta(Operator):
-    """Mostra ou esconde o Cabinet Creator na esquerda da viewport"""
+    """Abre ou fecha a area exclusiva do addon a esquerda da viewport"""
     bl_idname = "object.cabinet_alternar_gaveta"
     bl_label = "Alternar Gaveta Cabinet Creator"
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == 'VIEW_3D'
+        return (context.area is not None and context.area.type == 'VIEW_3D'
+                and not _eh_area_gaveta(context))
 
     def execute(self, context):
-        area = context.area
-        ui = next((r for r in area.regions if r.type == 'UI'), None)
-        if ui is None:
-            self.report({'WARNING'}, "Regiao de paineis nao encontrada")
-            return {'CANCELLED'}
-        espaco = area.spaces.active
-        if ui.alignment != 'LEFT':
+        screen = context.screen
+        painel = _area_gaveta(screen)
+        if painel is not None:
+            janela = context.window
+            screen[_CHAVE_GAVETA] = 0
             try:
-                with context.temp_override(area=area, region=ui):
-                    bpy.ops.screen.region_flip()
+                with context.temp_override(window=janela, screen=screen,
+                                           area=painel):
+                    bpy.ops.screen.area_close()
             except Exception as e:
-                print("[Cabinet Creator] virar gaveta:", e)
-                self.report({'WARNING'}, "Nao consegui mover o painel para a esquerda")
+                screen[_CHAVE_GAVETA] = str(painel.as_pointer())
+                self.report({'WARNING'}, "Nao consegui fechar a gaveta: %s" % e)
                 return {'CANCELLED'}
-            espaco.show_region_ui = True
-        else:
-            espaco.show_region_ui = not espaco.show_region_ui
-        if espaco.show_region_ui:
-            try:
-                ui.active_panel_category = "Cabinet Creator"
-            except Exception as e:
-                print("[Cabinet Creator] categoria da gaveta:", e)
-        area.tag_redraw()
+            return {'FINISHED'}
+        # Corrige o estado deixado pela versao antiga da gaveta, que
+        # invertia a regiao N inteira para a esquerda.
+        ui = next((r for r in context.area.regions if r.type == 'UI'), None)
+        if ui is not None and ui.alignment == 'LEFT':
+            with context.temp_override(area=context.area, region=ui):
+                bpy.ops.screen.region_flip()
+        screen[_CHAVE_PENDENTE] = str(context.area.as_pointer())
+        try:
+            largura = context.area.width
+            with context.temp_override(area=context.area):
+                bpy.ops.screen.area_split(direction='VERTICAL',
+                                          factor=max(0.08, min(0.35, 320 / largura)))
+        except Exception as e:
+            screen[_CHAVE_PENDENTE] = 0
+            self.report({'WARNING'}, "Nao consegui abrir a gaveta: %s" % e)
+            return {'CANCELLED'}
+        if not bpy.app.timers.is_registered(_configurar_gavetas):
+            bpy.app.timers.register(_configurar_gavetas, first_interval=0.05)
         return {'FINISHED'}
 
 
@@ -3992,7 +4237,8 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == 'VIEW_3D'
+        return (context.area is not None and context.area.type == 'VIEW_3D'
+                and not _eh_area_gaveta(context))
 
     def setup(self, context):
         alca = self.gizmos.new("GIZMO_GT_button_2d")
@@ -4011,15 +4257,8 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
         self.alca = alca
 
     def draw_prepare(self, context):
-        area = context.area
-        ui = next((r for r in area.regions if r.type == 'UI'), None)
-        aberta = (ui is not None and ui.alignment == 'LEFT'
-                  and area.spaces.active.show_region_ui)
-        # A regiao UI comeca DEPOIS da barra de ferramentas; so' a largura
-        # dela deixava a alca sobre o painel, onde o handler de UI toma
-        # o clique antes do gizmo.
-        limite = ui.x - area.x + ui.width if aberta else 0
-        self.alca.matrix_basis[0][3] = limite + 18 if aberta else 30
+        aberta = _area_gaveta(context.screen) is not None
+        self.alca.matrix_basis[0][3] = 18 if aberta else 30
         self.alca.matrix_basis[1][3] = max(48, context.region.height * 0.12)
         self.alca.icon = 'TRIA_LEFT' if aberta else 'TRIA_RIGHT'
 
@@ -4032,6 +4271,10 @@ class VIEW3D_PT_cabinet_creator(Panel):
     bl_region_type = 'UI'
     bl_category = "Cabinet Creator"
     bl_options = {'HEADER_LAYOUT_EXPAND'}
+
+    @classmethod
+    def poll(cls, context):
+        return not _eh_area_gaveta(context)
 
     def draw_header(self, context):
         linha = self.layout.row(align=True)
@@ -4628,6 +4871,7 @@ CLASSES = (
     OBJECT_OT_detectar_adjacencia,
     OBJECT_OT_criar_nicho,
     OBJECT_OT_portas_parametricas,
+    OBJECT_OT_interagir_gaveta,
     OBJECT_OT_alternar_gaveta,
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
@@ -4687,6 +4931,9 @@ def _garantir_unidade_padrao_mm():
 def register():
     for c in CLASSES:
         bpy.utils.register_class(c)
+    _handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
+        _desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
+    bpy.app.timers.register(_reconectar_gavetas, first_interval=0.1)
     registrar_keymaps()
     O = bpy.types.Object
     O.chapa_largura_mm = FloatProperty(
@@ -4769,6 +5016,14 @@ def register():
 
 def unregister():
     remover_keymaps()
+    _fechar_gavetas_registradas()
+    if _handler_gaveta[0] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_handler_gaveta[0], 'WINDOW')
+        _handler_gaveta[0] = None
+    if bpy.app.timers.is_registered(_configurar_gavetas):
+        bpy.app.timers.unregister(_configurar_gavetas)
+    if bpy.app.timers.is_registered(_reconectar_gavetas):
+        bpy.app.timers.unregister(_reconectar_gavetas)
     if hasattr(bpy.types.Scene, 'cabinet_aba'):
         del bpy.types.Scene.cabinet_aba
     if bpy.app.timers.is_registered(_garantir_unidade_padrao_mm):

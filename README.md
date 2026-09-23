@@ -44,13 +44,14 @@ vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 
 ## Portas parametricas
 
-O Cabinet Creator tambem pode ser usado como uma gaveta na esquerda da
-viewport. Clique na alca amarela perto da borda inferior esquerda: o
-primeiro clique move e abre o painel nessa lateral; os seguintes escondem
-e revelam o mesmo menu vertical. Quando fechada, a viewport recupera o
-espaco do painel. A largura da gaveta pode ser ajustada arrastando sua
-borda, como em qualquer painel nativo do Blender. As abas **Modulos** e
-**Portas** continuam no topo. A tecla **N** permanece como alternativa.
+O Cabinet Creator agora tem uma area propria na esquerda da viewport,
+independente do painel N. A alca amarela abre e fecha essa gaveta; aberta,
+ela ocupa toda a altura da viewport e reduz a largura da area de modelagem.
+Sua borda pode ser arrastada para ajustar a largura. A gaveta ja' possui
+abas **Modulos** e **Portas**, acoes principais e uma barra de tamanho que
+responde a arraste. A grade de miniaturas e os campos de medidas ainda
+estao no painel **N > Cabinet Creator** durante a migracao; o N continua
+normalmente a direita e nao e' deslocado pela gaveta.
 
 1. Selecione a malha do movel ou as duas chapas que contem os cantos.
    Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.
