@@ -318,6 +318,45 @@ class TestGaveta(unittest.TestCase):
         bpy.ops.mesh.primitive_cube_add()
         self.assertEqual(addon._folhas_para_wireframe(bpy.context.object), 0)
 
+    def botao_portas(self):
+        return next((v[4], v[5]) for v in self.portas()
+                    if v[5] and v[5][0] == 'portas')
+
+    def test_botao_diz_o_que_falta_em_vez_de_nao_fazer_nada(self):
+        # REGRESSAO: a dobradica nasce em ESCOLHER, o operador recusava
+        # e o aviso nao chegava na gaveta -- clicar parecia nao fazer
+        # nada. Agora o proprio botao carrega o motivo.
+        self.assertEqual(self.cena.porta_dobradica, 'ESCOLHER')
+        rotulo, acao = self.botao_portas()
+        self.assertTrue(acao[3])
+        self.assertIn('dobradica', acao[3])
+        self.assertEqual(rotulo, acao[3])
+
+        self.cena.porta_dobradica = 'RETA'
+        rotulo, acao = self.botao_portas()
+        self.assertEqual(acao[3], '')
+        self.assertEqual(rotulo, 'Criar Portas')
+
+    def test_botao_acende_enquanto_marca_o_vao(self):
+        self.cena.porta_dobradica = 'RETA'
+        _, acao = self.botao_portas()
+        self.assertFalse(acao[2])
+        addon._apanhando_vao[0] = True
+        try:
+            rotulo, acao = self.botao_portas()
+            self.assertTrue(acao[2])
+            self.assertIn('Marcando', rotulo)
+        finally:
+            addon._apanhando_vao[0] = False
+        fonte = inspect.getsource(addon._desenhar_gaveta)
+        self.assertIn("acao[0] == 'portas' and acao[2]", fonte)
+
+    def test_motivo_portas_reflete_a_aba(self):
+        self.cena.porta_dobradica = 'RETA'
+        self.assertEqual(addon._motivo_portas(self.cena), '')
+        self.cena.porta_folga_mm = 5000.0
+        self.assertTrue(addon._motivo_portas(self.cena))
+
     def test_padrao_e_porta_dupla(self):
         self.assertEqual(self.cena.porta_folhas, 2)
         self.assertEqual(self.cena.porta_abertura, 'GIRO')

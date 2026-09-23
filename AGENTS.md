@@ -137,6 +137,11 @@ vincular_blender.py           # junction para desenvolvimento
    que a aba nao mostra. As espessuras sao Enum, ou seja STRING: quem
    for CALCULAR pede `numerico=True`, senao quebra com TypeError.
    Padrao de fabrica: porta dupla.
+0b. O botao "Criar Portas" carrega o ESTADO: aceso enquanto o
+   apanhador espera os dois cliques, e com o texto trocado pelo motivo
+   quando algo impede (`_motivo_portas`). O aviso do operador nao
+   chega a quem esta' olhando a gaveta -- sem isso, clicar com a
+   dobradica em ESCOLHER parecia nao fazer nada.
 1. O vao e' marcado em **Modo Objeto** pelo apanhador
    (`cabinet_apanhar_vao`): ima nos vertices por distancia de TELA
    (`RAIO_IMA_PX`), primeiro clique fixa um canto, a previa das folhas
@@ -258,7 +263,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 86.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 87.0.0).
 
 ## Git
 

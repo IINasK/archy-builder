@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (86, 0, 0),
+    "version": (87, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -3495,6 +3495,37 @@ CHAVE_FOLGAS_PORTA = "porta_folgas_em_e"
 CHAVE_RECUO_PORTA = "porta_recuo_frente_mm"
 
 
+# Enquanto o apanhador roda, o botao da aba fica aceso. Sem isso o
+# usuario nao tem como saber que a ferramenta esta' esperando os dois
+# cliques na viewport.
+_apanhando_vao = [False]
+
+
+def _marcar_apanhando(ligado):
+    if _apanhando_vao[0] == ligado:
+        return
+    _apanhando_vao[0] = ligado
+    for janela in bpy.context.window_manager.windows:
+        for area in janela.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+
+def _motivo_portas(s):
+    """O que impede de criar a porta agora, ou '' se nada impede.
+
+    O operador recusa parametros invalidos, mas o aviso dele nao chega
+    a quem esta' olhando a gaveta -- clicar parecia nao fazer nada.
+    Aqui o proprio botao passa a dizer o que falta.
+    """
+    try:
+        _calcular_folhas_portas(1000.0, 1000.0,
+                                _parametros_portas_da_cena(s, numerico=True))
+    except (ValueError, KeyError, TypeError) as erro:
+        return str(erro)
+    return ''
+
+
 def _modulo_da_chapa(obj):
     """Conjunto que contem esta chapa, subindo pelos pais."""
     if obj is None or MARCA_CHAPA not in obj:
@@ -3852,6 +3883,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
 
     # ------------------------------------------------ ciclo
     def _encerrar(self, context):
+        _marcar_apanhando(False)
         if self._area is not None:
             self._area.header_text_set(None)
         if self._handler is not None:
@@ -3902,6 +3934,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._handler = None
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
+        _marcar_apanhando(True)
         context.window.cursor_modal_set('CROSSHAIR')
         context.window_manager.modal_handler_add(self)
         self.report({'INFO'}, "Clique nos 2 cantos do vao (Esc cancela)")
@@ -5020,9 +5053,15 @@ def _aba_portas_gaveta(context, itens, x, y, w, s):
             itens.append((x, y, w, 22, str(erro), None))
         y -= 26
 
-    itens.append((x, y, w, 31,
-                  'Configurar Portas' if grupo else 'Criar Portas',
-                  ('portas', bool(grupo))))
+    motivo = _motivo_portas(s)
+    if _apanhando_vao[0]:
+        rotulo = 'Marcando o vao... (Esc cancela)'
+    elif motivo:
+        rotulo = motivo
+    else:
+        rotulo = 'Configurar Portas' if grupo else 'Criar Portas'
+    itens.append((x, y, w, 31, rotulo,
+                  ('portas', bool(grupo), _apanhando_vao[0], motivo)))
     return itens
 
 
@@ -5641,7 +5680,8 @@ def _desenhar_gaveta(tela=False):
                                   max(0, largura - 24 - 48), 27)
 
         ativo = bool(acao and (acao[0] in {'navegar', 'modo'} and acao[-1]
-                               or acao[0] == 'escolha' and acao[3]))
+                               or acao[0] == 'escolha' and acao[3]
+                               or acao[0] == 'portas' and acao[2]))
         # O halo vai ANTES do corpo do botao, como na alca: por cima
         # ele lavaria o texto em vez de circundar o widget.
         chave = _chave_widget(acao)
@@ -5868,7 +5908,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     _carregar_portas_na_cena(context.scene, alvo)
             elif acao[0] == 'portas':
                 s = context.scene
-                if acao[1]:
+                if acao[3]:
+                    self.report({'WARNING'}, acao[3])
+                elif acao[2]:
+                    pass        # ja' esta' marcando o vao
+                elif acao[1]:
                     grupo = _grupo_portas(context.object)
                     bpy.ops.object.cabinet_portas(
                         'EXEC_DEFAULT', editar=True, grupo_nome=grupo.name,
