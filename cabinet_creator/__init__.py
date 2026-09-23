@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (79, 0, 0),
+    "version": (80, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -742,15 +742,9 @@ def _cantos_avaliados(obj, dep):
         return []
 
 
-def medir_selecao(context):
-    """Caixa envolvente do que estiver selecionado.
-
-    Devolve (largura, altura, profundidade) em mm -- eixos de mundo
-    (X, Z, Y), a mesma convencao das medidas de modulo -- e quantos
-    objetos entraram na conta. Devolve None se nada tem volume.
-    """
-    objs = [o for o in context.selected_objects
-            if o.type in TIPOS_COM_VOLUME]
+def _limites_mundo(context, objs):
+    """(minimos, maximos, quantos) em MUNDO, ou None se nada tem volume."""
+    objs = [o for o in objs if o.type in TIPOS_COM_VOLUME]
     if not objs:
         return None
     try:
@@ -770,8 +764,20 @@ def medir_selecao(context):
             for a in range(3):
                 lo[a] = min(lo[a], pt[a])
                 hi[a] = max(hi[a], pt[a])
-    if not contados:
+    return (lo, hi, contados) if contados else None
+
+
+def medir_selecao(context):
+    """Caixa envolvente do que estiver selecionado.
+
+    Devolve (largura, altura, profundidade) em mm -- eixos de mundo
+    (X, Z, Y), a mesma convencao das medidas de modulo -- e quantos
+    objetos entraram na conta. Devolve None se nada tem volume.
+    """
+    limites = _limites_mundo(context, context.selected_objects)
+    if limites is None:
         return None
+    lo, hi, contados = limites
     return ((hi[0] - lo[0]) * 1000.0,      # largura  = X
             (hi[2] - lo[2]) * 1000.0,      # altura   = Z
             (hi[1] - lo[1]) * 1000.0,      # profund. = Y
@@ -3998,7 +4004,10 @@ _handler_gaveta = [None]
 _fotos_gaveta = {}
 _imagens_gaveta = set()
 _edicao_gaveta = [None]
-_realces_alca = {}
+# Realces animados: chave -> [valor atual, alvo, instante]. A chave
+# e' (ponteiro da area, nome do widget), porque agora a alca e os
+# campos de medida usam o MESMO glow.
+_realces = {}
 _CHAVE_GAVETA = "cabinet_gaveta_area"
 _CHAVE_PENDENTE = "cabinet_gaveta_pendente"
 _CHAVE_ROLAGEM = "cabinet_gaveta_rolagem"
@@ -4513,33 +4522,220 @@ def _trilho_miniaturas_gaveta(x, y, w, h):
     return x + rotulo + 8, y + h / 2, max(1, w - rotulo - 14)
 
 
-def _animar_realces_alca():
+def _animar_realces():
     areas = {a.as_pointer(): a for janela in bpy.context.window_manager.windows
              for a in janela.screen.areas if a.type == 'VIEW_3D'}
     agora = time.monotonic()
     animando = False
-    for ptr, estado in list(_realces_alca.items()):
-        if ptr not in areas:
-            del _realces_alca[ptr]
+    for chave, estado in list(_realces.items()):
+        if chave[0] not in areas:
+            del _realces[chave]
             continue
         valor, alvo, instante = estado
         passo = max(0, agora - instante) / 0.16
         estado[0] += math.copysign(min(abs(alvo - valor), passo), alvo - valor)
         estado[2] = agora
         if estado[0] != valor:
-            areas[ptr].tag_redraw()
+            areas[chave[0]].tag_redraw()
         animando |= abs(estado[0] - alvo) > 0.0001
     return 1.0 / 60 if animando else None
 
 
-def _realcar_alca(context, ativo):
-    estado = _realces_alca.setdefault(
-        context.area.as_pointer(), [0.0, 0.0, time.monotonic()])
+def _realcar(context, nome, ativo):
+    """Liga ou desliga o glow de um widget, com transicao."""
+    chave = (context.area.as_pointer(), nome)
+    estado = _realces.setdefault(chave, [0.0, 0.0, time.monotonic()])
     alvo = float(ativo)
     if estado[1] != alvo:
         estado[1], estado[2] = alvo, time.monotonic()
-    if estado[0] != alvo and not bpy.app.timers.is_registered(_animar_realces_alca):
-        bpy.app.timers.register(_animar_realces_alca, first_interval=0.0)
+    if estado[0] != alvo and not bpy.app.timers.is_registered(_animar_realces):
+        bpy.app.timers.register(_animar_realces, first_interval=0.0)
+
+
+def _valor_realce(context, nome):
+    area = getattr(context, 'area', None)
+    if area is None:
+        return 0.0
+    return _realces.get((area.as_pointer(), nome), (0.0,))[0]
+
+
+def _glow_gaveta(x, y, w, h, raio, realce, cor, esquerda_reta=False):
+    """Halo do widget aceso. Mesma receita da alca, por isso os campos
+    de medida e a alca acendem identicos."""
+    if realce <= 0.0:
+        return
+    for margem, alfa in ((6, 0.025), (4, 0.045), (2, 0.07)):
+        _retangulo_arredondado_gaveta(
+            x - margem, y - margem, w + 2 * margem, h + 2 * margem,
+            raio + margem, (*cor, alfa * realce),
+            esquerda_reta=esquerda_reta)
+
+
+# ============================================= GRID DE MEDIDAS NA CENA
+# Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
+# caixa envolvente do alvo na viewport e ACENDE as quatro arestas do
+# eixo daquele campo. Assim da' para ver o que vai mudar antes de
+# mudar, em vez de descobrir por tentativa e erro.
+
+# Qual eixo cada rotulo move, por modo de medida. INDIVIDUAL usa os
+# eixos LOCAIS da chapa (X=largura, Y=comprimento, Z=espessura), porque
+# a chapa pode estar girada e a Espessura continua sendo a aresta local
+# Z. Os outros modos usam eixos de MUNDO na convencao do add-on
+# (Largura=X, Altura=Z, Profundidade=Y). Espessura de modulo nao e'
+# aresta da caixa: nao acende nada, de proposito.
+EIXOS_MEDIDA = {
+    'INDIVIDUAL': {'Largura': 0, 'Altura': 1, 'Espessura': 2},
+    'GRUPO': {'Largura': 0, 'Altura': 2, 'Profundidade': 1},
+    'LIVRE': {'Largura': 0, 'Altura': 2, 'Profundidade': 1},
+}
+
+# Cantos indexados por bits: i + 2*j + 4*k ao longo de u, v, w. Com
+# essa ordem as quatro arestas de um eixo saem de uma conta simples,
+# sem tabela escrita a mao.
+ARESTAS_EIXO = (
+    ((0, 1), (2, 3), (4, 5), (6, 7)),
+    ((0, 2), (1, 3), (4, 6), (5, 7)),
+    ((0, 4), (1, 5), (2, 6), (3, 7)),
+)
+
+_handler_grid = [None]
+_realce_medida = [None]      # rotulo do campo aceso, ou None
+_campos_gaveta = {}          # ponteiro do gizmo -> retangulo do campo
+
+
+def _cantos_caixa(origem, u, v, w):
+    return [origem + u * i + v * j + w * k
+            for k in (0, 1) for j in (0, 1) for i in (0, 1)]
+
+
+def _alvos_da_medida(context, modo):
+    """Objetos que a medida daquele modo governa."""
+    obj = context.object
+    if modo == 'GRUPO' and obj is not None:
+        familia = [o for o in familia_de(obj) if o.type in TIPOS_COM_VOLUME]
+        if familia:
+            return familia
+    return list(context.selected_objects)
+
+
+def _caixa_da_medida(context, modo):
+    """Os 8 cantos, em mundo, da caixa que o campo edita."""
+    obj = context.object
+    if modo == 'INDIVIDUAL' and obj is not None:
+        # Caixa ORIENTADA pela chapa: girada, a espessura dela nao e'
+        # o eixo vertical do mundo, e uma caixa alinhada ao mundo
+        # acenderia a aresta errada.
+        mw = obj.matrix_world
+        try:
+            locais = [Vector(c) for c in obj.bound_box]
+        except Exception:
+            return None
+        if not locais:
+            return None
+        lo = [min(c[a] for c in locais) for a in range(3)]
+        hi = [max(c[a] for c in locais) for a in range(3)]
+        origem = mw @ Vector(lo)
+        eixos = []
+        for a in range(3):
+            canto = list(lo)
+            canto[a] = hi[a]
+            eixos.append((mw @ Vector(canto)) - origem)
+        return _cantos_caixa(origem, *eixos)
+
+    limites = _limites_mundo(context, _alvos_da_medida(context, modo))
+    if limites is None:
+        return None
+    lo, hi, _n = limites
+    origem = Vector(lo)
+    return _cantos_caixa(origem,
+                         Vector((hi[0] - lo[0], 0.0, 0.0)),
+                         Vector((0.0, hi[1] - lo[1], 0.0)),
+                         Vector((0.0, 0.0, hi[2] - lo[2])))
+
+
+def _definir_realce_medida(rotulo):
+    """Guarda o campo aceso e manda a viewport se redesenhar.
+
+    O glow mora na gaveta, mas a caixa aparece na area VIZINHA: sem
+    este tag_redraw ela so' apareceria quando algo mais pedisse
+    redesenho, e o realce pareceria intermitente.
+    """
+    if _realce_medida[0] == rotulo:
+        return
+    _realce_medida[0] = rotulo
+    for janela in bpy.context.window_manager.windows:
+        for area in janela.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+
+def _desenhar_grid_medidas():
+    context = bpy.context
+    area = getattr(context, 'area', None)
+    if (area is None or area.type != 'VIEW_3D' or _eh_area_gaveta(context)
+            or _realce_medida[0] is None):
+        return
+    try:
+        modo, _campos, _dono = _medidas_gaveta(context)
+        cantos = _caixa_da_medida(context, modo)
+    except Exception as e:
+        print("[Cabinet Creator] caixa de medidas:", e)
+        return
+    if not cantos:
+        return
+    eixo = EIXOS_MEDIDA.get(modo, {}).get(_realce_medida[0])
+
+    caixa, aceso = [], []
+    for a in range(3):
+        destino = aceso if a == eixo else caixa
+        for i, j in ARESTAS_EIXO[a]:
+            destino.extend((cantos[i], cantos[j]))
+
+    tema = context.preferences.themes[0]
+    cor_caixa = (*tema.user_interface.wcol_regular.text, 0.55)
+    cor_aceso = (*tema.view_3d.object_active, 1.0)
+    try:
+        gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('NONE')
+        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        shader.bind()
+        gpu.state.line_width_set(1.5)
+        shader.uniform_float('color', cor_caixa)
+        batch_for_shader(shader, 'LINES', {'pos': caixa}).draw(shader)
+        if aceso:
+            gpu.state.line_width_set(3.0)
+            shader.uniform_float('color', cor_aceso)
+            batch_for_shader(shader, 'LINES', {'pos': aceso}).draw(shader)
+    except Exception as e:
+        print("[Cabinet Creator] grid de medidas:", e)
+    finally:
+        try:
+            gpu.state.line_width_set(1.0)
+            gpu.state.blend_set('NONE')
+        except Exception:
+            pass
+
+
+class VIEW3D_GT_campo_gaveta(Gizmo):
+    """Hit-test invisivel de um campo de medida.
+
+    Existe so' para ganhar `is_highlight`: o desenho da gaveta e' GPU e
+    nao recebe evento de mouse, e um operador modal persistente roubaria
+    evento de outros add-ons. O clique e' repassado ao mesmo operador
+    que ja' trata a area inteira.
+    """
+    bl_idname = 'VIEW3D_GT_campo_gaveta'
+
+    def draw(self, context):
+        pass
+
+    def test_select(self, context, location):
+        r = _campos_gaveta.get(self.as_pointer())
+        if not r:
+            return -1
+        x, y, w, h = r
+        return 0 if x <= location[0] <= x + w and y <= location[1] <= y + h \
+            else -1
 
 
 def _desenhar_gaveta(tela=False):
@@ -4551,14 +4747,12 @@ def _desenhar_gaveta(tela=False):
                 and (_area_gaveta(context.screen) is None
                      or context.area.x > _area_gaveta(context.screen).x)):
             centro = max(48, context.region.height * 0.12)
-            realce = _realces_alca.get(context.area.as_pointer(), (0.0,))[0]
+            realce = _valor_realce(context, 'alca')
             cores, _ = _cores_gaveta()
             gpu.state.blend_set('ALPHA')
-            for margem, alfa in ((6, 0.025), (4, 0.045), (2, 0.07)):
-                if realce:
-                    _retangulo_arredondado_gaveta(
-                        0, centro - 35 - margem, 26 + margem, 70 + 2 * margem,
-                        5 + margem, (*cores.text, alfa * realce), esquerda_reta=True)
+            # o glow cresce so' para a direita: a alca encosta na borda
+            _glow_gaveta(0, centro - 35, 26, 70, 5, realce, cores.text,
+                         esquerda_reta=True)
             _retangulo_arredondado_gaveta(
                 0, centro - 35, 26, 70, 5,
                 (*(c + (t - c) * realce * 0.45
@@ -4632,6 +4826,9 @@ def _desenhar_gaveta(tela=False):
             _texto_cabivel_gaveta(x, y + 7, rotulo, w, 11)
             continue
         if acao and acao[0] == 'medida':
+            _glow_gaveta(x, y, w, h, 4,
+                         _valor_realce(context, 'medida:' + acao[3]),
+                         cores.text)
             edicao = _edicao_gaveta[0]
             editando = (edicao is not None and edicao['area'] == context.area.as_pointer()
                         and edicao['propriedade'] == acao[2])
@@ -4995,16 +5192,60 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
 
     def setup(self, context):
         self.botoes = []
+        self.campos = []
         alca = self.gizmos.new('VIEW3D_GT_alca_gaveta')
         alca.target_set_operator("object.cabinet_alternar_gaveta")
         alca.use_tooltip = True
         self.alca = alca
+
+    def _preparar_campos(self, context):
+        """Um gizmo invisivel por campo de medida, so' para ter hover.
+
+        O rotulo do campo sob o mouse (ou em edicao) vira o realce que
+        acende o eixo correspondente na viewport vizinha.
+        """
+        medidas = [v for v in _widgets_gaveta(
+            context, context.region.width, context.region.height)
+            if v[5] and v[5][0] == 'medida' and v[1] >= 0
+            and v[1] + v[3] < context.region.height - 48]
+        while len(self.campos) < len(medidas):
+            campo = self.gizmos.new('VIEW3D_GT_campo_gaveta')
+            # o clique volta para quem ja' trata a area inteira, entao
+            # abrir o campo para edicao continua funcionando igual
+            campo.target_set_operator('object.cabinet_interagir_gaveta')
+            campo.use_tooltip = False
+            self.campos.append(campo)
+
+        _campos_gaveta.clear()
+        edicao = _edicao_gaveta[0]
+        sob_o_mouse = None
+        for campo, (x, y, w, h, _rotulo, acao) in zip(self.campos, medidas):
+            campo.hide = False
+            _campos_gaveta[campo.as_pointer()] = (x, y, w, h)
+            if campo.is_highlight:
+                sob_o_mouse = acao[3]
+
+        # Edicao aberta manda mais que o mouse: com o campo em foco o
+        # usuario ja' esta' digitando aquela medida, ainda que o cursor
+        # tenha saido de cima dele.
+        ativo = sob_o_mouse
+        if edicao is not None:
+            ativo = next((v[5][3] for v in medidas
+                          if v[5][2] == edicao['propriedade']), None)
+        for _campo, (_x, _y, _w, _h, _rotulo, acao) in zip(self.campos,
+                                                           medidas):
+            _realcar(context, 'medida:' + acao[3], acao[3] == ativo)
+        _definir_realce_medida(ativo)
 
     def draw_prepare(self, context):
         gaveta = _eh_area_gaveta(context)
         self.alca.hide = gaveta
         for botao in self.botoes:
             botao.hide = True
+        for campo in self.campos:
+            campo.hide = True
+        if not gaveta:
+            _campos_gaveta.clear()
         if gaveta:
             widgets = [v for v in _widgets_gaveta(
                 context, context.region.width, context.region.height)
@@ -5052,9 +5293,10 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                     if indice == 0:
                         op.tipo = it.get('tipo', 'modulo')
                     botao.hide_select = indice == 1 and item_bloqueado(it)
+            self._preparar_campos(context)
             _desenhar_gaveta(tela=True)
             return
-        _realcar_alca(context, self.alca.is_highlight)
+        _realcar(context, 'alca', self.alca.is_highlight)
 
 
 class VIEW3D_PT_cabinet_creator(Panel):
@@ -5671,6 +5913,7 @@ CLASSES = (
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
     VIEW3D_GT_alca_gaveta,
+    VIEW3D_GT_campo_gaveta,
     VIEW3D_GGT_cabinet_gaveta,
     VIEW3D_AST_cabinet_creator,
 )
@@ -5731,6 +5974,9 @@ def register():
         bpy.utils.register_class(c)
     _handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
+    # POST_VIEW: a caixa vive em coordenada de MUNDO, junto da cena
+    _handler_grid[0] = bpy.types.SpaceView3D.draw_handler_add(
+        _desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW')
     bpy.app.timers.register(_reconectar_gavetas, first_interval=0.1)
     registrar_keymaps()
     O = bpy.types.Object
@@ -5814,9 +6060,9 @@ def register():
 
 def unregister():
     _edicao_gaveta[0] = None
-    if bpy.app.timers.is_registered(_animar_realces_alca):
-        bpy.app.timers.unregister(_animar_realces_alca)
-    _realces_alca.clear()
+    if bpy.app.timers.is_registered(_animar_realces):
+        bpy.app.timers.unregister(_animar_realces)
+    _realces.clear()
     if bpy.app.timers.is_registered(_limitar_largura_gaveta):
         bpy.app.timers.unregister(_limitar_largura_gaveta)
     remover_keymaps()
@@ -5824,6 +6070,11 @@ def unregister():
     if _handler_gaveta[0] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handler_gaveta[0], 'WINDOW')
         _handler_gaveta[0] = None
+    if _handler_grid[0] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_handler_grid[0], 'WINDOW')
+        _handler_grid[0] = None
+    _campos_gaveta.clear()
+    _realce_medida[0] = None
     _fotos_gaveta.clear()
     for nome in _imagens_gaveta:
         imagem = bpy.data.images.get(nome)

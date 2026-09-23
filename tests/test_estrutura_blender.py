@@ -134,6 +134,116 @@ class TestHigieneDeGPU(unittest.TestCase):
                          'caminho de saida novo tem que fechar o blend')
 
 
+class TestGridDeMedidas(unittest.TestCase):
+    """A caixa na cena e o eixo que cada campo acende."""
+
+    def setUp(self):
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        addon._realce_medida[0] = None
+
+    def test_tabela_de_eixos_cobre_todos_os_rotulos(self):
+        # Rotulo sem eixo nao acende nada e o usuario fica sem saber o
+        # que vai mudar -- exatamente o problema que a grid resolve.
+        # Espessura de modulo e' a unica ausencia proposital: nao e'
+        # aresta da caixa.
+        bpy.ops.mesh.primitive_cube_add()
+        for modo, esperados in (('LIVRE', {'Largura', 'Altura',
+                                           'Profundidade'}),
+                                ('INDIVIDUAL', {'Largura', 'Altura',
+                                                'Espessura'}),
+                                ('GRUPO', {'Largura', 'Altura',
+                                           'Profundidade'})):
+            self.assertTrue(
+                esperados <= set(addon.EIXOS_MEDIDA[modo]), modo)
+        self.assertNotIn('Profundidade', addon.EIXOS_MEDIDA['INDIVIDUAL'])
+        self.assertNotIn('Espessura', addon.EIXOS_MEDIDA['GRUPO'])
+
+    def test_eixos_seguem_a_convencao_do_addon(self):
+        # Modulo e objeto livre: Largura=X, Altura=Z, Profundidade=Y.
+        for modo in ('GRUPO', 'LIVRE'):
+            self.assertEqual(addon.EIXOS_MEDIDA[modo]['Largura'], 0)
+            self.assertEqual(addon.EIXOS_MEDIDA[modo]['Altura'], 2)
+            self.assertEqual(addon.EIXOS_MEDIDA[modo]['Profundidade'], 1)
+        # Chapa: eixos LOCAIS, com a espessura no Z dela.
+        self.assertEqual(addon.EIXOS_MEDIDA['INDIVIDUAL'],
+                         {'Largura': 0, 'Altura': 1, 'Espessura': 2})
+
+    def test_arestas_batem_com_a_indexacao_por_bits(self):
+        # Cada eixo tem 4 arestas, e os dois cantos de uma aresta do
+        # eixo `a` diferem exatamente no bit de `a`.
+        vistos = set()
+        for a, arestas in enumerate(addon.ARESTAS_EIXO):
+            self.assertEqual(len(arestas), 4)
+            for i, j in arestas:
+                self.assertEqual(j - i, 1 << a)
+                vistos.add((i, j))
+        self.assertEqual(len(vistos), 12)
+
+    def test_caixa_livre_envolve_o_objeto(self):
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        bpy.context.object.location = (5.0, 0.0, 0.0)
+        bpy.context.view_layer.update()
+        cantos = addon._caixa_da_medida(bpy.context, 'LIVRE')
+        self.assertEqual(len(cantos), 8)
+        for a, esperado in enumerate((4.0, -1.0, -1.0)):
+            self.assertAlmostEqual(min(c[a] for c in cantos), esperado,
+                                   places=5)
+        # a aresta do eixo 0 mede a largura
+        i, j = addon.ARESTAS_EIXO[0][0]
+        self.assertAlmostEqual((cantos[j] - cantos[i]).length, 2.0, places=5)
+
+    def test_caixa_da_chapa_acompanha_a_rotacao(self):
+        # Chapa girada: a Espessura continua sendo a aresta LOCAL Z,
+        # nao a vertical do mundo. Caixa alinhada ao mundo acenderia
+        # a aresta errada.
+        obj = addon.nova_chapa('Girada', 600.0, 400.0, 18.0,
+                               (0.0, 0.0, 0.0), (0.0, 90.0, 0.0),
+                               bpy.context)
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.context.view_layer.update()
+        cantos = addon._caixa_da_medida(bpy.context, 'INDIVIDUAL')
+        eixo = addon.EIXOS_MEDIDA['INDIVIDUAL']['Espessura']
+        i, j = addon.ARESTAS_EIXO[eixo][0]
+        aresta = cantos[j] - cantos[i]
+        self.assertAlmostEqual(aresta.length, 0.018, places=5)
+        # girada 90 graus em Y, a espessura deitou no eixo X do mundo
+        self.assertAlmostEqual(abs(aresta.normalized().x), 1.0, places=4)
+        self.assertEqual(obj.chapa_espessura_mm, 18.0)
+
+    def test_sem_realce_nao_desenha(self):
+        # A caixa so' aparece com o mouse num campo ou com ele em
+        # edicao; fora disso a viewport fica limpa.
+        self.assertIsNone(addon._realce_medida[0])
+        addon._desenhar_grid_medidas()   # nao pode levantar
+
+    def test_handler_do_grid_e_post_view(self):
+        # POST_PIXEL desenharia em coordenada de tela, e a caixa vive
+        # em coordenada de mundo, junto da cena.
+        self.assertIsNotNone(addon._handler_grid[0])
+        fonte = inspect.getsource(addon.register)
+        self.assertIn("_desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW'",
+                      fonte)
+
+    def test_campo_e_gizmo_sem_modal(self):
+        # Mesmo motivo da alca: hover e clique por Gizmo, nunca por
+        # operador modal persistente.
+        self.assertTrue(issubclass(addon.VIEW3D_GT_campo_gaveta,
+                                   bpy.types.Gizmo))
+        self.assertIn(addon.VIEW3D_GT_campo_gaveta, addon.CLASSES)
+        self.assertIn('pass',
+                      inspect.getsource(addon.VIEW3D_GT_campo_gaveta.draw))
+
+    def test_glow_e_o_mesmo_da_alca(self):
+        # O usuario pediu "glow igual o da alca": garantir que e' a
+        # MESMA funcao, nao uma copia que vai divergir.
+        fonte = inspect.getsource(addon._desenhar_gaveta)
+        self.assertEqual(fonte.count('_glow_gaveta('), 2)
+        halo = inspect.getsource(addon._glow_gaveta)
+        self.assertIn('((6, 0.025), (4, 0.045), (2, 0.07))', halo)
+
+
 class TestContratoDosWidgets(unittest.TestCase):
     """_widgets_gaveta e' a fronteira entre layout e desenho."""
 
@@ -298,7 +408,7 @@ class TestRegistro(unittest.TestCase):
             for timer in (addon._limitar_largura_gaveta,
                           addon._configurar_gavetas,
                           addon._reconectar_gavetas,
-                          addon._animar_realces_alca,
+                          addon._animar_realces,
                           addon.verificar_periodicamente):
                 self.assertFalse(bpy.app.timers.is_registered(timer),
                                  '%s continuou registrado' % timer.__name__)
@@ -311,7 +421,7 @@ class TestRegistro(unittest.TestCase):
 addon.register()
 carregar = unittest.defaultTestLoader.loadTestsFromTestCase
 suite = unittest.TestSuite([carregar(c) for c in (
-    TestArquiteturaDaGaveta, TestAlca, TestHigieneDeGPU,
+    TestArquiteturaDaGaveta, TestAlca, TestHigieneDeGPU, TestGridDeMedidas,
     TestContratoDosWidgets, TestEstruturaDaChapa, TestRegistro)])
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()

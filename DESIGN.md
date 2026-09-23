@@ -17,10 +17,10 @@ overlays todos desligados. Dentro dela nao existe `UILayout`: cada
 pixel e' desenhado por GPU num handler `POST_PIXEL`.
 
 Consequencia direta: **nada de `layout.prop`, `layout.operator`,
-`row()`, `column()`, `grid_flow`, `ui_units_x`, `scale_x`.** Essas
-APIs nao existem nesse contexto. Quem chegar aqui vindo do painel N
-legado (`VIEW3D_PT_cabinet_creator`, que continua no arquivo mas NAO
-e' registrado) vai tentar usa-las por reflexo. Nao use.
+`row()`, `column()`, `grid_flow`, `ui_units_x`, `scale_x`** — essas
+APIs nao existem aqui. Quem vier do painel N legado
+(`VIEW3D_PT_cabinet_creator`, no arquivo mas NAO registrado) vai
+tentar usa-las por reflexo.
 
 Em troca, some a limitacao mais irritante do painel N: aqui
 `blf.dimensions()` **mede texto de verdade**. Nao estime largura de
@@ -48,8 +48,7 @@ tuplas de **exatamente 6 elementos**:
 `acao` e' `None` (decorativo) ou uma tupla cujo `[0]` e' o **verbo**.
 
 O layout e' **puro**: nao desenha, nao le evento, nao escreve em
-`bpy.data`. E' por isso que da' para testa-lo sem abrir janela — todo
-teste de responsividade chama `_widgets_gaveta` direto.
+`bpy.data`. Por isso da' para testa-lo sem abrir janela.
 
 ## 3. Receita para acrescentar um widget
 
@@ -79,19 +78,18 @@ Nao invente numero novo: reaproveite a linha mais parecida.
 | Rodape (Chapa/Auto/nome) | 26 | 29 quebrando, 35 no fim |
 | Separador | 1 | desenhado em `y + 31.5` |
 
-- Margem lateral: `x = 12`, `w = max(24, min(540, largura - 24))`.
-- Respiro entre itens da mesma linha: **6 px** (4 px na cascata).
-- Raio de canto: **4** no botao, **3** no preenchimento interno.
-- Miniatura de preset: `w - 10 == h - 27` (a faixa do nome e' 27).
+Margem lateral `x = 12`, `w = max(24, min(540, largura - 24))`.
+Respiro entre itens da mesma linha **6 px** (4 na cascata). Raio de
+canto **4** no botao e **3** no preenchimento. Miniatura de preset:
+`w - 10 == h - 27` (a faixa do nome e' 27).
 
 ## 5. Cor e tipografia sempre do tema
 
 `_cores_gaveta()` devolve `(wcol_regular, fundo)` do tema do usuario.
 Use `cores.inner`, `cores.inner_sel`, `cores.outline`, `cores.text`.
 
-**Nunca escreva uma cor literal.** O add-on tem que acompanhar o tema
-claro e o escuro. Cores cruas como `(0.34, 0.34, 0.34, 1)` ja' foram
-removidas uma vez da alca; nao as traga de volta.
+**Nunca escreva uma cor literal:** o add-on acompanha o tema claro e o
+escuro. Cores cruas ja' foram removidas uma vez da alca.
 
 Texto: `_texto_gaveta` para rotulo fixo, `_texto_cabivel_gaveta` para
 qualquer texto que possa nao caber — ele reduz a fonte de 12 ate' 9 e
@@ -130,16 +128,38 @@ um icone nativo, `VIEW3D_GGT_cabinet_gaveta.draw_prepare` cria um
 `GIZMO_GT_button_2d` posicionado em cima do retangulo, e
 `_icone_acao_gaveta(acao)` diz qual icone o verbo usa.
 
-Ou seja: o retangulo vem do layout, o icone vem do gizmo, e os dois
-precisam concordar na posicao. Se o icone sair deslocado, o culpado e'
-quase sempre `matrix_basis` em `draw_prepare`, nao o layout.
+O retangulo vem do layout e o icone vem do gizmo: os dois precisam
+concordar na posicao. Icone deslocado costuma ser `matrix_basis` em
+`draw_prepare`, nao o layout.
 
-## 8. Nunca faca
+## 8. Grid de medidas na cena
+
+Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
+caixa envolvente do alvo **na viewport vizinha** e acende as quatro
+arestas do eixo daquele campo: ve-se o que vai mudar antes de mudar.
+
+Tres partes, que precisam concordar:
+
+1. `EIXOS_MEDIDA[modo][rotulo]` diz qual eixo o campo move. Rotulo novo
+   sem entrada aqui nao acende nada.
+2. `_caixa_da_medida` monta os 8 cantos. Em `INDIVIDUAL` a caixa e'
+   **orientada pela chapa**, porque girada a Espessura dela nao e' a
+   vertical do mundo; nos outros modos e' alinhada ao mundo.
+3. `_desenhar_grid_medidas`, handler **`POST_VIEW`** — a caixa vive em
+   coordenada de mundo, junto da cena, nao em coordenada de tela.
+
+O hover vem de `VIEW3D_GT_campo_gaveta`, um Gizmo invisivel por campo,
+pelo mesmo motivo da alca (secao 9). Ele repassa o clique a
+`cabinet_interagir_gaveta`, que ja' trata a area inteira. O glow do
+campo e o da alca sao a **mesma funcao** (`_glow_gaveta`): nao duplique
+a receita do halo, ela diverge na primeira alteracao.
+
+## 9. Nunca faca
 
 - **Cor literal** no lugar do tema (secao 5).
 - **Operador modal persistente** para capturar clique. Modal roubaria
   evento de outros add-ons. Clique se resolve com Gizmo + `test_select`
-  (a alca, `VIEW3D_GT_alca_gaveta`, e' o modelo a copiar). Modal so'
+  (a alca e os campos de medida sao o modelo a copiar). Modal so'
   para interacao transitoria: arraste de slider e edicao de campo,
   que terminam sozinhos.
 - **Deixar estado de GPU ligado.** Todo caminho de saida de
@@ -151,10 +171,9 @@ quase sempre `matrix_basis` em `draw_prepare`, nao o layout.
   retangulo da alca, mude `test_select` junto — ha' teste para isso.
 - **Estimar largura de texto.** Use `blf.dimensions()`.
 
-## 9. Antes de entregar
+## 10. Antes de entregar
 
-1. `blender --background --factory-startup --python-exit-code 1 \
-   --python tests/test_estrutura_blender.py` (e os outros dois).
+1. Rodar as tres suites de `tests/` (ver CLAUDE.md).
 2. Conferir em **tres larguras**: 190, 320 e 564. Bug de layout quase
    sempre so' aparece num extremo.
 3. Conferir no tema claro e no escuro.
@@ -164,7 +183,7 @@ Captura vale mais que leitura de codigo aqui: `bpy.ops.screen.screenshot()`
 num Blender de verdade pega defeito que o teste nao pega — traco
 pontilhado, texto cortado, icone fora do lugar.
 
-## 10. Alternativas ja' avaliadas e RECUSADAS
+## 11. Alternativas ja' avaliadas e RECUSADAS
 
 Nao reabrir sem falar com o dono do projeto.
 
