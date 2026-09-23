@@ -47,6 +47,17 @@ class TestGaveta(unittest.TestCase):
         self.assertEqual(resultado, {'FINISHED'})
         self.assertAlmostEqual(objeto.dimensions.z, 1.25)
 
+    def test_quatro_medidas_responsivas_sem_sobrepor_abas(self):
+        bpy.ops.object.empty_add()
+        bpy.context.object[addon.MARCA_CONJUNTO] = 1
+        for largura, linhas in ((564, 1), (320, 2), (190, 4)):
+            widgets = addon._widgets_gaveta(bpy.context, largura, 1200)
+            medidas = [v for v in widgets if v[5] and v[5][0] == 'medida']
+            abas = [v for v in widgets if v[5] and v[5][0] == 'modo']
+            self.assertEqual(len(medidas), 4)
+            self.assertEqual(len({v[1] for v in medidas}), linhas)
+            self.assertLess(max(v[1] + v[3] for v in medidas), abas[0][1])
+
     def test_edicao_inline_confirma_unidades_e_cancela(self):
         classe = addon.OBJECT_OT_editar_medida_gaveta
         objeto = bpy.context.object
@@ -146,6 +157,22 @@ class TestGaveta(unittest.TestCase):
                 self.assertLessEqual(x + w, largura - 12 + 0.01)
                 self.assertAlmostEqual(w - 10, h - 27)
                 self.assertLessEqual(x + w, 552)
+
+    def test_slider_compacto_mantem_extremos_do_arraste(self):
+        for largura in (190, 320, 564):
+            slider = next(v for v in addon._widgets_gaveta(
+                bpy.context, largura, 1200) if v[5] and v[5][0] == 'slider')
+            x, y, w, h = slider[:4]
+            inicio, _, trilho = addon._trilho_miniaturas_gaveta(x, y, w, h)
+            self.assertLessEqual(w, 290)
+            self.assertGreater(inicio, x)
+            self.assertLessEqual(inicio + trilho + 6, x + w)
+            op = SimpleNamespace(_inicio=inicio, _largura=trilho)
+            ctx = SimpleNamespace(scene=self.cena,
+                                  area=SimpleNamespace(tag_redraw=lambda: None))
+            for posicao, esperado in ((inicio, 2), (inicio + trilho, 8)):
+                addon.OBJECT_OT_interagir_gaveta._atualizar(op, ctx, posicao)
+                self.assertEqual(self.cena.chapa_tam_bloco, esperado)
 
     def test_medidas_estreitas_e_limite_da_rolagem(self):
         largura, altura = 190, 400

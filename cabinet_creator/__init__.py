@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (77, 0, 0),
+    "version": (78, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -4309,6 +4309,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
                           ('modo', nome.upper(), modo == nome.upper())))
         y -= 33
     if campos:
+        # Campos tem 37 px de altura; afastar das abas de modo acima.
+        y -= 8
         escala_ui = max(1.0, context.preferences.system.ui_scale)
         largura_logica = largura / escala_ui
         colunas = (len(campos) if largura_logica >= 480 else
@@ -4394,9 +4396,9 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
                                   3, s.chapa_n3, indice,
                                   (s.chapa_n1, s.chapa_n2))
         if not filhos or s.chapa_n3:
-            itens.append((x, y, w, 22, 'Tamanho das miniaturas',
+            itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
                           ('slider', None)))
-            y -= 37
+            y -= 12
             daqui = [it for it in indice
                      if _niveis_de(it)[:2] == (s.chapa_n1, s.chapa_n2)
                      and (not filhos or _niveis_de(it)[2] == s.chapa_n3)]
@@ -4498,6 +4500,12 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
         _texto_gaveta(x + 8, y + h / 2, 'Foto indisponivel', 11)
 
 
+def _trilho_miniaturas_gaveta(x, y, w, h):
+    # Desenho e arraste usam os mesmos limites, sem incluir o rotulo.
+    rotulo = min(145, w * 0.52)
+    return x + rotulo + 8, y + h / 2, max(1, w - rotulo - 14)
+
+
 def _desenhar_gaveta(tela=False):
     context = bpy.context
     if context.region is None or context.region.type != 'WINDOW':
@@ -4546,6 +4554,19 @@ def _desenhar_gaveta(tela=False):
         if acao and acao[0] == 'wireframe':
             _desenhar_wireframe_gaveta(x, y, *acao[1:], escala=w / 160.0)
             continue
+        if acao and acao[0] == 'slider':
+            tx, ty, tw = _trilho_miniaturas_gaveta(x, y, w, h)
+            largura_rotulo = tx - x - 12
+            if largura_rotulo >= 135:
+                _texto_cabivel_gaveta(x, y + 8, rotulo, largura_rotulo, 11)
+            else:
+                _texto_cabivel_gaveta(x, y + 15, 'Tamanho das', largura_rotulo, 11)
+                _texto_cabivel_gaveta(x, y + 2, 'miniaturas', largura_rotulo, 11)
+            valor = (context.scene.chapa_tam_bloco - 2) / 6.0
+            _retangulo_gaveta(tx, ty - 1.5, tw, 3, tuple(cores.inner))
+            _retangulo_arredondado_gaveta(
+                tx + tw * valor - 6, ty - 6, 12, 12, 6, (*cores.text, 1))
+            continue
         if acao and acao[0] == 'preset':
             _botao_gaveta(x, y, w, h)
             lado = min(w - 10, h - 27)
@@ -4577,13 +4598,6 @@ def _desenhar_gaveta(tela=False):
         elif not _icone_acao_gaveta(acao):
             _texto_cabivel_gaveta(x + 9, y + (h - 12) / 2,
                                    rotulo, w - 18)
-        if acao and acao[0] == 'slider':
-            valor = (context.scene.chapa_tam_bloco - 2) / 6.0
-            _retangulo_gaveta(x + 9, y - 10, w - 18, 3,
-                               (0.36, 0.38, 0.41, 1))
-            _retangulo_arredondado_gaveta(
-                x + 9 + (w - 18) * valor - 6,
-                y - 15, 12, 12, 6, (*cores.text, 1))
     _retangulo_gaveta(0, altura - 48, largura, 48,
                        fundo)
     for x, y, w, h, rotulo, acao in widgets[:2]:
@@ -4732,7 +4746,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 continue
             dentro = wx <= x <= wx + w and wy <= y <= wy + h
             if acao and acao[0] == 'slider':
-                dentro = wx <= x <= wx + w and wy - 17 <= y <= wy + h
+                tx, ty, tw = _trilho_miniaturas_gaveta(wx, wy, w, h)
+                dentro = tx - 6 <= x <= tx + tw + 6 and abs(y - ty) <= h / 2
             if not dentro:
                 continue
             if acao is None:
@@ -4788,8 +4803,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     bpy.ops.object.cabinet_bloqueio(
                         pasta=it['pasta'], arquivo=it['arquivo'])
             elif acao[0] == 'slider':
-                self._inicio = wx + 9
-                self._largura = w - 18
+                self._inicio, _, self._largura = _trilho_miniaturas_gaveta(
+                    wx, wy, w, h)
                 self._atualizar(context, x)
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
