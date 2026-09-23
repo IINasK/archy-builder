@@ -236,12 +236,70 @@ class TestGridDeMedidas(unittest.TestCase):
                       inspect.getsource(addon.VIEW3D_GT_campo_gaveta.draw))
 
     def test_glow_e_o_mesmo_da_alca(self):
-        # O usuario pediu "glow igual o da alca": garantir que e' a
-        # MESMA funcao, nao uma copia que vai divergir.
+        # "Glow igual o da alca": tem que ser a MESMA funcao, nao uma
+        # copia que diverge na primeira alteracao.
         fonte = inspect.getsource(addon._desenhar_gaveta)
-        self.assertEqual(fonte.count('_glow_gaveta('), 2)
+        self.assertGreaterEqual(fonte.count('_glow_gaveta('), 2)
         halo = inspect.getsource(addon._glow_gaveta)
         self.assertIn('((6, 0.025), (4, 0.045), (2, 0.07))', halo)
+
+    def test_glow_liga_o_proprio_blend(self):
+        # REGRESSAO: blf.draw deixa o estado de blend alterado, entao
+        # o halo do SEGUNDO widget em diante saia opaco -- um bloco
+        # branco por cima do texto (visto em Altura e Profundidade).
+        # O halo nao pode depender de quem desenhou antes dele.
+        halo = inspect.getsource(addon._glow_gaveta)
+        self.assertIn("blend_set('ALPHA')", halo)
+        self.assertLess(halo.index("blend_set('ALPHA')"),
+                        halo.index('for margem'))
+
+    def test_glow_vai_antes_do_corpo_do_botao(self):
+        # Por cima, o halo lava o texto em vez de circundar o widget.
+        fonte = inspect.getsource(addon._desenhar_gaveta)
+        self.assertLess(fonte.index('_glow_gaveta(x, y, w, h, 4'),
+                        fonte.index('_botao_gaveta(x, y, w, h, ativo=ativo'))
+
+    def test_todo_botao_tem_chave_de_realce(self):
+        # O glow vale para QUALQUER botao: todo verbo clicavel precisa
+        # de uma chave, e so' a decoracao pode ficar sem.
+        bpy.ops.mesh.primitive_cube_add()
+        cena = bpy.context.scene
+        cena.cabinet_aba = 'MODULOS'
+        cena.chapa_bib_aberta = True
+        cena.chapa_n1 = 'Armarios'
+        sem_chave = set()
+        for largura in (190, 320, 564):
+            for _x, _y, _w, _h, _r, acao in addon._widgets_gaveta(
+                    bpy.context, largura, 1200):
+                if acao and addon._chave_widget(acao) is None:
+                    sem_chave.add(acao[0])
+        self.assertEqual(sem_chave - {'wireframe', 'separador',
+                                      'nome_objeto', 'slider'}, set())
+
+    def test_chaves_de_realce_nao_colidem(self):
+        # Duas chaves iguais acenderiam os dois widgets juntos.
+        bpy.ops.mesh.primitive_cube_add()
+        cena = bpy.context.scene
+        cena.cabinet_aba = 'MODULOS'
+        cena.chapa_bib_aberta = True
+        cena.chapa_n1 = 'Armarios'
+        chaves = [addon._chave_widget(v[5]) for v in addon._widgets_gaveta(
+            bpy.context, 320, 1200) if addon._chave_widget(v[5])]
+        self.assertEqual(len(chaves), len(set(chaves)))
+
+    def test_hit_test_poupa_o_disco_do_icone(self):
+        # O gizmo do icone precisa continuar ganhando o pick em cima
+        # dele, senao o tooltip some. O glow cobre os dois porque soma
+        # os dois is_highlight.
+        teste = addon.VIEW3D_GT_campo_gaveta.test_select
+        giz = type('G', (), {'as_pointer': lambda self: 4242})()
+        addon._campos_gaveta[4242] = (10, 10, 200, 40, (110, 30, 13))
+        try:
+            self.assertEqual(teste(giz, None, (20, 30)), 0)
+            self.assertEqual(teste(giz, None, (110, 30)), -1)
+            self.assertEqual(teste(giz, None, (300, 30)), -1)
+        finally:
+            addon._campos_gaveta.clear()
 
 
 class TestContratoDosWidgets(unittest.TestCase):

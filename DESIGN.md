@@ -28,8 +28,7 @@ string com constantes `PX_*` — isso era remendo do UILayout.
 
 ## 2. As tres camadas
 
-Toda a UI passa por estas tres, nesta ordem. Misturar duas delas na
-mesma funcao e' o erro mais comum.
+Nesta ordem. Misturar duas na mesma funcao e' o erro mais comum.
 
 | Camada | Funcao | Responsabilidade |
 |---|---|---|
@@ -37,15 +36,10 @@ mesma funcao e' o erro mais comum.
 | Desenho | `_desenhar_gaveta` | pinta o que o layout decidiu |
 | Evento | `OBJECT_OT_interagir_gaveta` | despacha o clique |
 
-`_widgets_gaveta(context, largura, altura)` devolve uma lista de
-tuplas de **exatamente 6 elementos**:
-
-```python
-(x, y, w, h, rotulo, acao)
-```
-
-`x`/`y` em pixels da regiao, origem no canto inferior esquerdo.
-`acao` e' `None` (decorativo) ou uma tupla cujo `[0]` e' o **verbo**.
+`_widgets_gaveta(context, largura, altura)` devolve tuplas de
+**exatamente 6 elementos**: `(x, y, w, h, rotulo, acao)`. `x`/`y` em
+pixels da regiao, origem embaixo a esquerda; `acao` e' `None`
+(decorativo) ou uma tupla cujo `[0]` e' o **verbo**.
 
 O layout e' **puro**: nao desenha, nao le evento, nao escreve em
 `bpy.data`. Por isso da' para testa-lo sem abrir janela.
@@ -55,12 +49,12 @@ O layout e' **puro**: nao desenha, nao le evento, nao escreve em
 1. Em `_widgets_gaveta`, faca `itens.append((x, y, w, h, rotulo, acao))`
    e desca `y` pela altura mais o respiro (ver secao 4).
 2. Use um **verbo ja' existente** se couber. Verbo novo precisa entrar
-   em `VERBOS` no teste de estrutura — o teste existe justamente para
-   te obrigar a confirmar que nao e' duplicata de um que ja' ha'.
-3. Em `_desenhar_gaveta`, trate o verbo no laco. Sem tratamento
-   explicito ele cai no `_botao_gaveta` generico, que costuma bastar.
-4. Em `OBJECT_OT_interagir_gaveta.modal`/`execute`, trate o clique.
-   Verbo decorativo entra na lista que retorna `{'FINISHED'}` sem agir.
+   em `VERBOS` no teste de estrutura, que existe para te obrigar a
+   confirmar que nao e' duplicata — e em `_chave_widget`, se acender.
+3. Em `_desenhar_gaveta`, trate o verbo no laco. Sem tratamento ele
+   cai no `_botao_gaveta` generico, que costuma bastar.
+4. Em `OBJECT_OT_interagir_gaveta`, trate o clique. Verbo decorativo
+   entra na lista que retorna `{'FINISHED'}` sem agir.
 5. Precisa de icone? Secao 7.
 
 ## 4. Metricas
@@ -95,9 +89,8 @@ Texto: `_texto_gaveta` para rotulo fixo, `_texto_cabivel_gaveta` para
 qualquer texto que possa nao caber — ele reduz a fonte de 12 ate' 9 e
 so' entao corta com reticencias.
 
-Ao abreviar rotulo com contagem, use `_abreviar` **so' no nome** e
-concatene o sufixo depois: `Armarios (3)` vira `arm (3)`, jamais
-`Armarios (`. A contagem nunca e' o pedaco cortado.
+Ao abreviar rotulo com contagem, use `_abreviar` **so' no nome**:
+`Armarios (3)` vira `arm (3)`, nunca `Armarios (`.
 
 ## 6. Responsividade
 
@@ -112,11 +105,10 @@ Os cortes sao por **largura logica**:
 
 Botoes de Montagem: `colunas = min(3, max(1, w // 36))`.
 
-A gaveta **para de crescer em 564 px** (`_LARGURA_MAX_GAVETA`). Texto
-em coluna larga demais fica ilegivel e a miniatura vira faixa. Como
+A gaveta **para de crescer em 564 px** (`_LARGURA_MAX_GAVETA`): texto
+em coluna larga fica ilegivel e a miniatura vira faixa. Como
 `Area.width` e' somente leitura, quem corrige e' o timer
-`_limitar_largura_gaveta`, **depois** do resize — nunca um modal
-disputando evento com o usuario.
+`_limitar_largura_gaveta`, **depois** do resize — nunca um modal.
 
 Regra de ouro, verificada por teste: nenhum widget pode terminar fora
 de `min(largura - 12, 552)`.
@@ -136,39 +128,47 @@ concordar na posicao. Icone deslocado costuma ser `matrix_basis` em
 
 Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
 caixa envolvente do alvo **na viewport vizinha** e acende as quatro
-arestas do eixo daquele campo: ve-se o que vai mudar antes de mudar.
+arestas do eixo daquele campo. Tres partes que precisam concordar:
 
-Tres partes, que precisam concordar:
-
-1. `EIXOS_MEDIDA[modo][rotulo]` diz qual eixo o campo move. Rotulo novo
-   sem entrada aqui nao acende nada.
+1. `EIXOS_MEDIDA[modo][rotulo]` diz qual eixo o campo move. Rotulo sem
+   entrada aqui nao acende nada.
 2. `_caixa_da_medida` monta os 8 cantos. Em `INDIVIDUAL` a caixa e'
-   **orientada pela chapa**, porque girada a Espessura dela nao e' a
-   vertical do mundo; nos outros modos e' alinhada ao mundo.
+   **orientada pela chapa**: girada, a Espessura dela nao e' a vertical
+   do mundo. Nos outros modos e' alinhada ao mundo.
 3. `_desenhar_grid_medidas`, handler **`POST_VIEW`** — a caixa vive em
-   coordenada de mundo, junto da cena, nao em coordenada de tela.
+   coordenada de mundo, junto da cena.
 
-O hover vem de `VIEW3D_GT_campo_gaveta`, um Gizmo invisivel por campo,
-pelo mesmo motivo da alca (secao 9). Ele repassa o clique a
-`cabinet_interagir_gaveta`, que ja' trata a area inteira. O glow do
-campo e o da alca sao a **mesma funcao** (`_glow_gaveta`): nao duplique
-a receita do halo, ela diverge na primeira alteracao.
+O hover vem de `VIEW3D_GT_campo_gaveta`, um Gizmo invisivel por
+widget, pelo mesmo motivo da alca (secao 9).
+
+**O glow vale para QUALQUER botao**, nao so' os campos de medida.
+`_chave_widget(acao)` da' a identidade de cada um (None = decoracao,
+nao acende) e `_glow_gaveta` pinta o halo -- a mesma funcao da alca,
+nunca uma copia. Duas regras aprendidas na marra:
+
+- O halo vai **antes** do corpo do botao. Por cima, ele lava o texto.
+- `_glow_gaveta` liga o **proprio** `blend_set('ALPHA')`, porque
+  `blf.draw` deixa o estado alterado e o halo sai OPACO a partir do
+  segundo widget. Vale para todo desenho seu com alfa apos um texto.
+
+Widget com icone tem dois gizmos sobrepostos: o do icone (tooltip e
+clique) e o retangular (hover). O retangular exclui o disco do icone,
+para nao roubar o pick; o glow soma os dois `is_highlight`.
 
 ## 9. Nunca faca
 
 - **Cor literal** no lugar do tema (secao 5).
-- **Operador modal persistente** para capturar clique. Modal roubaria
-  evento de outros add-ons. Clique se resolve com Gizmo + `test_select`
-  (a alca e os campos de medida sao o modelo a copiar). Modal so'
-  para interacao transitoria: arraste de slider e edicao de campo,
-  que terminam sozinhos.
-- **Deixar estado de GPU ligado.** Todo caminho de saida de
-  `_desenhar_gaveta` fecha com `gpu.state.blend_set('NONE')`.
+- **Operador modal persistente** para capturar clique: roubaria evento
+  de outros add-ons. Use Gizmo + `test_select` (a alca e' o modelo).
+  Modal so' para interacao transitoria — arraste de slider, edicao de
+  campo — que termina sozinha.
+- **Deixar estado de GPU ligado**, ou supor o estado que veio de
+  antes. Todo caminho de saida de `_desenhar_gaveta` fecha com
+  `blend_set('NONE')`, e quem desenha com alfa liga o seu.
 - **Desenhar a mesma coisa em dois lugares.** O Gizmo da alca tem
   `draw()` vazio de proposito: quem pinta e' o `POST_PIXEL`. Dois
   desenhos = alca dobrada.
-- **Duplicar geometria entre desenho e hit-test.** Se mudar o
-  retangulo da alca, mude `test_select` junto — ha' teste para isso.
+- **Duplicar geometria entre desenho e hit-test** — ha' teste disso.
 - **Estimar largura de texto.** Use `blf.dimensions()`.
 
 ## 10. Antes de entregar
@@ -179,9 +179,9 @@ a receita do halo, ela diverge na primeira alteracao.
 3. Conferir no tema claro e no escuro.
 4. Incrementar `bl_info["version"]`.
 
-Captura vale mais que leitura de codigo aqui: `bpy.ops.screen.screenshot()`
-num Blender de verdade pega defeito que o teste nao pega — traco
-pontilhado, texto cortado, icone fora do lugar.
+Captura vale mais que leitura de codigo aqui:
+`bpy.ops.screen.screenshot()` num Blender de verdade pega o que o
+teste nao pega — halo opaco, texto cortado, icone fora do lugar.
 
 ## 11. Alternativas ja' avaliadas e RECUSADAS
 

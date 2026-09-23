@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (80, 0, 0),
+    "version": (81, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -4560,10 +4560,16 @@ def _valor_realce(context, nome):
 
 
 def _glow_gaveta(x, y, w, h, raio, realce, cor, esquerda_reta=False):
-    """Halo do widget aceso. Mesma receita da alca, por isso os campos
-    de medida e a alca acendem identicos."""
+    """Halo do widget aceso. Um so' lugar, para alca e botoes acenderem
+    identicos.
+
+    Liga o ALPHA por conta propria: `blf.draw` mexe no estado de blend
+    e, sem isto, o halo do segundo widget em diante saia OPACO -- um
+    bloco branco cobrindo o texto do botao.
+    """
     if realce <= 0.0:
         return
+    gpu.state.blend_set('ALPHA')
     for margem, alfa in ((6, 0.025), (4, 0.045), (2, 0.07)):
         _retangulo_arredondado_gaveta(
             x - margem, y - margem, w + 2 * margem, h + 2 * margem,
@@ -4601,6 +4607,34 @@ ARESTAS_EIXO = (
 _handler_grid = [None]
 _realce_medida = [None]      # rotulo do campo aceso, ou None
 _campos_gaveta = {}          # ponteiro do gizmo -> retangulo do campo
+
+
+def _chave_widget(acao):
+    """Identidade estavel do widget, usada para guardar o realce dele.
+
+    Devolve None para o que NAO e' botao (decoracao, rotulo, trilho do
+    slider): essas coisas nao acendem.
+    """
+    if not acao:
+        return None
+    verbo = acao[0]
+    if verbo in {'wireframe', 'separador', 'nome_objeto', 'slider'}:
+        return None
+    if verbo == 'medida':
+        return 'medida:' + acao[3]
+    if verbo in {'aba', 'modo'}:
+        return '%s:%s' % (verbo, acao[1])
+    if verbo == 'operador':
+        return 'op:' + acao[1]
+    if verbo == 'navegar':
+        return 'nav:%s:%s' % (acao[1], acao[2])
+    if verbo == 'rolar_nivel':
+        return 'rol:%s:%s' % (acao[1], acao[2])
+    if verbo == 'preset':
+        return 'preset:%s' % acao[1]['arquivo']
+    if verbo == 'item':
+        return 'item:%s:%s' % (acao[1]['arquivo'], acao[2])
+    return verbo
 
 
 def _cantos_caixa(origem, u, v, w):
@@ -4717,12 +4751,17 @@ def _desenhar_grid_medidas():
 
 
 class VIEW3D_GT_campo_gaveta(Gizmo):
-    """Hit-test invisivel de um campo de medida.
+    """Hit-test invisivel sobre o retangulo de UM widget da gaveta.
 
     Existe so' para ganhar `is_highlight`: o desenho da gaveta e' GPU e
     nao recebe evento de mouse, e um operador modal persistente roubaria
-    evento de outros add-ons. O clique e' repassado ao mesmo operador
-    que ja' trata a area inteira.
+    evento de outros add-ons. O clique cai no mesmo operador que a
+    keymap ja' dispara para a area inteira, entao nada muda ao clicar.
+
+    Quando o widget tem icone, o disco do `GIZMO_GT_button_2d` fica de
+    FORA deste hit-test: assim o gizmo do icone continua ganhando o
+    pick ali e o tooltip dele nao se perde. O glow cobre os dois casos
+    porque soma os dois `is_highlight`.
     """
     bl_idname = 'VIEW3D_GT_campo_gaveta'
 
@@ -4730,12 +4769,18 @@ class VIEW3D_GT_campo_gaveta(Gizmo):
         pass
 
     def test_select(self, context, location):
-        r = _campos_gaveta.get(self.as_pointer())
-        if not r:
+        alvo = _campos_gaveta.get(self.as_pointer())
+        if not alvo:
             return -1
-        x, y, w, h = r
-        return 0 if x <= location[0] <= x + w and y <= location[1] <= y + h \
-            else -1
+        x, y, w, h, icone = alvo
+        px, py = location
+        if not (x <= px <= x + w and y <= py <= y + h):
+            return -1
+        if icone is not None:
+            cx, cy, raio = icone
+            if (px - cx) ** 2 + (py - cy) ** 2 <= raio * raio:
+                return -1
+        return 0
 
 
 def _desenhar_gaveta(tela=False):
@@ -4818,6 +4863,12 @@ def _desenhar_gaveta(tela=False):
             _texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
             continue
         ativo = bool(acao and acao[0] in {'navegar', 'modo'} and acao[-1])
+        # O halo vai ANTES do corpo do botao, como na alca: por cima
+        # ele lavaria o texto em vez de circundar o widget.
+        chave = _chave_widget(acao)
+        if chave:
+            _glow_gaveta(x, y, w, h, 4, _valor_realce(context, chave),
+                         cores.text)
         if not acao or acao[0] not in {'chapa', 'auto', 'nome_objeto'}:
             _botao_gaveta(x, y, w, h, ativo=ativo, secao=acao is None)
         if acao and acao[0] in {'chapa', 'auto'}:
@@ -4826,9 +4877,6 @@ def _desenhar_gaveta(tela=False):
             _texto_cabivel_gaveta(x, y + 7, rotulo, w, 11)
             continue
         if acao and acao[0] == 'medida':
-            _glow_gaveta(x, y, w, h, 4,
-                         _valor_realce(context, 'medida:' + acao[3]),
-                         cores.text)
             edicao = _edicao_gaveta[0]
             editando = (edicao is not None and edicao['area'] == context.area.as_pointer()
                         and edicao['propriedade'] == acao[2])
@@ -4848,6 +4896,8 @@ def _desenhar_gaveta(tela=False):
     _retangulo_gaveta(0, altura - 48, largura, 48,
                        fundo)
     for x, y, w, h, rotulo, acao in widgets[:2]:
+        _glow_gaveta(x, y, w, h, 4,
+                     _valor_realce(context, _chave_widget(acao)), cores.text)
         _botao_gaveta(x, y, w, h,
                        ativo=context.scene.cabinet_aba == acao[1])
         _texto_cabivel_gaveta(x + 9, y + 8, rotulo, w - 18)
@@ -5198,44 +5248,61 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
         alca.use_tooltip = True
         self.alca = alca
 
-    def _preparar_campos(self, context):
-        """Um gizmo invisivel por campo de medida, so' para ter hover.
+    def _preparar_hover(self, context, acesos_por_icone):
+        """Um gizmo invisivel por widget clicavel, so' para ter hover.
 
-        O rotulo do campo sob o mouse (ou em edicao) vira o realce que
-        acende o eixo correspondente na viewport vizinha.
+        Vale para QUALQUER botao da gaveta, nao so' os campos de
+        medida: o retangulo sob o mouse acende com o mesmo glow da
+        alca. `acesos_por_icone` traz os widgets cujo gizmo de icone ja'
+        esta' destacado, porque nesses o disco do icone fica fora do
+        hit-test daqui (para nao roubar o tooltip dele).
         """
-        medidas = [v for v in _widgets_gaveta(
+        # A faixa de 48 px do topo pertence ao cabecalho; so' as abas
+        # sao clicaveis ali. Mesmo criterio do operador de clique.
+        alvos = [v for v in _widgets_gaveta(
             context, context.region.width, context.region.height)
-            if v[5] and v[5][0] == 'medida' and v[1] >= 0
-            and v[1] + v[3] < context.region.height - 48]
-        while len(self.campos) < len(medidas):
+            if _chave_widget(v[5]) and v[1] >= 0
+            and (v[5][0] == 'aba'
+                 or v[1] + v[3] < context.region.height - 48)]
+        while len(self.campos) < len(alvos):
             campo = self.gizmos.new('VIEW3D_GT_campo_gaveta')
-            # o clique volta para quem ja' trata a area inteira, entao
-            # abrir o campo para edicao continua funcionando igual
+            # O clique cai no mesmo operador que a keymap ja' dispara
+            # para a area inteira, entao clicar continua igual.
             campo.target_set_operator('object.cabinet_interagir_gaveta')
             campo.use_tooltip = False
             self.campos.append(campo)
 
+        escala = max(1.0, context.preferences.system.ui_scale)
         _campos_gaveta.clear()
-        edicao = _edicao_gaveta[0]
-        sob_o_mouse = None
-        for campo, (x, y, w, h, _rotulo, acao) in zip(self.campos, medidas):
+        acesos = set(acesos_por_icone)
+        for campo, (x, y, w, h, _rotulo, acao) in zip(self.campos, alvos):
             campo.hide = False
-            _campos_gaveta[campo.as_pointer()] = (x, y, w, h)
+            icone = None
+            if _icone_acao_gaveta(acao):
+                cx = x + (10 if acao[0] in {'chapa', 'auto'} else w / 2)
+                icone = (cx, y + h / 2, 13.0 * escala)
+            _campos_gaveta[campo.as_pointer()] = (x, y, w, h, icone)
             if campo.is_highlight:
-                sob_o_mouse = acao[3]
+                acesos.add(_chave_widget(acao))
 
         # Edicao aberta manda mais que o mouse: com o campo em foco o
         # usuario ja' esta' digitando aquela medida, ainda que o cursor
         # tenha saido de cima dele.
-        ativo = sob_o_mouse
+        medida_ativa = next(
+            (v[5][3] for v in alvos if v[5][0] == 'medida'
+             and _chave_widget(v[5]) in acesos), None)
+        edicao = _edicao_gaveta[0]
         if edicao is not None:
-            ativo = next((v[5][3] for v in medidas
-                          if v[5][2] == edicao['propriedade']), None)
-        for _campo, (_x, _y, _w, _h, _rotulo, acao) in zip(self.campos,
-                                                           medidas):
-            _realcar(context, 'medida:' + acao[3], acao[3] == ativo)
-        _definir_realce_medida(ativo)
+            em_foco = next((v[5][3] for v in alvos if v[5][0] == 'medida'
+                            and v[5][2] == edicao['propriedade']), None)
+            if em_foco is not None:
+                medida_ativa = em_foco
+                acesos.add('medida:' + em_foco)
+
+        for _x, _y, _w, _h, _rotulo, acao in alvos:
+            chave = _chave_widget(acao)
+            _realcar(context, chave, chave in acesos)
+        _definir_realce_medida(medida_ativa)
 
     def draw_prepare(self, context):
         gaveta = _eh_area_gaveta(context)
@@ -5244,8 +5311,6 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
             botao.hide = True
         for campo in self.campos:
             campo.hide = True
-        if not gaveta:
-            _campos_gaveta.clear()
         if gaveta:
             widgets = [v for v in _widgets_gaveta(
                 context, context.region.width, context.region.height)
@@ -5265,8 +5330,11 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                     self.botoes.append(botao)
                 self._assinatura = assinatura
             cores, _ = _cores_gaveta()
+            acesos_por_icone = set()
             for botao, (x, y, w, h, _, acao) in zip(self.botoes, widgets):
                 botao.hide = False
+                if botao.is_highlight:
+                    acesos_por_icone.add(_chave_widget(acao))
                 botao.color = cores.text
                 botao.alpha = 1
                 botao.color_highlight = cores.text_sel
@@ -5293,7 +5361,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                     if indice == 0:
                         op.tipo = it.get('tipo', 'modulo')
                     botao.hide_select = indice == 1 and item_bloqueado(it)
-            self._preparar_campos(context)
+            self._preparar_hover(context, acesos_por_icone)
             _desenhar_gaveta(tela=True)
             return
         _realcar(context, 'alca', self.alca.is_highlight)
