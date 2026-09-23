@@ -193,12 +193,14 @@ class TestGaveta(unittest.TestCase):
         for prop in ('porta_frente', 'porta_orientacao', 'porta_abertura',
                      'porta_folhas', 'porta_espessura', 'porta_dobradica'):
             self.assertIn(prop, alvo, prop)
+        # Individual/Grupo nao aparece aqui: edita-se o conjunto das
+        # folhas, nunca uma peca isolada.
+        self.assertNotIn('modo', {v[5][0] for v in self.portas() if v[5]})
         self.assertEqual(alvo['porta_espessura'],
                          [str(int(e)) for e in addon.ESPESSURAS_PERMITIDAS])
-        # a dobradica exige escolha: ESCOLHER nao e' oferecido
+        # ESCOLHER nao e' oferecido: a fila nunca fica sem nenhum aceso
         self.assertNotIn('ESCOLHER', alvo['porta_dobradica'])
-        rotulos = [v[4] for v in self.portas()]
-        self.assertIn('Escolha a dobradica', rotulos)
+        self.assertIn(self.cena.porta_dobradica, alvo['porta_dobradica'])
 
     def test_escolha_escreve_na_cena(self):
         acao = next(v[5] for v in self.portas()
@@ -460,22 +462,36 @@ class TestGaveta(unittest.TestCase):
                     if v[5] and v[5][0] == 'portas')
 
     def test_botao_diz_o_que_falta_em_vez_de_nao_fazer_nada(self):
-        # REGRESSAO: a dobradica nasce em ESCOLHER, o operador recusava
-        # e o aviso nao chegava na gaveta -- clicar parecia nao fazer
-        # nada. Agora o proprio botao carrega o motivo.
-        self.assertEqual(self.cena.porta_dobradica, 'ESCOLHER')
-        rotulo, acao = self.botao_portas()
-        self.assertTrue(acao[3])
-        self.assertIn('dobradica', acao[3])
-        self.assertEqual(rotulo, acao[3])
-
-        self.cena.porta_dobradica = 'RETA'
+        # REGRESSAO: quando o operador recusa, o aviso dele nao chega
+        # na gaveta -- clicar parecia nao fazer nada. O botao carrega o
+        # motivo.
         rotulo, acao = self.botao_portas()
         self.assertEqual(acao[3], '')
         self.assertEqual(rotulo, 'Criar Portas')
 
+        self.cena.porta_folga_mm = 5000.0
+        rotulo, acao = self.botao_portas()
+        self.assertTrue(acao[3])
+        self.assertEqual(rotulo, acao[3])
+
+    def test_dobradica_nasce_escolhida(self):
+        # "Nao e' possivel nao ter nenhum campo ativado": o padrao
+        # obrigatorio deixava o botao de criar nascer bloqueado.
+        self.assertEqual(self.cena.porta_dobradica, 'RETA')
+        self.assertEqual(addon._motivo_portas(self.cena), '')
+
+    def test_toda_fila_de_segmentos_tem_um_aceso(self):
+        for aberturas in ('GIRO', 'BASCULANTE', 'CORRER'):
+            self.cena.porta_abertura = aberturas
+            por_prop = {}
+            for *_, acao in self.portas():
+                if acao and acao[0] == 'escolha':
+                    por_prop.setdefault(acao[1], []).append(acao[3])
+            for prop, acesos in por_prop.items():
+                self.assertEqual(sum(1 for a in acesos if a), 1,
+                                 '%s em %s' % (prop, aberturas))
+
     def test_botao_acende_enquanto_marca_o_vao(self):
-        self.cena.porta_dobradica = 'RETA'
         _, acao = self.botao_portas()
         self.assertFalse(acao[2])
         addon._apanhando_vao[0] = True
@@ -489,7 +505,6 @@ class TestGaveta(unittest.TestCase):
         self.assertIn("acao[0] == 'portas' and acao[2]", fonte)
 
     def test_motivo_portas_reflete_a_aba(self):
-        self.cena.porta_dobradica = 'RETA'
         self.assertEqual(addon._motivo_portas(self.cena), '')
         self.cena.porta_folga_mm = 5000.0
         self.assertTrue(addon._motivo_portas(self.cena))

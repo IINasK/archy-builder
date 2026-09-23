@@ -140,6 +140,12 @@ vincular_blender.py           # junction para desenvolvimento
    porta; em Portas, so' a porta (modo `PORTA`, com L/A/E). No modo
    INDIVIDUAL nunca ha' porta -- desenhar folhas dentro de uma chapa
    solta quebrava a visualizacao.
+0d. Nenhuma fila de segmentos pode ficar sem NENHUMA opcao acesa. Por
+   isso a dobradica nasce em RETA, na Scene e no operador. A aba
+   Portas nao mostra Individual/Grupo: ali se edita o conjunto das
+   folhas. No modo INDIVIDUAL a espessura da chapa ganha um minimo de
+   desenho (`_espessura_visivel`), senao 18 mm ao lado de 2000 sai
+   sub-pixel e o preview vira uma folha de papel.
 0c. A face e' AUTOMATICA por padrao (`_frente_automatica`): o eixo que
    NAO varia entre os dois pontos e' a normal, e o lado sai da
    comparacao com o centro do movel. Por isso a porta nasce em
@@ -273,7 +279,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 89.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 90.0.0).
 
 ## Git
 

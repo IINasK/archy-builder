@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (89, 0, 0),
+    "version": (90, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -2025,6 +2025,7 @@ MEDIDAS_LARGURA_COLUNA_UNICA_PX = 210.0
 MEDIDAS_OCUPACAO_COLUNA_UNICA = 0.80
 MEDIDAS_LARGURA_CONTROLES_UI = 4.5
 WIREFRAME_CACHE_MAX = 48
+MINIMO_ESPESSURA_WIREFRAME = 0.07
 WIREFRAME_PREFIXO = "wireframe:v15:"
 _wireframe_ordem = []
 
@@ -4079,7 +4080,7 @@ class OBJECT_OT_portas_parametricas(Operator):
     folhas: IntProperty(name="Folhas", default=1, min=1, max=4,
                         update=_limitar_folhas_portas)
     dobradica: EnumProperty(name="Dobradica / posicionamento",
-                            items=ITENS_DOBRADICA, default='ESCOLHER')
+                            items=ITENS_DOBRADICA, default='RETA')
     espessura_mm: EnumProperty(
         name="Espessura da porta (mm)", default='18',
         items=[(str(int(e)), str(int(e)), "mm") for e in ESPESSURAS_PERMITIDAS])
@@ -4151,8 +4152,6 @@ class OBJECT_OT_portas_parametricas(Operator):
                 # Edicao; sem eles, cai na captura por vertices.
                 if not self.capturado:
                     self._capturar(context)
-                # Toda instalacao exige uma escolha, mesmo apos usar F3 de novo.
-                self.dobradica = 'ESCOLHER'
         except (ValueError, KeyError) as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
@@ -4864,16 +4863,43 @@ def _botao_gaveta(x, y, w, h, ativo=False, secao=False):
 
 
 def _grupos_de_porta(obj):
-    """Grupos de porta ligados ao que esta' selecionado."""
+    """Grupos de porta ligados ao que esta' selecionado.
+
+    No cenario 1 (objeto generico) a porta nao tem vinculo com nada:
+    so' aparece na SELECAO. Sem olhar para ela, o preview ficava sem
+    porta nenhuma logo depois de criar.
+    """
     grupo = _grupo_portas(obj)
     if grupo is not None:
         return [grupo]
     if obj is not None and MARCA_CONJUNTO in obj:
-        return _portas_do_conjunto(obj)
+        vinculados = _portas_do_conjunto(obj)
+        if vinculados:
+            return vinculados
     modulo = _modulo_da_chapa(obj)
     if modulo is not None:
-        return _portas_do_conjunto(modulo)
-    return []
+        vinculados = _portas_do_conjunto(modulo)
+        if vinculados:
+            return vinculados
+    achados = []
+    for selecionado in getattr(bpy.context, 'selected_objects', ()):
+        alvo = _grupo_portas(selecionado)
+        if alvo is not None and alvo not in achados:
+            achados.append(alvo)
+    return achados
+
+
+def _espessura_visivel(dimensoes):
+    """Engrossa a aresta fina o bastante para ela aparecer.
+
+    Uma chapa de 18 mm ao lado de 2000 mm da menos de 1% do desenho --
+    sai sub-pixel e o preview parece uma folha de papel. O desenho e'
+    um esquema, entao a espessura ganha um minimo; as outras duas
+    medidas ficam intactas.
+    """
+    largura, espessura, profundidade = dimensoes
+    minimo = max(largura, profundidade) * MINIMO_ESPESSURA_WIREFRAME
+    return (largura, max(espessura, minimo), profundidade)
 
 
 def _folhas_para_wireframe(obj, modo):
@@ -5046,7 +5072,7 @@ def _rodape_medidas_gaveta(itens, x, y, w, obj, modo):
 
 
 def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
-                          sincronizar=True):
+                          sincronizar=True, modos=True):
     """Medidas, wireframe e rodape -- o bloco fixo das DUAS abas.
 
     Saber o que esta' selecionado e quanto mede vale tanto montando o
@@ -5057,7 +5083,10 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
     obj = context.object
     y += 23
     modo, campos, dono = _medidas_gaveta(context)
-    if obj is not None and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj):
+    # Na aba Portas edita-se o conjunto das folhas, nunca uma peca
+    # isolada: alternar Individual/Grupo ali nao significa nada.
+    if (modos and obj is not None
+            and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj)):
         for i, nome in enumerate(('Individual', 'Grupo')):
             itens.append((x + i * (metade + 6), y, metade, 25, nome,
                           ('modo', nome.upper(), modo == nome.upper())))
@@ -5078,7 +5107,8 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
                           ('medida', dono, prop, nome, valor)))
         valores = [v for _, v, _ in campos]
         if modo == 'INDIVIDUAL':
-            dimensoes = (valores[0], valores[2], valores[1])
+            dimensoes = _espessura_visivel(
+                (valores[0], valores[2], valores[1]))
         else:
             dimensoes = tuple(valores[:3])
         y -= (math.ceil(len(campos) / colunas) - 1) * 43 + 50
@@ -5257,8 +5287,9 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
         itens.append((x + i * (metade + 6), altura - 40, metade, 29,
                       rotulo, ('aba', acao)))
     y = altura - 105 + _rolagem
+    de_modulos = s.cabinet_aba != 'PORTAS'
     y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
-                              sincronizar=s.cabinet_aba != 'PORTAS')
+                              sincronizar=de_modulos, modos=de_modulos)
     if s.cabinet_aba == 'PORTAS':
         return _aba_portas_gaveta(context, itens, x, y, w, s)
     itens.append((x, y, w, 23, 'Montagem', None))
@@ -7045,9 +7076,12 @@ def register():
     S.porta_abertura = EnumProperty(name="Abertura", items=ITENS_ABERTURA,
                                     default='GIRO',
                                     update=_limitar_folhas_cena)
+    # Reta e' o padrao: nenhuma fila de segmentos pode ficar sem
+    # nenhuma opcao acesa, e obrigar a escolha so' fazia o botao de
+    # criar nascer bloqueado.
     S.porta_dobradica = EnumProperty(name="Dobradica",
                                      items=ITENS_DOBRADICA,
-                                     default='ESCOLHER')
+                                     default='RETA')
     # Dupla e' o padrao de armario; uma folha so' e' a excecao.
     S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=4)
     S.porta_espessura = EnumProperty(
