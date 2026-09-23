@@ -53,6 +53,10 @@ montagem e biblioteca em cascata com fotos e acoes por preset. A barra de
 tamanho recebe arraste. O posicionador pode ser iniciado na foto ou nome
 do preset e acompanha o cursor ate' a viewport principal. O painel N nao
 e' usado pelo addon; continua disponivel para os demais paineis do Blender.
+O conteudo da gaveta limita sua largura util, e as fotos da biblioteca
+mantem formato quadrado em qualquer largura. A rolagem para no ultimo
+controle, sem deixar uma area vazia acima do menu. O fundo cinza das fotos
+e' aplicado so' na interface; os PNG originais permanecem transparentes.
 
 1. Selecione a malha do movel ou as duas chapas que contem os cantos.
    Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.

@@ -54,6 +54,29 @@ class TestGaveta(unittest.TestCase):
         tipos = [a[0] for *_, a in self.widgets() if a]
         self.assertIn('portas', tipos)
 
+    def test_responsividade_das_miniaturas(self):
+        for largura in (190, 320, 620, 2056):
+            widgets = addon._widgets_gaveta(bpy.context, largura, 1200)
+            fotos = [v for v in widgets if v[5] and v[5][0] == 'preset']
+            self.assertTrue(fotos)
+            for x, _y, w, h, _rotulo, _acao in fotos:
+                self.assertLessEqual(x + w, largura - 12 + 0.01)
+                self.assertAlmostEqual(w - 10, h - 27)
+
+    def test_medidas_estreitas_e_limite_da_rolagem(self):
+        largura, altura = 190, 400
+        inicio = addon._widgets_gaveta(bpy.context, largura, altura,
+                                       _rolagem=0)
+        medidas = [v for v in inicio if v[5] and v[5][0] == 'medida']
+        self.assertEqual(len({v[0] for v in medidas}), 1)
+        self.assertTrue(all(v[0] + v[2] <= largura - 12 for v in medidas))
+        limite = addon._limite_rolagem_gaveta(bpy.context, largura, altura)
+        self.assertGreater(limite, 0)
+        bpy.context.screen['cabinet_gaveta_rolagem'] = 9999
+        fim = addon._widgets_gaveta(bpy.context, largura, altura)
+        self.assertEqual(fim[2][1] - inicio[2][1], limite)
+        bpy.context.screen['cabinet_gaveta_rolagem'] = 0
+
 
 addon.register()
 suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestGaveta)
