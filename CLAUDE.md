@@ -122,6 +122,20 @@ vincular_blender.py           # junction para desenvolvimento
    preset nasce com preview vazia (icone generico no Asset Browser).
    Grave tambem `icon_size`/`icon_pixels_float`: so' `image_*` nao basta.
 
+### Portas
+
+1. O vao e' marcado em **Modo Objeto** pelo apanhador
+   (`cabinet_apanhar_vao`): ima nos vertices por distancia de TELA
+   (`RAIO_IMA_PX`), primeiro clique fixa um canto, a previa das folhas
+   segue o cursor e o segundo clique entrega os pontos a
+   `cabinet_portas` com `capturado=True`. A captura por Modo Edicao
+   (`_capturar_vertices_portas`) continua valendo para quem preferir.
+2. Os vertices sao lidos UMA vez, no invoke: reavaliar o depsgraph a
+   cada movimento do mouse derruba o quadro. Mexeu na cena, recomece.
+3. Os dois caminhos tiram a orientacao do vao do MESMO
+   `_referencia_do_par` (ancestral comum). Duplicar essa regra faz o
+   vao sair girado num dos caminhos.
+
 ### Medidas responsivas
 
 1. Qualquer selecao unica com volume expoe `Object.dimensions` editavel na
@@ -218,7 +232,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 82.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 83.0.0).
 
 ## Git
 

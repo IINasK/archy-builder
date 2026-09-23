@@ -286,6 +286,64 @@ class TestPortas(unittest.TestCase):
         self.assertEqual(dict(grupo['porta_parametros']), original)
         self.assertEqual([v.co for v in primeira.data.vertices], coords)
 
+    def test_vao_apanhado_em_modo_objeto_dispensa_edit_mode(self):
+        # Caminho do apanhador (`cabinet_apanhar_vao`): os pontos
+        # chegam prontos e o Modo Edicao nao entra na historia.
+        objetos = self.pontos(separados=True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        self.assertEqual(bpy.context.mode, 'OBJECT')
+
+        a = objetos[0].matrix_world @ objetos[0].data.vertices[0].co
+        b = objetos[1].matrix_world @ objetos[1].data.vertices[0].co
+        referencia, pai = addon._referencia_do_par(objetos[0], objetos[1])
+        resultado = bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=a, ponto_b=b,
+            referencia=tuple(v for linha in referencia for v in linha),
+            pai_nome=pai.name if pai is not None else '',
+            dobradica='RETA')
+        self.assertEqual(resultado, {'FINISHED'})
+        grupo = addon._grupo_portas(bpy.context.object)
+        self.assertIsNotNone(grupo)
+        folha = addon._folhas_portas(grupo)[0]
+        # 600 x 800 de vao, dobradica reta: cobre a lateral dos dois
+        # lados. Nos eixos LOCAIS da folha, X=largura, Y=altura e
+        # Z=espessura -- a altura nao e' o Z.
+        self.assertAlmostEqual(folha.dimensions.x, 0.636, places=4)
+        self.assertAlmostEqual(folha.dimensions.y, 0.836, places=4)
+        self.assertAlmostEqual(folha.dimensions.z, 0.018, places=4)
+
+    def test_referencia_do_par_usa_o_ancestral_comum(self):
+        # A mesma regra serve ao Modo Edicao e ao apanhador; se as duas
+        # divergirem, o vao sai girado num dos caminhos.
+        bpy.ops.object.empty_add()
+        empty = bpy.context.object
+        empty.rotation_euler = (0.0, 0.0, math.radians(30))
+        objetos = self.pontos(separados=True, pai=empty)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        referencia, pai = addon._referencia_do_par(objetos[0], objetos[1])
+        self.assertEqual(pai, empty)
+        esperado = pai.matrix_world.to_quaternion().to_matrix()
+        for linha_a, linha_b in zip(referencia, esperado):
+            for va, vb in zip(linha_a, linha_b):
+                self.assertAlmostEqual(va, vb, places=6)
+
+    def test_apanhador_so_roda_em_modo_objeto(self):
+        self.pontos()
+        self.assertEqual(bpy.context.mode, 'EDIT_MESH')
+        self.assertFalse(addon.OBJECT_OT_apanhar_vao_portas.poll(bpy.context))
+        bpy.ops.object.mode_set(mode='OBJECT')
+        self.assertTrue(addon.OBJECT_OT_apanhar_vao_portas.poll(bpy.context))
+
+    def test_ima_enxerga_os_vertices_em_mundo(self):
+        objetos = self.pontos(separados=True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        alvos = dict(addon._alvos_do_ima(bpy.context))
+        for obj in objetos:
+            self.assertIn(obj, alvos)
+            esperado = obj.matrix_world @ obj.data.vertices[0].co
+            self.assertAlmostEqual((alvos[obj][0] - esperado).length, 0.0,
+                                   places=6)
+
     def test_operador_limita_basculante_e_giro(self):
         grupo = self.criar(abertura='BASCULANTE', folhas=4, dobradica='RETA')
         self.assertEqual(len(addon._folhas_portas(grupo)), 1)

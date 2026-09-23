@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (82, 0, 0),
+    "version": (83, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -3271,19 +3271,27 @@ def _capturar_vertices_portas(context):
     if len(marcados) != 2:
         raise ValueError("Selecione exatamente 2 vertices no total")
 
-    # O ancestral comum fornece a orientacao do modulo, nunca a rotacao
-    # individual de uma lateral (o Z local dela e' a espessura).
+    referencia, pai = _referencia_do_par(marcados[0][0], marcados[1][0])
+    return marcados[0][1], marcados[1][1], referencia, pai
+
+
+def _referencia_do_par(obj_a, obj_b):
+    """Orientacao do vao a partir do ancestral comum das duas pecas.
+
+    E' o ancestral que da' os eixos do modulo; a rotacao individual de
+    uma lateral nao serve, porque o Z local dela e' a espessura.
+    """
     ancestrais = []
-    pai = marcados[0][0].parent
+    pai = obj_a.parent
     while pai is not None:
         ancestrais.append(pai)
         pai = pai.parent
-    pai = marcados[1][0].parent
+    pai = obj_b.parent
     while pai is not None and pai not in ancestrais:
         pai = pai.parent
     referencia = (pai.matrix_world.to_quaternion().to_matrix()
                   if pai is not None else Matrix.Identity(3))
-    return marcados[0][1], marcados[1][1], referencia, pai
+    return referencia, pai
 
 
 def _mapear_vao_portas(ponto_a, ponto_b, referencia, frente):
@@ -3422,6 +3430,248 @@ def _limitar_folhas_portas(self, context):
         self.folhas = limite
 
 
+# ==================================== APANHADOR DO VAO DAS PORTAS
+# Marcar o vao exigia entrar em Modo Edicao e selecionar 2 vertices em
+# duas chapas diferentes. Aqui o usuario fica em Modo Objeto: o cursor
+# ganha um ima que gruda no vertice mais proximo, o primeiro clique
+# fixa um canto e a previa das folhas acompanha o mouse ate' o segundo.
+RAIO_IMA_PX = 28.0          # alcance do ima, em pixels de tela
+TETO_VERTICES_IMA = 60000   # acima disto o ima desiste de um objeto
+
+# Parametros so' da PREVIA. Os de verdade o usuario ajusta no painel de
+# refazer, depois do segundo clique.
+PREVIA_PORTAS = {
+    'abertura': 'GIRO', 'folhas': 1, 'dobradica': 'RETA',
+    'espessura_mm': 18.0, 'lateral_mm': 18.0, 'folga_mm': 0.0,
+    'entre_folhas_mm': 2.0, 'afastamento_mm': 0.0,
+    'recuo_embutida_mm': 0.0, 'recuo_correr_mm': 30.0,
+    'sobreposicao_mm': 20.0, 'entre_planos_mm': 2.0,
+}
+
+ARESTAS_CAIXA = (
+    (0, 1), (1, 3), (3, 2), (2, 0),
+    (4, 5), (5, 7), (7, 6), (6, 4),
+    (0, 4), (1, 5), (2, 6), (3, 7),
+)
+
+
+def _alvos_do_ima(context):
+    """(objeto, vertices em MUNDO) de tudo que o ima pode pegar.
+
+    Os vertices sao lidos UMA vez, no invoke: reavaliar o depsgraph a
+    cada movimento do mouse derrubaria o quadro. Quem mexer na cena
+    durante a marcacao precisa recomecar -- e' o preco justo.
+    """
+    try:
+        dep = context.evaluated_depsgraph_get()
+    except Exception:
+        dep = None
+    alvos = []
+    for obj in context.visible_objects:
+        if obj.type != 'MESH':
+            continue
+        avaliado = obj.evaluated_get(dep) if dep is not None else obj
+        try:
+            malha = avaliado.to_mesh()
+        except Exception:
+            malha = None
+        if malha is None:
+            continue
+        try:
+            if 0 < len(malha.vertices) <= TETO_VERTICES_IMA:
+                m = obj.matrix_world
+                alvos.append((obj, [m @ v.co.copy() for v in malha.vertices]))
+        finally:
+            try:
+                avaliado.to_mesh_clear()
+            except Exception:
+                pass
+    return alvos
+
+
+class OBJECT_OT_apanhar_vao_portas(Operator):
+    """Marca os 2 cantos do vao na viewport, com ima nos vertices"""
+    bl_idname = "object.cabinet_apanhar_vao"
+    bl_label = "Apanhar Vao das Portas"
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+
+    # ------------------------------------------------ ima
+    def _mouse_na_regiao(self, event):
+        # O apanhador costuma ser disparado da gaveta, que e' outra
+        # area: mouse_region_* viria da gaveta, nao da viewport.
+        return Vector((event.mouse_x - self._regiao.x,
+                       event.mouse_y - self._regiao.y))
+
+    def _imantar(self, event):
+        alvo = self._mouse_na_regiao(event)
+        melhor, melhor_obj, melhor_d = None, None, RAIO_IMA_PX
+        for obj, vertices in self._alvos:
+            for co in vertices:
+                tela = view3d_utils.location_3d_to_region_2d(
+                    self._regiao, self._rv3d, co)
+                if tela is None:
+                    continue
+                d = (tela - alvo).length
+                if d < melhor_d:
+                    melhor, melhor_obj, melhor_d = co, obj, d
+        self._imantado = melhor
+        self._objeto_imantado = melhor_obj
+
+    # ------------------------------------------------ previa
+    def _previa(self):
+        """Caixas das folhas entre o ponto fixo e o ponto sob o cursor."""
+        if not self._pontos or self._imantado is None:
+            return []
+        a, obj_a = self._pontos[0]
+        referencia, _pai = _referencia_do_par(
+            obj_a, self._objeto_imantado or obj_a)
+        try:
+            largura, altura, matriz = _mapear_vao_portas(
+                a, self._imantado, referencia, self._frente)
+            folhas = _calcular_folhas_portas(largura, altura, PREVIA_PORTAS)
+        except (ValueError, KeyError):
+            return []
+        caixas = []
+        for l, alt, e, centro in folhas:
+            meia = Vector((l, alt, e)) / 2000.0
+            c = Vector(centro) / 1000.0
+            cantos = [matriz @ Vector((c.x + meia.x * sx,
+                                       c.y + meia.y * sy,
+                                       c.z + meia.z * sz))
+                      for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+            caixas.append(cantos)
+        return caixas
+
+    def _desenhar(self):
+        regiao = getattr(bpy.context, "region", None)
+        if regiao is None or regiao.as_pointer() != self._regiao_ptr:
+            return
+        tema = bpy.context.preferences.themes[0]
+        cor_ima = (*tema.view_3d.object_active, 1.0)
+        cor_previa = (*tema.user_interface.wcol_regular.text, 0.9)
+        linhas = []
+        for cantos in self._previa():
+            for i, j in ARESTAS_CAIXA:
+                linhas.extend((cantos[i], cantos[j]))
+        # a linha do primeiro canto ate' o cursor, para o gesto ter fio
+        if self._pontos and self._imantado is not None:
+            linhas.extend((self._pontos[0][0], self._imantado))
+        try:
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('NONE')
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            shader.bind()
+            if linhas:
+                gpu.state.line_width_set(1.6)
+                shader.uniform_float('color', cor_previa)
+                batch_for_shader(shader, 'LINES', {'pos': linhas}).draw(shader)
+            marcas = [p[0] for p in self._pontos]
+            if self._imantado is not None:
+                marcas.append(self._imantado)
+            if marcas:
+                gpu.state.point_size_set(11.0)
+                shader.uniform_float('color', cor_ima)
+                batch_for_shader(shader, 'POINTS',
+                                 {'pos': marcas}).draw(shader)
+        except Exception as e:
+            print("[Cabinet Creator] previa do vao:", e)
+        finally:
+            try:
+                gpu.state.line_width_set(1.0)
+                gpu.state.point_size_set(1.0)
+                gpu.state.blend_set('NONE')
+            except Exception:
+                pass
+
+    # ------------------------------------------------ ciclo
+    def _encerrar(self, context):
+        if self._handler is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handler, 'WINDOW')
+            self._handler = None
+        if self._area is not None:
+            self._area.tag_redraw()
+        context.window.cursor_modal_restore()
+
+    def invoke(self, context, event):
+        self._area = context.area
+        if _eh_area_gaveta(context):
+            self._area = next(
+                (a for a in context.screen.areas
+                 if a.type == 'VIEW_3D' and a != context.area
+                 and a.x > context.area.x and a.y == context.area.y), None)
+        if self._area is None or self._area.type != 'VIEW_3D':
+            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            return {'CANCELLED'}
+        self._regiao = next((r for r in self._area.regions
+                             if r.type == 'WINDOW'), None)
+        self._rv3d = getattr(self._area.spaces.active, "region_3d", None)
+        if self._regiao is None or self._rv3d is None:
+            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            return {'CANCELLED'}
+        self._regiao_ptr = self._regiao.as_pointer()
+
+        self._alvos = _alvos_do_ima(context)
+        if not self._alvos:
+            self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
+            return {'CANCELLED'}
+        self._pontos = []
+        self._imantado = None
+        self._objeto_imantado = None
+        self._frente = 'NEG_Y'
+        self._handler = None
+        self._handler = bpy.types.SpaceView3D.draw_handler_add(
+            self._desenhar, (), 'WINDOW', 'POST_VIEW')
+        context.window.cursor_modal_set('CROSSHAIR')
+        context.window_manager.modal_handler_add(self)
+        self.report({'INFO'}, "Clique nos 2 cantos do vao (Esc cancela)")
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        # Navegar precisa continuar funcionando durante a marcacao.
+        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+            return {'PASS_THROUGH'}
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self._encerrar(context)
+            return {'CANCELLED'}
+        if event.type == 'MOUSEMOVE':
+            self._imantar(event)
+            self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            self._imantar(event)
+            if self._imantado is None:
+                self.report({'WARNING'}, "Aproxime de um vertice")
+                return {'RUNNING_MODAL'}
+            self._pontos.append((self._imantado.copy(),
+                                 self._objeto_imantado))
+            self._area.tag_redraw()
+            if len(self._pontos) < 2:
+                return {'RUNNING_MODAL'}
+            return self._concluir(context)
+        return {'RUNNING_MODAL'}
+
+    def _concluir(self, context):
+        (a, obj_a), (b, obj_b) = self._pontos
+        self._encerrar(context)
+        referencia, pai = _referencia_do_par(obj_a, obj_b)
+        ativa = obj_a.matrix_world.to_quaternion().to_matrix()
+        try:
+            bpy.ops.object.cabinet_portas(
+                'INVOKE_DEFAULT', capturado=True,
+                ponto_a=a, ponto_b=b,
+                referencia=tuple(v for linha in referencia for v in linha),
+                referencia_ativa=tuple(v for linha in ativa for v in linha),
+                pai_nome=pai.name if pai is not None else '')
+        except RuntimeError as erro:
+            self.report({'WARNING'}, str(erro))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class OBJECT_OT_portas_parametricas(Operator):
     """Cria portas por 2 vertices diagonais ou reconfigura o grupo selecionado"""
     bl_idname = "object.cabinet_portas"
@@ -3474,8 +3724,10 @@ class OBJECT_OT_portas_parametricas(Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.mode == 'EDIT_MESH'
-                or (context.mode == 'OBJECT' and _grupo_portas(context.object) is not None))
+        # Em Modo Objeto o vao pode chegar do apanhador
+        # (`cabinet_apanhar_vao`), que passa os pontos ja' prontos; o
+        # invoke e' quem valida o que faltar.
+        return context.mode in {'EDIT_MESH', 'OBJECT'}
 
     def _capturar(self, context):
         a, b, ref, pai = _capturar_vertices_portas(context)
@@ -3512,7 +3764,10 @@ class OBJECT_OT_portas_parametricas(Operator):
                         setattr(self, nome, str(int(valor)) if nome in
                                 {'espessura_mm', 'lateral_mm'} else valor)
             else:
-                self._capturar(context)
+                # Pontos ja' apanhados na viewport dispensam o Modo
+                # Edicao; sem eles, cai na captura por vertices.
+                if not self.capturado:
+                    self._capturar(context)
                 # Toda instalacao exige uma escolha, mesmo apos usar F3 de novo.
                 self.dobradica = 'ESCOLHER'
         except (ValueError, KeyError) as erro:
@@ -4344,7 +4599,7 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
             y -= 36
         else:
             itens.append((x, y, w, 26,
-                          'Selecione 2 vertices diagonais do vao', None))
+                          'Clique nos 2 cantos do vao', None))
             y -= 36
         itens.append((x, y, w, 31,
                       'Configurar Portas' if grupo else 'Criar Portas',
@@ -5152,7 +5407,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         objeto=context.object.name if context.object else '',
                         propriedade=acao[2], valor=acao[4] / 1000.0)
             elif acao[0] == 'portas':
-                bpy.ops.object.cabinet_portas('INVOKE_DEFAULT', editar=acao[1])
+                if acao[1]:
+                    bpy.ops.object.cabinet_portas('INVOKE_DEFAULT',
+                                                  editar=True)
+                else:
+                    bpy.ops.object.cabinet_apanhar_vao('INVOKE_DEFAULT')
             elif acao[0] == 'preset':
                 it = acao[1]
                 bpy.ops.object.cabinet_arrastar_preset(
@@ -6047,6 +6306,7 @@ CLASSES = (
     OBJECT_OT_agrupar_conjunto,
     OBJECT_OT_detectar_adjacencia,
     OBJECT_OT_criar_nicho,
+    OBJECT_OT_apanhar_vao_portas,
     OBJECT_OT_portas_parametricas,
     OBJECT_OT_editar_medida_gaveta,
     OBJECT_OT_interagir_gaveta,
