@@ -149,6 +149,19 @@ vincular_blender.py           # junction para desenvolvimento
    `_referencia_do_par` (ancestral comum). Duplicar essa regra faz o
    vao sair girado num dos caminhos.
 
+4. **Cenario 2 (vinculo com o modulo):** se o primeiro clique cair
+   numa CHAPA, `_modulo_da_chapa` sobe ate' o conjunto e a porta fica
+   vinculada a ele. As quatro folgas ate' as faces do modulo sao
+   guardadas em ESPESSURAS (`CHAVE_FOLGAS_PORTA`), nao em mm: e' isso
+   que faz a porta acompanhar largura, altura E espessura das chapas
+   quando o modulo e' redimensionado. `atualizar_portas_do_conjunto`
+   roda DEPOIS de `redimensionar_grupo`/`aplicar_espessura_grupo`.
+   Criada a porta, o MODULO vira o objeto ativo, para medidas e
+   wireframe falarem do mesmo conjunto.
+5. O wireframe do painel desenha as folhas na face frontal
+   (`_caixas_das_folhas`). A escala sai dos 8 cantos da CAIXA: incluir
+   as folhas encolheria o modulo. As letras L/A/P/E nao mudam.
+
 ### Medidas responsivas
 
 1. Qualquer selecao unica com volume expoe `Object.dimensions` editavel na
@@ -245,7 +258,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 85.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 86.0.0).
 
 ## Git
 

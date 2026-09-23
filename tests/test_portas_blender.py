@@ -344,6 +344,104 @@ class TestPortas(unittest.TestCase):
             self.assertAlmostEqual((alvos[obj][0] - esperado).length, 0.0,
                                    places=6)
 
+    def nicho(self):
+        """Modulo de verdade, com laterais, base e tampo."""
+        bpy.ops.object.cabinet_criar_nicho()
+        # O nicho cria as chapas soltas; o Empty do conjunto, com as
+        # medidas parametricas, vem do agrupar.
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.cabinet_agrupar()
+        conj = next(o for o in bpy.data.objects
+                    if addon.MARCA_CONJUNTO in o)
+        bpy.context.view_layer.update()
+        return conj
+
+    def porta_no_nicho(self, conj):
+        """Cria a porta pelo vao interno do modulo (cenario 2)."""
+        L = conj.conj_largura_mm
+        A = conj.conj_altura_mm
+        P = conj.conj_profundidade_mm
+        E = conj.conj_espessura_mm
+        local_a = Vector((-L / 2 + E, -P / 2, E)) / 1000.0
+        local_b = Vector((L / 2 - E, -P / 2, A - E)) / 1000.0
+        a = conj.matrix_world @ local_a
+        b = conj.matrix_world @ local_b
+        chapa = next(o for o in addon._chapas_do_conjunto(conj))
+        self.assertEqual(addon._modulo_da_chapa(chapa), conj)
+        resultado = bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=a, ponto_b=b,
+            referencia=tuple(
+                v for linha in conj.matrix_world.to_quaternion().to_matrix()
+                for v in linha),
+            pai_nome=conj.name, modulo_nome=conj.name,
+            frente='NEG_Y', dobradica='RETA', folhas=2)
+        self.assertEqual(resultado, {'FINISHED'})
+        # Com o vinculo, quem fica ativo e' o MODULO (etapa 3), entao o
+        # grupo vem pela lista de portas dele.
+        self.assertEqual(bpy.context.object, conj)
+        grupos = addon._portas_do_conjunto(conj)
+        self.assertEqual(len(grupos), 1)
+        return grupos[0]
+
+    def test_modulo_da_chapa_sobe_ate_o_conjunto(self):
+        conj = self.nicho()
+        for chapa in addon._chapas_do_conjunto(conj):
+            self.assertEqual(addon._modulo_da_chapa(chapa), conj)
+        bpy.ops.mesh.primitive_cube_add()
+        self.assertIsNone(addon._modulo_da_chapa(bpy.context.object))
+
+    def test_porta_vinculada_grava_folgas_em_espessuras(self):
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)
+        self.assertEqual(grupo[addon.CHAVE_MODULO_PORTA], conj.name)
+        # o vao encosta nas quatro chapas: uma espessura por lado
+        for folga in grupo[addon.CHAVE_FOLGAS_PORTA]:
+            self.assertAlmostEqual(folga, 1.0, places=4)
+
+    def test_porta_acompanha_a_largura_do_modulo(self):
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)
+        antes = grupo['porta_vao_largura_mm']
+        conj.conj_largura_mm = conj.conj_largura_mm + 400.0
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(grupo['porta_vao_largura_mm'], antes + 400.0,
+                               places=3)
+        folha = addon._folhas_portas(grupo)[0]
+        self.assertGreater(folha.chapa_largura_mm, 0.0)
+
+    def test_porta_acompanha_a_altura_do_modulo(self):
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)
+        antes = grupo['porta_vao_altura_mm']
+        conj.conj_altura_mm = conj.conj_altura_mm + 300.0
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(grupo['porta_vao_altura_mm'], antes + 300.0,
+                               places=3)
+
+    def test_porta_acompanha_a_espessura_das_chapas(self):
+        # Folga guardada em espessuras: chapa mais grossa aperta o vao.
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)
+        antes = grupo['porta_vao_largura_mm']
+        e_antes = conj.conj_espessura_mm
+        conj.conj_espessura_mm = 30.0
+        bpy.context.view_layer.update()
+        esperado = antes - 2.0 * (30.0 - e_antes)
+        self.assertAlmostEqual(grupo['porta_vao_largura_mm'], esperado,
+                               places=3)
+
+    def test_porta_sem_modulo_nao_ganha_vinculo(self):
+        # Cenario 1: objeto generico, nenhum vinculo a manter.
+        objetos = self.pontos(separados=True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        a = objetos[0].matrix_world @ objetos[0].data.vertices[0].co
+        b = objetos[1].matrix_world @ objetos[1].data.vertices[0].co
+        bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=a, ponto_b=b,
+            dobradica='RETA')
+        grupo = addon._grupo_portas(bpy.context.object)
+        self.assertNotIn(addon.CHAVE_MODULO_PORTA, grupo)
+
     def test_operador_limita_basculante_e_giro(self):
         grupo = self.criar(abertura='BASCULANTE', folhas=4, dobradica='RETA')
         self.assertEqual(len(addon._folhas_portas(grupo)), 1)

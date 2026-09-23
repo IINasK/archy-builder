@@ -266,6 +266,58 @@ class TestGaveta(unittest.TestCase):
                 self.assertGreaterEqual(x, 0)
                 self.assertLessEqual(x + w, min(largura - 12, 552) + 0.01)
 
+    def test_caixas_das_folhas_ficam_dentro_do_box(self):
+        caixas = addon._caixas_das_folhas(600.0, 800.0, 400.0, 2)
+        self.assertEqual(len(caixas), 2)
+        for caixa in caixas:
+            self.assertEqual(len(caixa), 8)
+            for x, y, z in caixa:
+                self.assertGreaterEqual(x, 0.0)
+                self.assertLessEqual(x, 600.0)
+                self.assertGreaterEqual(z, 0.0)
+                self.assertLessEqual(z, 800.0)
+                # as folhas ficam na FRENTE, nao no fundo
+                self.assertLessEqual(y, 400.0 * 0.5)
+        self.assertEqual(addon._caixas_das_folhas(600.0, 800.0, 400.0, 0), [])
+
+    def test_folhas_nao_mudam_a_escala_do_box(self):
+        # A escala sai dos 8 cantos da caixa; se as folhas entrassem na
+        # conta, o modulo apareceria menor do que e'.
+        sem = addon._pontos_wireframe(600.0, 800.0, 400.0)
+        extras = [v for c in addon._caixas_das_folhas(600.0, 800.0, 400.0, 3)
+                  for v in c]
+        com = addon._pontos_wireframe(600.0, 800.0, 400.0, extras)
+        self.assertEqual(sem, com[:8])
+        self.assertEqual(len(com), 8 + len(extras))
+
+    def test_wireframe_leva_a_contagem_de_folhas(self):
+        acao = next(v[5] for v in self.widgets()
+                    if v[5] and v[5][0] == 'wireframe')
+        self.assertEqual(len(acao), 6)
+        self.assertEqual(acao[5], 0)
+
+    def test_folhas_para_wireframe_encontra_pelas_duas_pontas(self):
+        bpy.ops.object.empty_add()
+        conj = bpy.context.object
+        conj[addon.MARCA_CONJUNTO] = 1
+        bpy.ops.object.empty_add()
+        grupo = bpy.context.object
+        grupo[addon.MARCA_PORTAS] = 1
+        grupo[addon.CHAVE_MODULO_PORTA] = conj.name
+        grupo.parent = conj
+        for i in range(2):
+            malha = bpy.data.meshes.new('Folha')
+            folha = bpy.data.objects.new('Folha_%d' % i, malha)
+            bpy.context.collection.objects.link(folha)
+            folha[addon.MARCA_CHAPA] = 1
+            folha[addon.MARCA_FOLHA] = 1
+            folha.parent = grupo
+        # pelo modulo e pela propria porta
+        self.assertEqual(addon._folhas_para_wireframe(conj), 2)
+        self.assertEqual(addon._folhas_para_wireframe(grupo), 2)
+        bpy.ops.mesh.primitive_cube_add()
+        self.assertEqual(addon._folhas_para_wireframe(bpy.context.object), 0)
+
     def test_padrao_e_porta_dupla(self):
         self.assertEqual(self.cena.porta_folhas, 2)
         self.assertEqual(self.cena.porta_abertura, 'GIRO')

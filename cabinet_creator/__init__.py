@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (85, 0, 0),
+    "version": (86, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -790,6 +790,7 @@ def _upd_conj_dim(self, context):
     redimensionar_grupo(_chapas_do_conjunto(self),
                         (self.conj_largura_mm, self.conj_altura_mm, self.conj_profundidade_mm))
     reposicionar_origem(self)
+    atualizar_portas_do_conjunto(self)
 
 
 def _upd_conj_espessura(self, context):
@@ -804,6 +805,7 @@ def _upd_conj_espessura(self, context):
         finally:
             _ocupado[0] = False
     aplicar_espessura_grupo(_chapas_do_conjunto(self), self.conj_espessura_mm)
+    atualizar_portas_do_conjunto(self)
     reposicionar_origem(self)
 
 
@@ -2058,8 +2060,41 @@ def _cor_wireframe(context):
         return (0.9, 0.9, 0.9)
 
 
-def _pontos_wireframe(largura, altura, profundidade):
-    """Projeta a 45 graus e ajusta a proporcao a area util do canvas."""
+def _caixas_das_folhas(largura, altura, profundidade, folhas):
+    """Vertices das folhas na face frontal, nos eixos da caixa.
+
+    Proporcoes de DESENHO, nao medidas: o preview e' um esquema. A
+    folha recua 4% das bordas e avanca 8% da profundidade, que e' o que
+    deixa a blocagem legivel em 160 px.
+    """
+    if folhas <= 0:
+        return []
+    recuo = min(largura, altura) * 0.04
+    fundo = max(profundidade * 0.08, 1e-6)
+    vao = largura - 2.0 * recuo
+    if vao <= 0.0 or altura - 2.0 * recuo <= 0.0:
+        return []
+    vaz = vao * 0.02
+    passo = (vao + vaz) / folhas
+    z0, z1 = recuo, altura - recuo
+    caixas = []
+    for i in range(folhas):
+        x0 = recuo + i * passo
+        x1 = x0 + passo - vaz
+        caixas.append([(x0, 0.0, z0), (x1, 0.0, z0),
+                       (x0, fundo, z0), (x1, fundo, z0),
+                       (x0, 0.0, z1), (x1, 0.0, z1),
+                       (x0, fundo, z1), (x1, fundo, z1)])
+    return caixas
+
+
+def _pontos_wireframe(largura, altura, profundidade, extras=()):
+    """Projeta a 45 graus e ajusta a proporcao a area util do canvas.
+
+    `extras` sao vertices nos MESMOS eixos da caixa (por exemplo as
+    folhas); voltam projetados logo apos os 8 cantos, para que nada
+    saia com escala diferente da caixa.
+    """
     medidas = (float(largura), float(altura), float(profundidade))
     if not all(math.isfinite(v) and v > 0.0 for v in medidas):
         return None
@@ -2069,14 +2104,17 @@ def _pontos_wireframe(largura, altura, profundidade):
         (0.0, P, 0.0), (L, P, 0.0),
         (0.0, 0.0, A),   (L, 0.0, A),
         (0.0, P, A),     (L, P, A),
-    )
+    ) + tuple(extras)
     diagonal = math.sqrt(0.5)  # cos(45) == sin(45)
     projetados = [(x - y * diagonal, z + y * diagonal)
                   for x, y, z in vertices]
-    min_x = min(p[0] for p in projetados)
-    max_x = max(p[0] for p in projetados)
-    min_y = min(p[1] for p in projetados)
-    max_y = max(p[1] for p in projetados)
+    # Os limites saem dos 8 cantos da CAIXA: incluir as folhas mudaria
+    # a escala e o modulo apareceria menor do que e'.
+    caixa = projetados[:8]
+    min_x = min(p[0] for p in caixa)
+    max_x = max(p[0] for p in caixa)
+    min_y = min(p[1] for p in caixa)
+    max_y = max(p[1] for p in caixa)
     largura_proj = max_x - min_x
     altura_proj = max_y - min_y
     util_l = (WIREFRAME_LARGURA_PX - WIREFRAME_MARGEM_ESQUERDA_PX -
@@ -2204,15 +2242,22 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
             buffer, 'E', quina[0] - 8.0, quina[1] - 9.0, cor)
 
 
-def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO'):
-    """Devolve pixels RGBA transparentes das 12 arestas do box."""
-    pontos = _pontos_wireframe(largura, altura, profundidade)
+def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO',
+                         folhas=0):
+    """Pixels RGBA das 12 arestas do box, mais as folhas na frente."""
+    caixas = _caixas_das_folhas(largura, altura, profundidade, folhas)
+    extras = [v for caixa in caixas for v in caixa]
+    pontos = _pontos_wireframe(largura, altura, profundidade, extras)
     if pontos is None:
         return None
     n = WIREFRAME_LARGURA_PX * WIREFRAME_ALTURA_PX * 4
     buffer = [0.0] * n
     for a, b in _ARESTAS_WIREFRAME:
         _desenhar_segmento(buffer, pontos[a], pontos[b], cor)
+    for i in range(len(caixas)):
+        base = 8 + i * 8
+        for a, b in _ARESTAS_WIREFRAME:
+            _desenhar_segmento(buffer, pontos[base + a], pontos[base + b], cor)
     _desenhar_indicadores(buffer, pontos, cor, modo)
     return _centralizar_wireframe(buffer)
 
@@ -2477,12 +2522,13 @@ class OBJECT_OT_definir_tamanho(Operator):
         return {'FINISHED'}
 
 
-def _chave_wireframe(modo, largura, altura, profundidade, cor):
+def _chave_wireframe(modo, largura, altura, profundidade, cor, folhas=0):
     medidas = tuple(round(float(v), 1)
                     for v in (largura, altura, profundidade))
     rgb = tuple(round(float(v) * 255.0) for v in cor)
-    return WIREFRAME_PREFIXO + "%s:%.1f:%.1f:%.1f:%d:%d:%d" % (
-        modo, medidas[0], medidas[1], medidas[2], rgb[0], rgb[1], rgb[2])
+    return WIREFRAME_PREFIXO + "%s:%.1f:%.1f:%.1f:%d:%d:%d:%d" % (
+        modo, medidas[0], medidas[1], medidas[2], rgb[0], rgb[1], rgb[2],
+        int(folhas))
 
 
 def _registrar_uso_wireframe(chave, colecao):
@@ -2498,14 +2544,14 @@ def _registrar_uso_wireframe(chave, colecao):
                 pass
 
 
-def _icone_wireframe(context, modo, largura, altura, profundidade):
+def _icone_wireframe(context, modo, largura, altura, profundidade, folhas=0):
     """Cria ou reutiliza o icon_id horizontal para estas medidas."""
     cor = _cor_wireframe(context)
-    chave = _chave_wireframe(modo, largura, altura, profundidade, cor)
+    chave = _chave_wireframe(modo, largura, altura, profundidade, cor, folhas)
     colecao = _colecao_previews()
     if chave not in colecao:
         pixels = _rasterizar_wireframe(
-            largura, altura, profundidade, cor, modo=modo)
+            largura, altura, profundidade, cor, modo=modo, folhas=folhas)
         if pixels is None:
             return 0
         try:
@@ -3437,7 +3483,131 @@ def _calcular_folhas_portas(largura, altura, parametros):
     return saida
 
 
-def _aplicar_portas(context, grupo, matriz, pai, largura, altura, parametros):
+# ============================== VINCULO DA PORTA COM O MODULO (cenario 2)
+# Quando o primeiro clique cai numa CHAPA, o vao pertence ao modulo que
+# a contem. Guardar o vao em milimetros absolutos quebraria o vinculo no
+# primeiro redimensionamento; por isso as quatro folgas ate' as faces do
+# modulo sao guardadas em ESPESSURAS. Assim a porta acompanha tanto a
+# largura/altura do modulo quanto a espessura das chapas, que e'
+# exatamente o que delimita o vao.
+CHAVE_MODULO_PORTA = "porta_modulo"
+CHAVE_FOLGAS_PORTA = "porta_folgas_em_e"
+CHAVE_RECUO_PORTA = "porta_recuo_frente_mm"
+
+
+def _modulo_da_chapa(obj):
+    """Conjunto que contem esta chapa, subindo pelos pais."""
+    if obj is None or MARCA_CHAPA not in obj:
+        return None
+    pai = obj.parent
+    while pai is not None:
+        if MARCA_CONJUNTO in pai:
+            return pai
+        pai = pai.parent
+    return None
+
+
+def _caixa_do_modulo(conj):
+    """(L, A, P, E) em mm do modulo, ou None se faltar medida."""
+    try:
+        return (float(conj.conj_largura_mm), float(conj.conj_altura_mm),
+                float(conj.conj_profundidade_mm),
+                float(conj.conj_espessura_mm))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _local_no_modulo(conj, ponto):
+    """Ponto de mundo nos eixos do modulo, em mm."""
+    return conj.matrix_world.inverted() @ Vector(ponto) * 1000.0
+
+
+def _folgas_do_vao(conj, ponto_a, ponto_b, frente):
+    """Folgas (esq, dir, baixo, cima) em ESPESSURAS mais o recuo em mm.
+
+    O Empty do conjunto fica no centro X/Y e na base Z (ver
+    `reposicionar_origem`), entao a caixa local vai de -L/2 a L/2 em X,
+    de -P/2 a P/2 em Y e de 0 a A em Z.
+    """
+    caixa = _caixa_do_modulo(conj)
+    if caixa is None:
+        return None
+    L, A, P, E = caixa
+    if E <= 0.0:
+        return None
+    a = _local_no_modulo(conj, ponto_a)
+    b = _local_no_modulo(conj, ponto_b)
+    if frente in {'NEG_Y', 'POS_Y'}:
+        esq, dir_ = min(a.x, b.x) + L / 2.0, L / 2.0 - max(a.x, b.x)
+        recuo = (min(a.y, b.y) + P / 2.0 if frente == 'NEG_Y'
+                 else P / 2.0 - max(a.y, b.y))
+    else:
+        esq, dir_ = min(a.y, b.y) + P / 2.0, P / 2.0 - max(a.y, b.y)
+        recuo = (min(a.x, b.x) + L / 2.0 if frente == 'NEG_X'
+                 else L / 2.0 - max(a.x, b.x))
+    baixo, cima = min(a.z, b.z), A - max(a.z, b.z)
+    return ((esq / E, dir_ / E, baixo / E, cima / E), recuo)
+
+
+def _vao_do_modulo(conj, folgas, recuo, frente):
+    """Refaz (largura, altura, matriz) do vao a partir do modulo de hoje."""
+    caixa = _caixa_do_modulo(conj)
+    if caixa is None:
+        return None
+    L, A, P, E = caixa
+    esq, dir_, baixo, cima = (f * E for f in folgas)
+    if frente in {'NEG_Y', 'POS_Y'}:
+        x0, x1 = -L / 2.0 + esq, L / 2.0 - dir_
+        plano = -P / 2.0 + recuo if frente == 'NEG_Y' else P / 2.0 - recuo
+        canto_a = Vector((x0, plano, baixo))
+        canto_b = Vector((x1, plano, A - cima))
+    else:
+        y0, y1 = -P / 2.0 + esq, P / 2.0 - dir_
+        plano = -L / 2.0 + recuo if frente == 'NEG_X' else L / 2.0 - recuo
+        canto_a = Vector((plano, y0, baixo))
+        canto_b = Vector((plano, y1, A - cima))
+    mundo = conj.matrix_world
+    referencia = mundo.to_quaternion().to_matrix()
+    return _mapear_vao_portas(mundo @ (canto_a / 1000.0),
+                              mundo @ (canto_b / 1000.0),
+                              referencia, frente)
+
+
+def _portas_do_conjunto(conj):
+    """Grupos de porta vinculados a este modulo."""
+    return [o for o in bpy.data.objects
+            if MARCA_PORTAS in o and o.get(CHAVE_MODULO_PORTA) == conj.name]
+
+
+def atualizar_portas_do_conjunto(conj):
+    """Refaz as folhas depois que o modulo mudou de medida.
+
+    Chamado DEPOIS de `redimensionar_grupo` / `aplicar_espessura_grupo`,
+    nunca durante: as folhas leem as medidas ja' aplicadas.
+    """
+    if conj is None or MARCA_CONJUNTO not in conj:
+        return
+    for grupo in _portas_do_conjunto(conj):
+        folgas = grupo.get(CHAVE_FOLGAS_PORTA)
+        parametros = grupo.get('porta_parametros')
+        if not folgas or not parametros:
+            continue
+        frente = grupo.get('porta_frente', 'NEG_Y')
+        try:
+            vao = _vao_do_modulo(conj, list(folgas),
+                                 float(grupo.get(CHAVE_RECUO_PORTA, 0.0)),
+                                 frente)
+            if vao is None:
+                continue
+            largura, altura, matriz = vao
+            _aplicar_portas(bpy.context, grupo, matriz, conj,
+                            largura, altura, dict(parametros))
+        except (ValueError, KeyError, TypeError) as e:
+            print("[Cabinet Creator] porta vinculada:", e)
+
+
+def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
+                    parametros, frente=''):
     """Valida antes de alterar a cena; reutiliza folhas e seus materiais."""
     calculadas = _calcular_folhas_portas(largura, altura, parametros)
     antigas = _folhas_portas(grupo) if grupo is not None else []
@@ -3460,6 +3630,8 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura, parametros):
         grupo['porta_parametros'] = dict(parametros)
         grupo['porta_vao_largura_mm'] = largura
         grupo['porta_vao_altura_mm'] = altura
+        if frente:
+            grupo['porta_frente'] = frente
         for i, (l, a, e, centro) in enumerate(calculadas):
             if i < len(antigas):
                 folha = antigas[i]
@@ -3766,6 +3938,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         (a, obj_a), (b, obj_b) = self._pontos
         self._encerrar(context)
         referencia, pai = _referencia_do_par(obj_a, obj_b)
+        # Cenario 2: o primeiro clique caiu numa chapa, entao o vao
+        # pertence ao modulo que a contem e a porta fica vinculada a ele.
+        modulo = _modulo_da_chapa(obj_a)
         ativa = obj_a.matrix_world.to_quaternion().to_matrix()
         s = context.scene
         try:
@@ -3777,6 +3952,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 referencia=tuple(v for linha in referencia for v in linha),
                 referencia_ativa=tuple(v for linha in ativa for v in linha),
                 pai_nome=pai.name if pai is not None else '',
+                modulo_nome=modulo.name if modulo is not None else '',
                 orientacao=s.porta_orientacao, frente=s.porta_frente,
                 **_parametros_portas_da_cena(s))
         except RuntimeError as erro:
@@ -3801,6 +3977,7 @@ class OBJECT_OT_portas_parametricas(Operator):
     referencia_ativa: FloatVectorProperty(
         size=9, default=(1, 0, 0, 0, 1, 0, 0, 0, 1), options={'HIDDEN'})
     pai_nome: StringProperty(options={'HIDDEN'})
+    modulo_nome: StringProperty(options={'HIDDEN'})
     orientacao: EnumProperty(
         name="Eixos do vao", default='AUTO',
         items=[('AUTO', "Pai comum / mundo", "Usa os eixos do pai comum, se existir"),
@@ -3971,7 +4148,19 @@ class OBJECT_OT_portas_parametricas(Operator):
             if context.mode == 'EDIT_MESH' and not self.editar:
                 bpy.ops.object.mode_set(mode='OBJECT')
             grupo = _aplicar_portas(context, grupo, matriz, pai,
-                                    largura, altura, parametros)
+                                    largura, altura, parametros,
+                                    frente=self.frente)
+            # Cenario 2: as folgas ate' as faces do modulo, em
+            # espessuras, sao o que mantem a porta acompanhando o
+            # redimensionamento depois.
+            modulo = bpy.data.objects.get(self.modulo_nome)
+            if modulo is not None and not self.editar:
+                medido = _folgas_do_vao(modulo, self.ponto_a, self.ponto_b,
+                                        self.frente)
+                if medido is not None:
+                    grupo[CHAVE_MODULO_PORTA] = modulo.name
+                    grupo[CHAVE_FOLGAS_PORTA] = list(medido[0])
+                    grupo[CHAVE_RECUO_PORTA] = medido[1]
         except (ValueError, KeyError) as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
@@ -3981,6 +4170,13 @@ class OBJECT_OT_portas_parametricas(Operator):
         for folha in _folhas_portas(grupo):
             folha.select_set(True)
         context.view_layer.objects.active = grupo
+        # Com modulo vinculado, ele vira o ativo: o painel passa a
+        # mostrar as medidas do conjunto e o wireframe a volumetria do
+        # modulo com as portas na frente (etapa 3).
+        vinculado = bpy.data.objects.get(grupo.get(CHAVE_MODULO_PORTA, ''))
+        if vinculado is not None:
+            vinculado.select_set(True)
+            context.view_layer.objects.active = vinculado
         self.report({'INFO'}, "%d folha(s) - vao %.1f x %.1f mm" %
                     (self.folhas, largura, altura))
         return {'FINISHED'}
@@ -4574,6 +4770,24 @@ def _botao_gaveta(x, y, w, h, ativo=False, secao=False):
             x + 1, y + 1, w - 2, h - 2, 3, fundo)
 
 
+def _folhas_para_wireframe(obj):
+    """Quantas folhas o preview deve mostrar para esta selecao.
+
+    Etapa 3 da especificacao: o esquema da porta aparece no wireframe
+    tanto quando o modulo esta' selecionado quanto quando a propria
+    porta esta'.
+    """
+    grupo = _grupo_portas(obj)
+    if grupo is not None:
+        return len(_folhas_portas(grupo))
+    if obj is not None and MARCA_CONJUNTO in obj:
+        return sum(len(_folhas_portas(g)) for g in _portas_do_conjunto(obj))
+    modulo = _modulo_da_chapa(obj)
+    if modulo is not None:
+        return sum(len(_folhas_portas(g)) for g in _portas_do_conjunto(modulo))
+    return 0
+
+
 def _medidas_gaveta(context):
     obj = context.object
     if obj is not None and MARCA_CONJUNTO in obj:
@@ -4866,7 +5080,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
         lado_wireframe = min(160, max(40, w - 28))
         itens.append((x + (w - lado_wireframe) / 2,
                       y - lado_wireframe, lado_wireframe, lado_wireframe,
-                      '', ('wireframe', modo, *dimensoes)))
+                      '', ('wireframe', modo, *dimensoes,
+                           _folhas_para_wireframe(obj))))
         y -= lado_wireframe + 17
         if obj is not None and MARCA_CONJUNTO in obj:
             itens.append((x, y, w, 27, 'Sincronizar conjunto',
@@ -4944,16 +5159,21 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
 
 
 def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade,
-                               escala=1.0):
-    pontos = _pontos_wireframe(largura, altura, profundidade)
+                               folhas=0, escala=1.0):
+    caixas = _caixas_das_folhas(largura, altura, profundidade, folhas)
+    extras = [v for caixa in caixas for v in caixa]
+    pontos = _pontos_wireframe(largura, altura, profundidade, extras)
     if not pontos:
         return
     pontos = [(px * escala, py * escala) for px, py in pontos]
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     segmentos = []
-    for a, b in _ARESTAS_WIREFRAME:
-        segmentos.extend(((x + pontos[a][0], y + pontos[a][1]),
-                          (x + pontos[b][0], y + pontos[b][1])))
+    bases = [0] + [8 + i * 8 for i in range(len(caixas))]
+    for base in bases:
+        for a, b in _ARESTAS_WIREFRAME:
+            segmentos.extend(
+                ((x + pontos[base + a][0], y + pontos[base + a][1]),
+                 (x + pontos[base + b][0], y + pontos[base + b][1])))
     shader.bind()
     shader.uniform_float('color', (0.92, 0.93, 0.95, 1))
     batch_for_shader(shader, 'LINES', {'pos': segmentos}).draw(shader)
