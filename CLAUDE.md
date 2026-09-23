@@ -58,11 +58,12 @@ vincular_blender.py           # junction para desenvolvimento
 | MODULO (CONJUNTO) | `redimensionar_grupo`, `aplicar_espessura_grupo`, `aplicar_espessura_chapa`, `reposicionar_origem`, `absorver_conjuntos` |
 | BIBLIOTECA / ASSETS | `registrar_bibliotecas`, `salvar_na_biblioteca`, `_garantir_catalogos`, `caminhos_catalogo`, `refiliar_preset` |
 | ARVORE (3 niveis) | `ARVORE`, `_niveis_de`, `indice_completo`, `registrar_no_indice` |
-| MINIATURAS | `icone_do_item`, `capturar_viewport` (render OpenGL 512x512) |
+| MINIATURAS | `icone_do_item`, `capturar_viewport` (render OpenGL) |
+| BARRA DE TAMANHO | `_fatia_barra`, `_icone_fatia_barra` (slider rasterizado) |
 | BLOQUEIO/RENOMEAR | nome, lapis e cadeado na mesma linha; ordem alfabetica |
 | SELECAO | `familia_de`, `OBJECT_OT_selecionar`, `registrar_keymaps` |
 | PRATELEIRA DE ASSETS | `VIEW3D_AST_cabinet_creator`, `OBJECT_OT_prateleira` |
-| ARRASTE DA BIBLIOTECA | `inserir_preset`, `OBJECT_OT_arrastar_preset` |
+| INSERCAO DE PRESET | `inserir_preset` |
 | REDE DE SEGURANCA | `verificar_periodicamente` (timer 0.2 s) |
 | CRIACAO | `nova_chapa`, criar chapa/nicho, modo Grupo (`_upd_grupo_*`) |
 | UI | `VIEW3D_PT_cabinet_creator`, `medir_selecao`, `_largura_painel` (responsividade) |
@@ -84,40 +85,31 @@ vincular_blender.py           # junction para desenvolvimento
    no limite externo do grupo e engrossa para DENTRO; a espessura antiga
    vem da malha (a prop ja' mudou quando o callback roda).
 
-### Arraste da biblioteca (painel N)
+### Presets no painel N
 
-1. O nome do preset chama diretamente o operador de posicionamento; a
-   seta separada insere imediatamente no cursor 3D. A foto usa
-   `template_icon`, unico widget que amplia previews, e o drag verdadeiro
-   pela imagem fica na Asset Shelf nativa. Pressionar e arrastar o nome
-   dispara `LEFTMOUSE/PRESS` no keymap
-   "User Interface". O `PRESS` e' necessario porque o botao do Blender
-   consome `CLICK_DRAG`; registrar com `head=True` impede outro item do
-   keymap de bloquear o gatilho. `template_icon` apenas desenha e nao
-   recebe eventos; nao prometer drag customizado pela foto do painel N.
-2. `OBJECT_OT_arrastar_preset` le o preset em `context.button_operator`
-   e so' aceita o botao de inserir (cadeado e lapis tambem tem
-   `arquivo`). Outro arraste devolve `{'PASS_THROUGH'}`, senao sliders
-   parariam de andar.
-3. O preset e' carregado como staging oculto. A caixa GPU usa os cantos
-   avaliados reais de todos os objetos com volume e ancora pelo centro
-   inferior; a geometria definitiva so' aparece depois da confirmacao.
-4. O modal faz `scene.ray_cast` sob o cursor. Quando existe superficie,
-   a mira segue o ponto e a normal; sem acerto, usa o plano horizontal na
-   altura do cursor 3D. A caixa verde preserva dimensoes e orientacao.
-5. Movimento minimo de 6 px distingue arraste de clique simples. Quando
-   o Blender retem o drag do botao, o clique simples deixa o posicionador
-   ativo: mover para a viewport e clicar confirma. No drag normal, soltar
-   o botao esquerdo dentro da viewport confirma. Botao direito,
-   Esc, desativar a janela ou soltar fora cancela, remove objetos e
-   colecoes importadas e restaura a selecao anterior.
-6. Miniaturas sao PNG RGBA com fundo transparente. `capturar_viewport`
-   isola e enquadra automaticamente o alvo em projecao ortografica; uma
-   segunda passagem mede o alfa e ajusta o zoom para 82% da imagem. Ao
-   terminar restaura vista, selecao, visibilidade e render settings.
-   O botao do nome mantem `emboss=True` para o highlight no hover.
-7. Salvar preset SEMPRE gera o PNG inicial; nao existe opcao `com_foto`.
+1. A seta insere direto no cursor 3D; o NOME chama o POSICIONADOR
+   (`OBJECT_OT_arrastar_preset`): o preset entra como staging oculto,
+   a caixa de preview segue o cursor e o proximo clique na viewport
+   confirma. NAO remova isso achando que e' so' o gesto de arraste --
+   o clique-para-posicionar funciona e e' o modo normal de uso.
+2. A foto usa `template_icon` (perfeita, NAO clicavel). A preferencia
+   `foto_clicavel` troca por um MOSAICO de botoes (`_tiles_foto`), que
+   e' clicavel em qualquer ponto mas pode sair LISTRADO -- por isso
+   vem desligada. Ver a limitacao da largura em pixels.
+   O add-on NUNCA remove `eh_chapa`: so' `nova_chapa` cria objeto mesh
+   (ja' marcado) e `cabinet_marcar` converte um objeto de fora,
+   aproveitando `obj.dimensions` em vez de reconstruir no padrao.
+3. Miniaturas sao PNG RGBA com fundo transparente. `capturar_viewport`
+   isola e enquadra o alvo em projecao ortografica; uma segunda passagem
+   mede o alfa e ajusta o zoom para 82% da imagem. Ao terminar restaura
+   vista, selecao, visibilidade e render settings.
+4. Salvar preset SEMPRE gera o PNG inicial; nao existe `com_foto`.
    Falha na captura cancela o cadastro no indice e reporta erro.
+5. A MESMA foto vira a preview do asset via `aplicar_preview_png`, que
+   escreve os pixels em `id.preview`. NAO use `asset_generate_preview()`:
+   e' um job assincrono que nao chega a tempo do `libraries.write`, e o
+   preset nasce com preview vazia (icone generico no Asset Browser).
+   Grave tambem `icon_size`/`icon_pixels_float`: so' `image_*` nao basta.
 
 ### Medidas responsivas
 
@@ -137,8 +129,12 @@ vincular_blender.py           # junction para desenvolvimento
    a largura fisica ja nao comporta o tamanho completo.
    No layout lado a lado, a coluna de controles usa somente 4.5 unidades de UI;
    nao ampliar essa reserva, pois ela retira espaco do preview antes da quebra.
-5. A rasterizacao e' recentralizada pelo bounding box alfa depois de incluir
-   L/A/P/C. Sem isso, as letras laterais fazem o desenho parecer deslocado.
+5. Letras do wireframe (`_desenhar_indicadores`): chapa = L/A/E (a aresta
+   VERTICAL da chapa e' a espessura); modulo = L/A/P mais E na quina
+   inferior direita; objeto sem assinatura = L/A/P, sem E. A margem
+   lateral e' de 2 px: letra fora da caixa so' cabe embaixo, senao
+   `_desenhar_indicador` corta calado. A rasterizacao e' recentralizada
+   pelo bounding box alfa depois de incluir as letras.
    Na grade impar, usar divisao 25/50/25. Cada rotulo e campo deve receber
    `alignment='CENTER'` dentro da propria celula; centralizar apenas a celula
    deixa os controles deslocados para a esquerda.
@@ -211,7 +207,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 67.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 71.0.0).
 
 ## Git
 
@@ -237,11 +233,33 @@ vincular_blender.py           # junction para desenvolvimento
   pela direita. Layout responsivo e nomes resumidos saem de
   `_largura_painel()` + as estimativas `PX_*`; ajuste-as, nao procure
   uma API de medicao.
-- `UILayout` nao expoe drag-and-drop e o `template_asset_view` foi
-  REMOVIDO no 5.x: painel nao DESENHA item arrastavel. O arraste vem de
-  fora — `CLICK_DRAG` + `context.button_operator` (ver ARRASTE).
+- **Nao da' para criar widget interativo novo** — confirmado pela
+  comunidade, nao e' falta de jeito. O que se DESENHA (`template_icon`,
+  icone) nao recebe evento; o botao, que recebe, e' tratado pelo handler
+  de UI ANTES de qualquer keymap, e nem `head=True` no keymap "User
+  Interface" passa na frente. `template_asset_view` foi REMOVIDO no 5.x.
+  Por isso o PRESS do posicionador raramente dispara: o que vale e' o
+  CLIQUE, que ativa o modal e deixa o preset seguindo o cursor.
+- A barra de tamanho contorna o item acima rasterizando um PNG por
+  fatia, cada fatia um botao — responde a CLIQUE, nunca a arraste.
+  `alignment` nao encolhe botao: reserve a largura com `split` e feche
+  os vaos com `scale_x` ate' `PX_FATIA_BARRA`, senao sai tracejado.
 - Arraste 100% nativo so' na `AssetShelf`: quem DESLIGA pede
   `NO_ASSET_DRAG`. `bound_box` de curva/texto/meta descreve os PONTOS DE
   CONTROLE; em `TIPOS_BBOX_INFIEL` a medida fiel sai de `to_mesh()`.
 - `show_region_asset_shelf` e' "read-only" conforme o contexto; use
   `bpy.ops.screen.region_toggle(region_type='ASSET_SHELF')`.
+- **Nao da' para fixar a largura em pixels de NENHUM elemento.**
+  `ui_units_x` foi testado com valor extremo e ignorado nos tres
+  niveis: linha de ladrilhos, bloco dentro do `grid_flow` e bloco
+  dentro de um `row` comum. `scale_x` nao serve de substituto: encolhe
+  o proprio icone. Consequencia: o mosaico da foto so' fecha quando
+  largura_do_bloco/ladrilhos cai quase em 16 px, o que depende da
+  largura que o usuario deu a barra lateral. Celula maior abre fresta;
+  menor reamostra o icone. Nao ha' conserto -- e' a preferencia
+  `foto_clicavel` que deixa a escolha com o usuario.
+- **Nao da' para dimensionar uma janela nova:** `Window.width/height/x/y`
+  sao somente leitura e nenhum operador aceita tamanho (`wm.window_new`
+  copia a janela inteira; `screen.area_dupli` nao abre nada por script).
+  Por isso o Asset Browser entra como AREA, via `screen.area_split` +
+  `area.ui_type = 'ASSETS'` (`FRACAO_ASSET_BROWSER`), nao como janela.
