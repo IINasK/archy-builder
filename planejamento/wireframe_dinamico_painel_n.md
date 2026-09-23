@@ -1117,10 +1117,24 @@ Problema:
 
 Mitigacao:
 
-- escala fixa do template;
+- escala limitada entre minimo e maximo;
 - largura em unidades de UI quando possivel;
-- nao basear tamanho na regiao;
-- contingencia de empilhamento para largura extrema.
+- empilhamento automatico abaixo de 310 px logicos;
+- campos sem largura fixa no modo estreito;
+- grade L/A e P/E em duas colunas, com cada rotulo e campo centralizado dentro
+  da propria celula e divisao explicita 50/50; o contêiner da grade tambem deve
+  usar alinhamento central para nao ser compactado a esquerda pelo Blender;
+  sem E, P centralizada pela divisao 25/50/25;
+- abaixo de 210 px logicos, cada medida ocupa uma linha propria, centralizada,
+  com o campo usando 80% da largura util; a mesma regra vale para Espessura,
+  evitando truncamento dos rotulos no painel extremamente fino;
+- ao quebrar do layout horizontal para o empilhado, o wireframe permanece na
+  escala maxima 9; ele so diminui quando a propria largura disponivel ficar
+  menor que a necessaria para esse tamanho;
+- no layout horizontal, a divisao invisivel reserva 4.5 unidades de UI para os
+  controles e entrega todo o restante ao preview, evitando compressao precoce;
+- teto de 7.5 unidades para o preview estreito e 9 para o largo.
+- centralizacao final pelo bounding box alfa, incluindo indicadores laterais.
 
 ### Risco 4: baixo contraste entre temas
 
@@ -1161,7 +1175,8 @@ reabertas durante a implementacao sem nova orientacao:
 7. Nao desenhar puxadores.
 8. Nao desenhar elementos internos.
 9. Nao preencher faces.
-10. O tamanho do componente nao responde a largura do painel N.
+10. O tamanho responde a largura: entre 5 e 7.5 unidades no modo estreito e
+    ate 9 no largo; abaixo de 310 px controles e desenho quebram de linha.
 11. O desenho sempre se ajusta ao limite interno do canvas.
 12. A proporcao deve ser preservada durante esse ajuste.
 13. Os pontos coloridos da referencia nao fazem parte do resultado.
@@ -1190,11 +1205,12 @@ mudar.
 
 ## 22. Resultado esperado
 
-O usuario ve os campos de medidas e, ao lado, um box wireframe limpo. Ao
+O usuario ve os campos de medidas e, quando houver largura, um box wireframe
+limpo ao lado. Em painel estreito, o box quebra automaticamente para baixo. Ao
 alterar qualquer medida, o box muda de proporcao imediatamente. A profundidade
 continua inclinada a 45 graus. O box aumenta enquanto ainda cabe em sua area
-natural e para de aumentar ao encontrar o limite do canvas. Expandir o painel
-N nao amplia a imagem. No modo Grupo, o box representa somente o volume externo
+natural e para de aumentar ao atingir 9 unidades de UI; nunca fica menor que
+5 unidades. No modo Grupo, o box representa somente o volume externo
 do modulo agrupado. No modo Individual, representa somente o volume da chapa.
 
 O recurso deve parecer uma parte nativa, previsivel e leve da interface do

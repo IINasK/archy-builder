@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (56, 0, 0),
+    "version": (67, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -1866,9 +1866,15 @@ WIREFRAME_MARGEM_ESQUERDA_PX = 14.0
 WIREFRAME_MARGEM_DIREITA_PX = 2.0
 WIREFRAME_MARGEM_Y_PX = 20.0
 WIREFRAME_LINHA_PX = 0.45
-WIREFRAME_ESCALA_UI = 10.0
+WIREFRAME_ESCALA_MIN_UI = 5.0
+WIREFRAME_ESCALA_MAX_UI = 9.0
+WIREFRAME_ESCALA_ESTREITA_MAX_UI = WIREFRAME_ESCALA_MAX_UI
+WIREFRAME_LARGURA_EMPILHAR_PX = 310.0
+MEDIDAS_LARGURA_COLUNA_UNICA_PX = 210.0
+MEDIDAS_OCUPACAO_COLUNA_UNICA = 0.80
+MEDIDAS_LARGURA_CONTROLES_UI = 4.5
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v12:"
+WIREFRAME_PREFIXO = "wireframe:v13:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -2038,7 +2044,31 @@ def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO'):
     for a, b in _ARESTAS_WIREFRAME:
         _desenhar_segmento(buffer, pontos[a], pontos[b], cor)
     _desenhar_indicadores(buffer, pontos, cor, modo)
-    return buffer
+    return _centralizar_wireframe(buffer)
+
+
+def _centralizar_wireframe(buffer):
+    """Centraliza o conteudo VISIVEL, incluindo as letras L/A/P/C."""
+    largura, altura = WIREFRAME_LARGURA_PX, WIREFRAME_ALTURA_PX
+    ocupados = [i // 4 for i in range(0, len(buffer), 4)
+                if buffer[i + 3] > 0.0]
+    if not ocupados:
+        return buffer
+    xs = [p % largura for p in ocupados]
+    ys = [p // largura for p in ocupados]
+    dx = int(round(((largura - 1) - (min(xs) + max(xs))) / 2.0))
+    dy = int(round(((altura - 1) - (min(ys) + max(ys))) / 2.0))
+    if dx == 0 and dy == 0:
+        return buffer
+    centralizado = [0.0] * len(buffer)
+    for p in ocupados:
+        x, y = p % largura, p // largura
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < largura and 0 <= ny < altura:
+            origem = p * 4
+            destino = (ny * largura + nx) * 4
+            centralizado[destino:destino + 4] = buffer[origem:origem + 4]
+    return centralizado
 
 
 def _chave_wireframe(modo, largura, altura, profundidade, cor):
@@ -2415,10 +2445,6 @@ class OBJECT_OT_salvar_biblioteca(Operator):
                                items=lambda s, c: [(k, k, "") for k in ARVORE.keys()])
     n2: bpy.props.StringProperty(name="Subcategoria", default="")
     n3: bpy.props.StringProperty(name="Tipo", default="")
-    com_foto: bpy.props.BoolProperty(
-        name="Gerar foto da viewport", default=True,
-        description="Usa as cores da viewport, sem grade nem icones. "
-                    "Se houver uma camera na selecao, usa a vista dela")
     como_modulo: bpy.props.BoolProperty(
         name="Como modulo (varias pecas)", default=True,
         description="Ligado: salva como Collection (arrasta o conjunto inteiro). "
@@ -2452,14 +2478,16 @@ class OBJECT_OT_salvar_biblioteca(Operator):
             arq = salvar_na_biblioteca(completos, self.nome, self.como_modulo,
                                        niveis=(self.n1, n2, n3))
             png = os.path.splitext(os.path.basename(arq))[0] + ".png"
-            if self.com_foto:
-                cam = next((o for o in sel if o.type == 'CAMERA'), None)
-                alvo = [o for o in completos if o.type != 'CAMERA']
-                okf, msg = capturar_viewport(
-                    os.path.join(pasta_biblioteca(), png), cam,
-                                             isolar=alvo or None)
-                if not okf:
-                    self.report({'WARNING'}, "Foto falhou: " + msg)
+            # Todo preset precisa nascer com representacao visual. Nao e'
+            # uma preferencia do usuario nem pode ser desativada no dialogo.
+            cam = next((o for o in sel if o.type == 'CAMERA'), None)
+            alvo = [o for o in completos if o.type != 'CAMERA']
+            okf, msg = capturar_viewport(
+                os.path.join(pasta_biblioteca(), png), cam,
+                isolar=alvo or None)
+            if not okf:
+                self.report({'ERROR'}, "Foto obrigatoria falhou: " + msg)
+                return {'CANCELLED'}
             registrar_no_indice(pasta_biblioteca(), self.nome, arq,
                                 self.n1, n2, n3,
                                 "modulo" if self.como_modulo else "objeto")
@@ -3058,8 +3086,91 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 depress=(ativo == modo))
             op.modo = modo
 
+    def _largura_logica(self, context):
+        escala = max(0.5, float(context.preferences.system.ui_scale))
+        return float(context.region.width) / escala
+
+    def _painel_estreito(self, context):
+        return self._largura_logica(context) < WIREFRAME_LARGURA_EMPILHAR_PX
+
+    def _painel_muito_estreito(self, context):
+        return (self._largura_logica(context) <
+                MEDIDAS_LARGURA_COLUNA_UNICA_PX)
+
+    def _escala_wireframe(self, context):
+        """Escala responsiva com limites para nao sumir nem dominar o painel."""
+        disponivel = max(0.0, self._largura_logica(context) - 24.0)
+        escala = disponivel / 20.0
+        maximo = (WIREFRAME_ESCALA_ESTREITA_MAX_UI
+                  if self._painel_estreito(context)
+                  else WIREFRAME_ESCALA_MAX_UI)
+        return max(WIREFRAME_ESCALA_MIN_UI,
+                   min(maximo, escala))
+
+    def _corpo_medidas(self, caixa, context, separador=0.4):
+        """Retorna controles e area visual, em linha ou empilhados."""
+        estreito = self._painel_estreito(context)
+        corpo = (caixa.column(align=True) if estreito
+                 else caixa.row(align=False))
+        if not estreito:
+            # Afasta os controles da quina do box sem deslocar o preview.
+            corpo.separator(factor=0.35)
+        campos = corpo.column(align=True)
+        # No modo estreito, toda a grade precisa usar o centro do box. Manter
+        # este contêiner em LEFT faz o Blender compactar a largura útil pelo
+        # tamanho natural dos widgets, deixando uma sobra maior à direita.
+        campos.alignment = 'CENTER' if estreito else 'LEFT'
+        if not estreito:
+            # Reserva somente o necessario para rotulos e caixas. Uma coluna
+            # maior comprime o preview na area direita antes da quebra.
+            campos.ui_units_x = MEDIDAS_LARGURA_CONTROLES_UI
+        campos.separator(factor=0.15 if estreito else separador)
+        return campos, corpo, estreito
+
+    def _grade_medidas(self, layout, estreito, coluna_unica, desenhadores):
+        """Quebra a grade em duas colunas ou uma coluna no limite estreito."""
+        if not estreito:
+            for desenhar in desenhadores:
+                desenhar(layout)
+            return
+
+        def desenhar_no_centro(desenhar, ocupacao=0.5):
+            """Cria uma faixa central com margens laterais simetricas."""
+            margem = (1.0 - ocupacao) * 0.5
+            externo = layout.split(factor=margem)
+            externo.column()
+            restante = externo.column()
+            proporcao_no_restante = ocupacao / (1.0 - margem)
+            centro_direita = restante.split(factor=proporcao_no_restante)
+            celula = centro_direita.column(align=True)
+            celula.alignment = 'CENTER'
+            desenhar(celula)
+            centro_direita.column()
+
+        if coluna_unica:
+            for desenhar in desenhadores:
+                desenhar_no_centro(
+                    desenhar, MEDIDAS_OCUPACAO_COLUNA_UNICA)
+            return
+
+        for inicio in range(0, len(desenhadores), 2):
+            par = desenhadores[inicio:inicio + 2]
+            if len(par) == 2:
+                # Sem largura fixa: as duas celulas dividem o espaco por
+                # igual e o centro nao deriva para a esquerda ao comprimir.
+                # `split` garante duas metades reais do espaco disponivel.
+                # Duas `column` dentro de uma `row` podem ser compactadas pelo
+                # Blender conforme a largura natural dos campos.
+                linha = layout.split(factor=0.5, align=False)
+                for desenhar in par:
+                    celula = linha.column(align=True)
+                    celula.alignment = 'CENTER'
+                    desenhar(celula)
+            else:
+                desenhar_no_centro(par[0])
+
     def _visual_wireframe(self, layout, context, modo, medidas):
-        """Desenha o preview em tamanho fixo, independente da sidebar."""
+        """Desenha o preview responsivo entre os limites visualmente uteis."""
         coluna = layout.column(align=False)
         coluna.alignment = 'CENTER'
         icone = _icone_wireframe(context, modo, *medidas)
@@ -3067,31 +3178,45 @@ class VIEW3D_PT_cabinet_creator(Panel):
             linha = coluna.row(align=True)
             linha.alignment = 'CENTER'
             linha.template_icon(
-                icon_value=icone, scale=WIREFRAME_ESCALA_UI)
+                icon_value=icone, scale=self._escala_wireframe(context))
         else:
             coluna.label(text="", icon='MESH_CUBE')
 
     def _campo_medida(self, layout, dados, propriedade, texto):
         """Rotulo completo acima e campo compacto logo abaixo."""
+        alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
         bloco = layout.column(align=True)
-        bloco.alignment = 'LEFT'
+        bloco.alignment = alinhamento
         rotulo = bloco.row(align=True)
-        rotulo.alignment = 'LEFT'
+        rotulo.alignment = alinhamento
         rotulo.label(text=texto)
         valor = bloco.row(align=True)
-        valor.alignment = 'LEFT'
+        valor.alignment = alinhamento
         valor.prop(dados, propriedade, text="")
 
     def _rotulo_medida(self, layout, texto, valor_mm):
         """Versao so'-leitura do campo: selecao livre nao tem prop."""
+        alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
         bloco = layout.column(align=True)
-        bloco.alignment = 'LEFT'
+        bloco.alignment = alinhamento
         r = bloco.row(align=True)
-        r.alignment = 'LEFT'
+        r.alignment = alinhamento
         r.label(text=texto)
         v = bloco.row(align=True)
-        v.alignment = 'LEFT'
+        v.alignment = alinhamento
         v.label(text="%.1f mm" % valor_mm)
+
+    def _campo_dimensao_objeto(self, layout, obj, indice, texto):
+        """Dimensao nativa editavel; aceita mm, cm e m como o Blender."""
+        alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
+        bloco = layout.column(align=True)
+        bloco.alignment = alinhamento
+        rotulo = bloco.row(align=True)
+        rotulo.alignment = alinhamento
+        rotulo.label(text=texto)
+        valor = bloco.row(align=True)
+        valor.alignment = alinhamento
+        valor.prop(obj, "dimensions", index=indice, text="")
 
     def _medidas_da_selecao(self, context, layout):
         """Caixa de QUALQUER selecao -- cubo, carro, curvas, o que for."""
@@ -3105,20 +3230,43 @@ class VIEW3D_PT_cabinet_creator(Panel):
         b.label(text="Selecao (%d objeto%s)"
                      % (quantos, "" if quantos == 1 else "s"),
                 icon='SHADING_BBOX')
-        corpo = b.row(align=False)
-        campos = corpo.column(align=True)
-        campos.alignment = 'LEFT'
-        campos.ui_units_x = 9.2
-        campos.separator(factor=0.4)
-        self._rotulo_medida(campos, "Largura", largura)
-        self._rotulo_medida(campos, "Altura", altura)
-        self._rotulo_medida(campos, "Profundidade", profundidade)
-        self._visual_wireframe(corpo, context, 'GRUPO',
+        # Tres medidas ocupam menos altura que o preview maximo; a margem
+        # superior maior centraliza o bloco e o afasta da quina do box.
+        campos, visual, estreito = self._corpo_medidas(
+            b, context, separador=1.2)
+        volumes = [o for o in context.selected_objects
+                   if o.type in TIPOS_COM_VOLUME]
+        if quantos == 1 and len(volumes) == 1:
+            obj = volumes[0]
+            # Convencao do add-on: largura=X, altura=Z, profundidade=Y.
+            self._grade_medidas(
+                campos, estreito, self._painel_muito_estreito(context), [
+                lambda lay: self._campo_dimensao_objeto(
+                    lay, obj, 0, "Largura"),
+                lambda lay: self._campo_dimensao_objeto(
+                    lay, obj, 2, "Altura"),
+                lambda lay: self._campo_dimensao_objeto(
+                    lay, obj, 1, "Profundidade"),
+            ])
+            largura = obj.dimensions.x * 1000.0
+            altura = obj.dimensions.z * 1000.0
+            profundidade = obj.dimensions.y * 1000.0
+        else:
+            # A caixa conjunta de varios objetos nao tem uma unica escala
+            # segura para editar; nesse caso as medidas continuam informativas.
+            self._grade_medidas(
+                campos, estreito, self._painel_muito_estreito(context), [
+                lambda lay: self._rotulo_medida(lay, "Largura", largura),
+                lambda lay: self._rotulo_medida(lay, "Altura", altura),
+                lambda lay: self._rotulo_medida(
+                    lay, "Profundidade", profundidade),
+            ])
+        self._visual_wireframe(visual, context, 'GRUPO',
                                (largura, altura, profundidade))
 
-    def _lista_espessuras(self, layout):
+    def _lista_espessuras(self, layout, centralizar=False):
         linha = layout.row(align=True)
-        linha.alignment = 'LEFT'
+        linha.alignment = 'CENTER' if centralizar else 'LEFT'
         linha.label(text="15/18/20/30")
 
     def desenhar_medidas(self, context, layout):
@@ -3128,20 +3276,21 @@ class VIEW3D_PT_cabinet_creator(Panel):
             self._abas_modo(layout, 'GRUPO')
             b = layout.box()
             b.label(text="Modulo (%d pecas)" % len(_chapas_do_conjunto(obj)), icon='MOD_BUILD')
-            corpo = b.row(align=False)
-            campos = corpo.column(align=True)
-            campos.alignment = 'LEFT'
-            campos.ui_units_x = 9.2
-            campos.separator(factor=0.4)
-            self._campo_medida(campos, obj, "ui_conj_largura", "Largura")
-            self._campo_medida(campos, obj, "ui_conj_altura", "Altura")
-            self._campo_medida(
-                campos, obj, "ui_conj_profundidade", "Profundidade")
-            self._campo_medida(
-                campos, obj, "ui_conj_espessura", "Espessura")
-            self._lista_espessuras(campos)
+            campos, visual, estreito = self._corpo_medidas(b, context)
+            self._grade_medidas(
+                campos, estreito, self._painel_muito_estreito(context), [
+                lambda lay: self._campo_medida(
+                    lay, obj, "ui_conj_largura", "Largura"),
+                lambda lay: self._campo_medida(
+                    lay, obj, "ui_conj_altura", "Altura"),
+                lambda lay: self._campo_medida(
+                    lay, obj, "ui_conj_profundidade", "Profundidade"),
+                lambda lay: self._campo_medida(
+                    lay, obj, "ui_conj_espessura", "Espessura"),
+            ])
+            self._lista_espessuras(campos, centralizar=estreito)
             self._visual_wireframe(
-                corpo, context, 'GRUPO',
+                visual, context, 'GRUPO',
                 (obj.conj_largura_mm, obj.conj_altura_mm,
                  obj.conj_profundidade_mm))
             b.operator("object.cabinet_sincronizar", icon='FILE_REFRESH')
@@ -3151,43 +3300,42 @@ class VIEW3D_PT_cabinet_creator(Panel):
             self._abas_modo(layout, obj.chapa_modo)
             b = layout.box()
             if obj.chapa_modo == 'INDIVIDUAL':
-                corpo = b.row(align=False)
-                campos = corpo.column(align=True)
-                campos.alignment = 'LEFT'
-                campos.ui_units_x = 9.2
-                campos.separator(factor=1.0)
-                self._campo_medida(
-                    campos, obj, "ui_chapa_largura", "Largura")
-                self._campo_medida(
-                    campos, obj, "ui_chapa_comprimento", "Comprimento")
-                self._campo_medida(
-                    campos, obj, "ui_chapa_espessura", "Espessura")
-                self._lista_espessuras(campos)
+                campos, visual, estreito = self._corpo_medidas(
+                    b, context, separador=1.0)
+                self._grade_medidas(
+                    campos, estreito, self._painel_muito_estreito(context), [
+                    lambda lay: self._campo_medida(
+                        lay, obj, "ui_chapa_largura", "Largura"),
+                    lambda lay: self._campo_medida(
+                        lay, obj, "ui_chapa_comprimento", "Comprimento"),
+                    lambda lay: self._campo_medida(
+                        lay, obj, "ui_chapa_espessura", "Espessura"),
+                ])
+                self._lista_espessuras(campos, centralizar=estreito)
                 campos.separator(factor=0.5)
                 campos.prop(obj, "chapa_auto")
                 self._visual_wireframe(
-                    corpo, context, 'INDIVIDUAL',
+                    visual, context, 'INDIVIDUAL',
                     (obj.chapa_largura_mm, obj.chapa_espessura_mm,
                      obj.chapa_comprimento_mm))
             else:
                 b.label(text="Grupo: %d peca(s)" % len(grupo_de(obj)), icon='MOD_BUILD')
                 sc = context.scene
-                corpo = b.row(align=False)
-                campos = corpo.column(align=True)
-                campos.alignment = 'LEFT'
-                campos.ui_units_x = 9.2
-                campos.separator(factor=0.4)
-                self._campo_medida(
-                    campos, sc, "ui_grupo_largura", "Largura")
-                self._campo_medida(
-                    campos, sc, "ui_grupo_altura", "Altura")
-                self._campo_medida(
-                    campos, sc, "ui_grupo_profundidade", "Profundidade")
-                self._campo_medida(
-                    campos, sc, "ui_grupo_espessura", "Espessura")
-                self._lista_espessuras(campos)
+                campos, visual, estreito = self._corpo_medidas(b, context)
+                self._grade_medidas(
+                    campos, estreito, self._painel_muito_estreito(context), [
+                    lambda lay: self._campo_medida(
+                        lay, sc, "ui_grupo_largura", "Largura"),
+                    lambda lay: self._campo_medida(
+                        lay, sc, "ui_grupo_altura", "Altura"),
+                    lambda lay: self._campo_medida(
+                        lay, sc, "ui_grupo_profundidade", "Profundidade"),
+                    lambda lay: self._campo_medida(
+                        lay, sc, "ui_grupo_espessura", "Espessura"),
+                ])
+                self._lista_espessuras(campos, centralizar=estreito)
                 self._visual_wireframe(
-                    corpo, context, 'GRUPO',
+                    visual, context, 'GRUPO',
                     (sc.grupo_largura_mm, sc.grupo_altura_mm,
                      sc.grupo_profundidade_mm))
                 b.operator("object.cabinet_sincronizar_grupo", icon='FILE_REFRESH')

@@ -116,6 +116,32 @@ vincular_blender.py           # junction para desenvolvimento
    segunda passagem mede o alfa e ajusta o zoom para 82% da imagem. Ao
    terminar restaura vista, selecao, visibilidade e render settings.
    O botao do nome mantem `emboss=True` para o highlight no hover.
+7. Salvar preset SEMPRE gera o PNG inicial; nao existe opcao `com_foto`.
+   Falha na captura cancela o cadastro no indice e reporta erro.
+
+### Medidas responsivas
+
+1. Qualquer selecao unica com volume expoe `Object.dimensions` editavel na
+   convencao L=X, A=Z, P=Y. Selecao multipla mostra a caixa conjunta apenas
+   para leitura, pois nao existe uma unica escala segura para todos.
+2. Abaixo de 310 px logicos, controles e wireframe ficam empilhados. Acima
+   disso ficam lado a lado. Nao voltar a fixar `ui_units_x` no modo estreito.
+3. No modo estreito, medidas formam grade de duas colunas: L/A na primeira
+   linha e P/E na segunda. Sem E, P fica sozinha e centralizada. Abaixo de
+   210 px logicos, todas as medidas formam uma unica coluna centralizada para
+   preservar os rotulos completos. Os campos dessa coluna ocupam 80% da area
+   util, inclusive Espessura quando existir. No modo largo os campos ficam em
+   coluna, com margem esquerda e centro vertical.
+4. O preview permanece com 9 unidades tanto no modo largo quanto no primeiro
+   estagio empilhado. Ele so reduz progressivamente, ate o minimo de 5, quando
+   a largura fisica ja nao comporta o tamanho completo.
+   No layout lado a lado, a coluna de controles usa somente 4.5 unidades de UI;
+   nao ampliar essa reserva, pois ela retira espaco do preview antes da quebra.
+5. A rasterizacao e' recentralizada pelo bounding box alfa depois de incluir
+   L/A/P/C. Sem isso, as letras laterais fazem o desenho parecer deslocado.
+   Na grade impar, usar divisao 25/50/25. Cada rotulo e campo deve receber
+   `alignment='CENTER'` dentro da propria celula; centralizar apenas a celula
+   deixa os controles deslocados para a esquerda.
 
 ## Invariantes — NAO quebrar
 
@@ -185,7 +211,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 56.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 67.0.0).
 
 ## Git
 
