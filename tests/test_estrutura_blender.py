@@ -302,6 +302,105 @@ class TestGridDeMedidas(unittest.TestCase):
             addon._campos_gaveta.clear()
 
 
+class TestCarrosselDeslizante(unittest.TestCase):
+    """O carrossel anda como roleta em vez de trocar os nomes secamente."""
+
+    CHAVE = 'cabinet_carrossel_1_None'
+
+    def setUp(self):
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        bpy.ops.mesh.primitive_cube_add()
+        cena = bpy.context.scene
+        cena.cabinet_aba = 'MODULOS'
+        cena.chapa_bib_aberta = True
+        cena.chapa_n1 = ''
+        addon._deslizes.clear()
+        bpy.context.screen[self.CHAVE] = 0
+
+    def tearDown(self):
+        addon._deslizes.clear()
+        bpy.context.screen[self.CHAVE] = 0
+
+    def navegar(self, largura=320):
+        return [v for v in addon._widgets_gaveta(bpy.context, largura, 1200)
+                if v[5] and v[5][0] == 'navegar' and v[5][1] == 1]
+
+    def test_parado_o_layout_e_o_mesmo_de_antes(self):
+        # Sem transicao em curso, as posicoes tem que ser as inteiras
+        # de sempre: nada de meia peca sobrando na tela em repouso.
+        itens = self.navegar()
+        self.assertTrue(itens)
+        self.assertEqual(addon._deslizes[self.CHAVE][0],
+                         addon._deslizes[self.CHAVE][1])
+        largos = {round(v[2], 6) for v in itens}
+        self.assertEqual(len(largos), 1)
+        passo = round(itens[1][0] - itens[0][0], 6) if len(itens) > 1 else None
+        if passo is not None:
+            self.assertAlmostEqual(passo, largos.pop() + 4, places=5)
+
+    def test_em_movimento_entra_uma_peca_a_mais(self):
+        # A peca que surge na borda so' existe durante a transicao; e'
+        # ela que da' a impressao de fila andando.
+        parado = len(self.navegar())
+        addon._deslizes[self.CHAVE] = [0.5, 1.0, 0.0]
+        andando = self.navegar()
+        self.assertEqual(len(andando), parado + 1)
+        # e a fila esta' deslocada meio passo para a esquerda
+        self.assertLess(andando[0][0], 12 + 24)
+
+    def test_hit_test_acompanha_o_movimento(self):
+        # O retangulo de clique sai do MESMO lugar que o desenho. Se o
+        # desenho animasse sozinho, o usuario erraria o alvo em
+        # movimento -- e o glow acenderia a peca errada.
+        addon._deslizes[self.CHAVE] = [0.0, 1.0, 0.0]
+        a = self.navegar()
+        addon._deslizes[self.CHAVE] = [0.6, 1.0, 0.0]
+        b = self.navegar()
+        nome = lambda v: v[5][2]
+        comum = set(map(nome, a)) & set(map(nome, b))
+        self.assertTrue(comum)
+        for valor in comum:
+            xa = next(v[0] for v in a if nome(v) == valor)
+            xb = next(v[0] for v in b if nome(v) == valor)
+            self.assertLess(xb, xa)
+
+    def test_indice_inteiro_continua_sendo_a_verdade(self):
+        # O deslize e' so' visual: quem manda no conteudo e' o inteiro
+        # guardado na screen, que clique, arraste e testes leem.
+        todos = sorted(addon.ARVORE.keys(), key=str.casefold)
+        bpy.context.screen[self.CHAVE] = 2
+        addon._deslizes.clear()
+        parados = [v[5][2] for v in self.navegar()]
+        self.assertEqual(parados[0], todos[2])
+
+        # No meio do caminho a fila mostra de ONDE veio, nao para onde
+        # vai -- e' isso que se ve andando. O alvo e' que segue o
+        # inteiro da screen.
+        addon._deslizes[self.CHAVE] = [0.0, 2.0, 0.0]
+        em_transito = [v[5][2] for v in self.navegar()]
+        self.assertEqual(em_transito[0], todos[0])
+        self.assertEqual(addon._deslizes[self.CHAVE][1], 2.0)
+
+        # e ao terminar, para exatamente no que a screen manda
+        addon._deslizes[self.CHAVE] = [2.0, 2.0, 0.0]
+        self.assertEqual([v[5][2] for v in self.navegar()], parados)
+
+    def test_deslizar_nao_anima_na_primeira_vez(self):
+        # Abrir a biblioteca nao pode disparar uma roleta do nada.
+        addon._deslizes.clear()
+        self.assertEqual(addon._deslizar('novo', 3), 3.0)
+        self.assertEqual(addon._deslizes['novo'][0],
+                         addon._deslizes['novo'][1])
+
+    def test_desenho_recorta_o_trilho(self):
+        # Sem scissor a peca que entra apareceria por cima das setas.
+        fonte = inspect.getsource(addon._desenhar_gaveta)
+        self.assertIn('scissor_test_set(True)', fonte)
+        self.assertIn('scissor_test_set(False)', fonte)
+        self.assertIn("acao[0] == 'navegar'", fonte)
+
+
 class TestContratoDosWidgets(unittest.TestCase):
     """_widgets_gaveta e' a fronteira entre layout e desenho."""
 
@@ -480,6 +579,7 @@ addon.register()
 carregar = unittest.defaultTestLoader.loadTestsFromTestCase
 suite = unittest.TestSuite([carregar(c) for c in (
     TestArquiteturaDaGaveta, TestAlca, TestHigieneDeGPU, TestGridDeMedidas,
+    TestCarrosselDeslizante,
     TestContratoDosWidgets, TestEstruturaDaChapa, TestRegistro)])
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()

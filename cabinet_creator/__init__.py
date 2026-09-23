@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (81, 0, 0),
+    "version": (82, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -4008,6 +4008,12 @@ _edicao_gaveta = [None]
 # e' (ponteiro da area, nome do widget), porque agora a alca e os
 # campos de medida usam o MESMO glow.
 _realces = {}
+# Deslize do carrossel: chave da categoria -> [indice atual, alvo,
+# instante]. O indice inteiro continua sendo a verdade (clique, arraste
+# e testes leem ele da screen); isto aqui e' so' a posicao INTERMEDIARIA
+# por onde a fila passa, para a troca virar movimento e nao um corte.
+_deslizes = {}
+DURACAO_DESLIZE = 0.09
 _CHAVE_GAVETA = "cabinet_gaveta_area"
 _CHAVE_PENDENTE = "cabinet_gaveta_pendente"
 _CHAVE_ROLAGEM = "cabinet_gaveta_rolagem"
@@ -4255,14 +4261,28 @@ def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
     itens.append((x, y, 20, 25, '', ('rolar_nivel', chave, -1, limite)))
     itens.append((x + largura - 20, y, 20, 25, '',
                   ('rolar_nivel', chave, 1, limite)))
-    for i, valor in enumerate(sorted(valores, key=str.casefold)[inicio:inicio + colunas]):
+
+    # As posicoes saem daqui, nao do desenho: assim o retangulo de
+    # clique acompanha a peca enquanto ela anda. Desenhar por cima de
+    # um hit-test parado faria o usuario errar o alvo em movimento.
+    deslize = _deslizar(chave, inicio)
+    primeiro = int(math.floor(deslize))
+    sobra = deslize - primeiro
+    # Em movimento entra UMA peca a mais, a que esta' surgindo na
+    # borda; o recorte do desenho corta o que passa do trilho.
+    extra = 1 if sobra else 0
+    ordenados = sorted(valores, key=str.casefold)
+    for posicao in range(primeiro, primeiro + colunas + extra):
+        if not 0 <= posicao < len(ordenados):
+            continue
+        valor = ordenados[posicao]
         if nivel == 1:
             conta = _conta(indice, valor)
         elif nivel == 2:
             conta = _conta(indice, pai, valor)
         else:
             conta = _conta(indice, pai[0], pai[1], valor)
-        itens.append((x + 24 + i * (bw + 4), y,
+        itens.append((x + 24 + (posicao - primeiro - sobra) * (bw + 4), y,
                       bw, 25, '%s (%d)' % (_abreviar(valor, 13), conta),
                       ('navegar', nivel, valor, chave, limite, selecionado == valor)))
     return y - 39
@@ -4538,7 +4558,49 @@ def _animar_realces():
         if estado[0] != valor:
             areas[chave[0]].tag_redraw()
         animando |= abs(estado[0] - alvo) > 0.0001
+
+    # O deslize usa decaimento exponencial, nao passo fixo: assim
+    # pular seis categorias de uma vez leva o mesmo tempo que pular
+    # uma, desacelerando no fim como uma roleta.
+    gavetas = [a for a in areas.values() if _eh_area_gaveta_bruto(a)]
+    for chave, estado in list(_deslizes.items()):
+        valor, alvo, instante = estado
+        fatia = min(1.0, max(0.0, agora - instante) / DURACAO_DESLIZE)
+        estado[0] = valor + (alvo - valor) * fatia
+        estado[2] = agora
+        if abs(estado[0] - alvo) < 0.002:
+            estado[0] = alvo
+        if estado[0] != valor:
+            for area in gavetas:
+                area.tag_redraw()
+        animando |= estado[0] != alvo
     return 1.0 / 60 if animando else None
+
+
+def _eh_area_gaveta_bruto(area):
+    """Versao de `_eh_area_gaveta` que aceita a area solta."""
+    for janela in bpy.context.window_manager.windows:
+        if area in janela.screen.areas.values():
+            return area == _area_gaveta(janela.screen)
+    return False
+
+
+def _deslizar(chave, alvo):
+    """Posicao ANIMADA do carrossel rumo a `alvo`.
+
+    Na primeira vez, e quando nada esta' em curso, devolve o proprio
+    alvo -- entao fora de uma transicao o layout continua identico ao
+    de antes, e os testes veem posicoes inteiras.
+    """
+    estado = _deslizes.get(chave)
+    if estado is None:
+        _deslizes[chave] = [float(alvo), float(alvo), time.monotonic()]
+        return float(alvo)
+    if estado[1] != alvo:
+        estado[1], estado[2] = float(alvo), time.monotonic()
+        if not bpy.app.timers.is_registered(_animar_realces):
+            bpy.app.timers.register(_animar_realces, first_interval=0.0)
+    return estado[0]
 
 
 def _realcar(context, nome, ativo):
@@ -4862,6 +4924,15 @@ def _desenhar_gaveta(tela=False):
             _desenhar_foto_gaveta(acao[1], x + 5, y + 22, lado, lado)
             _texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
             continue
+        # A peca que esta' entrando (ou saindo) invade a area das setas.
+        # O recorte faz o carrossel parecer uma janela por onde a fila
+        # passa, em vez de pecas aparecendo do nada.
+        recortado = bool(acao and acao[0] == 'navegar')
+        if recortado:
+            gpu.state.scissor_test_set(True)
+            gpu.state.scissor_set(12 + 24, int(y) - 1,
+                                  max(0, largura - 24 - 48), 27)
+
         ativo = bool(acao and acao[0] in {'navegar', 'modo'} and acao[-1])
         # O halo vai ANTES do corpo do botao, como na alca: por cima
         # ele lavaria o texto em vez de circundar o widget.
@@ -4893,6 +4964,8 @@ def _desenhar_gaveta(tela=False):
         elif not _icone_acao_gaveta(acao):
             _texto_cabivel_gaveta(x + 9, y + (h - 12) / 2,
                                    rotulo, w - 18)
+        if recortado:
+            gpu.state.scissor_test_set(False)
     _retangulo_gaveta(0, altura - 48, largura, 48,
                        fundo)
     for x, y, w, h, rotulo, acao in widgets[:2]:
@@ -6131,6 +6204,7 @@ def unregister():
     if bpy.app.timers.is_registered(_animar_realces):
         bpy.app.timers.unregister(_animar_realces)
     _realces.clear()
+    _deslizes.clear()
     if bpy.app.timers.is_registered(_limitar_largura_gaveta):
         bpy.app.timers.unregister(_limitar_largura_gaveta)
     remover_keymaps()
