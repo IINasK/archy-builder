@@ -45,7 +45,7 @@ vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 ## Portas parametricas
 
 O Cabinet Creator agora tem uma area propria na esquerda da viewport,
-independente do painel N. A alca amarela abre e fecha essa gaveta; aberta,
+independente do painel N. A alca cinza abre e fecha essa gaveta; aberta,
 ela ocupa toda a altura da viewport e reduz a largura da area de modelagem.
 Sua borda pode ser arrastada para ajustar a largura. A gaveta contem as
 abas **Modulos** e **Portas**, medidas editaveis, wireframe do modulo,
@@ -55,12 +55,22 @@ do preset e acompanha o cursor ate' a viewport principal. O painel N nao
 e' usado pelo addon; continua disponivel para os demais paineis do Blender.
 O conteudo da gaveta limita sua largura util, e as fotos da biblioteca
 mantem formato quadrado em qualquer largura. A rolagem para no ultimo
-controle, sem deixar uma area vazia acima do menu. O fundo cinza das fotos
-e' aplicado so' na interface; os PNG originais permanecem transparentes.
-Os campos de medida ficam em lista a esquerda; quando ha' largura, o
-wireframe aparece ao lado, separado por uma linha. A biblioteca tem uma
-divisoria entre cada nivel da cascata. A alca cinza permanece encostada
-na borda entre gaveta e viewport.
+controle, sem deixar uma area vazia acima do menu. As fotos preservam o
+alpha original, centralizadas pela area visivel e sem distorcer a proporcao.
+Os campos de medida formam uma linha, uma grade de duas colunas ou uma lista,
+conforme a largura. Clique no campo para digitar em mm (ou incluir `cm`/`m`);
+Enter confirma, Esc cancela. A edicao acontece na gaveta, sem pop-up.
+Por ser GPU, esses campos nao sao `UILayout.prop`; escrevem nas mesmas
+propriedades parametricas ou em `Object.dimensions` da interface anterior.
+Os icones sao os nativos do Blender, via `GIZMO_GT_button_2d`, e as cores
+dos botoes seguem o tema ativo.
+A biblioteca tem uma divisoria entre cada nivel da cascata. Cada nivel
+ocupa uma linha: setas, roda do mouse sobre a linha ou arraste horizontal
+revelam as demais categorias. Pasta, Assets e Salvar ficam no cabecalho.
+O checkbox Chapa usa a conversao existente ao marcar. Ao desmarcar, preserva
+a malha e a hierarquia, desliga a regeneracao e limpa vinculos de adjacencia.
+Folhas parametricas continuam sendo editadas pelo grupo de portas.
+A alca cinza permanece encostada na borda entre gaveta e viewport.
 
 1. Selecione a malha do movel ou as duas chapas que contem os cantos.
    Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.
@@ -130,7 +140,9 @@ na cena de trabalho: ele limpa a cena de testes.
 ## Limitacoes conhecidas
 
 - A gaveta e' uma area separada da viewport; a largura e' ajustada pelo
-  usuario arrastando a divisoria entre as duas areas.
+  usuario arrastando a divisoria entre as duas areas. Ao soltar, o limite
+  de 564 px e' reaplicado por `screen.area_move` quando ha' uma viewport
+  adjacente. Nao e' uma trava durante o gesto: `Area.width` e' somente leitura.
 - O arraste de presets entre a gaveta e a viewport usa um operador modal
   proprio; o fluxo completo depende de teste interativo no Blender.
 - Blender 5.2 tem um bug que impede escrever inputs de modificador Geometry
