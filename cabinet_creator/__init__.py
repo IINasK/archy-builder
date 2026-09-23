@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (75, 0, 0),
+    "version": (76, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -4067,7 +4067,30 @@ def _retangulo_gaveta(x, y, largura, altura, cor):
     batch.draw(shader)
 
 
-def _texto_gaveta(x, y, texto, tamanho=12, cor=(0.88, 0.88, 0.88, 1)):
+def _retangulo_arredondado_gaveta(x, y, largura, altura, raio, cor):
+    raio = min(raio, largura / 2.0, altura / 2.0)
+    pontos = []
+    for cx, cy, inicio in (
+            (x + largura - raio, y + raio, -90),
+            (x + largura - raio, y + altura - raio, 0),
+            (x + raio, y + altura - raio, 90),
+            (x + raio, y + raio, 180)):
+        for passo in range(5):
+            angulo = math.radians(inicio + passo * 90 / 4)
+            pontos.append((cx + raio * math.cos(angulo),
+                           cy + raio * math.sin(angulo)))
+    centro = (x + largura / 2.0, y + altura / 2.0)
+    vertices = []
+    for i, ponto in enumerate(pontos):
+        vertices.extend((centro, ponto, pontos[(i + 1) % len(pontos)]))
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    batch = batch_for_shader(shader, 'TRIS', {'pos': vertices})
+    shader.bind()
+    shader.uniform_float('color', cor)
+    batch.draw(shader)
+
+
+def _texto_gaveta(x, y, texto, tamanho=12, cor=(0.8, 0.8, 0.8, 1)):
     blf.size(0, tamanho)
     blf.color(0, *cor)
     blf.position(0, x, y, 0)
@@ -4087,13 +4110,14 @@ def _texto_cabivel_gaveta(x, y, texto, largura, tamanho=12):
 
 
 def _botao_gaveta(x, y, w, h, ativo=False, secao=False):
-    borda = (0.30, 0.31, 0.33, 1)
-    fundo = ((0.29, 0.40, 0.55, 1) if ativo else
-             (0.16, 0.17, 0.18, 1) if secao else
-             (0.23, 0.24, 0.26, 1))
-    _retangulo_gaveta(x, y, w, h, borda)
+    borda = (0.30, 0.30, 0.30, 1)
+    fundo = ((0.30, 0.40, 0.54, 1) if ativo else
+             (0.188, 0.188, 0.188, 1) if secao else
+             (0.239, 0.239, 0.239, 1))
+    _retangulo_arredondado_gaveta(x, y, w, h, 4, borda)
     if w > 2 and h > 2:
-        _retangulo_gaveta(x + 1, y + 1, w - 2, h - 2, fundo)
+        _retangulo_arredondado_gaveta(
+            x + 1, y + 1, w - 2, h - 2, 3, fundo)
 
 
 def _medidas_gaveta(context):
@@ -4172,7 +4196,7 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
     s = context.scene
     # Mesmo se a area for alargada drasticamente, o menu permanece uma
     # coluna vertical legivel; miniaturas nao viram faixas gigantes.
-    x, w = 12, max(80, min(700, largura - 24))
+    x, w = 12, max(80, min(540, largura - 24))
     itens = []
     metade = min(220, (w - 6) / 2)
     for i, (rotulo, acao) in enumerate((('Modulos', 'MODULOS'),
@@ -4215,27 +4239,37 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
                           ('modo', nome.upper(), modo == nome.upper())))
         y -= 33
     if campos:
-        colunas_medidas = 1 if w < 250 else 2
-        largura_campo = min(220, (w - 6 * (colunas_medidas - 1)) /
-                            colunas_medidas)
+        largura_campo = min(180, w)
+        horizontal = w >= 400
         for i, (nome, valor, prop) in enumerate(campos):
-            linha, coluna = divmod(i, colunas_medidas)
-            itens.append((x + coluna * (largura_campo + 6),
-                          y - linha * 43, largura_campo, 37,
+            itens.append((x, y - i * 43, largura_campo, 37,
                           '%s: %.1f mm' % (nome, valor),
                           ('medida', dono, prop, nome, valor)))
-        y -= math.ceil(len(campos) / colunas_medidas) * 43 + 4
         valores = [v for _, v, _ in campos]
         if modo == 'INDIVIDUAL':
             dimensoes = (valores[0], valores[2], valores[1])
         else:
             dimensoes = tuple(valores[:3])
-        lado_wireframe = min(160, w)
-        itens.append((x + max(0, (w - lado_wireframe) / 2),
-                      y - lado_wireframe - 4, lado_wireframe,
-                      lado_wireframe,
-                      '', ('wireframe', modo, *dimensoes)))
-        y -= lado_wireframe + 17
+        if horizontal:
+            lado_wireframe = min(160, w - largura_campo - 42)
+            altura_bloco = max((len(campos) - 1) * 43 + 37,
+                               lado_wireframe)
+            divisor_x = x + largura_campo + 17
+            itens.append((divisor_x, y + 37 - altura_bloco,
+                          2, altura_bloco, '', ('divisor_medidas',)))
+            itens.append((divisor_x + 21,
+                          y + 37 - lado_wireframe,
+                          lado_wireframe, lado_wireframe,
+                          '', ('wireframe', modo, *dimensoes)))
+            y = y + 37 - altura_bloco - 17
+        else:
+            y -= (len(campos) - 1) * 43 + 50
+            lado_wireframe = min(160, w)
+            itens.append((x + max(0, (w - lado_wireframe) / 2),
+                          y - lado_wireframe, lado_wireframe,
+                          lado_wireframe,
+                          '', ('wireframe', modo, *dimensoes)))
+            y -= lado_wireframe + 17
         if obj is not None and MARCA_CONJUNTO in obj:
             itens.append((x, y, w, 27, 'Sincronizar conjunto',
                           ('operador', 'object.cabinet_sincronizar')))
@@ -4282,10 +4316,15 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
     y = _linha_cascata_gaveta(itens, x, y, w,
                               list(ARVORE.keys()), 1, s.chapa_n1, indice)
     if s.chapa_n1:
+        itens.append((x, y + 4, w, 2, '', ('separador',)))
+        y -= 13
         y = _linha_cascata_gaveta(itens, x, y, w, _filhos_n2(s.chapa_n1),
                                   2, s.chapa_n2, indice, s.chapa_n1)
     if s.chapa_n1 and s.chapa_n2:
         filhos = _filhos_n3(s.chapa_n1, s.chapa_n2)
+        if filhos:
+            itens.append((x, y + 4, w, 2, '', ('separador',)))
+            y -= 13
         y = _linha_cascata_gaveta(itens, x, y, w, filhos,
                                   3, s.chapa_n3, indice,
                                   (s.chapa_n1, s.chapa_n2))
@@ -4389,16 +4428,43 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
 
 def _desenhar_gaveta():
     context = bpy.context
-    if not _eh_area_gaveta(context) or context.region.type != 'WINDOW':
+    if context.region is None or context.region.type != 'WINDOW':
+        return
+    if not _eh_area_gaveta(context):
+        if (context.area is not None and context.area.type == 'VIEW_3D'
+                and (_area_gaveta(context.screen) is None
+                     or context.area.x > _area_gaveta(context.screen).x)):
+            centro = max(48, context.region.height * 0.12)
+            gpu.state.blend_set('ALPHA')
+            _retangulo_arredondado_gaveta(
+                0, centro - 35, 26, 70, 5,
+                (0.34, 0.34, 0.34, 1))
+            _retangulo_arredondado_gaveta(
+                0, centro - 34, 24, 68, 4,
+                (0.239, 0.239, 0.239, 1))
+            aberta = _area_gaveta(context.screen) is not None
+            seta = (((9, centro), (16, centro - 7),
+                     (16, centro + 7)) if aberta else
+                    ((16, centro), (9, centro - 7),
+                     (9, centro + 7)))
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            batch = batch_for_shader(shader, 'TRIS', {'pos': seta})
+            shader.bind()
+            shader.uniform_float('color', (0.8, 0.8, 0.8, 1))
+            batch.draw(shader)
+            gpu.state.blend_set('NONE')
         return
     largura, altura = context.region.width, context.region.height
     gpu.state.blend_set('ALPHA')
-    _retangulo_gaveta(0, 0, largura, altura, (0.105, 0.11, 0.12, 1))
-    _retangulo_gaveta(largura - 2, 0, 2, altura, (0.30, 0.31, 0.33, 1))
+    _retangulo_gaveta(0, 0, largura, altura, (0.188, 0.188, 0.188, 1))
+    _retangulo_gaveta(largura - 2, 0, 2, altura, (0.27, 0.27, 0.27, 1))
     widgets = _widgets_gaveta(context, largura, altura)
     # O cabecalho e' desenhado por ultimo, acima do conteudo rolavel.
     for x, y, w, h, rotulo, acao in widgets[2:] + widgets[:2]:
         if y + h < 0 or y > altura:
+            continue
+        if acao and acao[0] in {'separador', 'divisor_medidas'}:
+            _retangulo_gaveta(x, y, w, h, (0.40, 0.40, 0.40, 1))
             continue
         if acao and acao[0] == 'wireframe':
             _desenhar_wireframe_gaveta(x, y, *acao[1:], escala=w / 160.0)
@@ -4428,7 +4494,7 @@ def _desenhar_gaveta():
             _retangulo_gaveta(x + 9 + (w - 18) * valor - 5,
                                y - 15, 10, 13, (0.95, 0.72, 0.08, 1))
     _retangulo_gaveta(0, altura - 48, largura, 48,
-                       (0.105, 0.11, 0.12, 1))
+                       (0.188, 0.188, 0.188, 1))
     for x, y, w, h, rotulo, acao in widgets[:2]:
         _botao_gaveta(x, y, w, h,
                        ativo=context.scene.cabinet_aba == acao[1])
@@ -4498,7 +4564,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 continue
             if acao is None:
                 return {'FINISHED'}
-            if acao[0] == 'wireframe':
+            if acao[0] in {'wireframe', 'separador', 'divisor_medidas'}:
                 return {'FINISHED'}
             if acao[0] == 'aba':
                 context.scene.cabinet_aba = acao[1]
@@ -4632,12 +4698,12 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
         alca = self.gizmos.new("GIZMO_GT_button_2d")
         alca.target_set_operator("object.cabinet_alternar_gaveta")
         alca.draw_options = {'BACKDROP', 'OUTLINE'}
-        alca.color = (1.0, 0.78, 0.0)
+        alca.color = (0.24, 0.24, 0.24)
         alca.alpha = 1.0
         alca.backdrop_fill_alpha = 0.9
-        alca.color_highlight = (1.0, 0.95, 0.25)
+        alca.color_highlight = (0.35, 0.35, 0.35)
         alca.alpha_highlight = 1.0
-        alca.scale_basis = 18
+        alca.scale_basis = 15
         alca.matrix_basis[1][1] = 2.5
         alca.icon = 'TRIA_RIGHT'
         alca.show_drag = False
@@ -4646,7 +4712,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
 
     def draw_prepare(self, context):
         aberta = _area_gaveta(context.screen) is not None
-        self.alca.matrix_basis[0][3] = 18 if aberta else 30
+        self.alca.matrix_basis[0][3] = 8
         self.alca.matrix_basis[1][3] = max(48, context.region.height * 0.12)
         self.alca.icon = 'TRIA_LEFT' if aberta else 'TRIA_RIGHT'
 

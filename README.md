@@ -57,6 +57,10 @@ O conteudo da gaveta limita sua largura util, e as fotos da biblioteca
 mantem formato quadrado em qualquer largura. A rolagem para no ultimo
 controle, sem deixar uma area vazia acima do menu. O fundo cinza das fotos
 e' aplicado so' na interface; os PNG originais permanecem transparentes.
+Os campos de medida ficam em lista a esquerda; quando ha' largura, o
+wireframe aparece ao lado, separado por uma linha. A biblioteca tem uma
+divisoria entre cada nivel da cascata. A alca cinza permanece encostada
+na borda entre gaveta e viewport.
 
 1. Selecione a malha do movel ou as duas chapas que contem os cantos.
    Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.
