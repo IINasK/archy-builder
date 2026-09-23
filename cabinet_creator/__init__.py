@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (83, 0, 0),
+    "version": (84, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -3232,6 +3232,68 @@ ITENS_DOBRADICA = (
     ('CURVA', "Curva - parcialmente sobreposta", "Cobre meia lateral"),
     ('SUPER_CURVA', "Super curva - embutida", "Dentro do vao"),
 )
+# A gaveta edita os parametros das portas direto, sem popup: por isso
+# eles moram na Scene. O operador recebe tudo pronto e nunca abre
+# dialogo. Rotulos curtos porque cada opcao vira um segmento de botao.
+ESCOLHAS_PORTAS = (
+    ('porta_frente', 'Frente', (('NEG_Y', '-Y'), ('POS_Y', '+Y'),
+                                ('NEG_X', '-X'), ('POS_X', '+X'))),
+    ('porta_orientacao', 'Eixos do vao', (('AUTO', 'Pai/mundo'),
+                                          ('MUNDO', 'Mundo'),
+                                          ('ATIVO', 'Ativo'))),
+    ('porta_abertura', 'Abertura', (('GIRO', 'Giro'),
+                                    ('BASCULANTE', 'Basculante'),
+                                    ('CORRER', 'Correr'))),
+)
+# (prop em metros, prop em mm, rotulo, minimo em mm)
+MEDIDAS_PORTAS = (
+    ('ui_porta_folga', 'porta_folga_mm', 'Folga no perimetro', 0.0),
+    ('ui_porta_entre_folhas', 'porta_entre_folhas_mm', 'Entre folhas', 0.0),
+    ('ui_porta_afastamento', 'porta_afastamento_mm', 'Afastamento', 0.0),
+    ('ui_porta_recuo_embutida', 'porta_recuo_embutida_mm',
+     'Recuo da embutida', 0.0),
+    ('ui_porta_recuo_correr', 'porta_recuo_correr_mm',
+     'Recuo para trilhos', 0.1),
+    ('ui_porta_sobreposicao', 'porta_sobreposicao_mm', 'Sobreposicao', 0.0),
+    ('ui_porta_entre_planos', 'porta_entre_planos_mm',
+     'Entre planos', 0.1),
+)
+
+
+def _parametros_portas_da_cena(s):
+    """Os mesmos nomes que `_PARAMETROS_PORTAS` espera."""
+    return {
+        'abertura': s.porta_abertura,
+        'folhas': s.porta_folhas,
+        'dobradica': s.porta_dobradica,
+        'espessura_mm': s.porta_espessura,
+        'lateral_mm': s.porta_lateral,
+        'folga_mm': s.porta_folga_mm,
+        'entre_folhas_mm': s.porta_entre_folhas_mm,
+        'afastamento_mm': s.porta_afastamento_mm,
+        'recuo_embutida_mm': s.porta_recuo_embutida_mm,
+        'recuo_correr_mm': s.porta_recuo_correr_mm,
+        'sobreposicao_mm': s.porta_sobreposicao_mm,
+        'entre_planos_mm': s.porta_entre_planos_mm,
+    }
+
+
+def _carregar_portas_na_cena(s, grupo):
+    """Traz os parametros de um grupo existente para a gaveta."""
+    guardados = grupo.get('porta_parametros') or {}
+    for nome, valor in guardados.items():
+        if nome == 'espessura_mm':
+            s.porta_espessura = str(int(valor))
+        elif nome == 'lateral_mm':
+            s.porta_lateral = str(int(valor))
+        elif nome == 'folhas':
+            s.porta_folhas = int(valor)
+        elif nome in {'abertura', 'dobradica'}:
+            setattr(s, 'porta_' + nome, valor)
+        elif nome in _PARAMETROS_PORTAS:
+            setattr(s, 'porta_' + nome, float(valor))
+
+
 _PARAMETROS_PORTAS = (
     'abertura', 'folhas', 'dobradica', 'espessura_mm', 'lateral_mm',
     'folga_mm', 'entre_folhas_mm', 'afastamento_mm', 'recuo_embutida_mm',
@@ -3422,6 +3484,13 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura, parametros):
         gerar_malha_chapa(folha)
     context.view_layer.update()
     return grupo
+
+
+def _limitar_folhas_cena(self, context):
+    """Abertura nova pode nao aceitar a quantidade de folhas atual."""
+    limite = LIMITES_FOLHAS.get(self.porta_abertura, 1)
+    if self.porta_folhas > limite:
+        self.porta_folhas = limite
 
 
 def _limitar_folhas_portas(self, context):
@@ -3659,13 +3728,18 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._encerrar(context)
         referencia, pai = _referencia_do_par(obj_a, obj_b)
         ativa = obj_a.matrix_world.to_quaternion().to_matrix()
+        s = context.scene
         try:
+            # EXEC_DEFAULT, nao INVOKE: os parametros ja' vieram da aba
+            # Portas, entao nao ha' dialogo nenhum para abrir.
             bpy.ops.object.cabinet_portas(
-                'INVOKE_DEFAULT', capturado=True,
+                'EXEC_DEFAULT', capturado=True,
                 ponto_a=a, ponto_b=b,
                 referencia=tuple(v for linha in referencia for v in linha),
                 referencia_ativa=tuple(v for linha in ativa for v in linha),
-                pai_nome=pai.name if pai is not None else '')
+                pai_nome=pai.name if pai is not None else '',
+                orientacao=s.porta_orientacao, frente=s.porta_frente,
+                **_parametros_portas_da_cena(s))
         except RuntimeError as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
@@ -4543,6 +4617,30 @@ def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
     return y - 39
 
 
+def _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
+                          ativo=True):
+    """Rotulo mais uma fila de segmentos: a alternativa ao dropdown.
+
+    O bpy nao desenha menu suspenso aqui, e popup e' justamente o que
+    esta' saindo da frente do usuario. Segmento tem a vantagem de
+    mostrar TODAS as opcoes sem clique nenhum.
+    """
+    if rotulo:
+        # 23 deixava o primeiro segmento 2 px por cima do rotulo
+        itens.append((x, y, w, 20, rotulo, None))
+        y -= 26
+    # 52 px e' o menor segmento onde um rotulo curto ainda cabe
+    por_linha = max(1, min(len(opcoes), int(w // 52)))
+    for inicio in range(0, len(opcoes), por_linha):
+        fatia = opcoes[inicio:inicio + por_linha]
+        bw = (w - 4 * (len(fatia) - 1)) / len(fatia)
+        for i, (valor, texto) in enumerate(fatia):
+            itens.append((x + i * (bw + 4), y, bw, 25, texto,
+                          ('escolha', prop, valor, valor == atual, ativo)))
+        y -= 29
+    return y
+
+
 def _rodape_medidas_gaveta(itens, x, y, w, obj, modo):
     controles = []
     if obj is not None and obj.type == 'MESH':
@@ -4563,6 +4661,116 @@ def _rodape_medidas_gaveta(itens, x, y, w, obj, modo):
     nome = obj.name if obj else 'Nenhuma selecao'
     itens.append((cursor, y, restante, 26, nome, ('nome_objeto',)))
     return y - 35
+
+
+def _aba_portas_gaveta(context, itens, x, y, w, s):
+    """Tudo o que morava no popup de Portas Parametricas.
+
+    O popup saiu da frente: aqui as opcoes ficam visiveis o tempo todo
+    e o operador e' chamado com os parametros ja' prontos.
+    """
+    grupo = _grupo_portas(context.object)
+    if grupo is not None:
+        itens.append((x, y, w, 26, 'Vao: %.1f x %.1f mm' % (
+            grupo['porta_vao_largura_mm'],
+            grupo['porta_vao_altura_mm']), None))
+        y -= 30
+        itens.append((x, y, w, 26,
+                      '%d folha(s) no grupo' % len(_folhas_portas(grupo)),
+                      None))
+        y -= 30
+        itens.append((x, y, w, 26, 'Ler parametros do grupo',
+                      ('ler_portas', grupo.name)))
+        y -= 34
+    else:
+        itens.append((x, y, w, 26, 'Clique nos 2 cantos do vao', None))
+        y -= 30
+
+    # Eixos e frente so' fazem sentido para um vao novo; o grupo ja'
+    # guarda a matriz dele.
+    for prop, rotulo, opcoes in ESCOLHAS_PORTAS:
+        if grupo is not None and prop != 'porta_abertura':
+            continue
+        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes,
+                                  getattr(s, prop))
+
+    limite = LIMITES_FOLHAS[s.porta_abertura]
+    y = _linha_escolha_gaveta(
+        itens, x, y, w, 'Folhas (ate %d)' % limite, 'porta_folhas',
+        tuple((n, str(n)) for n in range(1, limite + 1)), s.porta_folhas)
+
+    y = _linha_escolha_gaveta(
+        itens, x, y, w, 'Espessura da porta (mm)', 'porta_espessura',
+        tuple((str(int(e)), str(int(e))) for e in ESPESSURAS_PERMITIDAS),
+        s.porta_espessura)
+
+    correr = s.porta_abertura == 'CORRER'
+    medidas = []
+    if not correr:
+        y = _linha_escolha_gaveta(
+            itens, x, y, w, 'Dobradica / posicionamento', 'porta_dobradica',
+            (('RETA', 'Reta'), ('CURVA', 'Curva'),
+             ('SUPER_CURVA', 'Super curva')), s.porta_dobradica)
+        if s.porta_dobradica == 'ESCOLHER':
+            itens.append((x, y, w, 22, 'Escolha a dobradica', None))
+            y -= 26
+        elif s.porta_dobradica in {'RETA', 'CURVA'}:
+            y = _linha_escolha_gaveta(
+                itens, x, y, w, 'Espessura da lateral (mm)', 'porta_lateral',
+                tuple((str(int(e)), str(int(e)))
+                      for e in ESPESSURAS_PERMITIDAS), s.porta_lateral)
+            medidas.append(('ui_porta_afastamento', 'porta_afastamento_mm',
+                            'Afastamento'))
+        else:
+            medidas.append(('ui_porta_recuo_embutida',
+                            'porta_recuo_embutida_mm', 'Recuo da embutida'))
+        if s.porta_folhas > 1:
+            medidas.append(('ui_porta_entre_folhas', 'porta_entre_folhas_mm',
+                            'Entre folhas'))
+    else:
+        itens.append((x, y, w, 22, 'Embutidas, em dois planos', None))
+        y -= 26
+        medidas.append(('ui_porta_recuo_correr', 'porta_recuo_correr_mm',
+                        'Recuo para trilhos'))
+        if s.porta_folhas > 1:
+            medidas.append(('ui_porta_sobreposicao', 'porta_sobreposicao_mm',
+                            'Sobreposicao'))
+            medidas.append(('ui_porta_entre_planos', 'porta_entre_planos_mm',
+                            'Entre planos'))
+    medidas.append(('ui_porta_folga', 'porta_folga_mm', 'Folga no perimetro'))
+
+    # Duas colunas quando cabem: sao campos curtos, um por linha
+    # desperdicaria a altura toda da gaveta.
+    colunas = 2 if w >= 240 else 1
+    largura_campo = (w - 6 * (colunas - 1)) / colunas
+    # O campo de medida tem 37 px de altura e as filas acima so' deixam
+    # 29 de vao: sem este respiro ele cobre a fila de segmentos.
+    y -= 14
+    for i, (prop_ui, prop_mm, rotulo) in enumerate(medidas):
+        linha, coluna = divmod(i, colunas)
+        itens.append((x + coluna * (largura_campo + 6), y - linha * 43,
+                      largura_campo, 37,
+                      '%s: %.1f mm' % (rotulo, getattr(s, prop_mm)),
+                      ('medida', 'cena', prop_ui, rotulo,
+                       getattr(s, prop_mm))))
+    y -= math.ceil(len(medidas) / colunas) * 43 + 4
+
+    # Previa do resultado, com o vao do grupo quando existe
+    if grupo is not None:
+        try:
+            folhas = _calcular_folhas_portas(
+                grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'],
+                _parametros_portas_da_cena(s))
+            itens.append((x, y, w, 22, 'Cada folha: %.1f x %.1f x %.0f mm'
+                          % folhas[0][:3], None))
+        except (ValueError, KeyError) as erro:
+            itens.append((x, y, w, 22, str(erro), None))
+        y -= 26
+
+    itens.append((x, y, w, 31,
+                  'Configurar Portas' if grupo else 'Criar Portas',
+                  ('portas', bool(grupo))))
+    return itens
 
 
 def _limite_rolagem_gaveta(context, largura, altura):
@@ -4587,24 +4795,7 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
                       rotulo, ('aba', acao)))
     y = altura - 105 + _rolagem
     if s.cabinet_aba == 'PORTAS':
-        grupo = _grupo_portas(context.object)
-        if grupo is not None:
-            itens.append((x, y, w, 26,
-                          'Vao: %.1f x %.1f mm' % (
-                              grupo['porta_vao_largura_mm'],
-                              grupo['porta_vao_altura_mm']), None))
-            y -= 32
-            itens.append((x, y, w, 26,
-                          '%d folha(s)' % len(_folhas_portas(grupo)), None))
-            y -= 36
-        else:
-            itens.append((x, y, w, 26,
-                          'Clique nos 2 cantos do vao', None))
-            y -= 36
-        itens.append((x, y, w, 31,
-                      'Configurar Portas' if grupo else 'Criar Portas',
-                      ('portas', bool(grupo))))
-        return itens
+        return _aba_portas_gaveta(context, itens, x, y, w, s)
     obj = context.object
     y += 23
     modo, campos, dono = _medidas_gaveta(context)
@@ -4941,6 +5132,8 @@ def _chave_widget(acao):
         return 'medida:' + acao[3]
     if verbo in {'aba', 'modo'}:
         return '%s:%s' % (verbo, acao[1])
+    if verbo == 'escolha':
+        return 'esc:%s:%s' % (acao[1], acao[2])
     if verbo == 'operador':
         return 'op:' + acao[1]
     if verbo == 'navegar':
@@ -5188,7 +5381,8 @@ def _desenhar_gaveta(tela=False):
             gpu.state.scissor_set(12 + 24, int(y) - 1,
                                   max(0, largura - 24 - 48), 27)
 
-        ativo = bool(acao and acao[0] in {'navegar', 'modo'} and acao[-1])
+        ativo = bool(acao and (acao[0] in {'navegar', 'modo'} and acao[-1]
+                               or acao[0] == 'escolha' and acao[3]))
         # O halo vai ANTES do corpo do botao, como na alca: por cima
         # ele lavaria o texto em vez de circundar o widget.
         chave = _chave_widget(acao)
@@ -5406,10 +5600,20 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         'INVOKE_DEFAULT', dono=acao[1],
                         objeto=context.object.name if context.object else '',
                         propriedade=acao[2], valor=acao[4] / 1000.0)
+            elif acao[0] == 'escolha':
+                if acao[4]:
+                    setattr(context.scene, acao[1], acao[2])
+            elif acao[0] == 'ler_portas':
+                alvo = bpy.data.objects.get(acao[1])
+                if alvo is not None:
+                    _carregar_portas_na_cena(context.scene, alvo)
             elif acao[0] == 'portas':
+                s = context.scene
                 if acao[1]:
-                    bpy.ops.object.cabinet_portas('INVOKE_DEFAULT',
-                                                  editar=True)
+                    grupo = _grupo_portas(context.object)
+                    bpy.ops.object.cabinet_portas(
+                        'EXEC_DEFAULT', editar=True, grupo_nome=grupo.name,
+                        **_parametros_portas_da_cena(s))
                 else:
                     bpy.ops.object.cabinet_apanhar_vao('INVOKE_DEFAULT')
             elif acao[0] == 'preset':
@@ -6328,7 +6532,11 @@ _PROPS_MEDIDA_UI_OBJETO = (
 _PROPS_MEDIDA_UI_CENA = (
     "ui_grupo_largura", "ui_grupo_altura", "ui_grupo_profundidade",
     "ui_grupo_espessura",
-)
+) + tuple(m[0] for m in MEDIDAS_PORTAS)
+_PROPS_PORTAS_CENA = (
+    "porta_frente", "porta_orientacao", "porta_abertura", "porta_dobradica",
+    "porta_folhas", "porta_espessura", "porta_lateral",
+) + tuple(m[1] for m in MEDIDAS_PORTAS)
 
 
 def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
@@ -6380,6 +6588,39 @@ def register():
         _desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW')
     bpy.app.timers.register(_reconectar_gavetas, first_interval=0.1)
     registrar_keymaps()
+    S = bpy.types.Scene
+    # Os parametros das portas moram na Scene para a gaveta edita-los
+    # sem popup (ver ESCOLHAS_PORTAS).
+    S.porta_frente = EnumProperty(
+        name="Frente", default='NEG_Y',
+        items=[(v, t, t) for v, t in
+               (('NEG_Y', '-Y (frontal)'), ('POS_Y', '+Y (traseira)'),
+                ('NEG_X', '-X (esquerda)'), ('POS_X', '+X (direita)'))])
+    S.porta_orientacao = EnumProperty(
+        name="Eixos do vao", default='AUTO',
+        items=[(v, t, t) for v, t in
+               (('AUTO', 'Pai comum / mundo'), ('MUNDO', 'Mundo'),
+                ('ATIVO', 'Objeto ativo'))])
+    S.porta_abertura = EnumProperty(name="Abertura", items=ITENS_ABERTURA,
+                                    default='GIRO',
+                                    update=_limitar_folhas_cena)
+    S.porta_dobradica = EnumProperty(name="Dobradica",
+                                     items=ITENS_DOBRADICA,
+                                     default='ESCOLHER')
+    S.porta_folhas = IntProperty(name="Folhas", default=1, min=1, max=4)
+    S.porta_espessura = EnumProperty(
+        name="Espessura da porta (mm)", default='18',
+        items=[(str(int(e)), str(int(e)), "mm") for e in ESPESSURAS_PERMITIDAS])
+    S.porta_lateral = EnumProperty(
+        name="Espessura da lateral (mm)", default='18',
+        items=[(str(int(e)), str(int(e)), "mm") for e in ESPESSURAS_PERMITIDAS])
+    for prop_ui, prop_mm, rotulo, minimo in MEDIDAS_PORTAS:
+        padrao = {'porta_entre_folhas_mm': 2.0, 'porta_recuo_correr_mm': 30.0,
+                  'porta_sobreposicao_mm': 20.0,
+                  'porta_entre_planos_mm': 2.0}.get(prop_mm, 0.0)
+        setattr(S, prop_mm, FloatProperty(name=rotulo, default=padrao,
+                                          min=minimo))
+        _registrar_medida_ui(S, prop_ui, prop_mm, rotulo, minimo)
     O = bpy.types.Object
     O.chapa_largura_mm = FloatProperty(
         name="Largura (mm)", default=600.0, min=1.0, update=_upd_chapa)
@@ -6505,7 +6746,7 @@ def unregister():
     for nome in _PROPS_MEDIDA_UI_OBJETO:
         if hasattr(bpy.types.Object, nome):
             delattr(bpy.types.Object, nome)
-    for nome in _PROPS_MEDIDA_UI_CENA:
+    for nome in _PROPS_MEDIDA_UI_CENA + _PROPS_PORTAS_CENA:
         if hasattr(bpy.types.Scene, nome):
             delattr(bpy.types.Scene, nome)
     for c in reversed(CLASSES):

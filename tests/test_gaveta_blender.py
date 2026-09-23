@@ -1,6 +1,7 @@
 """Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_gaveta_blender.py"""
 import os
 import sys
+import inspect
 import unittest
 from types import SimpleNamespace
 
@@ -169,6 +170,126 @@ class TestGaveta(unittest.TestCase):
         self.cena.cabinet_aba = 'PORTAS'
         tipos = [a[0] for *_, a in self.widgets() if a]
         self.assertIn('portas', tipos)
+
+    def portas(self, largura=320):
+        self.cena.cabinet_aba = 'PORTAS'
+        return addon._widgets_gaveta(bpy.context, largura, 1400)
+
+    def escolhas(self, largura=320):
+        alvo = {}
+        for *_, acao in self.portas(largura):
+            if acao and acao[0] == 'escolha':
+                alvo.setdefault(acao[1], []).append(acao[2])
+        return alvo
+
+    def test_aba_portas_traz_o_que_estava_no_popup(self):
+        # O popup saiu: toda opcao dele tem que estar visivel na aba.
+        alvo = self.escolhas()
+        for prop in ('porta_frente', 'porta_orientacao', 'porta_abertura',
+                     'porta_folhas', 'porta_espessura', 'porta_dobradica'):
+            self.assertIn(prop, alvo, prop)
+        self.assertEqual(alvo['porta_espessura'],
+                         [str(int(e)) for e in addon.ESPESSURAS_PERMITIDAS])
+        # a dobradica exige escolha: ESCOLHER nao e' oferecido
+        self.assertNotIn('ESCOLHER', alvo['porta_dobradica'])
+        rotulos = [v[4] for v in self.portas()]
+        self.assertIn('Escolha a dobradica', rotulos)
+
+    def test_escolha_escreve_na_cena(self):
+        acao = next(v[5] for v in self.portas()
+                    if v[5] and v[5][0] == 'escolha'
+                    and v[5][1] == 'porta_abertura' and v[5][2] == 'CORRER')
+        self.assertEqual(addon.OBJECT_OT_interagir_gaveta.poll(bpy.context),
+                         addon._eh_area_gaveta(bpy.context))
+        setattr(bpy.context.scene, acao[1], acao[2])
+        self.assertEqual(self.cena.porta_abertura, 'CORRER')
+
+    def test_campos_seguem_a_abertura(self):
+        self.cena.porta_abertura = 'GIRO'
+        self.cena.porta_dobradica = 'RETA'
+        self.cena.porta_folhas = 2
+        props = {v[5][2] for v in self.portas()
+                 if v[5] and v[5][0] == 'medida'}
+        self.assertIn('ui_porta_afastamento', props)
+        self.assertIn('ui_porta_entre_folhas', props)
+        self.assertNotIn('ui_porta_recuo_correr', props)
+
+        self.cena.porta_abertura = 'CORRER'
+        props = {v[5][2] for v in self.portas()
+                 if v[5] and v[5][0] == 'medida'}
+        self.assertIn('ui_porta_recuo_correr', props)
+        self.assertNotIn('ui_porta_afastamento', props)
+        # correr nao usa dobradica
+        self.assertNotIn('porta_dobradica', self.escolhas())
+
+    def test_folhas_limitadas_pela_abertura(self):
+        self.cena.porta_folhas = 4
+        self.cena.porta_abertura = 'BASCULANTE'
+        self.assertEqual(self.cena.porta_folhas, 1)
+        self.assertEqual(self.escolhas()['porta_folhas'], [1])
+        self.cena.porta_abertura = 'CORRER'
+        self.assertEqual(self.escolhas()['porta_folhas'], [1, 2, 3, 4])
+
+    def test_segmento_escolhido_acende(self):
+        # Sem isto o usuario nao enxerga qual opcao esta' valendo.
+        self.cena.porta_abertura = 'CORRER'
+        acesos = [v[5] for v in self.portas()
+                  if v[5] and v[5][0] == 'escolha'
+                  and v[5][1] == 'porta_abertura' and v[5][3]]
+        self.assertEqual([a[2] for a in acesos], ['CORRER'])
+        fonte = inspect.getsource(addon._desenhar_gaveta)
+        self.assertIn("acao[0] == 'escolha' and acao[3]", fonte)
+
+    def test_nenhum_widget_da_aba_portas_se_sobrepoe(self):
+        # O campo de medida tem 37 px e as filas de segmento deixam 29:
+        # sem respiro ele cobria a fila de cima.
+        for largura in (190, 320, 564):
+            caixas = [(v[0], v[1], v[2], v[3]) for v in self.portas(largura)]
+            for i, (ax, ay, aw, ah) in enumerate(caixas):
+                for bx, by, bw, bh in caixas[i + 1:]:
+                    sobrepoe = (ax < bx + bw - 0.01 and bx < ax + aw - 0.01
+                                and ay < by + bh - 0.01
+                                and by < ay + ah - 0.01)
+                    self.assertFalse(sobrepoe,
+                                     'largura %d: %s cobre %s'
+                                     % (largura, (ax, ay, aw, ah),
+                                        (bx, by, bw, bh)))
+
+    def test_aba_portas_cabe_na_gaveta(self):
+        for largura in (190, 320, 564):
+            for x, _y, w, _h, _r, _a in self.portas(largura):
+                self.assertGreaterEqual(x, 0)
+                self.assertLessEqual(x + w, min(largura - 12, 552) + 0.01)
+
+    def test_parametros_da_cena_cobrem_o_operador(self):
+        # Se faltar um nome, o operador cai no default e o usuario ve
+        # um valor que a aba nao mostra.
+        p = addon._parametros_portas_da_cena(self.cena)
+        self.assertEqual(set(p), set(addon._PARAMETROS_PORTAS))
+
+    def test_ler_do_grupo_traz_os_parametros(self):
+        guardado = {'abertura': 'CORRER', 'folhas': 3, 'dobradica': 'RETA',
+                    'espessura_mm': 20.0, 'lateral_mm': 15.0,
+                    'folga_mm': 4.0, 'entre_folhas_mm': 2.0,
+                    'afastamento_mm': 0.0, 'recuo_embutida_mm': 0.0,
+                    'recuo_correr_mm': 25.0, 'sobreposicao_mm': 30.0,
+                    'entre_planos_mm': 2.0}
+        bpy.ops.object.empty_add()
+        falso = bpy.context.object
+        falso['porta_parametros'] = guardado
+        addon._carregar_portas_na_cena(self.cena, falso)
+        self.assertEqual(self.cena.porta_abertura, 'CORRER')
+        self.assertEqual(self.cena.porta_folhas, 3)
+        self.assertEqual(self.cena.porta_espessura, '20')
+        self.assertEqual(self.cena.porta_lateral, '15')
+        self.assertAlmostEqual(self.cena.porta_folga_mm, 4.0)
+        self.assertAlmostEqual(self.cena.porta_recuo_correr_mm, 25.0)
+
+    def test_criar_portas_nao_abre_popup(self):
+        # INVOKE abriria o dialogo; os parametros ja' vem da aba.
+        fonte = inspect.getsource(addon.OBJECT_OT_apanhar_vao_portas._concluir)
+        self.assertIn("'EXEC_DEFAULT'", fonte)
+        self.assertNotIn("'INVOKE_DEFAULT'", fonte)
 
     def test_responsividade_das_miniaturas(self):
         for largura in (190, 320, 620, 2056):

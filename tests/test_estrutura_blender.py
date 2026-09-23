@@ -30,7 +30,8 @@ import cabinet_creator as addon
 VERBOS = frozenset({
     'aba', 'auto', 'biblioteca', 'chapa', 'item', 'medida', 'modo',
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
-    'rolar_nivel', 'separador', 'slider', 'wireframe',
+    'rolar_nivel', 'separador', 'slider', 'wireframe', 'escolha',
+    'ler_portas',
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
