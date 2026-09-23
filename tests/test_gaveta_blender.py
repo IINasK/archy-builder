@@ -47,6 +47,30 @@ class TestGaveta(unittest.TestCase):
         self.assertEqual(resultado, {'FINISHED'})
         self.assertAlmostEqual(objeto.dimensions.z, 1.25)
 
+    def test_rodape_abas_e_divisorias(self):
+        bpy.ops.object.cabinet_marcar()
+        bpy.context.object.chapa_modo = 'INDIVIDUAL'
+        widgets = addon._widgets_gaveta(bpy.context, 564, 1200)
+        por_tipo = lambda tipo: [v for v in widgets if v[5] and v[5][0] == tipo]
+        for tipo in ('aba', 'modo'):
+            abas = por_tipo(tipo)
+            self.assertEqual(abas[-1][0] + abas[-1][2], 552)
+        rodape = [por_tipo(tipo)[0] for tipo in ('chapa', 'auto', 'nome_objeto')]
+        self.assertEqual(len({v[1] for v in rodape}), 1)
+        self.assertEqual(rodape[-1][4], bpy.context.object.name)
+        niveis = {v[5][1]: v[1] for v in por_tipo('navegar')}
+        for divisor, nivel in zip(por_tipo('separador'), (1, 2)):
+            centro = divisor[1] + divisor[3] / 2
+            self.assertEqual(centro, (niveis[nivel] + niveis[nivel + 1] + 25) / 2)
+
+    def test_alca_hit_test_retangular(self):
+        ctx = SimpleNamespace(region=SimpleNamespace(height=1000))
+        teste = addon.VIEW3D_GT_alca_gaveta.test_select
+        self.assertEqual(teste(None, ctx, (1, 86)), 0)
+        self.assertEqual(teste(None, ctx, (25, 154)), 0)
+        self.assertEqual(teste(None, ctx, (27, 120)), -1)
+        self.assertEqual(teste(None, ctx, (10, 160)), -1)
+
     def test_quatro_medidas_responsivas_sem_sobrepor_abas(self):
         bpy.ops.object.empty_add()
         bpy.context.object[addon.MARCA_CONJUNTO] = 1
