@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (71, 2, 0),
+    "version": (72, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -18,7 +18,7 @@ from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
 from mathutils import Matrix, Vector
 from mathutils.geometry import intersect_line_plane
 from bpy_extras import view3d_utils
-from bpy.types import Operator, Panel
+from bpy.types import GizmoGroup, Operator, Panel
 
 ESPESSURAS_PERMITIDAS = [15.0, 18.0, 20.0, 30.0]
 
@@ -3943,6 +3943,87 @@ def _abreviar(texto, limite):
     return texto[:max(1, limite)]
 
 
+# ===================================================== GAVETA ESQUERDA
+# A regiao UI nativa pode trocar de lado. Assim todos os controles do
+# painel continuam funcionais, inclusive campos, miniaturas e operadores.
+class OBJECT_OT_alternar_gaveta(Operator):
+    """Mostra ou esconde o Cabinet Creator na esquerda da viewport"""
+    bl_idname = "object.cabinet_alternar_gaveta"
+    bl_label = "Alternar Gaveta Cabinet Creator"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'VIEW_3D'
+
+    def execute(self, context):
+        area = context.area
+        ui = next((r for r in area.regions if r.type == 'UI'), None)
+        if ui is None:
+            self.report({'WARNING'}, "Regiao de paineis nao encontrada")
+            return {'CANCELLED'}
+        espaco = area.spaces.active
+        if ui.alignment != 'LEFT':
+            try:
+                with context.temp_override(area=area, region=ui):
+                    bpy.ops.screen.region_flip()
+            except Exception as e:
+                print("[Cabinet Creator] virar gaveta:", e)
+                self.report({'WARNING'}, "Nao consegui mover o painel para a esquerda")
+                return {'CANCELLED'}
+            espaco.show_region_ui = True
+        else:
+            espaco.show_region_ui = not espaco.show_region_ui
+        if espaco.show_region_ui:
+            try:
+                ui.active_panel_category = "Cabinet Creator"
+            except Exception as e:
+                print("[Cabinet Creator] categoria da gaveta:", e)
+        area.tag_redraw()
+        return {'FINISHED'}
+
+
+class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
+    """Alca amarela clicavel junto a borda da gaveta."""
+    bl_idname = "VIEW3D_GGT_cabinet_gaveta"
+    bl_label = "Alca Cabinet Creator"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'PERSISTENT', 'SCALE'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'VIEW_3D'
+
+    def setup(self, context):
+        alca = self.gizmos.new("GIZMO_GT_button_2d")
+        alca.target_set_operator("object.cabinet_alternar_gaveta")
+        alca.draw_options = {'BACKDROP', 'OUTLINE'}
+        alca.color = (1.0, 0.78, 0.0)
+        alca.alpha = 1.0
+        alca.backdrop_fill_alpha = 0.9
+        alca.color_highlight = (1.0, 0.95, 0.25)
+        alca.alpha_highlight = 1.0
+        alca.scale_basis = 18
+        alca.matrix_basis[1][1] = 2.5
+        alca.icon = 'TRIA_RIGHT'
+        alca.show_drag = False
+        alca.use_tooltip = True
+        self.alca = alca
+
+    def draw_prepare(self, context):
+        area = context.area
+        ui = next((r for r in area.regions if r.type == 'UI'), None)
+        aberta = (ui is not None and ui.alignment == 'LEFT'
+                  and area.spaces.active.show_region_ui)
+        # A regiao UI comeca DEPOIS da barra de ferramentas; so' a largura
+        # dela deixava a alca sobre o painel, onde o handler de UI toma
+        # o clique antes do gizmo.
+        limite = ui.x - area.x + ui.width if aberta else 0
+        self.alca.matrix_basis[0][3] = limite + 18 if aberta else 30
+        self.alca.matrix_basis[1][3] = max(48, context.region.height * 0.12)
+        self.alca.icon = 'TRIA_LEFT' if aberta else 'TRIA_RIGHT'
+
+
 class VIEW3D_PT_cabinet_creator(Panel):
     # O cabecalho e' a barra de abas; nao repetir um titulo ao lado dela.
     bl_label = ""
@@ -4547,9 +4628,11 @@ CLASSES = (
     OBJECT_OT_detectar_adjacencia,
     OBJECT_OT_criar_nicho,
     OBJECT_OT_portas_parametricas,
+    OBJECT_OT_alternar_gaveta,
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
     VIEW3D_PT_cabinet_creator,
+    VIEW3D_GGT_cabinet_gaveta,
     VIEW3D_AST_cabinet_creator,
 )
 
