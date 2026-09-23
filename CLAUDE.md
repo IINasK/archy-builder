@@ -136,7 +136,17 @@ vincular_blender.py           # junction para desenvolvimento
 0a. O bloco de medidas (modo, campos, wireframe, rodape) e' FIXO nas
    duas abas: sai de `_bloco_medidas_gaveta`, nao de cada aba. Os
    botoes de sincronizar sao acao de modulo e ficam de fora da aba
-   Portas.
+   Portas. O CONTEUDO do wireframe muda: em Modulos, modulo mais
+   porta; em Portas, so' a porta (modo `PORTA`, com L/A/E). No modo
+   INDIVIDUAL nunca ha' porta -- desenhar folhas dentro de uma chapa
+   solta quebrava a visualizacao.
+0c. A face e' AUTOMATICA por padrao (`_frente_automatica`): o eixo que
+   NAO varia entre os dois pontos e' a normal, e o lado sai da
+   comparacao com o centro do movel. Por isso a porta nasce em
+   qualquer face. Grave sempre a frente JA' resolvida no grupo, senao
+   o vinculo refaz o vao com 'AUTO'. Com a porta em X o wireframe
+   troca largura e profundidade, para a porta cair sempre na face
+   frontal do desenho.
 0b. O botao "Criar Portas" carrega o ESTADO: aceso enquanto o
    apanhador espera os dois cliques, e com o texto trocado pelo motivo
    quando algo impede (`_motivo_portas`). O aviso do operador nao
@@ -263,7 +273,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 88.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 89.0.0).
 
 ## Git
 

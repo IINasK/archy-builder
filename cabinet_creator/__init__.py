@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (88, 0, 0),
+    "version": (89, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -2205,7 +2205,7 @@ def _meio_wireframe(p0, p1):
     return ((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0)
 
 
-def _desenhar_indicadores(buffer, pontos, cor, modo):
+def _desenhar_indicadores(buffer, pontos, cor, modo, trocado=False):
     """Identifica as direcoes sem adicionar cotas ou linhas auxiliares.
 
     'INDIVIDUAL' (chapa): L, A e E. Na chapa a aresta VERTICAL do
@@ -2220,7 +2220,8 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
     topo = _meio_wireframe(pontos[6], pontos[7])
     fundo = _meio_wireframe(pontos[0], pontos[2])
     vertical = _meio_wireframe(pontos[2], pontos[6])
-    _desenhar_indicador(buffer, 'L', topo[0], topo[1] + 10.0, cor)
+    _desenhar_indicador(buffer, 'P' if trocado else 'L',
+                        topo[0], topo[1] + 10.0, cor)
 
     if modo == 'INDIVIDUAL':
         _desenhar_indicador(
@@ -2229,10 +2230,17 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
             buffer, 'A', fundo[0] - 9.0, fundo[1] - 8.0, cor)
         return
 
+    if modo == 'PORTA':
+        _desenhar_indicador(
+            buffer, 'A', max(5.0, vertical[0] - 9.0), vertical[1], cor)
+        _desenhar_indicador(
+            buffer, 'E', fundo[0] - 9.0, fundo[1] - 8.0, cor)
+        return
+
     _desenhar_indicador(
         buffer, 'A', max(5.0, vertical[0] - 9.0), vertical[1], cor)
     _desenhar_indicador(
-        buffer, 'P', fundo[0] - 9.0, fundo[1] - 8.0, cor)
+        buffer, 'L' if trocado else 'P', fundo[0] - 9.0, fundo[1] - 8.0, cor)
     if modo == 'GRUPO':
         # Canto inferior direito da projecao. A letra desce para a
         # margem de baixo em vez de sair pela direita: a margem lateral
@@ -2243,7 +2251,7 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
 
 
 def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO',
-                         folhas=0):
+                         folhas=0, trocado=False):
     """Pixels RGBA das 12 arestas do box, mais as folhas na frente."""
     caixas = _caixas_das_folhas(largura, altura, profundidade, folhas)
     extras = [v for caixa in caixas for v in caixa]
@@ -2258,7 +2266,7 @@ def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO',
         base = 8 + i * 8
         for a, b in _ARESTAS_WIREFRAME:
             _desenhar_segmento(buffer, pontos[base + a], pontos[base + b], cor)
-    _desenhar_indicadores(buffer, pontos, cor, modo)
+    _desenhar_indicadores(buffer, pontos, cor, modo, trocado)
     return _centralizar_wireframe(buffer)
 
 
@@ -3282,8 +3290,9 @@ ITENS_DOBRADICA = (
 # eles moram na Scene. O operador recebe tudo pronto e nunca abre
 # dialogo. Rotulos curtos porque cada opcao vira um segmento de botao.
 ESCOLHAS_PORTAS = (
-    ('porta_frente', 'Frente', (('NEG_Y', '-Y'), ('POS_Y', '+Y'),
-                                ('NEG_X', '-X'), ('POS_X', '+X'))),
+    ('porta_frente', 'Frente', (('AUTO', 'Auto'), ('NEG_Y', '-Y'),
+                                ('POS_Y', '+Y'), ('NEG_X', '-X'),
+                                ('POS_X', '+X'))),
     ('porta_orientacao', 'Eixos do vao', (('AUTO', 'Pai/mundo'),
                                           ('MUNDO', 'Mundo'),
                                           ('ATIVO', 'Ativo'))),
@@ -3407,6 +3416,29 @@ def _referencia_do_par(obj_a, obj_b):
     referencia = (pai.matrix_world.to_quaternion().to_matrix()
                   if pai is not None else Matrix.Identity(3))
     return referencia, pai
+
+
+def _frente_automatica(referencia, ponto_a, ponto_b, centro):
+    """Qual face o vao ocupa, deduzida dos dois pontos marcados.
+
+    A altura do vao e' sempre Z; a largura corre por X ou por Y. O eixo
+    que NAO varia entre os dois pontos e' a normal da face. O lado sai
+    da comparacao com o centro do movel: o vao fica na face voltada
+    para fora, nunca na oposta.
+    """
+    base = referencia.transposed()
+    a = base @ Vector(ponto_a)
+    b = base @ Vector(ponto_b)
+    c = base @ Vector(centro)
+    if abs(a.x - b.x) < abs(a.y - b.y):
+        return 'NEG_X' if a.x < c.x else 'POS_X'
+    return 'NEG_Y' if a.y < c.y else 'POS_Y'
+
+
+def _resolver_frente(frente, referencia, ponto_a, ponto_b, centro):
+    if frente != 'AUTO':
+        return frente
+    return _frente_automatica(referencia, ponto_a, ponto_b, centro)
 
 
 def _mapear_vao_portas(ponto_a, ponto_b, referencia, frente):
@@ -3800,6 +3832,18 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return obj_a.matrix_world.to_quaternion().to_matrix()
         return _referencia_do_par(obj_a, obj_b)[0]
 
+    def _centro(self, obj_a, obj_b):
+        """Ponto interno do movel, para saber que face olha para fora."""
+        modulo = _modulo_da_chapa(obj_a)
+        if modulo is not None:
+            return modulo.matrix_world.translation.copy()
+        limites = _limites_mundo(bpy.context, {obj_a, obj_b})
+        if limites is None:
+            return (Vector(obj_a.matrix_world.translation)
+                    + Vector(obj_b.matrix_world.translation)) / 2.0
+        lo, hi, _n = limites
+        return Vector(((lo[i] + hi[i]) / 2.0 for i in range(3)))
+
     def _previa(self):
         """Caixas das folhas entre o ponto fixo e o ponto sob o cursor.
 
@@ -3819,10 +3863,13 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         # e e' cobrada antes de comecar o gesto.
         if parametros['dobradica'] == 'ESCOLHER':
             parametros['dobradica'] = 'RETA'
+        referencia = self._referencia(obj_a, obj_b)
+        frente = _resolver_frente(self._frente, referencia, a,
+                                  self._imantado,
+                                  self._centro(obj_a, obj_b))
         try:
             largura, altura, matriz = _mapear_vao_portas(
-                a, self._imantado, self._referencia(obj_a, obj_b),
-                self._frente)
+                a, self._imantado, referencia, frente)
             folhas = _calcular_folhas_portas(largura, altura, parametros)
         except (ValueError, KeyError) as erro:
             self._recado = str(erro)
@@ -3986,6 +4033,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 referencia_ativa=tuple(v for linha in ativa for v in linha),
                 pai_nome=pai.name if pai is not None else '',
                 modulo_nome=modulo.name if modulo is not None else '',
+                centro=self._centro(obj_a, obj_b),
                 orientacao=s.porta_orientacao, frente=s.porta_frente,
                 **_parametros_portas_da_cena(s))
         except RuntimeError as erro:
@@ -4016,10 +4064,13 @@ class OBJECT_OT_portas_parametricas(Operator):
         items=[('AUTO', "Pai comum / mundo", "Usa os eixos do pai comum, se existir"),
                ('MUNDO', "Mundo", "Largura X/Y e altura Z do mundo"),
                ('ATIVO', "Objeto ativo", "Para um movel rotacionado sem pai; altura Z local")])
+    centro: FloatVectorProperty(size=3, options={'HIDDEN'})
     frente: EnumProperty(
-        name="Frente", default='NEG_Y',
+        name="Frente", default='AUTO',
         description="Direcao para fora, nos eixos do pai comum ou do mundo",
-        items=[('NEG_Y', "-Y (frontal)", "Exterior em -Y"),
+        items=[('AUTO', "Automatica",
+                "Deduz a face pelos dois pontos marcados"),
+               ('NEG_Y', "-Y (frontal)", "Exterior em -Y"),
                ('POS_Y', "+Y (traseira)", "Exterior em +Y"),
                ('NEG_X', "-X (esquerda)", "Exterior em -X"),
                ('POS_X', "+X (direita)", "Exterior em +X")])
@@ -4065,7 +4116,16 @@ class OBJECT_OT_portas_parametricas(Operator):
         valores = self.referencia_ativa if self.orientacao == 'ATIVO' else self.referencia
         ref = (Matrix.Identity(3) if self.orientacao == 'MUNDO' else
                Matrix([valores[i:i + 3] for i in (0, 3, 6)]))
-        return _mapear_vao_portas(self.ponto_a, self.ponto_b, ref, self.frente)
+        frente = _resolver_frente(self.frente, ref, self.ponto_a,
+                                  self.ponto_b, self.centro)
+        return _mapear_vao_portas(self.ponto_a, self.ponto_b, ref, frente)
+
+    def _frente_resolvida(self):
+        valores = self.referencia_ativa if self.orientacao == 'ATIVO' else self.referencia
+        ref = (Matrix.Identity(3) if self.orientacao == 'MUNDO' else
+               Matrix([valores[i:i + 3] for i in (0, 3, 6)]))
+        return _resolver_frente(self.frente, ref, self.ponto_a,
+                                self.ponto_b, self.centro)
 
     def _parametros(self):
         p = {nome: getattr(self, nome) for nome in _PARAMETROS_PORTAS}
@@ -4182,14 +4242,14 @@ class OBJECT_OT_portas_parametricas(Operator):
                 bpy.ops.object.mode_set(mode='OBJECT')
             grupo = _aplicar_portas(context, grupo, matriz, pai,
                                     largura, altura, parametros,
-                                    frente=self.frente)
+                                    frente=self._frente_resolvida())
             # Cenario 2: as folgas ate' as faces do modulo, em
             # espessuras, sao o que mantem a porta acompanhando o
             # redimensionamento depois.
             modulo = bpy.data.objects.get(self.modulo_nome)
             if modulo is not None and not self.editar:
                 medido = _folgas_do_vao(modulo, self.ponto_a, self.ponto_b,
-                                        self.frente)
+                                        self._frente_resolvida())
                 if medido is not None:
                     grupo[CHAVE_MODULO_PORTA] = modulo.name
                     grupo[CHAVE_FOLGAS_PORTA] = list(medido[0])
@@ -4803,22 +4863,58 @@ def _botao_gaveta(x, y, w, h, ativo=False, secao=False):
             x + 1, y + 1, w - 2, h - 2, 3, fundo)
 
 
-def _folhas_para_wireframe(obj):
-    """Quantas folhas o preview deve mostrar para esta selecao.
-
-    Etapa 3 da especificacao: o esquema da porta aparece no wireframe
-    tanto quando o modulo esta' selecionado quanto quando a propria
-    porta esta'.
-    """
+def _grupos_de_porta(obj):
+    """Grupos de porta ligados ao que esta' selecionado."""
     grupo = _grupo_portas(obj)
     if grupo is not None:
-        return len(_folhas_portas(grupo))
+        return [grupo]
     if obj is not None and MARCA_CONJUNTO in obj:
-        return sum(len(_folhas_portas(g)) for g in _portas_do_conjunto(obj))
+        return _portas_do_conjunto(obj)
     modulo = _modulo_da_chapa(obj)
     if modulo is not None:
-        return sum(len(_folhas_portas(g)) for g in _portas_do_conjunto(modulo))
-    return 0
+        return _portas_do_conjunto(modulo)
+    return []
+
+
+def _folhas_para_wireframe(obj, modo):
+    """Quantas folhas o preview deve mostrar.
+
+    No modo INDIVIDUAL o desenho e' de UMA chapa; porta ali nao existe
+    e as folhas apareciam dentro da peca, que e' o que quebrava a
+    visualizacao.
+    """
+    if modo == 'INDIVIDUAL':
+        return 0
+    return sum(len(_folhas_portas(g)) for g in _grupos_de_porta(obj))
+
+
+def _frente_da_porta(obj):
+    """Em que face do modulo a porta foi montada ('' se nao ha' porta)."""
+    for grupo in _grupos_de_porta(obj):
+        frente = grupo.get('porta_frente')
+        if frente:
+            return frente
+    return ''
+
+
+def _porta_para_wireframe(obj):
+    """(largura, altura, espessura, folhas) da porta, ou None.
+
+    Na aba Portas o desenho mostra SO' a porta, entao as medidas sao as
+    do vao e a espessura das folhas -- nao as do modulo.
+    """
+    for grupo in _grupos_de_porta(obj):
+        folhas = _folhas_portas(grupo)
+        if not folhas:
+            continue
+        try:
+            largura = float(grupo['porta_vao_largura_mm'])
+            altura = float(grupo['porta_vao_altura_mm'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        espessura = max(1.0, float(folhas[0].chapa_espessura_mm))
+        return largura, altura, espessura, len(folhas)
+    return None
 
 
 def _medidas_gaveta(context):
@@ -4987,10 +5083,24 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
             dimensoes = tuple(valores[:3])
         y -= (math.ceil(len(campos) / colunas) - 1) * 43 + 50
         lado_wireframe = min(160, max(40, w - 28))
+        folhas_wire = _folhas_para_wireframe(obj, modo)
+        # A porta tem de aparecer sempre na face da FRENTE do desenho.
+        # Montada em X, as arestas trocam de papel: a largura vira
+        # profundidade e vice-versa, e os rotulos acompanham.
+        trocado = (folhas_wire > 0
+                   and _frente_da_porta(obj) in {'NEG_X', 'POS_X'})
+        if trocado:
+            dimensoes = (dimensoes[2], dimensoes[1], dimensoes[0])
+        desenho = (modo, *dimensoes, folhas_wire, trocado)
+        if not sincronizar:
+            # Aba Portas: o desenho e' SO' a porta. Sem porta ainda,
+            # continua mostrando o alvo, senao o quadro fica vazio.
+            porta = _porta_para_wireframe(obj)
+            if porta is not None:
+                desenho = ('PORTA',) + porta + (False,)
         itens.append((x + (w - lado_wireframe) / 2,
                       y - lado_wireframe, lado_wireframe, lado_wireframe,
-                      '', ('wireframe', modo, *dimensoes,
-                           _folhas_para_wireframe(obj))))
+                      '', ('wireframe', *desenho)))
         # 17 punha o rodape 9 px por cima do wireframe. A parte de
         # baixo do desenho e' vazia, entao nao se via -- mas o
         # retangulo do wireframe engolia o clique na faixa de cima do
@@ -5217,7 +5327,7 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
 
 
 def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade,
-                               folhas=0, escala=1.0):
+                               folhas=0, trocado=False, escala=1.0):
     caixas = _caixas_das_folhas(largura, altura, profundidade, folhas)
     extras = [v for caixa in caixas for v in caixa]
     pontos = _pontos_wireframe(largura, altura, profundidade, extras)
@@ -5238,13 +5348,21 @@ def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade,
     def rotulo(letra, ponto, dx=0, dy=0):
         _texto_gaveta(x + ponto[0] + dx, y + ponto[1] + dy,
                        letra, 14, (0.95, 0.95, 0.97, 1))
-    rotulo('L', _meio_wireframe(pontos[6], pontos[7]), 0, 11)
+    rotulo('P' if trocado else 'L',
+           _meio_wireframe(pontos[6], pontos[7]), 0, 11)
     if modo == 'INDIVIDUAL':
         rotulo('E', _meio_wireframe(pontos[2], pontos[6]), -13)
         rotulo('A', _meio_wireframe(pontos[0], pontos[2]), -12, -8)
+    elif modo == 'PORTA':
+        # A porta tem largura, altura e espessura; profundidade nao.
+        rotulo('A', _meio_wireframe(pontos[2], pontos[6]), -13)
+        rotulo('E', _meio_wireframe(pontos[0], pontos[2]), -12, -8)
     else:
         rotulo('A', _meio_wireframe(pontos[2], pontos[6]), -13)
-        rotulo('P', _meio_wireframe(pontos[0], pontos[2]), -12, -8)
+        # Com a porta em X, a aresta de cima passa a medir a
+        # profundidade do modulo e a que recua, a largura.
+        rotulo('L' if trocado else 'P',
+               _meio_wireframe(pontos[0], pontos[2]), -12, -8)
         if modo == 'GRUPO':
             rotulo('E', pontos[1], 4, -13)
 
@@ -6914,10 +7032,11 @@ def register():
     # Os parametros das portas moram na Scene para a gaveta edita-los
     # sem popup (ver ESCOLHAS_PORTAS).
     S.porta_frente = EnumProperty(
-        name="Frente", default='NEG_Y',
+        name="Frente", default='AUTO',
         items=[(v, t, t) for v, t in
-               (('NEG_Y', '-Y (frontal)'), ('POS_Y', '+Y (traseira)'),
-                ('NEG_X', '-X (esquerda)'), ('POS_X', '+X (direita)'))])
+               (('AUTO', 'Automatica'), ('NEG_Y', '-Y (frontal)'),
+                ('POS_Y', '+Y (traseira)'), ('NEG_X', '-X (esquerda)'),
+                ('POS_X', '+X (direita)'))])
     S.porta_orientacao = EnumProperty(
         name="Eixos do vao", default='AUTO',
         items=[(v, t, t) for v, t in

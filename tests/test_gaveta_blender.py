@@ -293,8 +293,9 @@ class TestGaveta(unittest.TestCase):
     def test_wireframe_leva_a_contagem_de_folhas(self):
         acao = next(v[5] for v in self.widgets()
                     if v[5] and v[5][0] == 'wireframe')
-        self.assertEqual(len(acao), 6)
+        self.assertEqual(len(acao), 7)
         self.assertEqual(acao[5], 0)
+        self.assertFalse(acao[6])
 
     def test_folhas_para_wireframe_encontra_pelas_duas_pontas(self):
         bpy.ops.object.empty_add()
@@ -313,14 +314,39 @@ class TestGaveta(unittest.TestCase):
             folha[addon.MARCA_FOLHA] = 1
             folha.parent = grupo
         # pelo modulo e pela propria porta
-        self.assertEqual(addon._folhas_para_wireframe(conj), 2)
-        self.assertEqual(addon._folhas_para_wireframe(grupo), 2)
+        self.assertEqual(addon._folhas_para_wireframe(conj, 'GRUPO'), 2)
+        self.assertEqual(addon._folhas_para_wireframe(grupo, 'GRUPO'), 2)
+        # REGRESSAO: no modo INDIVIDUAL o desenho e' de UMA chapa; as
+        # folhas apareciam dentro dela e quebravam a visualizacao.
+        self.assertEqual(addon._folhas_para_wireframe(conj, 'INDIVIDUAL'), 0)
         bpy.ops.mesh.primitive_cube_add()
-        self.assertEqual(addon._folhas_para_wireframe(bpy.context.object), 0)
+        self.assertEqual(
+            addon._folhas_para_wireframe(bpy.context.object, 'GRUPO'), 0)
+
+    def test_porta_para_wireframe_traz_o_vao_e_a_espessura(self):
+        bpy.ops.object.empty_add()
+        grupo = bpy.context.object
+        grupo[addon.MARCA_PORTAS] = 1
+        grupo['porta_vao_largura_mm'] = 600.0
+        grupo['porta_vao_altura_mm'] = 800.0
+        for i in range(2):
+            malha = bpy.data.meshes.new('Folha')
+            folha = bpy.data.objects.new('Folha_%d' % i, malha)
+            bpy.context.collection.objects.link(folha)
+            folha[addon.MARCA_CHAPA] = 1
+            folha[addon.MARCA_FOLHA] = 1
+            folha.parent = grupo
+            folha.chapa_espessura_mm = 20.0
+        self.assertEqual(addon._porta_para_wireframe(grupo),
+                         (600.0, 800.0, 20.0, 2))
+        bpy.ops.mesh.primitive_cube_add()
+        self.assertIsNone(addon._porta_para_wireframe(bpy.context.object))
 
     def test_bloco_de_medidas_e_identico_nas_duas_abas(self):
-        # "Fica fixo em porta e modulos": mesmas medidas, mesmo
-        # wireframe, mesmo rodape, nas mesmas posicoes.
+        # "Fica fixo em porta e modulos": mesmas medidas e mesmo
+        # rodape, nas mesmas posicoes. O CONTEUDO do wireframe muda de
+        # proposito (modulo+porta contra so' a porta); aqui se compara
+        # o layout, nao o desenho.
         alvo = {'medida', 'wireframe', 'modo', 'chapa', 'auto',
                 'nome_objeto'}
 
@@ -338,6 +364,69 @@ class TestGaveta(unittest.TestCase):
         self.assertTrue(modulos)
         self.assertIn('wireframe', [b[4] for b in modulos])
         self.assertEqual(bloco('PORTAS'), modulos)
+
+    def test_wireframe_modulos_mostra_o_modulo_e_a_porta(self):
+        conj = self.modulo_com_porta()
+        self.cena.cabinet_aba = 'MODULOS'
+        acao = next(v[5] for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+                    if v[5] and v[5][0] == 'wireframe')
+        self.assertEqual(acao[1], 'GRUPO')
+        self.assertAlmostEqual(acao[2], conj.conj_largura_mm, places=3)
+        self.assertEqual(acao[5], 2)
+
+    def test_wireframe_gira_para_a_porta_ficar_na_frente(self):
+        # Porta montada em X: a aresta de cima passa a medir a
+        # profundidade e a que recua, a largura -- so' assim a porta
+        # cai na face frontal do desenho.
+        conj = self.modulo_com_porta(frente='NEG_X')
+        self.cena.cabinet_aba = 'MODULOS'
+        acao = next(v[5] for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+                    if v[5] and v[5][0] == 'wireframe')
+        self.assertTrue(acao[6])
+        self.assertAlmostEqual(acao[2], conj.conj_profundidade_mm, places=3)
+        self.assertAlmostEqual(acao[4], conj.conj_largura_mm, places=3)
+
+    def test_wireframe_nao_gira_com_a_porta_na_frente(self):
+        conj = self.modulo_com_porta(frente='NEG_Y')
+        self.cena.cabinet_aba = 'MODULOS'
+        acao = next(v[5] for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+                    if v[5] and v[5][0] == 'wireframe')
+        self.assertFalse(acao[6])
+        self.assertAlmostEqual(acao[2], conj.conj_largura_mm, places=3)
+
+    def test_wireframe_portas_mostra_somente_a_porta(self):
+        self.modulo_com_porta()
+        self.cena.cabinet_aba = 'PORTAS'
+        acao = next(v[5] for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+                    if v[5] and v[5][0] == 'wireframe')
+        self.assertEqual(acao[1], 'PORTA')
+        self.assertEqual(acao[2:], (600.0, 800.0, 18.0, 2, False))
+
+    def modulo_com_porta(self, frente='NEG_Y'):
+        """Conjunto com um grupo de portas ligado, sem geometria real."""
+        bpy.ops.object.empty_add()
+        conj = bpy.context.object
+        conj[addon.MARCA_CONJUNTO] = 1
+        conj.conj_largura_mm = 636.0
+        conj.conj_altura_mm = 836.0
+        conj.conj_profundidade_mm = 400.0
+        bpy.ops.object.empty_add()
+        grupo = bpy.context.object
+        grupo[addon.MARCA_PORTAS] = 1
+        grupo[addon.CHAVE_MODULO_PORTA] = conj.name
+        grupo['porta_vao_largura_mm'] = 600.0
+        grupo['porta_vao_altura_mm'] = 800.0
+        grupo['porta_frente'] = frente
+        for i in range(2):
+            malha = bpy.data.meshes.new('Folha')
+            folha = bpy.data.objects.new('Folha_%d' % i, malha)
+            bpy.context.collection.objects.link(folha)
+            folha[addon.MARCA_CHAPA] = 1
+            folha[addon.MARCA_FOLHA] = 1
+            folha.parent = grupo
+            folha.chapa_espessura_mm = 18.0
+        bpy.context.view_layer.objects.active = conj
+        return conj
 
     def test_sincronizar_fica_fora_da_aba_portas(self):
         # Sincronizar e' acao de modulo; na aba Portas nao faz sentido.
