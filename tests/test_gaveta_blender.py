@@ -22,6 +22,11 @@ class TestGaveta(unittest.TestCase):
         self.cena.chapa_n1 = 'Armarios'
         self.cena.chapa_n2 = 'Sala'
         self.cena.chapa_n3 = 'Inferiores'
+        # Os parametros das portas moram na Scene e sobrevivem de um
+        # teste para o outro; sem isto um teste ajusta a dobradica e o
+        # seguinte falha por um motivo que nao e' dele.
+        for nome in addon._PROPS_PORTAS_CENA:
+            self.cena.property_unset(nome)
 
     def widgets(self):
         return addon._widgets_gaveta(bpy.context, 320, 1200)
@@ -260,6 +265,37 @@ class TestGaveta(unittest.TestCase):
             for x, _y, w, _h, _r, _a in self.portas(largura):
                 self.assertGreaterEqual(x, 0)
                 self.assertLessEqual(x + w, min(largura - 12, 552) + 0.01)
+
+    def test_padrao_e_porta_dupla(self):
+        self.assertEqual(self.cena.porta_folhas, 2)
+        self.assertEqual(self.cena.porta_abertura, 'GIRO')
+
+    def test_espessuras_saem_numericas_para_o_calculo(self):
+        # REGRESSAO: as espessuras sao Enum, ou seja STRING. O operador
+        # quer a string, mas quem CALCULA quebra com texto -- a previa
+        # e a aba morriam com TypeError.
+        p = addon._parametros_portas_da_cena(self.cena)
+        self.assertIsInstance(p['espessura_mm'], str)
+        n = addon._parametros_portas_da_cena(self.cena, numerico=True)
+        self.assertIsInstance(n['espessura_mm'], float)
+        self.assertIsInstance(n['lateral_mm'], float)
+        n['dobradica'] = 'RETA'
+        self.assertTrue(addon._calcular_folhas_portas(600.0, 800.0, n))
+
+    def test_aba_portas_com_grupo_selecionado_nao_quebra(self):
+        # A aba mostra a previa das folhas do grupo; um TypeError ali
+        # derrubaria o desenho da gaveta INTEIRA, nao so' a linha.
+        bpy.ops.object.empty_add()
+        grupo = bpy.context.object
+        grupo[addon.MARCA_PORTAS] = 1
+        grupo['porta_vao_largura_mm'] = 600.0
+        grupo['porta_vao_altura_mm'] = 800.0
+        grupo['porta_parametros'] = {'abertura': 'GIRO', 'folhas': 2,
+                                     'dobradica': 'RETA'}
+        self.cena.porta_dobradica = 'RETA'
+        rotulos = [v[4] for v in self.portas()]
+        self.assertTrue(any('Cada folha' in r for r in rotulos), rotulos)
+        self.assertTrue(any('Ler parametros' in r for r in rotulos))
 
     def test_parametros_da_cena_cobrem_o_operador(self):
         # Se faltar um nome, o operador cai no default e o usuario ve

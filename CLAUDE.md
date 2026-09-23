@@ -130,7 +130,9 @@ vincular_blender.py           # junction para desenvolvimento
    pronto -- trocar por `INVOKE_DEFAULT` faz o dialogo voltar.
    `_parametros_portas_da_cena` tem que cobrir `_PARAMETROS_PORTAS`
    inteiro, senao o operador cai no default e o usuario ve um valor
-   que a aba nao mostra.
+   que a aba nao mostra. As espessuras sao Enum, ou seja STRING: quem
+   for CALCULAR pede `numerico=True`, senao quebra com TypeError.
+   Padrao de fabrica: porta dupla.
 1. O vao e' marcado em **Modo Objeto** pelo apanhador
    (`cabinet_apanhar_vao`): ima nos vertices por distancia de TELA
    (`RAIO_IMA_PX`), primeiro clique fixa um canto, a previa das folhas
@@ -239,7 +241,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 84.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 85.0.0).
 
 ## Git
 

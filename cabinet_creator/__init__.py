@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (84, 0, 0),
+    "version": (85, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -3260,14 +3260,21 @@ MEDIDAS_PORTAS = (
 )
 
 
-def _parametros_portas_da_cena(s):
-    """Os mesmos nomes que `_PARAMETROS_PORTAS` espera."""
+def _parametros_portas_da_cena(s, numerico=False):
+    """Os mesmos nomes que `_PARAMETROS_PORTAS` espera.
+
+    As espessuras sao Enum -- ou seja, STRING. O operador quer a
+    string (a prop dele tambem e' Enum), mas
+    `_calcular_folhas_portas` faz conta com elas e quebra com texto:
+    quem for calcular direto pede `numerico=True`.
+    """
+    converter = float if numerico else (lambda v: v)
     return {
         'abertura': s.porta_abertura,
         'folhas': s.porta_folhas,
         'dobradica': s.porta_dobradica,
-        'espessura_mm': s.porta_espessura,
-        'lateral_mm': s.porta_lateral,
+        'espessura_mm': converter(s.porta_espessura),
+        'lateral_mm': converter(s.porta_lateral),
         'folga_mm': s.porta_folga_mm,
         'entre_folhas_mm': s.porta_entre_folhas_mm,
         'afastamento_mm': s.porta_afastamento_mm,
@@ -3507,16 +3514,6 @@ def _limitar_folhas_portas(self, context):
 RAIO_IMA_PX = 28.0          # alcance do ima, em pixels de tela
 TETO_VERTICES_IMA = 60000   # acima disto o ima desiste de um objeto
 
-# Parametros so' da PREVIA. Os de verdade o usuario ajusta no painel de
-# refazer, depois do segundo clique.
-PREVIA_PORTAS = {
-    'abertura': 'GIRO', 'folhas': 1, 'dobradica': 'RETA',
-    'espessura_mm': 18.0, 'lateral_mm': 18.0, 'folga_mm': 0.0,
-    'entre_folhas_mm': 2.0, 'afastamento_mm': 0.0,
-    'recuo_embutida_mm': 0.0, 'recuo_correr_mm': 30.0,
-    'sobreposicao_mm': 20.0, 'entre_planos_mm': 2.0,
-}
-
 ARESTAS_CAIXA = (
     (0, 1), (1, 3), (3, 2), (2, 0),
     (4, 5), (5, 7), (7, 6), (6, 4),
@@ -3591,19 +3588,44 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._objeto_imantado = melhor_obj
 
     # ------------------------------------------------ previa
+    def _referencia(self, obj_a, obj_b):
+        """Mesma escolha de eixos que o operador fara' depois."""
+        s = bpy.context.scene
+        if s.porta_orientacao == 'MUNDO':
+            return Matrix.Identity(3)
+        if s.porta_orientacao == 'ATIVO':
+            return obj_a.matrix_world.to_quaternion().to_matrix()
+        return _referencia_do_par(obj_a, obj_b)[0]
+
     def _previa(self):
-        """Caixas das folhas entre o ponto fixo e o ponto sob o cursor."""
+        """Caixas das folhas entre o ponto fixo e o ponto sob o cursor.
+
+        Usa os parametros da ABA, nao um padrao fixo: o que se ve
+        arrastando tem de ser a porta que vai nascer. Quando a conta
+        nao fecha, guarda o motivo em `_recado` -- antes a previa
+        sumia calada e o usuario nao sabia o que estava errado.
+        """
+        self._recado = ''
         if not self._pontos or self._imantado is None:
             return []
         a, obj_a = self._pontos[0]
-        referencia, _pai = _referencia_do_par(
-            obj_a, self._objeto_imantado or obj_a)
+        obj_b = self._objeto_imantado or obj_a
+        parametros = _parametros_portas_da_cena(bpy.context.scene,
+                                                numerico=True)
+        # So' para DESENHAR: a escolha de verdade continua obrigatoria
+        # e e' cobrada antes de comecar o gesto.
+        if parametros['dobradica'] == 'ESCOLHER':
+            parametros['dobradica'] = 'RETA'
         try:
             largura, altura, matriz = _mapear_vao_portas(
-                a, self._imantado, referencia, self._frente)
-            folhas = _calcular_folhas_portas(largura, altura, PREVIA_PORTAS)
-        except (ValueError, KeyError):
+                a, self._imantado, self._referencia(obj_a, obj_b),
+                self._frente)
+            folhas = _calcular_folhas_portas(largura, altura, parametros)
+        except (ValueError, KeyError) as erro:
+            self._recado = str(erro)
             return []
+        self._recado = 'Vao %.0f x %.0f mm - %d folha(s)' % (
+            largura, altura, len(folhas))
         caixas = []
         for l, alt, e, centro in folhas:
             meia = Vector((l, alt, e)) / 2000.0
@@ -3658,6 +3680,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
 
     # ------------------------------------------------ ciclo
     def _encerrar(self, context):
+        if self._area is not None:
+            self._area.header_text_set(None)
         if self._handler is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self._handler, 'WINDOW')
             self._handler = None
@@ -3683,6 +3707,17 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return {'CANCELLED'}
         self._regiao_ptr = self._regiao.as_pointer()
 
+        # Um vao de mentira so' para validar os parametros: melhor
+        # recusar agora do que deixar o usuario fazer o gesto inteiro
+        # e so' entao descobrir que falta escolher a dobradica.
+        try:
+            _calcular_folhas_portas(
+                1000.0, 1000.0,
+                _parametros_portas_da_cena(context.scene, numerico=True))
+        except (ValueError, KeyError) as erro:
+            self.report({'WARNING'}, "%s (aba Portas)" % erro)
+            return {'CANCELLED'}
+
         self._alvos = _alvos_do_ima(context)
         if not self._alvos:
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
@@ -3690,7 +3725,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._pontos = []
         self._imantado = None
         self._objeto_imantado = None
-        self._frente = 'NEG_Y'
+        self._frente = context.scene.porta_frente
+        self._recado = ''
         self._handler = None
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
@@ -3708,6 +3744,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return {'CANCELLED'}
         if event.type == 'MOUSEMOVE':
             self._imantar(event)
+            self._previa()
+            self._area.header_text_set(
+                self._recado or 'Clique nos 2 cantos do vao')
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
@@ -4760,10 +4799,10 @@ def _aba_portas_gaveta(context, itens, x, y, w, s):
         try:
             folhas = _calcular_folhas_portas(
                 grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'],
-                _parametros_portas_da_cena(s))
+                _parametros_portas_da_cena(s, numerico=True))
             itens.append((x, y, w, 22, 'Cada folha: %.1f x %.1f x %.0f mm'
                           % folhas[0][:3], None))
-        except (ValueError, KeyError) as erro:
+        except (ValueError, KeyError, TypeError) as erro:
             itens.append((x, y, w, 22, str(erro), None))
         y -= 26
 
@@ -6607,7 +6646,8 @@ def register():
     S.porta_dobradica = EnumProperty(name="Dobradica",
                                      items=ITENS_DOBRADICA,
                                      default='ESCOLHER')
-    S.porta_folhas = IntProperty(name="Folhas", default=1, min=1, max=4)
+    # Dupla e' o padrao de armario; uma folha so' e' a excecao.
+    S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=4)
     S.porta_espessura = EnumProperty(
         name="Espessura da porta (mm)", default='18',
         items=[(str(int(e)), str(int(e)), "mm") for e in ESPESSURAS_PERMITIDAS])
