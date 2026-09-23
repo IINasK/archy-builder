@@ -7,7 +7,11 @@
 >
 > AGENTS.md existentes:
 > - `AGENTS.md` (este) — visao geral, invariantes, convencoes
-> - `cabinet_creator/biblioteca/AGENTS.md` — presets, indice.json, catalogos
+> - `cabinet_creator/biblioteca/AGENTS.md` - presets, indice.json, catalogos
+>
+> **`DESIGN.md` (raiz) - LEIA ANTES de mexer em qualquer coisa visivel:**
+> a UI vive numa area VIEW_3D desenhada por GPU, onde `UILayout` nao
+> existe. As decisoes de design e as alternativas ja' recusadas estao la'.
 
 ## O que e'
 
@@ -28,10 +32,17 @@ python build.py                        # gera dist/cabinet_creator.zip
 python -m py_compile cabinet_creator/__init__.py   # checagem rapida de sintaxe
 ```
 
-- Nao ha testes automatizados nem lint configurado. `bpy` so' existe dentro
-  do Blender: a validacao real e' recarregar o add-on (desabilitar/habilitar
-  em Preferences ou reiniciar o Blender) e exercitar no painel `N > Cabinet
-  Creator`.
+```
+blender --background --factory-startup --python-exit-code 1     --python tests/test_estrutura_blender.py   # trava a arquitetura
+```
+
+- Tres suites em `tests/`: `estrutura` (decisoes de arquitetura),
+  `gaveta` (layout e responsividade) e `portas`. Rode as tres; elas nao
+  precisam de GUI. Nao ha lint configurado.
+- Falha em `test_estrutura_blender.py` significa "isto era de proposito,
+  confirme antes de mudar" -- nao conserte o teste. Ver `DESIGN.md`.
+- `bpy` so' existe dentro do Blender: a validacao final e' recarregar o
+  add-on e exercitar a gaveta a esquerda da viewport.
 - `vincular_blender.py` usa `mklink /J` (Windows, sem admin). Sem argumento,
   pega a maior versao em `%APPDATA%/Blender Foundation/Blender`.
 - `build.py` empacota TUDO dentro de `cabinet_creator/` (menos pycache),
