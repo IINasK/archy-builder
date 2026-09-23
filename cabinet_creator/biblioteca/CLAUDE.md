@@ -6,16 +6,18 @@
 
 ## Papel desta pasta
 
-Presets que viajam DENTRO do add-on (`_pasta_fabrica()`). E' registrada no
-Blender como biblioteca de assets "Cabinet Creator (fabrica)". Ao atualizar
-o add-on a pasta e' sobrescrita, por isso:
+E' a biblioteca DA EMPRESA -- a unica. `pasta_biblioteca()` aponta para
+ca' e o Blender a registra como a unica biblioteca de assets do add-on,
+chamada `Cabinet Creator`. Salvar pela UI grava aqui.
 
-- o codigo NUNCA grava aqui — gravacoes vao para a pasta da equipe
-  (Preferences > `pasta_equipe`, padrao `~/Documents/Blender/Assets/Cabinet Creator`);
-- itens daqui aparecem sempre bloqueados na UI (`item_bloqueado`).
+Nao existe mais o par fabrica/equipe: era ele que produzia duas entradas
+no seletor do Asset Browser. O cadeado virou por item (`bloqueado` no
+indice); nada e' bloqueado so' por estar nesta pasta.
 
-Para adicionar um preset de fabrica: salve pela UI (vai para a pasta da
-equipe) e copie `.blend` + `.png` + a entrada do `indice.json` para ca'.
+> **Cuidado:** gravar dentro do add-on so' e' seguro porque esta pasta e'
+> o repositorio da empresa (junction de `vincular_blender.py`). Numa
+> instalacao por `.zip`, atualizar o add-on SOBRESCREVE a pasta — nesse
+> caso configure Preferences > `pasta_biblioteca` para uma pasta de rede.
 
 ## Arquivos
 
@@ -56,9 +58,18 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 - Linha: `UUID:caminho/do/catalogo:nome_simples`.
 - Os `.blend` guardam o UUID do catalogo no `asset_data`. NAO troque os
   UUIDs existentes, senao os assets somem do catalogo no Asset Browser.
-- Aqui os caminhos ainda sao `Chapa G3/Chapas` e `Chapa G3/Modulos`
-  (nome antigo), enquanto o codigo usa `Cabinet Creator/...` para a pasta
-  da equipe. Divergencia conhecida; nao "corrigir" sem checar os presets.
+- O arquivo e' GERADO por `_garantir_catalogos()`: a cascata inteira da
+  `ARVORE` sob a raiz UNICA `Cabinet Creator`. Nao edite a mao — rode a
+  funcao apontando para esta pasta e commite o resultado.
+- Raizes antigas (`RAIZES_ANTIGAS`, hoje `Chapa G3`) sao RENOMEADAS
+  mantendo o UUID. Renomear o caminho e' seguro; trocar o UUID nao.
+- O nivel 1 e' exatamente o do painel N (chaves da `ARVORE`). Os
+  catalogos por TIPO (`Chapas`/`Modulos`) so' existem como fallback de
+  quem salva sem categoria — nao entram na cascata.
+- Cada preset e' arquivado no catalogo da sua CATEGORIA (`n1/n2/n3` do
+  indice), nao mais por tipo. Para mover um preset de categoria use
+  `refiliar_preset()`: o catalogo mora dentro do `.blend`, mudar so' o
+  indice.json nao surte efeito no Asset Browser.
 
 ## Cuidados
 

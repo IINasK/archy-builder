@@ -55,14 +55,17 @@ vincular_blender.py           # junction para desenvolvimento
 | NORMALIZACAO | `normalizar_chapas` — escala -> mm, descarta Z |
 | HANDLER | `ao_atualizar_depsgraph` — age so' quando o modal termina |
 | ADJACENCIA | `detectar_adjacencia`, `aplicar_adjacencia`, `_resolver_vizinho` |
-| MODULO (CONJUNTO) | `redimensionar_grupo`, `aplicar_espessura_grupo`, `reposicionar_origem`, `absorver_conjuntos` |
-| BIBLIOTECA / ASSETS | `registrar_bibliotecas`, `salvar_na_biblioteca`, `_garantir_catalogos` |
+| MODULO (CONJUNTO) | `redimensionar_grupo`, `aplicar_espessura_grupo`, `aplicar_espessura_chapa`, `reposicionar_origem`, `absorver_conjuntos` |
+| BIBLIOTECA / ASSETS | `registrar_bibliotecas`, `salvar_na_biblioteca`, `_garantir_catalogos`, `caminhos_catalogo`, `refiliar_preset` |
 | ARVORE (3 niveis) | `ARVORE`, `_niveis_de`, `indice_completo`, `registrar_no_indice` |
 | MINIATURAS | `icone_do_item`, `capturar_viewport` (render OpenGL 512x512) |
-| BLOQUEIO/RENOMEAR/ORDEM | operadores de edicao dos blocos da grade |
+| BLOQUEIO/RENOMEAR | nome, lapis e cadeado na mesma linha; ordem alfabetica |
+| SELECAO | `familia_de`, `OBJECT_OT_selecionar`, `registrar_keymaps` |
+| PRATELEIRA DE ASSETS | `VIEW3D_AST_cabinet_creator`, `OBJECT_OT_prateleira` |
+| ARRASTE DA BIBLIOTECA | `inserir_preset`, `OBJECT_OT_arrastar_preset` |
 | REDE DE SEGURANCA | `verificar_periodicamente` (timer 0.2 s) |
 | CRIACAO | `nova_chapa`, criar chapa/nicho, modo Grupo (`_upd_grupo_*`) |
-| UI | `CabinetCreatorPreferences`, `VIEW3D_PT_cabinet_creator` |
+| UI | `VIEW3D_PT_cabinet_creator`, `medir_selecao`, `_largura_painel` (responsividade) |
 | registro | `CLASSES`, `register()` (props em Object/Scene), `unregister()` |
 
 ### Fluxo de recalculo
@@ -72,12 +75,47 @@ vincular_blender.py           # junction para desenvolvimento
 2. Ao terminar o modal, o handler de depsgraph (ou, se nenhuma atualizacao
    chegar, o timer de 0.2 s) chama `absorver_conjuntos()` e depois
    `normalizar_chapas()`.
-3. `normalizar_chapas` converte sx/sy em largura/comprimento, zera a
-   escala, regenera a malha e chama `aplicar_adjacencia()` para fechar os
-   vaos (vao por lado = (E/2)*(F-1)).
+3. `normalizar_chapas` converte sx/sy em medida, zera a escala, regenera
+   a malha e chama `aplicar_adjacencia()` (vao por lado = (E/2)*(F-1)).
 4. Medidas de modulo (props `conj_*` no Empty, ou `grupo_*` na Scene no modo
    Grupo) chamam `redimensionar_grupo` / `aplicar_espessura_grupo` e
    depois `reposicionar_origem` (Empty no centro X/Y e base Z).
+5. Espessura de UMA chapa chama `aplicar_espessura_chapa`: ancora a face
+   no limite externo do grupo e engrossa para DENTRO; a espessura antiga
+   vem da malha (a prop ja' mudou quando o callback roda).
+
+### Arraste da biblioteca (painel N)
+
+1. O nome do preset chama diretamente o operador de posicionamento; a
+   seta separada insere imediatamente no cursor 3D. A foto usa
+   `template_icon`, unico widget que amplia previews, e o drag verdadeiro
+   pela imagem fica na Asset Shelf nativa. Pressionar e arrastar o nome
+   dispara `LEFTMOUSE/PRESS` no keymap
+   "User Interface". O `PRESS` e' necessario porque o botao do Blender
+   consome `CLICK_DRAG`; registrar com `head=True` impede outro item do
+   keymap de bloquear o gatilho. `template_icon` apenas desenha e nao
+   recebe eventos; nao prometer drag customizado pela foto do painel N.
+2. `OBJECT_OT_arrastar_preset` le o preset em `context.button_operator`
+   e so' aceita o botao de inserir (cadeado e lapis tambem tem
+   `arquivo`). Outro arraste devolve `{'PASS_THROUGH'}`, senao sliders
+   parariam de andar.
+3. O preset e' carregado como staging oculto. A caixa GPU usa os cantos
+   avaliados reais de todos os objetos com volume e ancora pelo centro
+   inferior; a geometria definitiva so' aparece depois da confirmacao.
+4. O modal faz `scene.ray_cast` sob o cursor. Quando existe superficie,
+   a mira segue o ponto e a normal; sem acerto, usa o plano horizontal na
+   altura do cursor 3D. A caixa verde preserva dimensoes e orientacao.
+5. Movimento minimo de 6 px distingue arraste de clique simples. Quando
+   o Blender retem o drag do botao, o clique simples deixa o posicionador
+   ativo: mover para a viewport e clicar confirma. No drag normal, soltar
+   o botao esquerdo dentro da viewport confirma. Botao direito,
+   Esc, desativar a janela ou soltar fora cancela, remove objetos e
+   colecoes importadas e restaura a selecao anterior.
+6. Miniaturas sao PNG RGBA com fundo transparente. `capturar_viewport`
+   isola e enquadra automaticamente o alvo em projecao ortografica; uma
+   segunda passagem mede o alfa e ajusta o zoom para 82% da imagem. Ao
+   terminar restaura vista, selecao, visibilidade e render settings.
+   O botao do nome mantem `emboss=True` para o highlight no hover.
 
 ## Invariantes — NAO quebrar
 
@@ -108,13 +146,26 @@ vincular_blender.py           # junction para desenvolvimento
    inputs de modificador GN via Python (issue #160038).
 10. **`bpy.ops` nao roda dentro de `register()`:** adie com
     `bpy.app.timers.register(..., first_interval=...)`.
-11. **Pasta de fabrica e' somente leitura:** gravacoes vao SEMPRE para a
-    pasta da equipe (`_pasta_equipe()`); presets de fabrica sao sempre
-    bloqueados (`item_bloqueado`).
+11. **Uma biblioteca so'** (`pasta_biblioteca()`, default = a pasta do
+    add-on): e' a da empresa. Nao ha' mais fabrica/equipe nem bloqueio
+    por origem. Ao registrar, a limpeza das entradas antigas vem ANTES
+    do add — invertendo, o usuario fica sem biblioteca.
 12. **Retrocompatibilidade do indice:** `_niveis_de` aceita o formato antigo
     `categoria/subcategoria`. Nao remova esse fallback.
 13. Todo novo `Operator`/`Panel` entra na tupla `CLASSES`; toda nova prop em
-    `register()` e todo handler/timer tem remocao em `unregister()`.
+    `register()` e todo handler/timer tem remocao em `unregister()`. O mesmo
+    vale para keymaps: `registrar_keymaps()` / `remover_keymaps()`.
+14. **Clique esquerdo na viewport e' do addon:** as entradas ficam no
+    keyconfig do ADDON (avaliado antes do padrao). O `poll` de
+    `OBJECT_OT_selecionar` devolve False fora do Object Mode ou com a
+    preferencia `selecao_por_grupo` desligada -- e' assim que o clique
+    nativo volta. Nao troque esse poll por um `return True`.
+15. **Catalogo mora dentro do `.blend`** (`asset_data.catalog_id`); o
+    `indice.json` nao manda nele e `catalog_simple_name` e' somente
+    leitura. Mover de categoria exige regravar (`refiliar_preset`).
+16. **Raiz de catalogo unica (`CAT_RAIZ`).** Renomear o CAMINHO de um
+    catalogo preserva os assets; trocar o UUID os orfana. Raizes velhas
+    entram em `RAIZES_ANTIGAS` e sao migradas com o UUID intacto.
 
 ## Convencoes de codigo
 
@@ -134,7 +185,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 40.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 56.0.0).
 
 ## Git
 
@@ -145,17 +196,26 @@ vincular_blender.py           # junction para desenvolvimento
 
 ## Pendencias / residuos conhecidos
 
-- Residuos do nome antigo "Chapa G3" ainda em uso: tag de asset
-  `chapa-g3`, descricao `"Modulo G3 - ..."`, operador "Converte ... em chapa
-  G3", e os caminhos de catalogo no `blender_assets.cats.txt` de fabrica
-  (`Chapa G3/...`) diferem de `CAT_CHAPAS`/`CAT_MODULOS`
-  (`Cabinet Creator/...`). Avaliar impacto nos presets antes de mudar.
-- `_itens_de` usa o formato antigo do indice e nao tem chamadores.
-- `unregister()` nao remove as props registradas em `Object`/`Scene`.
+- Residuos do nome antigo "Chapa G3": tag `chapa-g3`, descricao
+  `"Modulo G3 - ..."`, operador "Converte ... em chapa G3". A raiz de
+  catalogo ja' migrou. `_itens_de` nao tem chamadores; `unregister()`
+  nao remove as props de `Object`/`Scene`.
+- Asset Browser ja' e' a biblioteca principal; a grade do painel N
+  ainda convive com ela.
 
 ## Limitacoes da API (nao "consertar")
 
-- Reordenar blocos so' por setas: bpy nao expoe arraste em paineis.
-- Nao da' para sobrepor icone a imagem no layout do bpy.
-- Largura da sidebar e' do usuario, nao do add-on.
-- Corrigir escala durante o modal `S` nao funciona (ver HANDLER).
+- Blocos e categorias usam ordem alfabetica; nao sobrepoe icone a imagem; escala
+  durante o modal `S` nao da' (HANDLER).
+- **O bpy nao mede texto nem avisa quanto cabe num botao** — so' corta
+  pela direita. Layout responsivo e nomes resumidos saem de
+  `_largura_painel()` + as estimativas `PX_*`; ajuste-as, nao procure
+  uma API de medicao.
+- `UILayout` nao expoe drag-and-drop e o `template_asset_view` foi
+  REMOVIDO no 5.x: painel nao DESENHA item arrastavel. O arraste vem de
+  fora — `CLICK_DRAG` + `context.button_operator` (ver ARRASTE).
+- Arraste 100% nativo so' na `AssetShelf`: quem DESLIGA pede
+  `NO_ASSET_DRAG`. `bound_box` de curva/texto/meta descreve os PONTOS DE
+  CONTROLE; em `TIPOS_BBOX_INFIEL` a medida fiel sai de `to_mesh()`.
+- `show_region_asset_shelf` e' "read-only" conforme o contexto; use
+  `bpy.ops.screen.region_toggle(region_type='ASSET_SHELF')`.

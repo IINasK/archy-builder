@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (40, 0, 0),
+    "version": (56, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > N > Cabinet Creator",
     "doc_url": "",
@@ -9,10 +9,14 @@ bl_info = {
     "category": "Object",
 }
 
-import bpy, bmesh, math, os, uuid, json
+import bpy, bmesh, math, os, uuid, json, gpu
 import bpy.utils.previews
-from bpy.props import FloatProperty, BoolProperty, EnumProperty, StringProperty
+from gpu_extras.batch import batch_for_shader
+from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
+                       StringProperty, IntProperty, IntVectorProperty)
 from mathutils import Vector
+from mathutils.geometry import intersect_line_plane
+from bpy_extras import view3d_utils
 from bpy.types import Operator, Panel
 
 ESPESSURAS_PERMITIDAS = [15.0, 18.0, 20.0, 30.0]
@@ -57,19 +61,37 @@ def _upd_chapa(self, context):
     gerar_malha_chapa(self)
 
 
+def _espessura_da_malha(obj):
+    """Espessura REAL da malha, em mm. Quando o callback de update roda a
+    PROP ja' foi trocada mas a malha ainda e' a antiga -- e' dela que sai
+    a medida velha, necessaria para saber para que lado engrossar."""
+    if obj is None or obj.type != 'MESH' or not obj.data.vertices:
+        return None
+    # sem multiplicar por scale.z: por invariante a escala em Z e'
+    # descartada, entao a malha local e' o valor antigo da prop
+    zs = [v.co.z for v in obj.data.vertices]
+    return (max(zs) - min(zs)) * 1000.0
+
+
 def _upd_espessura(self, context):
-    """Arredonda o valor digitado para a espessura permitida mais proxima."""
+    """Arredonda o valor digitado para a espessura permitida mais proxima
+    e engrossa a chapa para DENTRO do movel (ver aplicar_espessura_chapa)."""
     if _ocupado[0]:
         return
     val = self.chapa_espessura_mm
     alvo = min(ESPESSURAS_PERMITIDAS, key=lambda v: abs(v - val))
+    e_velha = _espessura_da_malha(self)
     if abs(val - alvo) > 1e-6:
         _ocupado[0] = True
         try:
             self.chapa_espessura_mm = alvo
         finally:
             _ocupado[0] = False
-    gerar_malha_chapa(self)
+    if (MARCA_CHAPA not in self or not self.chapa_auto
+            or e_velha is None or abs(e_velha - alvo) < 1e-4):
+        gerar_malha_chapa(self)
+        return
+    aplicar_espessura_chapa(self, alvo, e_velha)
 
 
 # ===================================================== NORMALIZACAO
@@ -374,25 +396,63 @@ def _caixa_de(chapas):
             [max(p[i] for p in pts) for i in range(3)])
 
 
-def grupo_de(obj):
+def _vizinhos_gravados(C):
+    """Vizinhos anotados em C pela deteccao de adjacencia (sentido C -> N)."""
+    saida = []
+    for eixo in ('x', 'y'):
+        for lado in ('pos', 'neg'):
+            N = _resolver_vizinho(C, C.get('adj_%s_%s_uid' % (eixo, lado), ''),
+                                  C.get('adj_%s_%s' % (eixo, lado), ''))
+            if N is not None:
+                saida.append(N)
+    return saida
+
+
+def _grupo_solto(obj, simetrico):
+    """Fecho transitivo da adjacencia para uma chapa sem Conjunto.
+
+    Os vinculos de adjacencia sao de MAO UNICA: uma prateleira aponta
+    para as laterais, mas nenhuma lateral aponta para a prateleira.
+    Com simetrico=True o mapa e' montado nos dois sentidos, senao a
+    travessia comecando por uma lateral perde as pecas internas.
+
+    A varredura fica restrita aos IRMAOS (mesmo pai), igual a regra de
+    `_resolver_vizinho`, para nao custar o arquivo inteiro a cada clique.
+    """
+    chapas = [o for o in bpy.data.objects if o.type == 'MESH'
+              and MARCA_CHAPA in o and o.parent == obj.parent]
+    ligacoes = {o.name: set() for o in chapas}
+    porta = {o.name: o for o in chapas}
+    for C in chapas:
+        for N in _vizinhos_gravados(C):
+            if N.name not in ligacoes:
+                continue
+            ligacoes[C.name].add(N.name)
+            if simetrico:
+                ligacoes[N.name].add(C.name)
+    vistos, fila = {obj.name}, [obj.name]
+    while fila:
+        for viz in ligacoes.get(fila.pop(), ()):
+            if viz not in vistos:
+                vistos.add(viz)
+                fila.append(viz)
+    return [porta[n] for n in vistos if n in porta]
+
+
+def grupo_de(obj, simetrico=False):
     """Define o GRUPO de uma chapa: se ela pertence a um Conjunto,
     e' o conjunto inteiro; senao, e' ela mais tudo que estiver ligado
-    a ela por adjacencia (transitivamente)."""
+    a ela por adjacencia (transitivamente).
+
+    simetrico=True tambem segue os vinculos ao contrario -- e' o que a
+    SELECAO quer (o modulo visivel inteiro). O recalculo de medidas
+    continua no modo estrito para nao mudar de escopo sozinho.
+    """
     if obj is None or MARCA_CHAPA not in obj:
         return []
     if obj.parent is not None and MARCA_CONJUNTO in obj.parent:
         return _chapas_do_conjunto(obj.parent)
-    vistos, fila = {obj.name: obj}, [obj]
-    while fila:
-        C = fila.pop()
-        for eixo in ('x', 'y'):
-            for lado in ('pos', 'neg'):
-                N = _resolver_vizinho(C, C.get('adj_%s_%s_uid' % (eixo, lado), ''),
-                                      C.get('adj_%s_%s' % (eixo, lado), ''))
-                if N is not None and N.name not in vistos:
-                    vistos[N.name] = N
-                    fila.append(N)
-    return list(vistos.values())
+    return _grupo_solto(obj, simetrico)
 
 
 def _caixa_do_conjunto(conj):
@@ -518,6 +578,70 @@ def aplicar_espessura_grupo(chapas, nova_e):
     aplicar_adjacencia(chapas)
 
 
+def aplicar_espessura_chapa(C, nova_e, e_velha_mm):
+    """Troca a espessura de UMA chapa fazendo-a crescer para DENTRO do
+    movel: a face que esta' no limite externo do grupo fica parada e a
+    adjacencia encolhe as pecas internas para caber.
+
+    Sem isto a chapa engrossava a partir do CENTRO -- metade sobrava
+    para fora do movel, metade invadia a peca vizinha.
+
+    `e_velha_mm` vem da malha porque, no callback de update, a prop ja'
+    foi trocada; a caixa do grupo tambem e' medida com a espessura
+    antiga de volta no lugar, senao a propria expansao ja' teria
+    deslocado o limite usado como referencia.
+    """
+    grupo = grupo_de(C) or [C]
+    ez = _eixos(C)[2]
+    a = max(range(3), key=lambda i: abs(ez[i]))   # eixo de mundo da espessura
+
+    _ocupado[0] = True
+    try:
+        C.chapa_espessura_mm = e_velha_mm
+        cx = _caixa_de(grupo)
+        C.chapa_espessura_mm = nova_e
+    finally:
+        _ocupado[0] = False
+
+    h_velho = e_velha_mm / 2000.0
+    h_novo = nova_e / 2000.0
+    c = _centro(C)[a]
+    f_min, f_max = c - h_velho, c + h_velho
+    novo_c = None
+    # chapa avulsa (sem conjunto nem adjacencia) nao tem "dentro do
+    # movel": continua crescendo a partir do centro
+    if cx is not None and len(grupo) > 1:
+        lo, hi = cx
+        if abs(f_min - lo[a]) < TOL_BORDA:
+            novo_c = f_min + h_novo      # encostada no limite minimo
+        elif abs(f_max - hi[a]) < TOL_BORDA:
+            novo_c = f_max - h_novo      # encostada no limite maximo
+    # chapa interna (prateleira, divisoria): cresce a partir do centro
+
+    if novo_c is not None:
+        _ocupado[0] = True
+        try:
+            nc = _centro(C)
+            nc[a] = novo_c
+            _definir_centro(C, nc)
+        finally:
+            _ocupado[0] = False
+
+    gerar_malha_chapa(C)
+    try:
+        bpy.context.view_layer.update()
+    except Exception:
+        pass
+    # adjacencia GLOBAL (como em normalizar_chapas) e nao restrita ao
+    # grupo: os vinculos sao de mao unica -- uma prateleira aponta para
+    # as laterais mas nenhuma lateral aponta para ela, entao grupo_de()
+    # nao a alcanca e ela ficaria com a medida antiga
+    aplicar_adjacencia()
+    pai = C.parent
+    if pai is not None and MARCA_CONJUNTO in pai:
+        reposicionar_origem(pai)
+
+
 def reposicionar_origem(conj):
     """Leva a ORIGEM (o Empty) para a posicao real do movel -- centro da
     caixa em X/Y e base em Z -- compensando os filhos para que nada se
@@ -557,6 +681,98 @@ def reposicionar_origem(conj):
             o.matrix_world = mundos[o.name]
     finally:
         _ocupado[0] = False
+
+
+# ============================================ MEDIDAS DE SELECAO LIVRE
+# O wireframe ja' e' generico -- recebe tres medidas e desenha o box.
+# O que faltava era MEDIR uma selecao qualquer: um cubo, um carro com
+# dezenas de malhas e curvas, o que for.
+
+# Tipos que ocupam espaco. Empty/camera/luz tem bound_box degenerado na
+# propria origem e esticariam a caixa ate' um ponto sem geometria.
+TIPOS_COM_VOLUME = {
+    'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'CURVES',
+    'POINTCLOUD', 'VOLUME', 'GREASEPENCIL', 'GPENCIL', 'LATTICE',
+}
+
+
+# Para estes tipos o bound_box descreve os PONTOS DE CONTROLE, nao a
+# geometria desenhada: uma curva com bevel mede o mesmo com e sem bevel,
+# e as alcas do bezier incham a caixa. Neles a malha avaliada e' a unica
+# medida fiel; nos demais o bound_box avaliado ja' inclui modificadores.
+TIPOS_BBOX_INFIEL = {'CURVE', 'SURFACE', 'FONT', 'META'}
+
+
+def _cantos_avaliados(obj, dep):
+    """Pontos que delimitam o objeto em MUNDO.
+
+    Usa o objeto AVALIADO, para que modificador, bevel e extrude entrem
+    com a forma que aparece na tela e nao com a geometria crua.
+    """
+    alvo = obj
+    if dep is not None:
+        try:
+            alvo = obj.evaluated_get(dep)
+        except Exception:
+            alvo = obj
+    m = obj.matrix_world
+
+    if obj.type in TIPOS_BBOX_INFIEL:
+        malha = None
+        try:
+            malha = alvo.to_mesh()
+        except Exception:
+            malha = None
+        if malha is not None:
+            try:
+                if len(malha.vertices):
+                    return [m @ v.co.copy() for v in malha.vertices]
+            finally:
+                try:
+                    alvo.to_mesh_clear()
+                except Exception:
+                    pass
+
+    try:
+        return [m @ Vector(c) for c in alvo.bound_box]
+    except Exception:
+        return []
+
+
+def medir_selecao(context):
+    """Caixa envolvente do que estiver selecionado.
+
+    Devolve (largura, altura, profundidade) em mm -- eixos de mundo
+    (X, Z, Y), a mesma convencao das medidas de modulo -- e quantos
+    objetos entraram na conta. Devolve None se nada tem volume.
+    """
+    objs = [o for o in context.selected_objects
+            if o.type in TIPOS_COM_VOLUME]
+    if not objs:
+        return None
+    try:
+        dep = context.evaluated_depsgraph_get()
+    except Exception:
+        dep = None
+
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    contados = 0
+    for o in objs:
+        pts = _cantos_avaliados(o, dep)
+        if not pts:
+            continue
+        contados += 1
+        for pt in pts:
+            for a in range(3):
+                lo[a] = min(lo[a], pt[a])
+                hi[a] = max(hi[a], pt[a])
+    if not contados:
+        return None
+    return ((hi[0] - lo[0]) * 1000.0,      # largura  = X
+            (hi[2] - lo[2]) * 1000.0,      # altura   = Z
+            (hi[1] - lo[1]) * 1000.0,      # profund. = Y
+            contados)
 
 
 def _upd_conj_dim(self, context):
@@ -703,13 +919,26 @@ def absorver_conjuntos():
 # Um arquivo por preset evita ter que reabrir e mesclar um .blend
 # compartilhado a cada gravacao.
 SUBPASTA_BIB = "Cabinet Creator"
-CAT_CHAPAS = "Cabinet Creator/Chapas"
-CAT_MODULOS = "Cabinet Creator/Modulos"
+# Raiz UNICA dos catalogos do Asset Browser. Trocar o CAMINHO de um
+# catalogo e' seguro desde que o UUID nao mude: o .blend guarda o UUID,
+# e e' por ele que o Blender reencontra o asset. Por isso as raizes
+# antigas sao RENOMEADAS (mesmo UUID), nunca recriadas.
+CAT_RAIZ = "Cabinet Creator"
+RAIZES_ANTIGAS = ("Chapa G3",)
+
+# Uma unica biblioteca de assets. Os nomes abaixo sao os que o addon ja'
+# registrou em versoes anteriores e agora precisa recolher.
+NOME_BIBLIOTECA = "Cabinet Creator"
+BIBLIOTECAS_ANTIGAS = (
+    "Chapa G3 (fabrica)", "Chapa G3 (equipe)",
+    "Cabinet Creator (fabrica)", "Cabinet Creator (equipe)",
+)
+CAT_CHAPAS = CAT_RAIZ + "/Chapas"
+CAT_MODULOS = CAT_RAIZ + "/Modulos"
 
 
-def _pasta_fabrica():
-    """Presets que vem JUNTO com o addon (somente leitura na pratica).
-    Vantagem: instalar o addon ja' traz os blocos, sem setup extra."""
+def _pasta_addon():
+    """A pasta `biblioteca/` que viaja dentro do addon."""
     return os.path.join(os.path.dirname(__file__), "biblioteca")
 
 
@@ -720,14 +949,28 @@ def _prefs():
         return None
 
 
-def _pasta_equipe():
-    """Biblioteca compartilhada, configuravel nas Preferencias do addon.
-    Aponte para uma pasta de rede e todos os computadores da empresa
-    enxergam os mesmos presets."""
+def pasta_biblioteca():
+    """A UNICA biblioteca: a da empresa, que mora dentro do addon.
+
+    Nao ha' mais separacao fabrica/equipe -- era ela que produzia duas
+    entradas no seletor do Asset Browser. Quem quiser a biblioteca numa
+    pasta de rede aponta `pasta_biblioteca` nas Preferencias.
+
+    ATENCAO: gravar dentro do addon so' e' seguro porque a pasta e' o
+    repositorio da empresa (junction feita por vincular_blender.py).
+    Numa instalacao por .zip, uma atualizacao sobrescreve a pasta --
+    nesse caso configure a pasta de rede nas Preferencias.
+    """
     p = _prefs()
-    if p and p.pasta_equipe:
-        return bpy.path.abspath(p.pasta_equipe)
-    return os.path.join(os.path.expanduser("~"), "Documents", "Blender", "Assets", "Cabinet Creator")
+    if p and getattr(p, "pasta_biblioteca", ""):
+        destino = bpy.path.abspath(p.pasta_biblioteca)
+    else:
+        destino = _pasta_addon()
+    try:
+        os.makedirs(destino, exist_ok=True)
+    except Exception as e:
+        print("[Cabinet Creator] biblioteca:", e)
+    return destino
 
 
 def registrar_bibliotecas(silencioso=True):
@@ -735,40 +978,93 @@ def registrar_bibliotecas(silencioso=True):
     sem duplicar caso ja' estejam registradas."""
     registradas = []
     libs = bpy.context.preferences.filepaths.asset_libraries
-    for nome, caminho in (("Cabinet Creator (fabrica)", _pasta_fabrica()),
-                          ("Cabinet Creator (equipe)", _pasta_equipe())):
-        try:
-            os.makedirs(caminho, exist_ok=True)
-        except Exception as e:
-            if not silencioso:
-                print("[Cabinet Creator] nao criei", caminho, e)
-            continue
-        alvo = os.path.normcase(os.path.normpath(caminho))
-        ja = any(os.path.normcase(os.path.normpath(bpy.path.abspath(l.path))) == alvo
-                 for l in libs if l.path)
-        if ja:
-            continue
+    caminho = pasta_biblioteca()
+    alvo = os.path.normcase(os.path.normpath(caminho))
+
+    # A limpeza vem ANTES do registro. Uma entrada antiga podia apontar
+    # para ESTA mesma pasta: removendo depois, o registro era pulado por
+    # "ja' existe" e em seguida a entrada sumia -- o usuario ficava sem
+    # biblioteca nenhuma ate' a proxima execucao.
+    for i in range(len(libs) - 1, -1, -1):
+        if libs[i].name in BIBLIOTECAS_ANTIGAS:
+            try:
+                libs.remove(libs[i])
+            except Exception as e:
+                if not silencioso:
+                    print("[Cabinet Creator] remover biblioteca antiga:", e)
+
+    ja = any(os.path.normcase(os.path.normpath(bpy.path.abspath(l.path))) == alvo
+             for l in libs if l.path)
+    if not ja:
         try:
             bpy.ops.preferences.asset_library_add(directory=caminho)
-            libs[-1].name = nome
-            registradas.append(nome)
+            libs[-1].name = NOME_BIBLIOTECA
+            registradas.append(NOME_BIBLIOTECA)
         except Exception as e:
             if not silencioso:
                 print("[Cabinet Creator] registro falhou:", e)
+
+    # a cascata tem de existir ANTES do primeiro save, senao o Asset
+    # Browser abre sem nenhuma pasta
+    try:
+        _garantir_catalogos(caminho)
+    except Exception as e:
+        if not silencioso:
+            print("[Cabinet Creator] catalogos:", e)
     return registradas
 
 
-def _pasta_biblioteca():
-    """Destino de gravacao: sempre a biblioteca da EQUIPE.
-    Nunca grava na pasta de fabrica -- ela e' sobrescrita a cada
-    atualizacao do addon e os presets do usuario se perderiam."""
-    destino = _pasta_equipe()
-    os.makedirs(destino, exist_ok=True)
-    return destino, destino
 
 
-def _garantir_catalogos(raiz):
-    """Cria/atualiza o blender_assets.cats.txt com os catalogos do addon."""
+def caminhos_catalogo():
+    """Toda a ARVORE como caminhos de catalogo, em cascata.
+
+    Cada nivel ganha a SUA propria linha: o Blender ate' desenha os pais
+    implicitos, mas so' da' para ARQUIVAR um asset num nivel que exista
+    como catalogo de verdade -- e a ideia e' poder arquivar em qualquer
+    altura da cascata.
+    """
+    caminhos = [CAT_RAIZ]
+    arvores = [ARVORE]
+    try:
+        arvores.append(_niveis_do_indice())
+    except Exception as e:
+        print("[Cabinet Creator] niveis do indice:", e)
+    for arv in arvores:
+        for n1, filhos in arv.items():
+            caminhos.append("%s/%s" % (CAT_RAIZ, n1))
+            for n2, netos in filhos.items():
+                caminhos.append("%s/%s/%s" % (CAT_RAIZ, n1, n2))
+                for n3 in netos:
+                    caminhos.append("%s/%s/%s/%s" % (CAT_RAIZ, n1, n2, n3))
+    return list(dict.fromkeys(caminhos))
+
+
+def catalogo_de(n1, n2="", n3=""):
+    """Caminho de catalogo mais fundo para os niveis escolhidos."""
+    partes = [x for x in (n1, n2, n3) if x]
+    if not partes:
+        return ""
+    return CAT_RAIZ + "/" + "/".join(partes)
+
+
+def _migrar_raiz(caminho):
+    """Troca uma raiz antiga pela atual, preservando o resto do caminho."""
+    for velha in RAIZES_ANTIGAS:
+        if caminho == velha:
+            return CAT_RAIZ
+        if caminho.startswith(velha + "/"):
+            return CAT_RAIZ + caminho[len(velha):]
+    return caminho
+
+
+def _garantir_catalogos(raiz, extras=()):
+    """Cria/atualiza o blender_assets.cats.txt com a cascata do addon.
+
+    Linhas ja' existentes sao PRESERVADAS com o mesmo UUID: os presets
+    guardam o UUID do catalogo dentro do .blend, entao gerar um novo
+    faria o asset sumir da arvore do Asset Browser.
+    """
     arq = os.path.join(raiz, "blender_assets.cats.txt")
     existentes = {}
     if os.path.exists(arq):
@@ -778,16 +1074,110 @@ def _garantir_catalogos(raiz):
                 continue
             partes = linha.split(":")
             if len(partes) >= 2:
-                existentes[partes[1]] = partes[0]
-    ids = {}
-    for cam in (CAT_CHAPAS, CAT_MODULOS):
-        ids[cam] = existentes.get(cam) or str(uuid.uuid4())
-        existentes[cam] = ids[cam]
-    with open(arq, "w", encoding="utf-8") as f:
+                # raiz antiga vira a nova MANTENDO o UUID: assim o asset
+                # continua achando o catalogo e nao sobra arvore dupla
+                existentes.setdefault(_migrar_raiz(partes[1]), partes[0])
+    for cam in list(caminhos_catalogo()) + [x for x in extras if x]:
+        existentes.setdefault(cam, str(uuid.uuid4()))
+    # newline explicito: o .gitattributes do projeto forca LF e sem isto
+    # o Python traduz para CRLF no Windows
+    with open(arq, "w", encoding="utf-8", newline="\n") as f:
         f.write("VERSION 1\n\n")
-        for cam, cid in sorted(existentes.items(), key=lambda kv: kv[1]):
-            f.write("%s:%s:%s\n" % (cid, cam, cam.split("/")[-1].replace("/", "-")))
-    return ids
+        for cam in sorted(existentes):
+            # nome simples = caminho com tracos, convencao do Blender
+            f.write("%s:%s:%s\n" % (existentes[cam], cam,
+                                    cam.replace("/", "-")))
+    return existentes
+
+
+def refiliar_preset(caminho, niveis):
+    """Reassina o catalogo de um preset JA' gravado no disco.
+
+    O catalogo mora dentro do .blend (`asset_data.catalog_id`), nao no
+    indice.json -- entao a unica forma de mover um preset de categoria
+    e' carregar o datablock do asset, trocar o id e regravar o arquivo.
+
+    Devolve (ok, mensagem).
+    """
+    cam = catalogo_de(*niveis)
+    if not cam:
+        return False, "item sem categoria no indice"
+    if not os.path.exists(caminho):
+        return False, "arquivo nao encontrado"
+    ids = _garantir_catalogos(os.path.dirname(caminho), extras=(cam,))
+
+    antes_col = set(bpy.data.collections)
+    antes_obj = set(bpy.data.objects)
+    with bpy.data.libraries.load(caminho) as (de, para):
+        para.collections = list(de.collections)
+        para.objects = list(de.objects)
+    novas_col = [c for c in bpy.data.collections if c not in antes_col]
+    novos_obj = [o for o in bpy.data.objects if o not in antes_obj]
+
+    def limpar():
+        for c in novas_col:
+            try:
+                bpy.data.collections.remove(c)
+            except Exception:
+                pass
+        for o in novos_obj:
+            try:
+                bpy.data.objects.remove(o, do_unlink=True)
+            except Exception:
+                pass
+
+    alvos = [d for d in list(novas_col) + list(novos_obj) if d.asset_data]
+    if not alvos:
+        limpar()
+        return False, "nenhum asset dentro do arquivo"
+
+    # so' o catalog_id e' gravavel: o Blender deriva o nome simples
+    for d in alvos:
+        d.asset_data.catalog_id = ids[cam]
+
+    blocos = set(novas_col)
+    for o in novos_obj:
+        blocos.add(o)
+        if o.data:
+            blocos.add(o.data)
+    try:
+        bpy.data.libraries.write(caminho, blocos, fake_user=True,
+                                 compress=True)
+    except Exception as e:
+        limpar()
+        return False, str(e)
+    limpar()
+    return True, cam
+
+
+class OBJECT_OT_refiliar_catalogos(Operator):
+    """Arquiva os presets da equipe nos catalogos da cascata, conforme a
+    categoria de cada um no indice"""
+    bl_idname = "object.cabinet_refiliar"
+    bl_label = "Reorganizar Catalogos"
+    bl_options = {'REGISTER'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        feitos, falhas = 0, []
+        for it in indice_completo():
+            ok, msg = refiliar_preset(
+                os.path.join(it["pasta"], it["arquivo"]), _niveis_de(it))
+            if ok:
+                feitos += 1
+            else:
+                falhas.append("%s: %s" % (it.get("nome", "?"), msg))
+        for f in falhas:
+            print("[Cabinet Creator] refiliar:", f)
+        if falhas:
+            self.report({'WARNING'},
+                        "%d movido(s), %d falha(s) -- ver console"
+                        % (feitos, len(falhas)))
+        else:
+            self.report({'INFO'}, "%d preset(s) reorganizado(s)" % feitos)
+        return {'FINISHED'}
 
 
 def _nome_arquivo_seguro(nome):
@@ -795,16 +1185,24 @@ def _nome_arquivo_seguro(nome):
     return (limpo or "sem_nome").replace(" ", "_")
 
 
-def salvar_na_biblioteca(objs, nome, como_colecao):
+def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
     """Grava os objetos num .blend da biblioteca.
 
     como_colecao=True agrupa tudo numa Collection e marca a COLLECTION
     como asset -- necessario para modulos, porque arrastar um objeto
     traz so' aquele objeto, enquanto arrastar uma colecao traz o
     conjunto inteiro.
+
+    `niveis` = (n1, n2, n3): arquiva o asset no catalogo da CATEGORIA,
+    que e' o que o Asset Browser mostra na cascata a esquerda. Sem
+    niveis cai no catalogo por tipo (Chapas/Modulos), como antes.
     """
-    raiz, destino = _pasta_biblioteca()
-    ids_cat = _garantir_catalogos(raiz)
+    raiz = destino = pasta_biblioteca()
+    # sem niveis cai no catalogo por tipo; ele entra como extra para
+    # existir no .cats.txt sem sujar o nivel 1 da cascata
+    cam_cat = (catalogo_de(*niveis) if niveis else "") or (
+        CAT_MODULOS if como_colecao else CAT_CHAPAS)
+    ids_cat = _garantir_catalogos(raiz, extras=(cam_cat,))
 
     blocos = set()
     if como_colecao:
@@ -813,7 +1211,7 @@ def salvar_na_biblioteca(objs, nome, como_colecao):
             col.objects.link(o)
         col.asset_mark()
         if col.asset_data:
-            col.asset_data.catalog_id = ids_cat[CAT_MODULOS]
+            col.asset_data.catalog_id = ids_cat[cam_cat]
             col.asset_data.description = "Modulo G3 - %d peca(s)" % len(objs)
             col.asset_data.tags.new("chapa-g3")
         blocos.add(col)
@@ -822,7 +1220,7 @@ def salvar_na_biblioteca(objs, nome, como_colecao):
         for o in objs:
             o.asset_mark()
             if o.asset_data:
-                o.asset_data.catalog_id = ids_cat[CAT_CHAPAS]
+                o.asset_data.catalog_id = ids_cat[cam_cat]
                 o.asset_data.tags.new("chapa-g3")
         alvo_preview = objs[0]
     for o in objs:
@@ -877,12 +1275,39 @@ def _niveis_de(it):
     return cat, sub, ""
 
 
+def _niveis_do_indice():
+    """Categorias que EXISTEM nos presets salvos, alem das da ARVORE.
+
+    E' o que integra as duas pontas: uma subcategoria digitada no "+"
+    do painel N passa a aparecer na cascata e tambem vira catalogo.
+    """
+    extra = {}
+    for it in indice_completo():
+        a, b, c = _niveis_de(it)
+        if not a:
+            continue
+        ramo = extra.setdefault(a, {})
+        if b:
+            filhos = ramo.setdefault(b, [])
+            if c and c not in filhos:
+                filhos.append(c)
+    return extra
+
+
 def _filhos_n2(n1):
-    return list(ARVORE.get(n1, {}).keys())
+    vistos = list(ARVORE.get(n1, {}).keys())
+    for k in _niveis_do_indice().get(n1, {}):
+        if k not in vistos:
+            vistos.append(k)
+    return vistos
 
 
 def _filhos_n3(n1, n2):
-    return list(ARVORE.get(n1, {}).get(n2, []))
+    vistos = list(ARVORE.get(n1, {}).get(n2, []))
+    for k in _niveis_do_indice().get(n1, {}).get(n2, []):
+        if k not in vistos:
+            vistos.append(k)
+    return vistos
 
 
 def _conta(itens, n1, n2=None, n3=None):
@@ -919,21 +1344,24 @@ def _ler_indice(pasta):
 
 def _gravar_indice(pasta, itens):
     try:
-        with open(os.path.join(pasta, NOME_INDICE), "w", encoding="utf-8") as f:
+        # newline explicito: o .gitattributes do projeto forca LF
+        with open(os.path.join(pasta, NOME_INDICE), "w",
+                  encoding="utf-8", newline="\n") as f:
             json.dump(itens, f, ensure_ascii=False, indent=1)
+            f.write("\n")
     except Exception as e:
         print("[Cabinet Creator] nao gravei o indice:", e)
 
 
 def indice_completo():
-    """Junta os presets de fabrica com os da equipe, marcando a origem."""
+    """Le o indice da biblioteca da empresa."""
+    pasta = pasta_biblioteca()
     itens = []
-    for origem, pasta in (("fabrica", _pasta_fabrica()), ("equipe", _pasta_equipe())):
-        for it in _ler_indice(pasta):
-            it = dict(it)
-            it["origem"] = origem
-            it["pasta"] = pasta
-            itens.append(it)
+    for it in _ler_indice(pasta):
+        it = dict(it)
+        it["origem"] = "biblioteca"
+        it["pasta"] = pasta
+        itens.append(it)
     return itens
 
 
@@ -950,8 +1378,54 @@ def _itens_de(categoria, subcategoria):
             if i.get("categoria") == categoria and i.get("subcategoria") == subcategoria]
 
 
+def inserir_preset(context, pasta, arquivo, tipo, destino=None):
+    """Carrega o .blend do preset na cena e seleciona o que veio.
+
+    Devolve (novos, raizes, erro). `destino` e' o deslocamento aplicado
+    as raizes; sem ele o preset vai para o cursor 3D em vez de ser
+    despejado na origem.
+    """
+    caminho = os.path.join(pasta, arquivo)
+    if not os.path.exists(caminho):
+        return [], [], "Arquivo nao encontrado: " + caminho
+    antes = set(bpy.data.objects)
+    with bpy.data.libraries.load(caminho) as (de, para):
+        if tipo == "modulo" and de.collections:
+            para.collections = list(de.collections)
+        else:
+            para.objects = list(de.objects)
+    novas_cols = [c for c in bpy.data.collections
+                  if c.library is None and c.name not in
+                  [x.name for x in context.scene.collection.children]]
+    for c in novas_cols:
+        if any(o not in antes for o in c.objects):
+            context.scene.collection.children.link(c)
+    for o in bpy.data.objects:
+        if o not in antes and o.name not in [x.name for c in novas_cols for x in c.objects]:
+            if o.name not in context.scene.collection.objects:
+                try:
+                    context.scene.collection.objects.link(o)
+                except Exception:
+                    pass
+    novos = [o for o in bpy.data.objects if o not in antes]
+
+    raizes = [o for o in novos if o.parent is None or o.parent not in novos]
+    desloc = context.scene.cursor.location.copy() if destino is None else destino
+    for o in raizes:
+        o.location = o.location + desloc
+
+    for o in context.selected_objects:
+        o.select_set(False)
+    for o in novos:
+        try:
+            o.select_set(True)
+        except Exception:
+            pass
+    return novos, raizes, ""
+
+
 class OBJECT_OT_inserir_preset(Operator):
-    """Traz o preset da biblioteca para a cena"""
+    """Traz o preset da biblioteca para o cursor 3D"""
     bl_idname = "object.cabinet_inserir_preset"
     bl_label = "Inserir"
     bl_options = {'REGISTER', 'UNDO'}
@@ -961,46 +1435,401 @@ class OBJECT_OT_inserir_preset(Operator):
     tipo: bpy.props.StringProperty(default="modulo")
 
     def execute(self, context):
-        caminho = os.path.join(self.pasta, self.arquivo)
-        if not os.path.exists(caminho):
-            self.report({'ERROR'}, "Arquivo nao encontrado: " + caminho)
+        novos, _raizes, erro = inserir_preset(
+            context, self.pasta, self.arquivo, self.tipo)
+        if erro:
+            self.report({'ERROR'}, erro)
             return {'CANCELLED'}
-        antes = set(bpy.data.objects)
-        with bpy.data.libraries.load(caminho) as (de, para):
-            if self.tipo == "modulo" and de.collections:
-                para.collections = list(de.collections)
-            else:
-                para.objects = list(de.objects)
-        novas_cols = [c for c in bpy.data.collections
-                      if c.library is None and c.name not in
-                      [x.name for x in context.scene.collection.children]]
-        for c in novas_cols:
-            if any(o not in antes for o in c.objects):
-                context.scene.collection.children.link(c)
-        for o in bpy.data.objects:
-            if o not in antes and o.name not in [x.name for c in novas_cols for x in c.objects]:
-                if o.name not in context.scene.collection.objects:
-                    try:
-                        context.scene.collection.objects.link(o)
-                    except Exception:
-                        pass
-        novos = [o for o in bpy.data.objects if o not in antes]
-
-        # leva o preset para o cursor 3D em vez de despeja-lo na origem
-        raizes = [o for o in novos if o.parent is None or o.parent not in novos]
-        desloc = context.scene.cursor.location.copy()
-        for o in raizes:
-            o.location = o.location + desloc
-
-        for o in context.selected_objects:
-            o.select_set(False)
-        for o in novos:
-            try:
-                o.select_set(True)
-            except Exception:
-                pass
         self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(novos))
         return {'FINISHED'}
+
+
+class OBJECT_OT_arrastar_preset(Operator):
+    """Arrasta com mira e caixa exata antes de inserir na cena"""
+    bl_idname = "object.cabinet_arrastar_preset"
+    bl_label = "Arrastar para a Cena"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # SKIP_SAVE: as props do operador persistem entre execucoes no
+    # Blender, e o arraste precisa descobri-las de novo a cada vez
+    pasta: bpy.props.StringProperty(options={'SKIP_SAVE'})
+    arquivo: bpy.props.StringProperty(options={'SKIP_SAVE'})
+    tipo: bpy.props.StringProperty(default="modulo", options={'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'VIEW_3D'
+
+    def invoke(self, context, event):
+        # Sem preset nas props, o arraste comecou sobre a grade: o bloco
+        # sob o cursor e' lido em context.button_operator, que entrega as
+        # propriedades do botao apontado (o mesmo recurso que o Blender
+        # usa para "Atribuir Atalho" no menu de contexto de um botao).
+        if not self.arquivo:
+            alvo = getattr(context, "button_operator", None)
+            # O botao de importacao, o cadeado e o lapis tambem carregam
+            # `arquivo`: so' miniatura e nome (este proprio operador)
+            # valem como pega do arraste.
+            origem = getattr(getattr(alvo, "bl_rna", None), "identifier", "")
+            arquivo = (getattr(alvo, "arquivo", "")
+                       if origem.endswith("cabinet_arrastar_preset") else "")
+            if not arquivo:
+                # arraste em qualquer outro lugar da sidebar: devolve o
+                # evento para o Blender, senao sliders parariam de andar
+                return {'PASS_THROUGH'}
+            self.pasta = getattr(alvo, "pasta", "")
+            self.arquivo = arquivo
+            self.tipo = getattr(alvo, "tipo", "modulo") or "modulo"
+            self._arrastando = True
+            self._mouse_inicio = (event.mouse_x, event.mouse_y)
+            self._moveu = False
+        else:
+            self._arrastando = False
+            self._mouse_inicio = (event.mouse_x, event.mouse_y)
+            self._moveu = True
+
+        # a grade vive na sidebar, entao a regiao do evento NAO e' a
+        # viewport: a janela de desenho tem de ser procurada na area
+        self._regiao = next(
+            (r for r in context.area.regions if r.type == 'WINDOW'), None)
+        self._rv3d = getattr(context.space_data, "region_3d", None)
+        if self._regiao is None or self._rv3d is None:
+            self.report({'ERROR'}, "Sem viewport 3D para posicionar")
+            return {'CANCELLED'}
+        # O draw handler pode ser chamado no primeiro redraw logo depois de
+        # registrado; deixe o filtro de regiao pronto antes desse momento.
+        self._regiao_ptr = self._regiao.as_pointer()
+
+        self._selecionados_antes = list(context.selected_objects)
+        self._ativo_antes = context.view_layer.objects.active
+        colecoes_antes = set(bpy.data.collections)
+        self._novos = []
+        self._raizes = []
+        self._colecoes_novas = []
+
+        # O preset entra oculto como staging. So' se torna visivel quando
+        # o usuario solta dentro da viewport; cancelar apaga tudo.
+        novos, raizes, erro = inserir_preset(
+            context, self.pasta, self.arquivo, self.tipo,
+            destino=Vector((0.0, 0.0, 0.0)))
+        self._novos = list(novos or [])
+        self._raizes = list(raizes or [])
+        self._colecoes_novas = [c for c in bpy.data.collections
+                                if c not in colecoes_antes]
+        if erro:
+            self._apagar()
+            self._restaurar_selecao(context)
+            self.report({'ERROR'}, erro)
+            return {'CANCELLED'}
+        if not self._novos:
+            self._apagar()
+            self._restaurar_selecao(context)
+            self.report({'WARNING'}, "O preset nao trouxe nenhum objeto")
+            return {'CANCELLED'}
+
+        self._base = {o: o.location.copy() for o in self._raizes}
+        self._altura = context.scene.cursor.location.z
+        self._alvo = None
+        self._normal = Vector((0.0, 0.0, 1.0))
+        self._bbox_atual = []
+        self._valido = False
+        self._em_superficie = False
+        self._handler_preview = None
+
+        try:
+            self._preparar_bbox(context)
+            self._ocultar_staging(context)
+            self._handler_preview = bpy.types.SpaceView3D.draw_handler_add(
+                self._desenhar_preview, (), 'WINDOW', 'POST_VIEW')
+        except Exception as e:
+            print("[Cabinet Creator] preview do arraste:", e)
+            self._apagar()
+            self._restaurar_selecao(context)
+            self.report({'ERROR'}, "Nao consegui preparar o preview")
+            return {'CANCELLED'}
+
+        try:
+            item = _achar_item(self.pasta, self.arquivo)
+            nome = item.get("nome", self.arquivo) if item else self.arquivo
+            context.workspace.status_text_set(
+                "Arrastando %s | Solte: inserir | Botao direito: cancelar"
+                % nome)
+        except Exception:
+            pass
+        self._mover(context, event)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def _preparar_bbox(self, context):
+        """Mede o staging avaliado e define a ancora no centro da base."""
+        context.view_layer.update()
+        try:
+            dep = context.evaluated_depsgraph_get()
+        except Exception:
+            dep = None
+        pontos = []
+        for obj in self._novos:
+            if obj.type in TIPOS_COM_VOLUME:
+                pontos.extend(_cantos_avaliados(obj, dep))
+        if not pontos:
+            pontos = [o.matrix_world.translation.copy() for o in self._raizes]
+        if not pontos:
+            raise RuntimeError("preset sem geometria")
+
+        lo = Vector(tuple(min(p[i] for p in pontos) for i in range(3)))
+        hi = Vector(tuple(max(p[i] for p in pontos) for i in range(3)))
+        self._bbox_base = (
+            Vector((lo.x, lo.y, lo.z)), Vector((hi.x, lo.y, lo.z)),
+            Vector((hi.x, hi.y, lo.z)), Vector((lo.x, hi.y, lo.z)),
+            Vector((lo.x, lo.y, hi.z)), Vector((hi.x, lo.y, hi.z)),
+            Vector((hi.x, hi.y, hi.z)), Vector((lo.x, hi.y, hi.z)),
+        )
+        self._ancora_base = Vector((
+            (lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, lo.z))
+        diagonal = (hi - lo).length
+        self._tamanho_mira = max(0.04, min(diagonal * 0.08, 0.35))
+
+    def _ocultar_staging(self, context):
+        """Esconde a geometria real para deixar somente o preview GPU."""
+        self._visibilidade = []
+        for obj in self._novos:
+            self._visibilidade.append(
+                (obj, bool(obj.hide_viewport), bool(obj.hide_get())))
+            obj.hide_set(True)
+            obj.hide_viewport = True
+        context.view_layer.update()
+
+    def _restaurar_staging(self):
+        for obj, global_oculto, local_oculto in getattr(
+                self, "_visibilidade", []):
+            try:
+                obj.hide_viewport = global_oculto
+                obj.hide_set(local_oculto)
+            except (ReferenceError, RuntimeError):
+                pass
+
+    def _restaurar_selecao(self, context):
+        try:
+            for obj in context.selected_objects:
+                obj.select_set(False)
+            for obj in self._selecionados_antes:
+                if obj.name in bpy.data.objects:
+                    obj.select_set(True)
+            if (self._ativo_antes is not None and
+                    self._ativo_antes.name in bpy.data.objects):
+                context.view_layer.objects.active = self._ativo_antes
+        except (ReferenceError, RuntimeError):
+            pass
+
+    def _encerrar_visual(self, context):
+        if self._handler_preview is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(
+                    self._handler_preview, 'WINDOW')
+            except Exception:
+                pass
+            self._handler_preview = None
+        try:
+            context.workspace.status_text_set(None)
+        except Exception:
+            pass
+        if context.area is not None:
+            context.area.tag_redraw()
+
+    def _desenhar_preview(self):
+        """Desenha box e mira sobre a viewport sem criar geometria."""
+        if not self._valido or not self._bbox_atual:
+            return
+        regiao = getattr(bpy.context, "region", None)
+        if regiao is None or regiao.as_pointer() != self._regiao_ptr:
+            return
+
+        arestas = (
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7),
+        )
+        linhas_box = []
+        for a, b in arestas:
+            linhas_box.extend((self._bbox_atual[a], self._bbox_atual[b]))
+
+        normal = self._normal.normalized()
+        referencia = (Vector((0.0, 0.0, 1.0))
+                      if abs(normal.z) < 0.9 else Vector((1.0, 0.0, 0.0)))
+        tangente = normal.cross(referencia).normalized()
+        bitangente = normal.cross(tangente).normalized()
+        tamanho = self._tamanho_mira
+        alvo = self._alvo
+        linhas_mira = (
+            alvo - tangente * tamanho, alvo + tangente * tamanho,
+            alvo - bitangente * tamanho, alvo + bitangente * tamanho,
+            alvo - normal * tamanho * 0.35,
+            alvo + normal * tamanho * 0.35,
+        )
+
+        try:
+            gpu.state.blend_set('ALPHA')
+            gpu.state.depth_test_set('NONE')
+            gpu.state.line_width_set(1.5)
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            shader.bind()
+            shader.uniform_float("color", (0.1, 1.0, 0.2, 0.9))
+            batch_for_shader(
+                shader, 'LINES', {"pos": linhas_box}).draw(shader)
+            shader.uniform_float(
+                "color", (1.0, 0.85, 0.1, 1.0)
+                if self._em_superficie else (0.9, 0.9, 0.9, 1.0))
+            batch_for_shader(
+                shader, 'LINES', {"pos": linhas_mira}).draw(shader)
+        except Exception as e:
+            print("[Cabinet Creator] desenho do preview:", e)
+        finally:
+            try:
+                gpu.state.line_width_set(1.0)
+                gpu.state.depth_test_set('NONE')
+                gpu.state.blend_set('NONE')
+            except Exception:
+                pass
+
+    def _na_viewport(self, event):
+        """O solte so' vale dentro da viewport, como no arraste nativo."""
+        dx = event.mouse_x - self._regiao.x
+        dy = event.mouse_y - self._regiao.y
+        return 0 <= dx < self._regiao.width and 0 <= dy < self._regiao.height
+
+    def _mover(self, context, event):
+        """Usa raycast na cena e plano do cursor como contingencia."""
+        if not self._na_viewport(event):
+            self._valido = False
+            context.area.tag_redraw()
+            return
+        coord = (event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y)
+        try:
+            origem = view3d_utils.region_2d_to_origin_3d(
+                self._regiao, self._rv3d, coord)
+            direcao = view3d_utils.region_2d_to_vector_3d(
+                self._regiao, self._rv3d, coord)
+        except Exception:
+            return
+        alvo = None
+        normal = Vector((0.0, 0.0, 1.0))
+        self._em_superficie = False
+        try:
+            dep = context.evaluated_depsgraph_get()
+            acerto, local, normal_hit, _face, obj_hit, _matriz = (
+                context.scene.ray_cast(
+                    dep, origem, direcao, distance=1000000.0))
+            if acerto and obj_hit not in self._novos:
+                alvo = local.copy()
+                normal = normal_hit.copy()
+                self._em_superficie = True
+        except Exception as e:
+            print("[Cabinet Creator] raycast do arraste:", e)
+        if alvo is None:
+            alvo = intersect_line_plane(
+                origem, origem + direcao * 1000.0,
+                Vector((0.0, 0.0, self._altura)),
+                Vector((0.0, 0.0, 1.0)))
+        if alvo is None:        # raio paralelo ao plano: nada a fazer
+            self._valido = False
+            context.area.tag_redraw()
+            return
+        deslocamento = alvo - self._ancora_base
+        for o in self._raizes:
+            base = self._base.get(o)
+            if base is not None:
+                o.location = base + deslocamento
+        self._alvo = alvo
+        self._normal = normal
+        self._bbox_atual = [p + deslocamento for p in self._bbox_base]
+        self._valido = True
+        context.area.tag_redraw()
+
+    def _apagar(self):
+        for o in list(self._novos):
+            try:
+                bpy.data.objects.remove(o, do_unlink=True)
+            except Exception:
+                pass
+        for colecao in list(getattr(self, "_colecoes_novas", [])):
+            try:
+                if colecao.name in bpy.data.collections:
+                    bpy.data.collections.remove(colecao)
+            except (ReferenceError, RuntimeError):
+                pass
+
+    def _cancelar(self, context):
+        self._encerrar_visual(context)
+        self._apagar()
+        self._restaurar_selecao(context)
+        if context.area is not None:
+            context.area.tag_redraw()
+        return {'CANCELLED'}
+
+    def _confirmar(self, context):
+        self._encerrar_visual(context)
+        self._restaurar_staging()
+        try:
+            for obj in context.selected_objects:
+                obj.select_set(False)
+            for obj in self._novos:
+                obj.select_set(True)
+            if self._raizes:
+                context.view_layer.objects.active = self._raizes[0]
+            elif self._novos:
+                context.view_layer.objects.active = self._novos[0]
+            context.view_layer.update()
+        except (ReferenceError, RuntimeError):
+            pass
+        self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(self._novos))
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        if event.type == 'MOUSEMOVE':
+            if self._arrastando and not self._moveu:
+                dx = event.mouse_x - self._mouse_inicio[0]
+                dy = event.mouse_y - self._mouse_inicio[1]
+                # O limiar evita transformar um clique com pequena
+                # oscilacao involuntaria em arraste.
+                self._moveu = (dx * dx + dy * dy) >= 36
+            self._mover(context, event)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'LEFTMOUSE':
+            confirma = 'RELEASE' if self._arrastando else 'PRESS'
+            if event.value == confirma:
+                if self._arrastando and not self._moveu:
+                    # O clique sem arraste ativa o mesmo posicionador. Esse
+                    # fallback e' indispensavel porque algumas versoes/temas
+                    # do Blender retêm o drag do botao da interface.
+                    self._arrastando = False
+                    try:
+                        context.workspace.status_text_set(
+                            "Posicionamento ativo | Clique na viewport: "
+                            "inserir | Botao direito: cancelar")
+                    except Exception:
+                        pass
+                    return {'RUNNING_MODAL'}
+                if not self._na_viewport(event):
+                    return self._cancelar(context)
+                if not self._valido:
+                    self.report({'WARNING'}, "Posicione dentro da viewport")
+                    return self._cancelar(context)
+                return self._confirmar(context)
+        if (event.type in {'RET', 'NUMPAD_ENTER'} and
+                event.value == 'PRESS'):
+            if not self._valido:
+                self.report({'WARNING'}, "Posicione dentro da viewport")
+                return {'RUNNING_MODAL'}
+            return self._confirmar(context)
+        if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            return self._cancelar(context)
+        if event.type == 'WINDOW_DEACTIVATE':
+            return self._cancelar(context)
+        return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        self._cancelar(context)
 
 
 class OBJECT_OT_navegar(Operator):
@@ -1033,12 +1862,13 @@ _previews = [None]
 # a area util maxima sem deformar ou ultrapassar as margens internas.
 WIREFRAME_LARGURA_PX = 160
 WIREFRAME_ALTURA_PX = 160
-WIREFRAME_MARGEM_X_PX = 14.0
+WIREFRAME_MARGEM_ESQUERDA_PX = 14.0
+WIREFRAME_MARGEM_DIREITA_PX = 2.0
 WIREFRAME_MARGEM_Y_PX = 20.0
 WIREFRAME_LINHA_PX = 0.45
-WIREFRAME_ESCALA_UI = 8.5
+WIREFRAME_ESCALA_UI = 10.0
 WIREFRAME_CACHE_MAX = 48
-WIREFRAME_PREFIXO = "wireframe:v11:"
+WIREFRAME_PREFIXO = "wireframe:v12:"
 _wireframe_ordem = []
 
 # Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
@@ -1094,7 +1924,8 @@ def _pontos_wireframe(largura, altura, profundidade):
     max_y = max(p[1] for p in projetados)
     largura_proj = max_x - min_x
     altura_proj = max_y - min_y
-    util_l = WIREFRAME_LARGURA_PX - 2.0 * WIREFRAME_MARGEM_X_PX
+    util_l = (WIREFRAME_LARGURA_PX - WIREFRAME_MARGEM_ESQUERDA_PX -
+              WIREFRAME_MARGEM_DIREITA_PX)
     util_a = WIREFRAME_ALTURA_PX - 2.0 * WIREFRAME_MARGEM_Y_PX
     if (largura_proj <= 0.0 or altura_proj <= 0.0 or
             util_l <= 0.0 or util_a <= 0.0):
@@ -1103,7 +1934,7 @@ def _pontos_wireframe(largura, altura, profundidade):
     escala = min(util_l / largura_proj, util_a / altura_proj)
     desenho_l = largura_proj * escala
     desenho_a = altura_proj * escala
-    dx = (WIREFRAME_LARGURA_PX - desenho_l) / 2.0 - min_x * escala
+    dx = WIREFRAME_MARGEM_ESQUERDA_PX - min_x * escala
     dy = (WIREFRAME_ALTURA_PX - desenho_a) / 2.0 - min_y * escala
     return [(x * escala + dx, y * escala + dy) for x, y in projetados]
 
@@ -1192,7 +2023,7 @@ def _desenhar_indicadores(buffer, pontos, cor, modo):
     else:
         vertical = _meio_wireframe(pontos[2], pontos[6])
         _desenhar_indicador(
-            buffer, 'A', vertical[0] - 9.0, vertical[1], cor)
+            buffer, 'A', max(5.0, vertical[0] - 9.0), vertical[1], cor)
         _desenhar_indicador(
             buffer, 'P', fundo[0] - 9.0, fundo[1] - 8.0, cor)
 
@@ -1282,11 +2113,47 @@ def icone_do_item(it):
     return col[chave].icon_id
 
 
+def _ocupacao_alpha_png(caminho):
+    """Maior fracao ocupada pelo alfa, em X ou Y, ou zero se vazio."""
+    imagem = None
+    try:
+        imagem = bpy.data.images.load(caminho, check_existing=False)
+        largura, altura = imagem.size
+        if largura <= 0 or altura <= 0:
+            return 0.0
+        # Blender 4.2 nao aceita `step` diretamente no bpy_prop_array.
+        alpha = list(imagem.pixels)[3::4]
+        min_x, min_y = largura, altura
+        max_x = max_y = -1
+        for indice, valor in enumerate(alpha):
+            if valor <= 0.01:
+                continue
+            x = indice % largura
+            y = indice // largura
+            min_x, max_x = min(min_x, x), max(max_x, x)
+            min_y, max_y = min(min_y, y), max(max_y, y)
+        if max_x < min_x or max_y < min_y:
+            return 0.0
+        return max((max_x - min_x + 1) / largura,
+                   (max_y - min_y + 1) / altura)
+    except Exception as e:
+        print("[Cabinet Creator] leitura do alfa:", e)
+        return 0.0
+    finally:
+        if imagem is not None:
+            try:
+                bpy.data.images.remove(imagem)
+            except (ReferenceError, RuntimeError):
+                pass
+
+
 def capturar_viewport(destino_png, camera=None, isolar=None):
     """Foto do modelo a partir da viewport.
 
     NAO renderiza: usa render OpenGL, ou seja, as cores da propria
     viewport. Overlays desligados removem grade, eixos, gizmos e icones.
+    O PNG sai em RGBA transparente e, sem camera explicita, o alvo e'
+    enquadrado automaticamente para ocupar a miniatura.
 
     camera  -- se informada, usa a vista dela. Se nao, e a viewport ja'
                estiver em vista de camera, mantem essa vista; caso
@@ -1298,6 +2165,7 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
     """
     cena = bpy.context.scene
     ant = (cena.render.filepath, cena.render.image_settings.file_format,
+           cena.render.image_settings.color_mode,
            cena.render.resolution_x, cena.render.resolution_y,
            cena.render.resolution_percentage, cena.render.film_transparent)
     area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'), None)
@@ -1307,9 +2175,14 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
     espaco = area.spaces.active
     r3d = espaco.region_3d
     ov_ant = espaco.overlay.show_overlays
-    persp_ant = r3d.view_perspective
+    vista_ant = (r3d.view_distance, r3d.view_location.copy(),
+                 r3d.view_rotation.copy(), r3d.view_perspective,
+                 r3d.view_camera_zoom, tuple(r3d.view_camera_offset))
     cam_ant = cena.camera
+    selecionados_ant = list(bpy.context.selected_objects)
+    ativo_ant = bpy.context.view_layer.objects.active
     escondidos = []
+    enquadrar = []
 
     try:
         if isolar is not None:
@@ -1323,23 +2196,55 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
                 if o.name not in manter and not o.hide_get():
                     o.hide_set(True)
                     escondidos.append(o)
+                elif o.name in manter:
+                    enquadrar.append(o)
 
         cena.render.image_settings.file_format = 'PNG'
+        cena.render.image_settings.color_mode = 'RGBA'
         cena.render.resolution_x = 512
         cena.render.resolution_y = 512
         cena.render.resolution_percentage = 100
+        cena.render.film_transparent = True
         cena.render.filepath = destino_png
         espaco.overlay.show_overlays = False
 
         if camera is not None:
             cena.camera = camera
             r3d.view_perspective = 'CAMERA'
-        # sem camera: mantem o que ja' esta' na tela (inclusive se ja'
-        # estiver em vista de camera) -- o enquadramento e' do usuario
+        # Sem camera preserva a orientacao escolhida pelo usuario, mas
+        # ajusta centro e distancia para o alvo ocupar a miniatura.
 
         regiao = next((r for r in area.regions if r.type == 'WINDOW'), None)
         with bpy.context.temp_override(area=area, region=regiao):
+            if camera is None and enquadrar:
+                # A captura quadrada nao tem a mesma proporcao da viewport
+                # larga. ORTHO preserva o angulo, mantem o centro e evita
+                # o deslocamento lateral que a perspectiva produziria.
+                r3d.view_perspective = 'ORTHO'
+                for o in bpy.context.selected_objects:
+                    o.select_set(False)
+                for o in enquadrar:
+                    try:
+                        o.select_set(True)
+                    except (ReferenceError, RuntimeError):
+                        pass
+                bpy.context.view_layer.objects.active = enquadrar[0]
+                bpy.ops.view3d.view_selected(use_all_regions=False)
+                # Uma pequena folga evita cortar antialiasing e objetos
+                # muito largos/altos junto ao limite do PNG.
+                r3d.view_distance *= 1.12
             bpy.ops.render.opengl(write_still=True, view_context=True)
+            if camera is None and enquadrar:
+                # `view_selected` enquadra usando a proporcao da viewport,
+                # mas o PNG e' quadrado. Mede o alfa real e faz uma segunda
+                # passagem para ocupar o mesmo espaco em qualquer sidebar.
+                ocupacao = _ocupacao_alpha_png(destino_png)
+                if ocupacao > 0.01:
+                    fator = max(0.25, min(2.0, ocupacao / 0.82))
+                    if abs(fator - 1.0) > 0.03:
+                        r3d.view_distance *= fator
+                        bpy.ops.render.opengl(write_still=True,
+                                              view_context=True)
         return True, destino_png
     except Exception as e:
         return False, str(e)
@@ -1350,9 +2255,21 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
             except Exception:
                 pass
         espaco.overlay.show_overlays = ov_ant
-        r3d.view_perspective = persp_ant
+        (r3d.view_distance, r3d.view_location, r3d.view_rotation,
+         r3d.view_perspective, r3d.view_camera_zoom,
+         r3d.view_camera_offset) = vista_ant
         cena.camera = cam_ant
+        for o in bpy.context.selected_objects:
+            o.select_set(False)
+        for o in selecionados_ant:
+            try:
+                o.select_set(True)
+            except (ReferenceError, RuntimeError):
+                pass
+        if ativo_ant is not None and ativo_ant.name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = ativo_ant
         (cena.render.filepath, cena.render.image_settings.file_format,
+         cena.render.image_settings.color_mode,
          cena.render.resolution_x, cena.render.resolution_y,
          cena.render.resolution_percentage, cena.render.film_transparent) = ant
 
@@ -1371,7 +2288,7 @@ def _achar_item(pasta, arquivo):
     return None
 
 
-# ============================== BLOQUEIO, RENOMEAR E ORDEM DOS BLOCOS
+# ========================================== BLOQUEIO E RENOMEAR DOS BLOCOS
 def _atualizar_item(pasta, arquivo, mudancas):
     itens = _ler_indice(pasta)
     for i in itens:
@@ -1381,10 +2298,8 @@ def _atualizar_item(pasta, arquivo, mudancas):
 
 
 def item_bloqueado(it):
-    """Presets de fabrica sao sempre bloqueados: a pasta deles e'
-    sobrescrita a cada atualizacao do addon."""
-    if it.get("origem") == "fabrica":
-        return True
+    """Com uma biblioteca so', o cadeado e' por item: nao ha' mais uma
+    origem "de fabrica" que force o bloqueio."""
     return bool(it.get("bloqueado", False))
 
 
@@ -1400,76 +2315,8 @@ class OBJECT_OT_alternar_bloqueio(Operator):
         it = _achar_item(self.pasta, self.arquivo)
         if it is None:
             return {'CANCELLED'}
-        if it.get("origem") == "fabrica":
-            self.report({'WARNING'}, "Preset de fabrica e' sempre bloqueado")
-            return {'CANCELLED'}
         _atualizar_item(self.pasta, self.arquivo,
                         {"bloqueado": not bool(it.get("bloqueado", False))})
-        return {'FINISHED'}
-
-
-class OBJECT_OT_renomear_item(Operator):
-    """Renomear este bloco"""
-    bl_idname = "object.cabinet_renomear"
-    bl_label = "Renomear"
-    bl_options = {'REGISTER'}
-
-    pasta: bpy.props.StringProperty()
-    arquivo: bpy.props.StringProperty()
-    nome: bpy.props.StringProperty(name="Nome")
-
-    def invoke(self, context, event):
-        it = _achar_item(self.pasta, self.arquivo)
-        if it is None:
-            return {'CANCELLED'}
-        if item_bloqueado(it):
-            self.report({'WARNING'}, "Bloco bloqueado: destrave o cadeado")
-            return {'CANCELLED'}
-        self.nome = it.get("nome", "")
-        return context.window_manager.invoke_props_dialog(self, width=300)
-
-    def draw(self, context):
-        self.layout.prop(self, "nome")
-
-    def execute(self, context):
-        it = _achar_item(self.pasta, self.arquivo)
-        if it is None or item_bloqueado(it):
-            return {'CANCELLED'}
-        _atualizar_item(self.pasta, self.arquivo, {"nome": self.nome})
-        return {'FINISHED'}
-
-
-class OBJECT_OT_mover_item(Operator):
-    """Move o bloco na ordem da grade.
-
-    O Blender nao expoe reordenacao por arraste em paineis -- nem
-    UIList tem isso, ela usa setas. Estas setas sao o equivalente
-    disponivel na API.
-    """
-    bl_idname = "object.cabinet_mover"
-    bl_label = "Mover"
-
-    pasta: bpy.props.StringProperty()
-    arquivo: bpy.props.StringProperty()
-    direcao: bpy.props.IntProperty(default=-1)
-
-    def execute(self, context):
-        itens = _ler_indice(self.pasta)
-        for n, i in enumerate(itens):
-            if "ordem" not in i:
-                i["ordem"] = n
-        itens.sort(key=lambda i: i.get("ordem", 0))
-        idx = next((n for n, i in enumerate(itens)
-                    if i.get("arquivo") == self.arquivo), None)
-        if idx is None:
-            return {'CANCELLED'}
-        novo = idx + self.direcao
-        if novo < 0 or novo >= len(itens):
-            return {'CANCELLED'}
-        itens[idx], itens[novo] = itens[novo], itens[idx]
-        for n, i in enumerate(itens):
-            i["ordem"] = n
-        _gravar_indice(self.pasta, itens)
         return {'FINISHED'}
 
 
@@ -1597,24 +2444,81 @@ class OBJECT_OT_salvar_biblioteca(Operator):
             if MARCA_CONJUNTO in o:
                 completos += [f for f in bpy.data.objects if f.parent == o]
         completos = list(dict.fromkeys(completos))
+        # os niveis sao resolvidos ANTES de gravar: e' deles que sai o
+        # catalogo em que o asset vai ser arquivado
+        n2 = self.n2 or (_filhos_n2(self.n1) or [""])[0]
+        n3 = self.n3 or (_filhos_n3(self.n1, n2) or [""])[0]
         try:
-            arq = salvar_na_biblioteca(completos, self.nome, self.como_modulo)
-            n2 = self.n2 or (_filhos_n2(self.n1) or [""])[0]
-            n3 = self.n3 or (_filhos_n3(self.n1, n2) or [""])[0]
+            arq = salvar_na_biblioteca(completos, self.nome, self.como_modulo,
+                                       niveis=(self.n1, n2, n3))
             png = os.path.splitext(os.path.basename(arq))[0] + ".png"
             if self.com_foto:
                 cam = next((o for o in sel if o.type == 'CAMERA'), None)
                 alvo = [o for o in completos if o.type != 'CAMERA']
-                okf, msg = capturar_viewport(os.path.join(_pasta_equipe(), png), cam,
+                okf, msg = capturar_viewport(
+                    os.path.join(pasta_biblioteca(), png), cam,
                                              isolar=alvo or None)
                 if not okf:
                     self.report({'WARNING'}, "Foto falhou: " + msg)
-            registrar_no_indice(_pasta_equipe(), self.nome, arq, self.n1, n2, n3,
+            registrar_no_indice(pasta_biblioteca(), self.nome, arq,
+                                self.n1, n2, n3,
                                 "modulo" if self.como_modulo else "objeto")
         except Exception as e:
             self.report({'ERROR'}, "Falha ao salvar: %s" % e)
             return {'CANCELLED'}
         self.report({'INFO'}, "Salvo em %s" % arq)
+        return {'FINISHED'}
+
+
+def _apontar_asset_browser():
+    """Aponta o Asset Browser recem-aberto para a biblioteca do addon.
+
+    Roda adiado porque `params` do SpaceFileBrowser so' passa a existir
+    depois que a area e' desenhada pela primeira vez. A janela e'
+    relida do window_manager a cada chamada -- guardar a referencia
+    arriscaria usar um ponteiro morto se ela fosse fechada antes.
+    """
+    try:
+        janelas = bpy.context.window_manager.windows
+        if not len(janelas):
+            return None
+        area = janelas[-1].screen.areas[0]
+        if area.type == 'FILE_BROWSER':
+            params = getattr(area.spaces.active, "params", None)
+            if params is not None:
+                params.asset_library_reference = NOME_BIBLIOTECA
+    except Exception as e:
+        print("[Cabinet Creator] asset browser:", e)
+    return None
+
+
+class OBJECT_OT_abrir_asset_browser(Operator):
+    """Abre a biblioteca no Asset Browser do Blender, em outra janela"""
+    bl_idname = "object.cabinet_asset_browser"
+    bl_label = "Abrir no Asset Browser"
+
+    def execute(self, context):
+        registrar_bibliotecas()
+        wm = context.window_manager
+        antes = len(wm.windows)
+        try:
+            bpy.ops.wm.window_new()
+        except Exception as e:
+            print("[Cabinet Creator] nova janela:", e)
+            self.report({'WARNING'}, "Nao consegui abrir a janela")
+            return {'CANCELLED'}
+        if len(wm.windows) <= antes:
+            self.report({'WARNING'}, "Nao consegui abrir a janela")
+            return {'CANCELLED'}
+        try:
+            area = wm.windows[-1].screen.areas[0]
+            area.type = 'FILE_BROWSER'
+            area.ui_type = 'ASSETS'
+        except Exception as e:
+            print("[Cabinet Creator] asset browser:", e)
+            self.report({'WARNING'}, "Troque o editor para Asset Browser")
+            return {'CANCELLED'}
+        bpy.app.timers.register(_apontar_asset_browser, first_interval=0.2)
         return {'FINISHED'}
 
 
@@ -1624,7 +2528,7 @@ class OBJECT_OT_abrir_pasta_biblioteca(Operator):
     bl_label = "Abrir Pasta da Biblioteca"
 
     def execute(self, context):
-        raiz, destino = _pasta_biblioteca()
+        destino = pasta_biblioteca()
         bpy.ops.wm.path_open(filepath=destino)
         self.report({'INFO'}, destino)
         return {'FINISHED'}
@@ -1670,6 +2574,147 @@ class OBJECT_OT_normalizar(Operator):
         ajustadas = normalizar_chapas(alvo)
         self.report({'INFO'}, "%d chapa(s) recalculada(s)" % len(ajustadas))
         return {'FINISHED'}
+
+
+# ====================================================== SELECAO
+# 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
+# em todas as pecas); 2 cliques isolam a chapa sob o cursor.
+#
+# As entradas ficam no keyconfig do ADDON, avaliado antes do padrao.
+# Quando o poll falha -- fora do Object Mode, ou com a opcao desligada
+# nas Preferencias -- o evento cai para o `view3d.select` nativo e o
+# comportamento normal do Blender volta inteiro.
+
+
+def familia_de(obj):
+    """Tudo que deve acender junto com obj: as chapas do grupo mais o
+    Empty do conjunto.
+
+    Selecionar o pai JUNTO com os filhos e' seguro: o Blender nao
+    transforma duas vezes o filho cujo pai tambem esta' selecionado.
+    """
+    if obj is None:
+        return []
+    if MARCA_CONJUNTO in obj:
+        return [obj] + _chapas_do_conjunto(obj)
+    if MARCA_CHAPA not in obj:
+        return []
+    chapas = grupo_de(obj, simetrico=True)
+    pai = obj.parent
+    if pai is not None and MARCA_CONJUNTO in pai:
+        return [pai] + chapas
+    return chapas
+
+
+class OBJECT_OT_selecionar(Operator):
+    """Clique seleciona o modulo inteiro; clique duplo isola a chapa"""
+    bl_idname = "object.cabinet_selecionar"
+    bl_label = "Selecionar Modulo"
+    bl_options = {'UNDO'}
+
+    modo: EnumProperty(
+        name="Modo", default='GRUPO',
+        items=[('GRUPO', "Grupo", "Seleciona o modulo inteiro"),
+               ('INDIVIDUAL', "Individual", "Seleciona so' a chapa clicada")])
+    # espelham as props do view3d.select: sao repassadas tal e qual
+    location: IntVectorProperty(size=2, options={'SKIP_SAVE'})
+    extend: BoolProperty(default=False)
+    deselect: BoolProperty(default=False)
+    toggle: BoolProperty(default=False)
+    deselect_all: BoolProperty(default=False)
+    select_passthrough: BoolProperty(default=False)
+
+    @classmethod
+    def poll(cls, context):
+        p = _prefs()
+        if p is not None and not p.selecao_por_grupo:
+            return False
+        return (context.mode == 'OBJECT' and context.area is not None
+                and context.area.type == 'VIEW_3D')
+
+    def invoke(self, context, event):
+        self.location = (event.mouse_region_x, event.mouse_region_y)
+        return self.execute(context)
+
+    def execute(self, context):
+        # a escolha de QUEM foi clicado continua sendo do Blender; este
+        # operador so' amplia (ou estreita) o resultado depois
+        try:
+            r = bpy.ops.view3d.select(
+                'EXEC_DEFAULT',
+                location=tuple(self.location),
+                extend=self.extend, deselect=self.deselect,
+                toggle=self.toggle, deselect_all=self.deselect_all,
+                select_passthrough=self.select_passthrough)
+        except Exception as e:
+            print("[Cabinet Creator] selecao:", e)
+            return {'CANCELLED'}
+        if 'PASS_THROUGH' in r or 'CANCELLED' in r:
+            return r
+
+        obj = context.object
+        familia = familia_de(obj)
+        if not familia:
+            return r
+
+        # se o clique DESLIGOU a peca (shift), o grupo inteiro apaga junto
+        ligado = obj.select_get()
+        for o in familia:
+            try:
+                o.select_set(False if self.modo == 'INDIVIDUAL' else ligado)
+            except Exception:
+                pass
+        if self.modo == 'INDIVIDUAL':
+            obj.select_set(True)
+        context.view_layer.objects.active = obj
+        return r
+
+
+_keymaps = []
+
+# (valor do evento, shift, modo, props repassadas ao view3d.select)
+# O PRESS simples leva select_passthrough para preservar o arraste: o
+# clique sobre uma peca JA' selecionada nao desmonta a selecao, senao
+# nao daria para arrastar o modulo inteiro depois de seleciona-lo.
+_ENTRADAS_KEYMAP = (
+    ('PRESS', False, 'GRUPO',
+     {"deselect_all": True, "select_passthrough": True}),
+    ('PRESS', True, 'GRUPO', {"toggle": True}),
+    ('DOUBLE_CLICK', False, 'INDIVIDUAL', {"deselect_all": True}),
+)
+
+
+def registrar_keymaps():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:          # Blender em background nao monta keyconfig
+        return
+    km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
+    for valor, shift, modo, props in _ENTRADAS_KEYMAP:
+        kmi = km.keymap_items.new("object.cabinet_selecionar",
+                                  'LEFTMOUSE', valor, shift=shift)
+        kmi.properties.modo = modo
+        for chave, v in props.items():
+            setattr(kmi.properties, chave, v)
+        _keymaps.append((km, kmi))
+
+    # Arraste a partir da grade da biblioteca. O keymap "User Interface"
+    # e' o que enxerga os botoes dos paineis. O PRESS precisa ser capturado
+    # antes que o proprio botao consuma o gesto; o modal distingue clique
+    # de arraste por distancia e devolve PASS_THROUGH em qualquer controle
+    # que nao seja uma miniatura ou nome de preset.
+    km_ui = kc.keymaps.new(name="User Interface", space_type='EMPTY')
+    kmi = km_ui.keymap_items.new("object.cabinet_arrastar_preset",
+                                 'LEFTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km_ui, kmi))
+
+
+def remover_keymaps():
+    for km, kmi in _keymaps:
+        try:
+            km.keymap_items.remove(kmi)
+        except Exception:
+            pass
+    _keymaps.clear()
 
 
 # ================================================== CRIACAO DE OBJETOS
@@ -1816,22 +2861,98 @@ class OBJECT_OT_sincronizar_grupo(Operator):
         return {'FINISHED'}
 
 
+# ========================================== PRATELEIRA DE ASSETS
+# O arrastar-e-soltar de verdade -- o MESMO do Asset Browser do Blender
+# -- so' existe em editores nativos. `UILayout` nao expoe nada que
+# inicie um arraste, e o `template_asset_view`, que os paineis usavam
+# para isso, foi removido (nao existe mais no 5.x, junto com
+# `bpy.types.AssetHandle`). Ou seja: a grade da sidebar nao tem como
+# iniciar um arraste, por construcao da API.
+#
+# A AssetShelf, porem, E' registravel em Python e fica dentro da propria
+# viewport. O arraste nativo vem LIGADO de fabrica: os pinceis do
+# Blender e' que pedem 'NO_ASSET_DRAG' para desliga-lo. Nao pedindo
+# nada, o item e' arrastavel e o solte cai no dropbox nativo da
+# viewport, identico ao do Asset Browser.
+
+
+class VIEW3D_AST_cabinet_creator(bpy.types.AssetShelf):
+    """Prateleira com os presets: arraste o modulo direto para a cena."""
+    bl_idname = "VIEW3D_AST_cabinet_creator"
+    bl_space_type = 'VIEW_3D'
+    bl_options = {'STORE_ENABLED_CATALOGS_IN_PREFERENCES'}
+    bl_default_preview_size = 96
+    # allowlist: so' o que faz sentido soltar na cena
+    filter_object = True
+    filter_group = True
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+
+    @classmethod
+    def asset_poll(cls, asset):
+        return asset.id_type in {'OBJECT', 'COLLECTION'}
+
+
+class OBJECT_OT_prateleira(Operator):
+    """Mostra/esconde a prateleira de assets na viewport -- e' de la'
+    que se ARRASTA o modulo para a cena"""
+    bl_idname = "object.cabinet_prateleira"
+    bl_label = "Prateleira de Assets"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'VIEW_3D'
+
+    def execute(self, context):
+        registrar_bibliotecas()
+        # Gravar show_region_asset_shelf direto falha com "read-only"
+        # dependendo do contexto (o botao vive na sidebar, nao na
+        # viewport). O operador de regiao do proprio Blender resolve
+        # sempre -- e' o mesmo que o menu Ver usa.
+        janela = next((r for r in context.area.regions
+                       if r.type == 'WINDOW'), None)
+        try:
+            with context.temp_override(area=context.area, region=janela):
+                bpy.ops.screen.region_toggle(region_type='ASSET_SHELF')
+        except Exception as e:
+            print("[Cabinet Creator] prateleira:", e)
+            self.report({'WARNING'}, "Use Ver > Prateleira de Assets")
+            return {'CANCELLED'}
+        if getattr(context.space_data, "show_region_asset_shelf", False):
+            self.report({'INFO'},
+                        "Escolha a biblioteca 'Cabinet Creator' e arraste")
+        return {'FINISHED'}
+
+
 class CabinetCreatorPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
-    pasta_equipe: bpy.props.StringProperty(
-        name="Biblioteca da equipe",
+    pasta_biblioteca: bpy.props.StringProperty(
+        name="Pasta da biblioteca",
         subtype='DIR_PATH',
-        description="Pasta onde os presets sao gravados. Aponte para uma "
-                    "pasta de rede para compartilhar entre os computadores",
+        description="Vazio: usa a pasta do proprio addon (a biblioteca da "
+                    "empresa). Aponte para uma pasta de rede para "
+                    "compartilhar entre os computadores",
         default="")
+
+    selecao_por_grupo: bpy.props.BoolProperty(
+        name="Clique seleciona o modulo inteiro",
+        description="Um clique acende todas as pecas do modulo; dois "
+                    "cliques isolam a chapa. Desligado, o clique volta a "
+                    "ser o do Blender",
+        default=True)
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "pasta_equipe")
-        layout.label(text="De fabrica: " + _pasta_fabrica(), icon='FILE_FOLDER')
-        layout.label(text="Em uso: " + _pasta_equipe(), icon='ASSET_MANAGER')
+        layout.prop(self, "selecao_por_grupo")
+        layout.separator()
+        layout.prop(self, "pasta_biblioteca")
+        layout.label(text="Em uso: " + pasta_biblioteca(),
+                     icon='ASSET_MANAGER')
         layout.operator("object.cabinet_registrar_bibliotecas", icon='FILE_REFRESH')
+        layout.operator("object.cabinet_refiliar", icon='ASSET_MANAGER')
 
 
 class OBJECT_OT_registrar_bibliotecas(Operator):
@@ -1876,6 +2997,43 @@ class OBJECT_OT_modo_medidas(Operator):
         elif self.modo != 'GRUPO':
             return {'CANCELLED'}
         return {'FINISHED'}
+
+
+# ================================================ AJUSTE A' LARGURA
+# O bpy nao mede texto nem informa quanto cabe num botao: ele so' corta
+# pela direita, comendo o final do rotulo. Para decidir layout e
+# encurtar nomes na mao, a largura da regiao e' convertida em pixels
+# logicos e o texto e' estimado por estes valores.
+PX_CARACTERE = 6.5
+PX_FOLGA_BOTAO = 10.0
+PX_ICONE = 22.0
+# largura minima para um botao de categoria continuar legivel
+PX_MIN_NIVEL = 64.0
+
+
+def _largura_painel(context):
+    """Largura da regiao em pixels logicos (descontada a escala da UI)."""
+    regiao = getattr(context, "region", None)
+    try:
+        escala = context.preferences.system.ui_scale or 1.0
+    except Exception:
+        escala = 1.0
+    if regiao is None or not regiao.width:
+        return 200.0
+    return regiao.width / escala
+
+
+def _px_botao(rotulo, com_icone=True):
+    return (len(rotulo) * PX_CARACTERE + PX_FOLGA_BOTAO
+            + (PX_ICONE if com_icone else 0.0))
+
+
+def _abreviar(texto, limite):
+    """Encurta o NOME; quem chama concatena o sufixo depois, para que a
+    contagem nunca seja o pedaco cortado."""
+    if limite >= len(texto):
+        return texto
+    return texto[:max(1, limite)]
 
 
 class VIEW3D_PT_cabinet_creator(Panel):
@@ -1924,6 +3082,40 @@ class VIEW3D_PT_cabinet_creator(Panel):
         valor.alignment = 'LEFT'
         valor.prop(dados, propriedade, text="")
 
+    def _rotulo_medida(self, layout, texto, valor_mm):
+        """Versao so'-leitura do campo: selecao livre nao tem prop."""
+        bloco = layout.column(align=True)
+        bloco.alignment = 'LEFT'
+        r = bloco.row(align=True)
+        r.alignment = 'LEFT'
+        r.label(text=texto)
+        v = bloco.row(align=True)
+        v.alignment = 'LEFT'
+        v.label(text="%.1f mm" % valor_mm)
+
+    def _medidas_da_selecao(self, context, layout):
+        """Caixa de QUALQUER selecao -- cubo, carro, curvas, o que for."""
+        m = medir_selecao(context)
+        if m is None:
+            layout.label(text="Selecione uma chapa, um modulo ou "
+                              "qualquer objeto", icon='INFO')
+            return
+        largura, altura, profundidade, quantos = m
+        b = layout.box()
+        b.label(text="Selecao (%d objeto%s)"
+                     % (quantos, "" if quantos == 1 else "s"),
+                icon='SHADING_BBOX')
+        corpo = b.row(align=False)
+        campos = corpo.column(align=True)
+        campos.alignment = 'LEFT'
+        campos.ui_units_x = 9.2
+        campos.separator(factor=0.4)
+        self._rotulo_medida(campos, "Largura", largura)
+        self._rotulo_medida(campos, "Altura", altura)
+        self._rotulo_medida(campos, "Profundidade", profundidade)
+        self._visual_wireframe(corpo, context, 'GRUPO',
+                               (largura, altura, profundidade))
+
     def _lista_espessuras(self, layout):
         linha = layout.row(align=True)
         linha.alignment = 'LEFT'
@@ -1954,7 +3146,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
                  obj.conj_profundidade_mm))
             b.operator("object.cabinet_sincronizar", icon='FILE_REFRESH')
         elif obj is None or MARCA_CHAPA not in obj:
-            layout.label(text="Selecione uma chapa ou um modulo", icon='INFO')
+            self._medidas_da_selecao(context, layout)
         else:
             self._abas_modo(layout, obj.chapa_modo)
             b = layout.box()
@@ -1971,11 +3163,12 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 self._campo_medida(
                     campos, obj, "ui_chapa_espessura", "Espessura")
                 self._lista_espessuras(campos)
+                campos.separator(factor=0.5)
+                campos.prop(obj, "chapa_auto")
                 self._visual_wireframe(
                     corpo, context, 'INDIVIDUAL',
                     (obj.chapa_largura_mm, obj.chapa_espessura_mm,
                      obj.chapa_comprimento_mm))
-                b.prop(obj, "chapa_auto")
             else:
                 b.label(text="Grupo: %d peca(s)" % len(grupo_de(obj)), icon='MOD_BUILD')
                 sc = context.scene
@@ -2002,26 +3195,62 @@ class VIEW3D_PT_cabinet_creator(Panel):
         layout.separator()
         c = layout.column(align=True)
         c.label(text="Montagem:")
-        c.operator("object.cabinet_agrupar", icon='OUTLINER_OB_EMPTY')
-        c.operator("object.cabinet_detectar_adjacencia", icon='SNAP_ON')
-        c.operator("object.cabinet_normalizar", icon='FILE_REFRESH')
+        # (idname, rotulo inteiro, rotulo curto, icone). O curto e' um
+        # nome ESCOLHIDO, nao o inteiro truncado -- cortar seria o mesmo
+        # defeito que a cascata acima evita.
+        botoes = (
+            ("object.cabinet_agrupar", "Agrupar Conjunto", "Agrupar",
+             'OUTLINER_OB_EMPTY'),
+            ("object.cabinet_detectar_adjacencia", "Detectar Adjacencia",
+             "Adjacencia", 'SNAP_ON'),
+            ("object.cabinet_normalizar", "Recalcular Chapas", "Recalcular",
+             'FILE_REFRESH'),
+        )
+        largura = _largura_painel(context)
+        if sum(_px_botao(b[2]) for b in botoes) <= largura:
+            alvo, i_rotulo = c.row(align=True), 2      # lado a lado
+        else:
+            alvo, i_rotulo = c.column(align=True), 1   # empilhado
+        for botao in botoes:
+            alvo.operator(botao[0], text=botao[i_rotulo], icon=botao[3])
 
     # ---------------------------------------------------- BIBLIOTECA
     # Cascata HORIZONTAL: cada nivel e' uma linha de botoes. O nivel
     # selecionado fica azul (depress=True, o destaque nativo do Blender).
-    def _linha_niveis(self, layout, nivel, valores, itens, sel, pai=None):
+    def _linha_niveis(self, context, layout, nivel, valores, itens, sel,
+                      pai=None):
         if not valores:
             return
-        linha = layout.row(align=True)
-        for v in valores:
+        if nivel > 1:
+            layout.separator(type='LINE')
+        # O bpy corta o rotulo pela DIREITA, comendo justamente o "(N)".
+        # Por isso a conta e' preservada e o NOME e' encurtado aqui.
+        #
+        # Antes de encurtar, porem, vale QUEBRAR A LINHA: espremer cinco
+        # botoes numa sidebar estreita sobrava uma letra para cada um
+        # ("P (0)" para Portas e Puxadores). A grade da mais largura a
+        # cada botao e so' entao o nome e' resumido.
+        disponivel = _largura_painel(context) - 16.0
+        # O numero de colunas so' cresce enquanto o nome INTEIRO ainda
+        # couber. Repartir por quantos cabem deixava o texto encolher ao
+        # alargar a sidebar (mais colunas, cada uma mais estreita).
+        maior = max(len(v) for v in valores) + 5      # folga do " (NN)"
+        ideal = max(PX_MIN_NIVEL, maior * PX_CARACTERE + PX_FOLGA_BOTAO)
+        colunas = max(1, min(len(valores), int(disponivel // ideal)))
+        cabe = int((disponivel / colunas - PX_FOLGA_BOTAO) / PX_CARACTERE)
+        linha = layout.grid_flow(row_major=True, columns=colunas,
+                                 even_columns=True, align=True)
+        for v in sorted(valores, key=str.casefold):
             if nivel == 1:
                 n = _conta(itens, v)
             elif nivel == 2:
                 n = _conta(itens, pai, v)
             else:
                 n = _conta(itens, pai[0], pai[1], v)
+            sufixo = " (%d)" % n
+            nome = _abreviar(v, cabe - len(sufixo))
             op = linha.operator("object.cabinet_navegar",
-                                text="%s (%d)" % (v, n),
+                                text=nome + sufixo,
                                 depress=(sel == v))
             op.nivel = nivel
             op.valor = v
@@ -2034,18 +3263,24 @@ class VIEW3D_PT_cabinet_creator(Panel):
         cab.prop(s, "chapa_bib_aberta",
                  icon='TRIA_DOWN' if s.chapa_bib_aberta else 'TRIA_RIGHT',
                  text="Biblioteca (%d)" % len(itens), toggle=True)
+        cab.operator("object.cabinet_abrir_biblioteca", text="",
+                     icon='FILE_FOLDER')
+        # a prateleira nativa: unico lugar onde o arraste real existe
+        cab.operator("object.cabinet_prateleira", text="", icon='ASSET_MANAGER')
         # o "+" adiciona a selecao atual a biblioteca
         cab.operator("object.cabinet_salvar_biblioteca", text="", icon='ADD')
         if not s.chapa_bib_aberta:
             return
 
         menu = layout.box()
-        self._linha_niveis(menu, 1, list(ARVORE.keys()), itens, s.chapa_n1)
+        self._linha_niveis(context, menu, 1, list(ARVORE.keys()), itens,
+                           s.chapa_n1)
         if s.chapa_n1:
-            self._linha_niveis(menu, 2, _filhos_n2(s.chapa_n1), itens,
-                               s.chapa_n2, pai=s.chapa_n1)
+            self._linha_niveis(context, menu, 2, _filhos_n2(s.chapa_n1),
+                               itens, s.chapa_n2, pai=s.chapa_n1)
         if s.chapa_n1 and s.chapa_n2:
-            self._linha_niveis(menu, 3, _filhos_n3(s.chapa_n1, s.chapa_n2), itens,
+            self._linha_niveis(context, menu, 3,
+                               _filhos_n3(s.chapa_n1, s.chapa_n2), itens,
                                s.chapa_n3, pai=(s.chapa_n1, s.chapa_n2))
 
         if not s.chapa_n1 or not s.chapa_n2:
@@ -2059,16 +3294,19 @@ class VIEW3D_PT_cabinet_creator(Panel):
             a, b, c = _niveis_de(it)
             if a == s.chapa_n1 and b == s.chapa_n2 and (not filhos3 or c == s.chapa_n3):
                 daqui.append(it)
-        daqui.sort(key=lambda i: (i.get("ordem", 9999), i.get("nome", "")))
+        daqui.sort(key=lambda i: (
+            str(i.get("nome", "")).casefold(),
+            str(i.get("arquivo", "")).casefold()))
 
         lista = layout.box()
         trilha = " > ".join(x for x in (s.chapa_n1, s.chapa_n2, s.chapa_n3) if x)
         cab2 = lista.row(align=True)
-        cab2.label(text=trilha, icon='ASSET_MANAGER')
-        cab2.prop(s, "chapa_tam_bloco", text="")
+        cab2.label(text=trilha)
+        cab2.prop(s, "chapa_tam_bloco", text="", slider=True)
+        cab2.operator("object.cabinet_asset_browser", text="",
+                      icon='ASSET_MANAGER')
         if not daqui:
             lista.label(text="nenhum modelo aqui", icon='INFO')
-            lista.operator("object.cabinet_abrir_biblioteca", icon='FILE_FOLDER')
             return
 
         # columns=0 faz o grid_flow calcular sozinho quantas colunas cabem
@@ -2079,21 +3317,11 @@ class VIEW3D_PT_cabinet_creator(Panel):
         for n, it in enumerate(daqui):
             icone = icone_do_item(it)
             travado = item_bloqueado(it)
-            bloco = grade.box().column(align=True)
+            bloco = grade.column(align=True)
 
-            topo = bloco.row(align=True)
-            if icone:
-                # com imagem: cadeado a esquerda, tres barrinhas a direita
-                # (o layout do bpy nao permite sobrepor o icone a imagem)
-                self._cadeado(topo, it, travado)
-                topo.separator()
-                self._menu(topo, it, travado)
-            else:
-                # sem imagem: tres barrinhas na extrema esquerda
-                self._menu(topo, it, travado)
-                topo.separator()
-                self._cadeado(topo, it, travado)
-
+            # So' `template_icon` amplia a foto de verdade. Botoes de
+            # operador limitam qualquer preview ao icone pequeno de 16 px;
+            # por isso o posicionador clicavel fica no nome logo abaixo.
             if icone:
                 bloco.template_icon(icon_value=icone,
                                     scale=float(s.chapa_tam_bloco))
@@ -2102,23 +3330,30 @@ class VIEW3D_PT_cabinet_creator(Panel):
                 vazio.scale_y = float(s.chapa_tam_bloco) * 0.5
                 vazio.label(text="", icon='IMAGE_DATA')
 
-            oi = bloco.operator("object.cabinet_inserir_preset",
-                                text=it["nome"], icon='IMPORT')
+            # A seta preserva a insercao direta no cursor 3D. O nome chama
+            # o posicionador e conserva o highlight nativo no hover.
+            acoes = bloco.row(align=True)
+            oi = acoes.operator("object.cabinet_inserir_preset",
+                                text="", icon='IMPORT')
             oi.pasta = it["pasta"]
             oi.arquivo = it["arquivo"]
             oi.tipo = it.get("tipo", "modulo")
 
-            if not travado:
-                setas = bloco.row(align=True)
-                oa = setas.operator("object.cabinet_mover", text="", icon='TRIA_LEFT')
-                oa.pasta = it["pasta"]; oa.arquivo = it["arquivo"]; oa.direcao = -1
-                ob = setas.operator("object.cabinet_mover", text="", icon='TRIA_RIGHT')
-                ob.pasta = it["pasta"]; ob.arquivo = it["arquivo"]; ob.direcao = 1
-                oe = setas.operator("object.cabinet_editar_modelo", text="", icon='GREASEPENCIL')
-                oe.pasta = it["pasta"]; oe.arquivo = it["arquivo"]
+            op = acoes.operator("object.cabinet_arrastar_preset",
+                                text=it["nome"])
+            op.pasta = it["pasta"]
+            op.arquivo = it["arquivo"]
+            op.tipo = it.get("tipo", "modulo")
 
-        lista.separator()
-        lista.operator("object.cabinet_abrir_biblioteca", icon='FILE_FOLDER')
+            # Nome, edicao e bloqueio formam uma unica linha. O lapis
+            # continua visivel quando travado, mas fica desabilitado.
+            editar = acoes.row(align=True)
+            editar.enabled = not travado
+            oe = editar.operator(
+                "object.cabinet_editar_modelo", text="", icon='GREASEPENCIL')
+            oe.pasta = it["pasta"]
+            oe.arquivo = it["arquivo"]
+            self._cadeado(acoes, it, travado)
 
     def _cadeado(self, linha, it, travado):
         """Cadeado clicavel, alternando entre os dois sprites."""
@@ -2128,37 +3363,32 @@ class VIEW3D_PT_cabinet_creator(Panel):
         oc.pasta = it["pasta"]
         oc.arquivo = it["arquivo"]
 
-    def _menu(self, linha, it, travado):
-        """Tres barrinhas -- so' aparece com o cadeado destravado."""
-        if travado:
-            linha.label(text="", icon='BLANK1')
-            return
-        om = linha.operator("object.cabinet_renomear", text="", icon='COLLAPSEMENU')
-        om.pasta = it["pasta"]
-        om.arquivo = it["arquivo"]
-
 
 CLASSES = (
     CabinetCreatorPreferences,
     OBJECT_OT_sincronizar_grupo,
     OBJECT_OT_sincronizar_conjunto,
     OBJECT_OT_registrar_bibliotecas,
+    OBJECT_OT_refiliar_catalogos,
     OBJECT_OT_modo_medidas,
     OBJECT_OT_criar_chapa,
     OBJECT_OT_salvar_biblioteca,
     OBJECT_OT_abrir_pasta_biblioteca,
+    OBJECT_OT_abrir_asset_browser,
     OBJECT_OT_inserir_preset,
+    OBJECT_OT_arrastar_preset,
+    OBJECT_OT_prateleira,
+    OBJECT_OT_selecionar,
     OBJECT_OT_navegar,
     OBJECT_OT_editar_modelo,
     OBJECT_OT_alternar_bloqueio,
-    OBJECT_OT_renomear_item,
-    OBJECT_OT_mover_item,
     OBJECT_OT_agrupar_conjunto,
     OBJECT_OT_detectar_adjacencia,
     OBJECT_OT_criar_nicho,
     OBJECT_OT_marcar_como_chapa,
     OBJECT_OT_normalizar,
     VIEW3D_PT_cabinet_creator,
+    VIEW3D_AST_cabinet_creator,
 )
 
 
@@ -2212,6 +3442,7 @@ def _garantir_unidade_padrao_mm():
 def register():
     for c in CLASSES:
         bpy.utils.register_class(c)
+    registrar_keymaps()
     O = bpy.types.Object
     O.chapa_largura_mm = FloatProperty(
         name="Largura (mm)", default=600.0, min=1.0, update=_upd_chapa)
@@ -2258,10 +3489,10 @@ def register():
     S.chapa_n1 = StringProperty(default="")
     S.chapa_n2 = StringProperty(default="")
     S.chapa_n3 = StringProperty(default="")
-    S.chapa_tam_bloco = EnumProperty(
-        name="Tamanho", default='5',
-        items=[('3', "P", "Blocos pequenos"), ('5', "M", "Blocos medios"),
-               ('8', "G", "Blocos grandes")])
+    # barra continua (estilo volume) no lugar dos tres degraus P/M/G
+    S.chapa_tam_bloco = IntProperty(
+        name="Tamanho", default=5, min=2, max=12,
+        description="Tamanho das miniaturas na grade")
     S.grupo_largura_mm = FloatProperty(name="Largura (mm)", default=600.0, min=20.0, update=_upd_grupo_dim)
     S.grupo_altura_mm = FloatProperty(name="Altura (mm)", default=400.0, min=20.0, update=_upd_grupo_dim)
     S.grupo_profundidade_mm = FloatProperty(name="Profundidade (mm)", default=300.0, min=20.0, update=_upd_grupo_dim)
@@ -2286,6 +3517,7 @@ def register():
 
 
 def unregister():
+    remover_keymaps()
     if bpy.app.timers.is_registered(_garantir_unidade_padrao_mm):
         bpy.app.timers.unregister(_garantir_unidade_padrao_mm)
     if _previews[0] is not None:

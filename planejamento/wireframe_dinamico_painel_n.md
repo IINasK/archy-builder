@@ -58,6 +58,15 @@ reduz o vazio inferior e devolve linhas visualmente finas. Os controles
 permanecem alinhados a esquerda e centralizados verticalmente ao lado do
 desenho.
 
+Refinamento 49.0.0: a margem horizontal passou a ser assimetrica, com 14 pixels
+a esquerda para os indicadores e 2 pixels a direita. A escala de UI voltou a
+10, mantendo o traco fino de 0.45 pixel. Objetos largos passam a ocupar cerca
+de 180 pixels. No modo Individual, `Auto-regenerar` foi
+movido para dentro da coluna esquerda de controles; deixa de existir uma linha
+adicional abaixo do preview, removendo a faixa inferior sem encolher o desenho.
+O indicador `A` recebe limite interno e espaco lateral para nunca ser cortado
+ou sobreposto pela aresta vertical.
+
 
 ## 2. Resumo funcional
 

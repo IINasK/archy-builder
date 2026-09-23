@@ -1,11 +1,31 @@
 [
  {
+  "nome": "Cube.001",
+  "arquivo": "Cube_001.blend",
+  "n1": "Armarios",
+  "n2": "Sala",
+  "n3": "Inferiores",
+  "tipo": "objeto",
+  "ordem": 0
+ },
+ {
+  "nome": "Cube",
+  "arquivo": "Cube.blend",
+  "n1": "Armarios",
+  "n2": "Sala",
+  "n3": "Inferiores",
+  "tipo": "objeto",
+  "ordem": 1
+ },
+ {
   "nome": "Chapa 600x400x18",
   "arquivo": "Chapa_600x400x18.blend",
   "tipo": "objeto",
   "n1": "Chapas",
   "n2": "Avulsas",
-  "n3": ""
+  "n3": "",
+  "bloqueado": false,
+  "ordem": 2
  },
  {
   "nome": "Nicho 600x400x300",
@@ -13,6 +33,7 @@
   "tipo": "modulo",
   "n1": "Armarios",
   "n2": "Cozinha",
-  "n3": "Inferiores"
+  "n3": "Inferiores",
+  "ordem": 3
  }
 ]
