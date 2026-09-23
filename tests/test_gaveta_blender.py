@@ -318,6 +318,54 @@ class TestGaveta(unittest.TestCase):
         bpy.ops.mesh.primitive_cube_add()
         self.assertEqual(addon._folhas_para_wireframe(bpy.context.object), 0)
 
+    def test_bloco_de_medidas_e_identico_nas_duas_abas(self):
+        # "Fica fixo em porta e modulos": mesmas medidas, mesmo
+        # wireframe, mesmo rodape, nas mesmas posicoes.
+        alvo = {'medida', 'wireframe', 'modo', 'chapa', 'auto',
+                'nome_objeto'}
+
+        def bloco(aba):
+            self.cena.cabinet_aba = aba
+            widgets = addon._widgets_gaveta(bpy.context, 320, 1400)
+            # A aba Portas tem campos proprios DEPOIS do separador; o
+            # bloco fixo e' o que vem antes dele.
+            corte = min((v[1] for v in widgets
+                         if v[5] and v[5][0] == 'separador'), default=-1e9)
+            return [v[:4] + (v[5][0],) for v in widgets
+                    if v[5] and v[5][0] in alvo and v[1] > corte]
+
+        modulos = bloco('MODULOS')
+        self.assertTrue(modulos)
+        self.assertIn('wireframe', [b[4] for b in modulos])
+        self.assertEqual(bloco('PORTAS'), modulos)
+
+    def test_sincronizar_fica_fora_da_aba_portas(self):
+        # Sincronizar e' acao de modulo; na aba Portas nao faz sentido.
+        bpy.ops.object.empty_add()
+        bpy.context.object[addon.MARCA_CONJUNTO] = 1
+        def operadores(aba):
+            self.cena.cabinet_aba = aba
+            return {v[5][1] for v in addon._widgets_gaveta(
+                bpy.context, 320, 1400) if v[5] and v[5][0] == 'operador'}
+        self.assertIn('object.cabinet_sincronizar', operadores('MODULOS'))
+        self.assertNotIn('object.cabinet_sincronizar', operadores('PORTAS'))
+
+    def test_nenhum_widget_da_aba_modulos_se_sobrepoe(self):
+        # O mesmo par a par da aba Portas: foi ele que achou o
+        # wireframe engolindo a faixa de cima do "Chapa".
+        self.cena.cabinet_aba = 'MODULOS'
+        for largura in (190, 320, 564):
+            caixas = [(v[0], v[1], v[2], v[3]) for v in
+                      addon._widgets_gaveta(bpy.context, largura, 1400)]
+            for i, (ax, ay, aw, ah) in enumerate(caixas):
+                for bx, by, bw, bh in caixas[i + 1:]:
+                    sobrepoe = (ax < bx + bw - 0.01 and bx < ax + aw - 0.01
+                                and ay < by + bh - 0.01
+                                and by < ay + ah - 0.01)
+                    self.assertFalse(sobrepoe, 'largura %d: %s cobre %s'
+                                     % (largura, (ax, ay, aw, ah),
+                                        (bx, by, bw, bh)))
+
     def botao_portas(self):
         return next((v[4], v[5]) for v in self.portas()
                     if v[5] and v[5][0] == 'portas')

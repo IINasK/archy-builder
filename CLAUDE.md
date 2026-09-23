@@ -133,6 +133,10 @@ vincular_blender.py           # junction para desenvolvimento
    que a aba nao mostra. As espessuras sao Enum, ou seja STRING: quem
    for CALCULAR pede `numerico=True`, senao quebra com TypeError.
    Padrao de fabrica: porta dupla.
+0a. O bloco de medidas (modo, campos, wireframe, rodape) e' FIXO nas
+   duas abas: sai de `_bloco_medidas_gaveta`, nao de cada aba. Os
+   botoes de sincronizar sao acao de modulo e ficam de fora da aba
+   Portas.
 0b. O botao "Criar Portas" carrega o ESTADO: aceso enquanto o
    apanhador espera os dois cliques, e com o texto trocado pelo motivo
    quando algo impede (`_motivo_portas`). O aviso do operador nao
@@ -259,7 +263,7 @@ vincular_blender.py           # junction para desenvolvimento
   `/ 2000.0`). Medidas de modulo: (Largura, Altura, Profundidade) =
   eixos de mundo (X, Z, Y).
 - Formatacao: 4 espacos, LF, UTF-8 (`.gitattributes` forca `eol=lf`).
-- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 87.0.0).
+- A cada entrega relevante, incrementar `bl_info["version"]` (hoje 88.0.0).
 
 ## Git
 

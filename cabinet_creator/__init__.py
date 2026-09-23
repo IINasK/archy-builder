@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (87, 0, 0),
+    "version": (88, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -4949,12 +4949,73 @@ def _rodape_medidas_gaveta(itens, x, y, w, obj, modo):
     return y - 35
 
 
+def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
+                          sincronizar=True):
+    """Medidas, wireframe e rodape -- o bloco fixo das DUAS abas.
+
+    Saber o que esta' selecionado e quanto mede vale tanto montando o
+    modulo quanto configurando a porta dele, entao este bloco nao
+    pertence a uma aba so'. Os botoes de sincronizar sao acao de
+    modulo e ficam de fora da aba Portas (`sincronizar=False`).
+    """
+    obj = context.object
+    y += 23
+    modo, campos, dono = _medidas_gaveta(context)
+    if obj is not None and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj):
+        for i, nome in enumerate(('Individual', 'Grupo')):
+            itens.append((x + i * (metade + 6), y, metade, 25, nome,
+                          ('modo', nome.upper(), modo == nome.upper())))
+        y -= 33
+    if campos:
+        # Campos tem 37 px de altura; afastar das abas de modo acima.
+        y -= 8
+        escala_ui = max(1.0, context.preferences.system.ui_scale)
+        largura_logica = largura / escala_ui
+        colunas = (len(campos) if largura_logica >= 480 else
+                   2 if largura_logica >= 240 else 1)
+        largura_campo = (w - 6 * (colunas - 1)) / colunas
+        for i, (nome, valor, prop) in enumerate(campos):
+            linha, coluna = divmod(i, colunas)
+            itens.append((x + coluna * (largura_campo + 6),
+                          y - linha * 43, largura_campo, 37,
+                          '%s: %.1f mm' % (nome, valor),
+                          ('medida', dono, prop, nome, valor)))
+        valores = [v for _, v, _ in campos]
+        if modo == 'INDIVIDUAL':
+            dimensoes = (valores[0], valores[2], valores[1])
+        else:
+            dimensoes = tuple(valores[:3])
+        y -= (math.ceil(len(campos) / colunas) - 1) * 43 + 50
+        lado_wireframe = min(160, max(40, w - 28))
+        itens.append((x + (w - lado_wireframe) / 2,
+                      y - lado_wireframe, lado_wireframe, lado_wireframe,
+                      '', ('wireframe', modo, *dimensoes,
+                           _folhas_para_wireframe(obj))))
+        # 17 punha o rodape 9 px por cima do wireframe. A parte de
+        # baixo do desenho e' vazia, entao nao se via -- mas o
+        # retangulo do wireframe engolia o clique na faixa de cima do
+        # "Chapa". Precisa de altura do item (26) mais respiro.
+        y -= lado_wireframe + 30
+        if sincronizar and obj is not None and MARCA_CONJUNTO in obj:
+            itens.append((x, y, w, 27, 'Sincronizar conjunto',
+                          ('operador', 'object.cabinet_sincronizar')))
+            y -= 33
+        elif sincronizar and obj is not None and MARCA_CHAPA in obj:
+            if modo != 'INDIVIDUAL':
+                itens.append((x, y, w, 27, 'Sincronizar grupo',
+                              ('operador', 'object.cabinet_sincronizar_grupo')))
+                y -= 33
+    return _rodape_medidas_gaveta(itens, x, y, w, obj, modo)
+
+
 def _aba_portas_gaveta(context, itens, x, y, w, s):
     """Tudo o que morava no popup de Portas Parametricas.
 
     O popup saiu da frente: aqui as opcoes ficam visiveis o tempo todo
     e o operador e' chamado com os parametros ja' prontos.
     """
+    # No vao de 9 px que o rodape deixa, nao dentro do item seguinte.
+    itens.append((x, y + 31, w, 1, '', ('separador',)))
     grupo = _grupo_portas(context.object)
     if grupo is not None:
         itens.append((x, y, w, 26, 'Vao: %.1f x %.1f mm' % (
@@ -5086,52 +5147,10 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None):
         itens.append((x + i * (metade + 6), altura - 40, metade, 29,
                       rotulo, ('aba', acao)))
     y = altura - 105 + _rolagem
+    y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
+                              sincronizar=s.cabinet_aba != 'PORTAS')
     if s.cabinet_aba == 'PORTAS':
         return _aba_portas_gaveta(context, itens, x, y, w, s)
-    obj = context.object
-    y += 23
-    modo, campos, dono = _medidas_gaveta(context)
-    if obj is not None and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj):
-        for i, nome in enumerate(('Individual', 'Grupo')):
-            itens.append((x + i * (metade + 6), y, metade, 25, nome,
-                          ('modo', nome.upper(), modo == nome.upper())))
-        y -= 33
-    if campos:
-        # Campos tem 37 px de altura; afastar das abas de modo acima.
-        y -= 8
-        escala_ui = max(1.0, context.preferences.system.ui_scale)
-        largura_logica = largura / escala_ui
-        colunas = (len(campos) if largura_logica >= 480 else
-                   2 if largura_logica >= 240 else 1)
-        largura_campo = (w - 6 * (colunas - 1)) / colunas
-        for i, (nome, valor, prop) in enumerate(campos):
-            linha, coluna = divmod(i, colunas)
-            itens.append((x + coluna * (largura_campo + 6),
-                          y - linha * 43, largura_campo, 37,
-                          '%s: %.1f mm' % (nome, valor),
-                          ('medida', dono, prop, nome, valor)))
-        valores = [v for _, v, _ in campos]
-        if modo == 'INDIVIDUAL':
-            dimensoes = (valores[0], valores[2], valores[1])
-        else:
-            dimensoes = tuple(valores[:3])
-        y -= (math.ceil(len(campos) / colunas) - 1) * 43 + 50
-        lado_wireframe = min(160, max(40, w - 28))
-        itens.append((x + (w - lado_wireframe) / 2,
-                      y - lado_wireframe, lado_wireframe, lado_wireframe,
-                      '', ('wireframe', modo, *dimensoes,
-                           _folhas_para_wireframe(obj))))
-        y -= lado_wireframe + 17
-        if obj is not None and MARCA_CONJUNTO in obj:
-            itens.append((x, y, w, 27, 'Sincronizar conjunto',
-                          ('operador', 'object.cabinet_sincronizar')))
-            y -= 33
-        elif obj is not None and MARCA_CHAPA in obj:
-            if modo != 'INDIVIDUAL':
-                itens.append((x, y, w, 27, 'Sincronizar grupo',
-                              ('operador', 'object.cabinet_sincronizar_grupo')))
-                y -= 33
-    y = _rodape_medidas_gaveta(itens, x, y, w, obj, modo)
     itens.append((x, y, w, 23, 'Montagem', None))
     y -= 31
     colunas = min(3, max(1, int(w // 36)))
