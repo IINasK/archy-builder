@@ -101,6 +101,33 @@
   ],
   [
    12,
+   578,
+   166,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   547,
+   166,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   514,
+   166,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    166,
    10,
@@ -217,6 +244,33 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   621,
+   296,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   590,
+   296,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   557,
+   296,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -339,6 +393,33 @@
   ],
   [
    12,
+   664,
+   458,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   633,
+   458,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   600,
+   458,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    458,
    10,
@@ -455,6 +536,33 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   664,
+   540,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   633,
+   540,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   600,
+   540,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -872,8 +980,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   166,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    166.0,
    37,
    "Largura: 564.0 mm",
@@ -882,7 +999,7 @@
   ],
   [
    12.0,
-   767,
+   729,
    166.0,
    37,
    "Altura: 300.0 mm",
@@ -891,7 +1008,7 @@
   ],
   [
    12.0,
-   724,
+   686,
    166.0,
    37,
    "Espessura: 18.0 mm",
@@ -900,7 +1017,7 @@
   ],
   [
    12,
-   713,
+   675,
    166,
    1,
    "",
@@ -909,7 +1026,7 @@
   ],
   [
    12,
-   682,
+   644,
    166,
    20,
    "Modelo do puxador",
@@ -918,7 +1035,7 @@
   ],
   [
    12.0,
-   656,
+   618,
    52.667,
    25,
    "Perfil",
@@ -927,7 +1044,7 @@
   ],
   [
    68.667,
-   656,
+   618,
    52.667,
    25,
    "Alca",
@@ -936,7 +1053,7 @@
   ],
   [
    125.333,
-   656,
+   618,
    52.667,
    25,
    "Borda",
@@ -945,7 +1062,7 @@
   ],
   [
    12,
-   623,
+   585,
    166,
    26,
    "Puxador de fora: selecione o objeto",
@@ -954,7 +1071,7 @@
   ],
   [
    12.0,
-   589,
+   551,
    166.0,
    28,
    "Converter em puxador",
@@ -963,7 +1080,7 @@
   ],
   [
    12,
-   555,
+   517,
    166,
    22,
    "Puxador + porta: corrente acima",
@@ -987,15 +1104,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   134,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "chapa/PUXADORES/320": [
@@ -1027,8 +1135,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   296,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    145.0,
    37,
    "Largura: 564.0 mm",
@@ -1037,7 +1154,7 @@
   ],
   [
    163.0,
-   810,
+   772,
    145.0,
    37,
    "Altura: 300.0 mm",
@@ -1046,7 +1163,7 @@
   ],
   [
    12.0,
-   767,
+   729,
    145.0,
    37,
    "Espessura: 18.0 mm",
@@ -1055,7 +1172,7 @@
   ],
   [
    12,
-   756,
+   718,
    296,
    1,
    "",
@@ -1064,7 +1181,7 @@
   ],
   [
    12,
-   725,
+   687,
    296,
    20,
    "Modelo do puxador",
@@ -1073,7 +1190,7 @@
   ],
   [
    12.0,
-   699,
+   661,
    96.0,
    25,
    "Perfil",
@@ -1082,7 +1199,7 @@
   ],
   [
    112.0,
-   699,
+   661,
    96.0,
    25,
    "Alca",
@@ -1091,7 +1208,7 @@
   ],
   [
    212.0,
-   699,
+   661,
    96.0,
    25,
    "Borda",
@@ -1100,7 +1217,7 @@
   ],
   [
    12,
-   666,
+   628,
    296,
    26,
    "Puxador de fora: selecione o objeto",
@@ -1109,7 +1226,7 @@
   ],
   [
    12.0,
-   632,
+   594,
    145.0,
    28,
    "Converter em puxador",
@@ -1118,7 +1235,7 @@
   ],
   [
    12,
-   598,
+   560,
    296,
    22,
    "Puxador + porta: corrente acima",
@@ -1142,15 +1259,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   264,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "chapa/PUXADORES/482": [
@@ -1182,8 +1290,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   458,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    148.667,
    37,
    "Largura: 564.0 mm",
@@ -1192,7 +1309,7 @@
   ],
   [
    166.667,
-   810,
+   772,
    148.667,
    37,
    "Altura: 300.0 mm",
@@ -1201,7 +1318,7 @@
   ],
   [
    321.333,
-   810,
+   772,
    148.667,
    37,
    "Espessura: 18.0 mm",
@@ -1210,7 +1327,7 @@
   ],
   [
    12,
-   799,
+   761,
    458,
    1,
    "",
@@ -1219,7 +1336,7 @@
   ],
   [
    12,
-   768,
+   730,
    458,
    20,
    "Modelo do puxador",
@@ -1228,7 +1345,7 @@
   ],
   [
    12.0,
-   742,
+   704,
    150.0,
    25,
    "Perfil",
@@ -1237,7 +1354,7 @@
   ],
   [
    166.0,
-   742,
+   704,
    150.0,
    25,
    "Alca",
@@ -1246,7 +1363,7 @@
   ],
   [
    320.0,
-   742,
+   704,
    150.0,
    25,
    "Borda",
@@ -1255,7 +1372,7 @@
   ],
   [
    12,
-   709,
+   671,
    458,
    26,
    "Puxador de fora: selecione o objeto",
@@ -1264,7 +1381,7 @@
   ],
   [
    12.0,
-   675,
+   637,
    226.0,
    28,
    "Converter em puxador",
@@ -1273,7 +1390,7 @@
   ],
   [
    12,
-   641,
+   603,
    458,
    22,
    "Puxador + porta: corrente acima",
@@ -1297,15 +1414,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   426,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "chapa/PUXADORES/564": [
@@ -1337,8 +1445,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   540,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    176.0,
    37,
    "Largura: 564.0 mm",
@@ -1347,7 +1464,7 @@
   ],
   [
    194.0,
-   810,
+   772,
    176.0,
    37,
    "Altura: 300.0 mm",
@@ -1356,7 +1473,7 @@
   ],
   [
    376.0,
-   810,
+   772,
    176.0,
    37,
    "Espessura: 18.0 mm",
@@ -1365,7 +1482,7 @@
   ],
   [
    12,
-   799,
+   761,
    540,
    1,
    "",
@@ -1374,7 +1491,7 @@
   ],
   [
    12,
-   768,
+   730,
    540,
    20,
    "Modelo do puxador",
@@ -1383,7 +1500,7 @@
   ],
   [
    12.0,
-   742,
+   704,
    177.333,
    25,
    "Perfil",
@@ -1392,7 +1509,7 @@
   ],
   [
    193.333,
-   742,
+   704,
    177.333,
    25,
    "Alca",
@@ -1401,7 +1518,7 @@
   ],
   [
    374.667,
-   742,
+   704,
    177.333,
    25,
    "Borda",
@@ -1410,7 +1527,7 @@
   ],
   [
    12,
-   709,
+   671,
    540,
    26,
    "Puxador de fora: selecione o objeto",
@@ -1419,7 +1536,7 @@
   ],
   [
    12.0,
-   675,
+   637,
    267.0,
    28,
    "Converter em puxador",
@@ -1428,7 +1545,7 @@
   ],
   [
    12,
-   641,
+   603,
    540,
    22,
    "Puxador + porta: corrente acima",
@@ -1452,15 +1569,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   508,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "modulo/MODULOS/190": [
@@ -1571,6 +1679,33 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   535,
+   166,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   504,
+   166,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   471,
+   166,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -1702,6 +1837,33 @@
   ],
   [
    12,
+   621,
+   296,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   590,
+   296,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   557,
+   296,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    296,
    10,
@@ -1830,6 +1992,33 @@
   ],
   [
    12,
+   664,
+   458,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   633,
+   458,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   600,
+   458,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    458,
    10,
@@ -1955,6 +2144,33 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   664,
+   540,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   633,
+   540,
+   25,
+   "Comodo: (nenhum)",
+   "suspenso",
+   "comodo"
+  ],
+  [
+   12,
+   600,
+   540,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -2408,8 +2624,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   166,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    166.0,
    37,
    "Largura: 600.0 mm",
@@ -2418,7 +2643,7 @@
   ],
   [
    12.0,
-   767,
+   729,
    166.0,
    37,
    "Altura: 400.0 mm",
@@ -2427,7 +2652,7 @@
   ],
   [
    12.0,
-   724,
+   686,
    166.0,
    37,
    "Profundidade: 300.0 mm",
@@ -2436,7 +2661,7 @@
   ],
   [
    12.0,
-   681,
+   643,
    166.0,
    37,
    "Espessura: 18.0 mm",
@@ -2445,7 +2670,7 @@
   ],
   [
    12,
-   670,
+   632,
    166,
    1,
    "",
@@ -2454,7 +2679,7 @@
   ],
   [
    12,
-   639,
+   601,
    166,
    20,
    "Modelo do puxador",
@@ -2463,7 +2688,7 @@
   ],
   [
    12.0,
-   613,
+   575,
    52.667,
    25,
    "Perfil",
@@ -2472,7 +2697,7 @@
   ],
   [
    68.667,
-   613,
+   575,
    52.667,
    25,
    "Alca",
@@ -2481,7 +2706,7 @@
   ],
   [
    125.333,
-   613,
+   575,
    52.667,
    25,
    "Borda",
@@ -2490,7 +2715,7 @@
   ],
   [
    12,
-   580,
+   542,
    166,
    26,
    "Puxador de fora: selecione o objeto",
@@ -2499,7 +2724,7 @@
   ],
   [
    12.0,
-   546,
+   508,
    166.0,
    28,
    "Converter em puxador",
@@ -2508,7 +2733,7 @@
   ],
   [
    12,
-   512,
+   474,
    166,
    22,
    "Puxador + porta: corrente acima",
@@ -2532,15 +2757,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   134,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "modulo/PUXADORES/320": [
@@ -2572,8 +2788,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   296,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    145.0,
    37,
    "Largura: 600.0 mm",
@@ -2582,7 +2807,7 @@
   ],
   [
    163.0,
-   810,
+   772,
    145.0,
    37,
    "Altura: 400.0 mm",
@@ -2591,7 +2816,7 @@
   ],
   [
    12.0,
-   767,
+   729,
    145.0,
    37,
    "Profundidade: 300.0 mm",
@@ -2600,7 +2825,7 @@
   ],
   [
    163.0,
-   767,
+   729,
    145.0,
    37,
    "Espessura: 18.0 mm",
@@ -2609,7 +2834,7 @@
   ],
   [
    12,
-   756,
+   718,
    296,
    1,
    "",
@@ -2618,7 +2843,7 @@
   ],
   [
    12,
-   725,
+   687,
    296,
    20,
    "Modelo do puxador",
@@ -2627,7 +2852,7 @@
   ],
   [
    12.0,
-   699,
+   661,
    96.0,
    25,
    "Perfil",
@@ -2636,7 +2861,7 @@
   ],
   [
    112.0,
-   699,
+   661,
    96.0,
    25,
    "Alca",
@@ -2645,7 +2870,7 @@
   ],
   [
    212.0,
-   699,
+   661,
    96.0,
    25,
    "Borda",
@@ -2654,7 +2879,7 @@
   ],
   [
    12,
-   666,
+   628,
    296,
    26,
    "Puxador de fora: selecione o objeto",
@@ -2663,7 +2888,7 @@
   ],
   [
    12.0,
-   632,
+   594,
    145.0,
    28,
    "Converter em puxador",
@@ -2672,7 +2897,7 @@
   ],
   [
    12,
-   598,
+   560,
    296,
    22,
    "Puxador + porta: corrente acima",
@@ -2696,15 +2921,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   264,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "modulo/PUXADORES/482": [
@@ -2736,8 +2952,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   458,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    110.0,
    37,
    "Largura: 600.0 mm",
@@ -2746,7 +2971,7 @@
   ],
   [
    128.0,
-   810,
+   772,
    110.0,
    37,
    "Altura: 400.0 mm",
@@ -2755,7 +2980,7 @@
   ],
   [
    244.0,
-   810,
+   772,
    110.0,
    37,
    "Profundidade: 300.0 mm",
@@ -2764,7 +2989,7 @@
   ],
   [
    360.0,
-   810,
+   772,
    110.0,
    37,
    "Espessura: 18.0 mm",
@@ -2773,7 +2998,7 @@
   ],
   [
    12,
-   799,
+   761,
    458,
    1,
    "",
@@ -2782,7 +3007,7 @@
   ],
   [
    12,
-   768,
+   730,
    458,
    20,
    "Modelo do puxador",
@@ -2791,7 +3016,7 @@
   ],
   [
    12.0,
-   742,
+   704,
    150.0,
    25,
    "Perfil",
@@ -2800,7 +3025,7 @@
   ],
   [
    166.0,
-   742,
+   704,
    150.0,
    25,
    "Alca",
@@ -2809,7 +3034,7 @@
   ],
   [
    320.0,
-   742,
+   704,
    150.0,
    25,
    "Borda",
@@ -2818,7 +3043,7 @@
   ],
   [
    12,
-   709,
+   671,
    458,
    26,
    "Puxador de fora: selecione o objeto",
@@ -2827,7 +3052,7 @@
   ],
   [
    12.0,
-   675,
+   637,
    226.0,
    28,
    "Converter em puxador",
@@ -2836,7 +3061,7 @@
   ],
   [
    12,
-   641,
+   603,
    458,
    22,
    "Puxador + porta: corrente acima",
@@ -2860,15 +3085,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   426,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "modulo/PUXADORES/564": [
@@ -2900,8 +3116,17 @@
    "PUXADORES"
   ],
   [
+   12,
+   814,
+   540,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
    12.0,
-   810,
+   772,
    130.5,
    37,
    "Largura: 600.0 mm",
@@ -2910,7 +3135,7 @@
   ],
   [
    148.5,
-   810,
+   772,
    130.5,
    37,
    "Altura: 400.0 mm",
@@ -2919,7 +3144,7 @@
   ],
   [
    285.0,
-   810,
+   772,
    130.5,
    37,
    "Profundidade: 300.0 mm",
@@ -2928,7 +3153,7 @@
   ],
   [
    421.5,
-   810,
+   772,
    130.5,
    37,
    "Espessura: 18.0 mm",
@@ -2937,7 +3162,7 @@
   ],
   [
    12,
-   799,
+   761,
    540,
    1,
    "",
@@ -2946,7 +3171,7 @@
   ],
   [
    12,
-   768,
+   730,
    540,
    20,
    "Modelo do puxador",
@@ -2955,7 +3180,7 @@
   ],
   [
    12.0,
-   742,
+   704,
    177.333,
    25,
    "Perfil",
@@ -2964,7 +3189,7 @@
   ],
   [
    193.333,
-   742,
+   704,
    177.333,
    25,
    "Alca",
@@ -2973,7 +3198,7 @@
   ],
   [
    374.667,
-   742,
+   704,
    177.333,
    25,
    "Borda",
@@ -2982,7 +3207,7 @@
   ],
   [
    12,
-   709,
+   671,
    540,
    26,
    "Puxador de fora: selecione o objeto",
@@ -2991,7 +3216,7 @@
   ],
   [
    12.0,
-   675,
+   637,
    267.0,
    28,
    "Converter em puxador",
@@ -3000,7 +3225,7 @@
   ],
   [
    12,
-   641,
+   603,
    540,
    22,
    "Puxador + porta: corrente acima",
@@ -3024,15 +3249,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   508,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "nada/MODULOS/190": [
@@ -3089,6 +3305,24 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   747,
+   166,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   716,
+   166,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -3166,6 +3400,24 @@
   ],
   [
    12,
+   747,
+   296,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   716,
+   296,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    296,
    10,
@@ -3240,6 +3492,24 @@
   ],
   [
    12,
+   747,
+   458,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   716,
+   458,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
+  ],
+  [
+   12,
    441,
    458,
    10,
@@ -3311,6 +3581,24 @@
    "Resetar distancia",
    "operador",
    "object.cabinet_resetar_distancia"
+  ],
+  [
+   12,
+   747,
+   540,
+   23,
+   "Orcamento",
+   null,
+   null
+  ],
+  [
+   12,
+   716,
+   540,
+   28,
+   "Copiar orcamento (ERP)",
+   "operador",
+   "object.cabinet_exportar_orcamento"
   ],
   [
    12,
@@ -3621,7 +3909,16 @@
   ],
   [
    12,
-   849,
+   814,
+   166,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
+   12,
+   811,
    166,
    1,
    "",
@@ -3630,7 +3927,7 @@
   ],
   [
    12,
-   818,
+   780,
    166,
    20,
    "Modelo do puxador",
@@ -3639,7 +3936,7 @@
   ],
   [
    12.0,
-   792,
+   754,
    52.667,
    25,
    "Perfil",
@@ -3648,7 +3945,7 @@
   ],
   [
    68.667,
-   792,
+   754,
    52.667,
    25,
    "Alca",
@@ -3657,7 +3954,7 @@
   ],
   [
    125.333,
-   792,
+   754,
    52.667,
    25,
    "Borda",
@@ -3666,7 +3963,7 @@
   ],
   [
    12,
-   759,
+   721,
    166,
    26,
    "Puxador de fora: selecione o objeto",
@@ -3675,7 +3972,7 @@
   ],
   [
    12.0,
-   725,
+   687,
    166.0,
    28,
    "Converter em puxador",
@@ -3684,7 +3981,7 @@
   ],
   [
    12,
-   691,
+   653,
    166,
    22,
    "Puxador + porta: corrente acima",
@@ -3708,15 +4005,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   134,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "nada/PUXADORES/320": [
@@ -3749,7 +4037,16 @@
   ],
   [
    12,
-   849,
+   814,
+   296,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
+   12,
+   811,
    296,
    1,
    "",
@@ -3758,7 +4055,7 @@
   ],
   [
    12,
-   818,
+   780,
    296,
    20,
    "Modelo do puxador",
@@ -3767,7 +4064,7 @@
   ],
   [
    12.0,
-   792,
+   754,
    96.0,
    25,
    "Perfil",
@@ -3776,7 +4073,7 @@
   ],
   [
    112.0,
-   792,
+   754,
    96.0,
    25,
    "Alca",
@@ -3785,7 +4082,7 @@
   ],
   [
    212.0,
-   792,
+   754,
    96.0,
    25,
    "Borda",
@@ -3794,7 +4091,7 @@
   ],
   [
    12,
-   759,
+   721,
    296,
    26,
    "Puxador de fora: selecione o objeto",
@@ -3803,7 +4100,7 @@
   ],
   [
    12.0,
-   725,
+   687,
    145.0,
    28,
    "Converter em puxador",
@@ -3812,7 +4109,7 @@
   ],
   [
    12,
-   691,
+   653,
    296,
    22,
    "Puxador + porta: corrente acima",
@@ -3836,15 +4133,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   264,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "nada/PUXADORES/482": [
@@ -3877,7 +4165,16 @@
   ],
   [
    12,
-   849,
+   814,
+   458,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
+   12,
+   811,
    458,
    1,
    "",
@@ -3886,7 +4183,7 @@
   ],
   [
    12,
-   818,
+   780,
    458,
    20,
    "Modelo do puxador",
@@ -3895,7 +4192,7 @@
   ],
   [
    12.0,
-   792,
+   754,
    150.0,
    25,
    "Perfil",
@@ -3904,7 +4201,7 @@
   ],
   [
    166.0,
-   792,
+   754,
    150.0,
    25,
    "Alca",
@@ -3913,7 +4210,7 @@
   ],
   [
    320.0,
-   792,
+   754,
    150.0,
    25,
    "Borda",
@@ -3922,7 +4219,7 @@
   ],
   [
    12,
-   759,
+   721,
    458,
    26,
    "Puxador de fora: selecione o objeto",
@@ -3931,7 +4228,7 @@
   ],
   [
    12.0,
-   725,
+   687,
    226.0,
    28,
    "Converter em puxador",
@@ -3940,7 +4237,7 @@
   ],
   [
    12,
-   691,
+   653,
    458,
    22,
    "Puxador + porta: corrente acima",
@@ -3964,15 +4261,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   426,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ],
  "nada/PUXADORES/564": [
@@ -4005,7 +4293,16 @@
   ],
   [
    12,
-   849,
+   814,
+   540,
+   30,
+   "Criar Puxador",
+   "criar_puxador",
+   false
+  ],
+  [
+   12,
+   811,
    540,
    1,
    "",
@@ -4014,7 +4311,7 @@
   ],
   [
    12,
-   818,
+   780,
    540,
    20,
    "Modelo do puxador",
@@ -4023,7 +4320,7 @@
   ],
   [
    12.0,
-   792,
+   754,
    177.333,
    25,
    "Perfil",
@@ -4032,7 +4329,7 @@
   ],
   [
    193.333,
-   792,
+   754,
    177.333,
    25,
    "Alca",
@@ -4041,7 +4338,7 @@
   ],
   [
    374.667,
-   792,
+   754,
    177.333,
    25,
    "Borda",
@@ -4050,7 +4347,7 @@
   ],
   [
    12,
-   759,
+   721,
    540,
    26,
    "Puxador de fora: selecione o objeto",
@@ -4059,7 +4356,7 @@
   ],
   [
    12.0,
-   725,
+   687,
    267.0,
    28,
    "Converter em puxador",
@@ -4068,7 +4365,7 @@
   ],
   [
    12,
-   691,
+   653,
    540,
    22,
    "Puxador + porta: corrente acima",
@@ -4092,15 +4389,6 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
-  ],
-  [
-   44,
-   7,
-   508,
-   26,
-   "Criar Puxador",
-   "operador",
-   "object.cabinet_posicionar_puxador"
   ]
  ]
 }

@@ -21,6 +21,10 @@ que toda classe registrada apareca aqui por algum teste.
 | Funcionalidade | Codigo | Testes |
 |---|---|---|
 | Agrupar chapas num Empty com medidas | `cabinet_agrupar`, `agrupar_chapas` | hud, portas, operadores |
+| Grupo com nome: Empty + Collection iguais, nome pedido (F3 dialogo / caixa na gaveta ao a Corrente juntar soltas), porta nomeada pelo modelo, desagrupar vai a' raiz | `nomear_grupo`, `_nome_da_porta`, `cabinet_nomear_grupo`, `cabinet_digitar_nome_grupo` | portas, hud |
+| Orcamento do ERP: documento completo no padrao do prompt (so' Moveis), detalhes do 3D (portas, prateleiras, divisorias, puxadores), pendencias; resultado da copia NA gaveta | `orcamento_da_cena`, `_pecas_internas`, `cabinet_exportar_orcamento` | orcamento, snapshot, gui_interacao |
+| Comodo = pasta no Outliner (Collection com as dos armarios), linha que expande na aba Modulos, "Outro nome..." digitado, Varanda = Sacada, armario antigo ganha Collection | `definir_comodo`, `cabinet_definir_comodo`, `_abrir_caixa_comodo` | orcamento, gui_interacao |
+| "Criar Puxador" laranja no topo da aba Puxadores (padrao do Criar Portas) | `_botao_criar_puxador` | gaveta, puxadores, gui_interacao |
 | L/A/P do modulo reacomodam as pecas | `redimensionar_grupo`, `conj_*` | hud, portas, snapshot |
 | Espessura do modulo engrossa para dentro | `aplicar_espessura_grupo` | operadores, snapshot |
 | Espessura de UMA chapa ancora na face externa | `aplicar_espessura_chapa` | operadores |
@@ -93,14 +97,19 @@ que toda classe registrada apareca aqui por algum teste.
 | Calculo das folhas (giro/basculante/correr, dobradicas) | `_calcular_folhas_portas` | portas, snapshot |
 | Criar pelo vao (2 cliques, ima) | `cabinet_apanhar_vao`, `cabinet_portas` | portas |
 | Wizard de 4 cliques: cobertura por lado, dobradica automatica, margem espelhada, aviso fora do padrao | `_coberturas_dos_cantos`, `_espelhar_margem`, `_lados_fora_do_padrao`, `_dobradica_da_cobertura` | portas, gui |
-| Wizard: folhas, abertura, borda das dobradicas, qtd (scroll), margem (Y), pistoes do basculante | `_arestas_da_porta`, `_posicoes_ferragens` | portas, gui |
+| Wizard: folhas, abertura, borda das dobradicas (basculante = sempre CIMA, sem perguntar), qtd (scroll), margem (Y), pistoes do basculante (posicao automatica; Y so' sobe, trava no curso) | `_arestas_da_porta`, `_posicoes_ferragens` | portas, gui |
+| Pistao do basculante: modelo real do catalogo e posicao pela conta aberto = 2x fechado; manual limitado ao curso; volume laranja no wizard | `_geometria_pistao`, `_pistao_do_vao`, `_pontas_pistao`, `_caixas_dos_itens_pistao` | portas |
 | Dobradica como volume na face interna da chapa (corpo + caneco) | `_caixas_dobradicas` | portas |
-| Porta selecionada: folhas (branco), vao (amarelo), dobradicas (volume) e fios dos 4 cantos; Alt arrasta um canto e refaz a porta | `_desenho_da_porta`, `_cantos_da_porta`, `cabinet_arrastar_canto_porta`, `cabinet_cantos_porta` | portas, gui |
-| Ferragens de verdade (Fase 3): dobradica = corpo no modulo + caneco na folha; pistoes com mira (Damped Track); trilho do correr; nao selecionaveis; conferidas ao apagar/duplicar | `_ferragens_da_porta`, `_montar_ferragens`, `_conferir_ferragens` | portas, hud |
-| Abertura por folha (giro na borda da frente, basculante, correr) que sobrevive a redimensionar; slider na base da folha (direita abre, Ctrl+Z desfaz) | `_matriz_abertura`, `_definir_abertura`, `cabinet_abrir_porta` | portas, gui |
-| Ima no meio da espessura = porta cobre meia chapa (e acompanha o modulo) | `_alvos_do_ima`, `_meias_do_vao`, `_inicios_porta` | portas |
+| Porta selecionada: folhas (branco), vao (amarelo) e fios dos 4 cantos (sem as dobradicas); Alt arrasta um canto e refaz a porta | `_desenho_da_porta`, `_cantos_da_porta`, `cabinet_arrastar_canto_porta`, `cabinet_cantos_porta` | portas, gui |
+| Dobradica Reta = modelo + rig do usuario (asset de `extrair_dobradica.py`): uma copia por dobradica (driver + IK dele, malha dividida), Boolean do copo na folha (furo medido no copo), a folha segue a tabela medida no rig e o controlador gira a copia junto; folga minima do modelo ate' o modulo; sem o asset, caixas e eixo fixo | `_instanciar_rig`, `_passo_rig`, `_movimento_rig`, `_furar_folhas`, `_girar_rigs`, `_afastamento_porta` | portas |
+| Ferragens de verdade (Fase 3): dobradica = corpo no modulo + caneco na folha; pistoes com mira (Damped Track), corpo/haste no diametro real e suportes; trilho do correr; o Blender nao as seleciona; conferidas ao apagar/duplicar | `_ferragens_da_porta`, `_montar_ferragens`, `_conferir_ferragens` | portas, hud |
+| Ferragens selecionadas: duplo clique = a peca (selecao nativa, Tab edita); clique = todas do tipo no modulo, Shift soma o outro, so' elas acesas (volume laranja); Alt = controlador (dobradica na borda = margem espelhada; pistao na lateral, trava no curso) | `_selecionar_ferragem`, `_selecionar_peca`, `_ferragens_em_edicao`, `_caixas_ferragens`, `_controles_ferragens`, `_valor_do_controle`, `cabinet_arrastar_ferragem` | portas |
+| Abertura por folha (giro na quina das costas da borda da dobradica -- da frente na embutida --, basculante, correr; aberta sem vao ate' o modulo) que sobrevive a redimensionar; slider na base da folha (direita abre, Ctrl+Z desfaz) | `_matriz_abertura`, `_definir_abertura`, `cabinet_abrir_porta` | portas, gui |
+| Folha nunca rente a' borda: toda cobertura padrao (reta, meia, embutida, correr) deixa 2 mm de respiro | `_cobertura_mm`, `RESPIRO_PORTA_MM` | portas, snapshot |
+| Ima no meio da espessura = porta cobre meia chapa menos 2 mm de respiro (e acompanha o modulo) | `_alvos_do_ima`, `_meias_do_vao`, `_inicios_porta` | portas |
 | Porta vinculada acompanha o modulo | `atualizar_portas_do_conjunto` | portas, snapshot |
 | Porta no modulo/no mundo (so' F3; correntes entre as abas descontinuadas) | `cabinet_corrente_porta` | portas, importacao |
+| Varios selecionados: o ativo com a linha da HUD mais grossa | `_principal_hud`, `_espessura_principal_hud` | hud |
 | Editar parametro de porta colocada | `_editar_parametro_porta` | portas, gaveta |
 | Definir a frente com clique | `cabinet_definir_frente` | importacao, gui |
 | Converter em porta / porta dupla / vincular | `cabinet_folha_de_objetos`, `cabinet_porta_dupla`, `cabinet_vincular_porta` | importacao |

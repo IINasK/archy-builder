@@ -14,6 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
 
 
+def folga_reta():
+    """Folga minima (mm) da porta Reta ate' o modulo: a do rig do usuario."""
+    return addon._dados_dobradica_reta()['folga_modulo_mm']
+
+
 def parametros(**alteracoes):
     p = dict(abertura='GIRO', folhas=1, dobradica='RETA',
              espessura_mm=18.0, lateral_mm=18.0, folga_mm=0.0,
@@ -42,6 +47,10 @@ class TestPortas(unittest.TestCase):
         # Este script usa somente a cena descartavel de --factory-startup.
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
+        # cada armario tem a sua Collection (nome e' do grupo)
+        for col in [c for c in bpy.data.collections
+                    if c.get(addon.MARCA_COLECAO_MODULO)]:
+            bpy.data.collections.remove(col)
 
     def pontos(self, pontos=((0, -0.15, 0), (0.6, -0.15, 0.8)), separados=False,
                pai=None):
@@ -67,22 +76,50 @@ class TestPortas(unittest.TestCase):
         return bpy.context.object
 
     def test_coberturas_e_profundidades(self):
-        for dobradica, cobertura, z in [('RETA', 18, 9), ('CURVA', 9, 9),
-                                      ('SUPER_CURVA', 0, -9)]:
+        # Curva: metade da lateral MENOS o respiro (pedido do usuario).
+        # Reta: a folga minima do rig do usuario ate' o modulo.
+        # Nunca rente a' borda (pedido do usuario): Reta = espessura menos
+        # o respiro, embutida = o respiro para dentro do vao.
+        r = addon.RESPIRO_PORTA_MM
+        for dobradica, cobertura, z in [('RETA', 18 - r, 9 + folga_reta()),
+                                      ('CURVA', 7, 9), ('SUPER_CURVA', -r, -9)]:
             for abertura in ('GIRO', 'BASCULANTE'):
                 with self.subTest(dobradica=dobradica, abertura=abertura):
                     folha = addon._calcular_folhas_portas(
                         600, 800, parametros(dobradica=dobradica, abertura=abertura))[0]
                     self.assertEqual(folha[:3], (600 + 2 * cobertura,
                                                 800 + 2 * cobertura, 18))
-                    self.assertEqual(folha[3], (300, 400, z))
+                    self.assertEqual(folha[3][:2], (300, 400))
+                    self.assertAlmostEqual(folha[3][2], z, places=6)
+
+    def test_duas_portas_na_mesma_chapa_tem_respiro(self):
+        # Print do usuario: duas portas Curva dividindo a chapa do meio se
+        # encostavam. Cada uma cobre metade MENOS 2 mm: sobram 4 mm.
+        E = 18.0
+        meia = dict(cobertura_esq_e=1.0, cobertura_dir_e=0.5,
+                    cobertura_baixo_e=1.0, cobertura_cima_e=1.0)
+        l, _a, _e, c = addon._calcular_folhas_portas(
+            300, 800, parametros(dobradica='CURVA', **meia))[0]
+        direita_a = c[0] + l / 2                     # vao A: 0..300
+        espelho = dict(meia, cobertura_esq_e=0.5, cobertura_dir_e=1.0)
+        l, _a, _e, c = addon._calcular_folhas_portas(
+            300, 800, parametros(dobradica='CURVA', **espelho))[0]
+        esquerda_b = 300 + E + c[0] - l / 2          # vao B: depois da chapa
+        self.assertAlmostEqual(direita_a, 300 + E / 2 - 2, places=6)
+        self.assertAlmostEqual(esquerda_b - direita_a,
+                               2 * addon.RESPIRO_PORTA_MM, places=6)
+        self.assertEqual(addon._cobertura_mm(0.5, E), 7.0)
+        self.assertEqual(addon._cobertura_mm(1.0, E), E - addon.RESPIRO_PORTA_MM)
+        self.assertEqual(addon._cobertura_mm(0.0, E), -addon.RESPIRO_PORTA_MM)
+        self.assertEqual(addon._cobertura_mm(0.8, E), 0.8 * E)   # marcada
 
     def test_giro_duplo_fecha_perimetro(self):
         folhas = addon._calcular_folhas_portas(600, 800, parametros(folhas=2))
         l = folhas[0][0]
-        self.assertEqual(l, 317)
-        self.assertEqual(folhas[0][3][0] - l / 2, -18)
-        self.assertEqual(folhas[-1][3][0] + l / 2, 618)
+        cobre = 18 - addon.RESPIRO_PORTA_MM
+        self.assertEqual(l, (600 + 2 * cobre - 2) / 2)
+        self.assertEqual(folhas[0][3][0] - l / 2, -cobre)
+        self.assertEqual(folhas[-1][3][0] + l / 2, 600 + cobre)
         self.assertEqual(folhas[1][3][0] - folhas[0][3][0] - l, 2)
 
     def test_limites_no_calculo(self):
@@ -101,8 +138,10 @@ class TestPortas(unittest.TestCase):
         for n in range(1, 5):
             folhas = addon._calcular_folhas_portas(
                 600, 800, parametros(abertura='CORRER', folhas=n))
-            self.assertAlmostEqual(folhas[0][3][0] - folhas[0][0] / 2, 0)
-            self.assertAlmostEqual(folhas[-1][3][0] + folhas[-1][0] / 2, 600)
+            # o respiro de cada lado: nem a de correr encosta na lateral
+            r = addon.RESPIRO_PORTA_MM
+            self.assertAlmostEqual(folhas[0][3][0] - folhas[0][0] / 2, r)
+            self.assertAlmostEqual(folhas[-1][3][0] + folhas[-1][0] / 2, 600 - r)
             for i, (l, a, e, centro) in enumerate(folhas):
                 self.assertEqual(centro[2] + e / 2, -30 - (i % 2) * 20)
                 if i:
@@ -125,7 +164,9 @@ class TestPortas(unittest.TestCase):
     def test_folgas_e_afastamentos(self):
         l, a, e, centro = addon._calcular_folhas_portas(
             600, 800, parametros(folga_mm=2, afastamento_mm=3))[0]
-        self.assertEqual((l, a, centro[2] - e / 2), (632, 832, 3))
+        cobre = 18 - addon.RESPIRO_PORTA_MM - 2          # menos a folga
+        self.assertEqual((l, a), (600 + 2 * cobre, 800 + 2 * cobre))
+        self.assertAlmostEqual(centro[2] - e / 2, 3)
         folha = addon._calcular_folhas_portas(
             600, 800, parametros(dobradica='SUPER_CURVA', recuo_embutida_mm=5))[0]
         self.assertEqual(folha[3][2] + folha[2] / 2, -5)
@@ -200,12 +241,14 @@ class TestPortas(unittest.TestCase):
         grupo = self.criar(dobradica='RETA')
         folha = addon._folhas_portas(grupo)[0]
         vertices = [folha.matrix_world @ v.co for v in folha.data.vertices]
-        self.assertAlmostEqual(min(v.x for v in vertices), -0.018, places=6)
-        self.assertAlmostEqual(max(v.x for v in vertices), 0.618, places=6)
-        self.assertAlmostEqual(min(v.z for v in vertices), -0.018, places=6)
-        self.assertAlmostEqual(max(v.z for v in vertices), 0.818, places=6)
-        self.assertAlmostEqual(min(v.y for v in vertices), -0.168, places=6)
-        self.assertAlmostEqual(max(v.y for v in vertices), -0.15, places=6)
+        cobre = (18 - addon.RESPIRO_PORTA_MM) / 1000.0
+        self.assertAlmostEqual(min(v.x for v in vertices), -cobre, places=6)
+        self.assertAlmostEqual(max(v.x for v in vertices), 0.6 + cobre, places=6)
+        self.assertAlmostEqual(min(v.z for v in vertices), -cobre, places=6)
+        self.assertAlmostEqual(max(v.z for v in vertices), 0.8 + cobre, places=6)
+        folga = folga_reta() / 1000.0
+        self.assertAlmostEqual(min(v.y for v in vertices), -0.168 - folga, places=6)
+        self.assertAlmostEqual(max(v.y for v in vertices), -0.15 - folga, places=6)
         self.assertLess((grupo.matrix_world.translation - Vector((0, -0.15, 0))).length, 1e-6)
 
     def test_pai_rotacionado_escalado_e_transladado(self):
@@ -324,8 +367,9 @@ class TestPortas(unittest.TestCase):
         # 600 x 800 de vao, dobradica reta: cobre a lateral dos dois
         # lados. Nos eixos LOCAIS da folha, X=largura, Y=altura e
         # Z=espessura -- a altura nao e' o Z.
-        self.assertAlmostEqual(folha.dimensions.x, 0.636, places=4)
-        self.assertAlmostEqual(folha.dimensions.y, 0.836, places=4)
+        cobre = (18 - addon.RESPIRO_PORTA_MM) / 1000.0
+        self.assertAlmostEqual(folha.dimensions.x, 0.6 + 2 * cobre, places=4)
+        self.assertAlmostEqual(folha.dimensions.y, 0.8 + 2 * cobre, places=4)
         self.assertAlmostEqual(folha.dimensions.z, 0.018, places=4)
 
     def test_referencia_do_par_usa_o_ancestral_comum(self):
@@ -359,6 +403,13 @@ class TestPortas(unittest.TestCase):
             esperado = obj.matrix_world @ obj.data.vertices[0].co
             self.assertAlmostEqual((alvos[obj][0] - esperado).length, 0.0,
                                    places=6)
+
+    def sem_rig(self):
+        """Sem o asset da dobradica reta: caixas e eixo fixo -- o caminho
+        das portas Curva/embutida (e de quem nao tem o asset)."""
+        original = addon._dados_dobradica_reta
+        addon._dados_dobradica_reta = lambda: None
+        self.addCleanup(setattr, addon, '_dados_dobradica_reta', original)
 
     def nicho(self):
         """Modulo de verdade, com laterais, base e tampo."""
@@ -571,23 +622,28 @@ class TestPortas(unittest.TestCase):
         self.assertEqual([k for k in addon.COBERTURAS_LADOS if k in p],
                          ['cobertura_esq_e'])
         lo, hi = self.limites_folhas(conj, grupo)
-        # esquerda: no MEIO da lateral; o resto cobre a chapa inteira (Reta)
-        self.assertAlmostEqual(lo[0] * 1000, -L / 2 + E / 2, places=3)
-        self.assertAlmostEqual(hi[0] * 1000, L / 2, places=3)
-        self.assertAlmostEqual(lo[2] * 1000, 0.0, places=3)
-        self.assertAlmostEqual(hi[2] * 1000, A, places=3)
+        # esquerda: no MEIO da lateral, menos o respiro (2 portas na mesma
+        # chapa nao se encostam); o resto cobre a chapa inteira (Reta)
+        meia = E / 2 - addon.RESPIRO_PORTA_MM
+        r = addon.RESPIRO_PORTA_MM          # a Reta tambem nao fica rente
+        self.assertAlmostEqual(lo[0] * 1000, -L / 2 + E - meia, places=3)
+        self.assertAlmostEqual(hi[0] * 1000, L / 2 - r, places=3)
+        self.assertAlmostEqual(lo[2] * 1000, r, places=3)
+        self.assertAlmostEqual(hi[2] * 1000, A - r, places=3)
         # redimensionar o modulo mantem a borda no meio da lateral
         conj.conj_largura_mm = L + 100
         bpy.context.view_layer.update()
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(lo[0] * 1000, -(L + 100) / 2 + E / 2, places=3)
-        self.assertAlmostEqual(hi[0] * 1000, (L + 100) / 2, places=3)
+        self.assertAlmostEqual(lo[0] * 1000, -(L + 100) / 2 + E - meia, places=3)
+        self.assertAlmostEqual(hi[0] * 1000, (L + 100) / 2 - r, places=3)
         # meia cobertura e' fixa: a Curva ja' cobre meia, nada muda nela
         p = dict(grupo['porta_parametros'], dobradica='CURVA')
-        self.assertEqual(addon._inicios_porta(p), [-E / 2] * 4)
-        # a meia e' do VAO: fica mesmo se a dobradica mudar
+        self.assertEqual(addon._inicios_porta(p), [-meia] * 4)
+        # a meia e' do VAO: fica mesmo se a dobradica mudar (o resto,
+        # embutido, fica o respiro para dentro do vao)
         p = dict(p, dobradica='SUPER_CURVA')
-        self.assertEqual(addon._inicios_porta(p), [-E / 2, 0.0, 0.0, 0.0])
+        r = addon.RESPIRO_PORTA_MM
+        self.assertEqual(addon._inicios_porta(p), [-meia, r, r, r])
 
     def porta_por_quatro_cliques(self, conj, p1, p2, p3, p4, **extras):
         mundo = [conj.matrix_world @ (Vector(p) / 1000.0)
@@ -617,15 +673,17 @@ class TestPortas(unittest.TestCase):
         self.assertEqual([p[k] for k in addon.COBERTURAS_LADOS],
                          [1.0, 0.5, 1.0, 1.0])
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(lo[0] * 1000, -L / 2, places=3)
-        self.assertAlmostEqual(hi[0] * 1000, L / 2 - E / 2, places=3)
-        self.assertAlmostEqual(lo[2] * 1000, 0.0, places=3)
-        self.assertAlmostEqual(hi[2] * 1000, A, places=3)
+        meia = E / 2 - addon.RESPIRO_PORTA_MM     # respiro na meia
+        r = addon.RESPIRO_PORTA_MM                # e nas retas
+        self.assertAlmostEqual(lo[0] * 1000, -L / 2 + r, places=3)
+        self.assertAlmostEqual(hi[0] * 1000, L / 2 - E + meia, places=3)
+        self.assertAlmostEqual(lo[2] * 1000, r, places=3)
+        self.assertAlmostEqual(hi[2] * 1000, A - r, places=3)
         # acompanha o modulo
         conj.conj_largura_mm = L + 100
         bpy.context.view_layer.update()
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(hi[0] * 1000, (L + 100) / 2 - E / 2, places=3)
+        self.assertAlmostEqual(hi[0] * 1000, (L + 100) / 2 - E + meia, places=3)
 
     def test_quatro_cliques_com_porta_e_vao_no_mesmo_ponto(self):
         conj = self.nicho()
@@ -699,9 +757,10 @@ class TestPortas(unittest.TestCase):
             addon._coberturas_da_porta(grupo)))
 
     def test_porta_selecionada_desenha_folhas_vao_e_dobradicas(self):
-        # Print do usuario: com a porta selecionada, contorno das folhas,
-        # linhas internas do vao (amarelo) e o VOLUME das dobradicas onde o
-        # wizard as pos.
+        # Print do usuario: com a porta selecionada, contorno das folhas e
+        # linhas internas do vao (amarelo). O VOLUME das dobradicas onde o
+        # wizard as pos so' aparece com elas selecionadas.
+        self.sem_rig()
         conj = self.nicho()
         L, A, P, E = addon._caixa_do_modulo(conj)
         y = -P / 2
@@ -709,6 +768,7 @@ class TestPortas(unittest.TestCase):
             conj, (-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E),
             (L / 2 - E / 2, y, 0), dobradica='RETA', folhas=1)
         desenho = addon._desenho_da_porta(grupo)
+        self.assertNotIn('dobradicas', desenho)
         local = lambda v: (conj.matrix_world.inverted() @ v) * 1000.0
         self.assertEqual(len(desenho['folhas']), 1)
         # o vao: as faces internas das chapas
@@ -717,8 +777,8 @@ class TestPortas(unittest.TestCase):
         self.assertAlmostEqual(xs[-1], L / 2 - E, places=3)
         # 2 dobradicas (padrao pela altura) x (corpo + caneco), na esquerda;
         # o corpo encosta na face interna da lateral e entra no movel
-        self.assertEqual(len(desenho['dobradicas']), 4)
-        corpo = desenho['dobradicas'][0]
+        self.assertEqual(len(addon._caixas_ferragens(grupo, {'DOBRADICA'})), 4)
+        corpo = addon._caixas_ferragens(grupo, {'DOBRADICA'})[0]
         x = sorted(local(v).x for v in corpo)
         self.assertAlmostEqual(x[0], -L / 2 + E, places=3)
         self.assertAlmostEqual(x[-1], -L / 2 + E + addon.DOBRADICA_AVANCO_MM, places=3)
@@ -731,11 +791,11 @@ class TestPortas(unittest.TestCase):
         grupo = self.porta_no_nicho(conj)
         desenho = addon._desenho_da_porta(grupo)
         self.assertEqual(len(desenho['folhas']), 2)
-        self.assertEqual(len(desenho['dobradicas']), 8)
+        self.assertEqual(len(addon._caixas_ferragens(grupo, {'DOBRADICA'})), 8)
         # correr nao tem dobradica
         self.assertEqual(addon._editar_parametro_porta(
             bpy.context, grupo, 'abertura', 'CORRER'), '')
-        self.assertEqual(addon._desenho_da_porta(grupo)['dobradicas'], [])
+        self.assertEqual(addon._caixas_ferragens(grupo, {'DOBRADICA'}), [])
 
     # ---- Fase 3: ferragens de verdade, pivo e abertura
     def porta_de_giro(self, conj, **extras):
@@ -755,6 +815,7 @@ class TestPortas(unittest.TestCase):
     def test_ferragens_de_verdade_seguem_a_porta(self):
         # Corpo da dobradica no MODULO, caneco furado nas costas da FOLHA;
         # malhas que o clique nao pega mas que andam com a porta.
+        self.sem_rig()
         conj = self.nicho()
         L, A, P, E = addon._caixa_do_modulo(conj)
         y = -P / 2
@@ -764,22 +825,27 @@ class TestPortas(unittest.TestCase):
         canecos = self.ferragens(grupo, 'CANECO')
         self.assertEqual((len(corpos), len(canecos)), (2, 2))
         for o in corpos + canecos:
-            self.assertTrue(o.hide_select)
+            # selecionavel e editavel como qualquer objeto (pedido do usuario)
+            self.assertFalse(o.hide_select)
             self.assertNotIn(addon.MARCA_CHAPA, o)
             self.assertEqual(o.parent, folha if o in canecos else grupo)
         local = lambda v: (conj.matrix_world.inverted() @ v) * 1000.0
         caneco = [local(canecos[0].matrix_world @ Vector(c))
                   for c in canecos[0].bound_box]
-        # 12 mm para dentro da folha, a partir das costas (frente = -Y)
-        self.assertAlmostEqual(max(v.y for v in caneco), y, places=3)
+        # 12 mm para dentro da folha, a partir das costas (frente = -Y), e
+        # a aba saindo das costas: senao o copo sumia dentro da porta
+        self.assertAlmostEqual(max(v.y for v in caneco),
+                               y + addon.CANECO_ABA_MM, places=3)
         self.assertAlmostEqual(min(v.y for v in caneco),
                                y - addon.CANECO_FUNDO_MM, places=3)
-        # furo a 5 mm da borda da folha (a folha cobre a lateral toda)
-        self.assertAlmostEqual(min(v.x for v in caneco),
-                               -L / 2 + addon.CANECO_BORDA_MM, places=3)
+        # furo a 5 mm da borda da folha (a folha cobre a lateral menos o
+        # respiro)
+        self.assertAlmostEqual(min(v.x for v in caneco), -L / 2
+                               + addon.RESPIRO_PORTA_MM + addon.CANECO_BORDA_MM,
+                               places=3)
         # o desenho da porta selecionada e' o volume dessas malhas
         desenho = addon._desenho_da_porta(grupo)
-        corpo = sorted(local(v).x for v in desenho['dobradicas'][0])
+        corpo = sorted(local(v).x for v in addon._caixas_ferragens(grupo, {'DOBRADICA'})[0])
         self.assertAlmostEqual(corpo[0], -L / 2 + E, places=3)
         self.assertAlmostEqual(corpo[-1], -L / 2 + E + addon.DOBRADICA_AVANCO_MM,
                                places=3)
@@ -802,6 +868,7 @@ class TestPortas(unittest.TestCase):
     def test_ferragens_conferidas_ao_apagar_ou_duplicar(self):
         # Por isso o handler confere (num timer) quando a contagem de
         # objetos muda: porta sem ferragem ganha; ferragem sem porta sai.
+        self.sem_rig()
         conj = self.nicho()
         grupo = self.porta_de_giro(conj)
         for o in addon._ferragens_portas(grupo):
@@ -814,7 +881,104 @@ class TestPortas(unittest.TestCase):
         addon._conferir_ferragens()
         self.assertFalse(any(addon.CHAVE_FERRAGEM in o for o in bpy.data.objects))
 
+    def test_dobradica_reta_e_o_rig_do_usuario(self):
+        # Pedido do usuario: a Reta IMPORTA o modelo e o rig dele (asset
+        # de extrair_dobradica.py), sem recriar malha nem rig; a folha faz
+        # o movimento medido no rig e o copo fura a folha (Boolean).
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon._folhas_portas(grupo)[0]
+        raizes = self.ferragens(grupo, 'DOBRADICA_RIG')
+        n = len(raizes)
+        self.assertGreaterEqual(n, 2)
+        pecas = addon._ferragens_portas(grupo)
+        por_peca = lambda nome: [o for o in pecas if o.get('cabinet_peca') == nome]
+
+        def raiz_de(o):
+            while o.get('cabinet_peca') != 'raiz':
+                o = o.parent
+            return o
+
+        # cada copia traz o rig inteiro, e o driver e o IK sao DELA
+        for arm in por_peca('armacao'):
+            alvo = arm.animation_data.drivers[0].driver.variables[0].targets[0].id
+            self.assertIs(raiz_de(alvo), raiz_de(arm))
+        for ik in por_peca('armacao_ik'):
+            alvos = [c.target for pb in ik.pose.bones for c in pb.constraints
+                     if c.type == 'IK']
+            self.assertEqual(len(alvos), 1)
+            self.assertIs(raiz_de(alvos[0]), raiz_de(ik))
+        self.assertEqual(len(por_peca('armacao_ik')), n)
+        # nada restrito: toda peca se seleciona e edita no Blender
+        self.assertFalse(any(o.hide_select for o in pecas))
+        # mas nao acende junto com a porta nem com o modulo
+        addon._selecionar_chapa_hud(bpy.context, folha)
+        self.assertFalse(any(o.select_get() for o in pecas))
+        # duplo clique = UMA peca, selecao nativa (Tab entra na malha dela)
+        cabeca = por_peca('cabeca')[0]
+        addon._selecionar_peca(bpy.context, cabeca)
+        self.assertEqual(bpy.context.selected_objects, [cabeca])
+        self.assertIs(bpy.context.view_layer.objects.active, cabeca)
+        self.assertEqual(bpy.ops.object.mode_set(mode='EDIT'), {'FINISHED'})
+        bpy.ops.object.mode_set(mode='OBJECT')
+        # a folha guarda a folga do modelo ate' o modulo (1,86 mm): sem
+        # ela o canto da folha aberta entrava no modulo (print do usuario)
+        dados = addon._dados_dobradica_reta()
+        costas = addon._dados_da_folha(folha)[3][2] - folha.chapa_espessura_mm / 2
+        self.assertAlmostEqual(costas, dados['folga_modulo_mm'], places=3)
+        # e em NENHUM ponto do giro a folha passa da frente do modulo
+        P = addon._caixa_do_modulo(conj)[2]
+        local = lambda v: (conj.matrix_world.inverted() @ v) * 1000.0
+        for passo in range(41):
+            addon._definir_abertura(bpy.context, folha, passo / 40.0)
+            fundo = max(local(folha.matrix_world @ Vector(c)).y
+                        for c in folha.bound_box)
+            self.assertLessEqual(fundo, -P / 2.0 + 1e-3, passo)
+        addon._definir_abertura(bpy.context, folha, 0.0)
+        # a malha e' dividida entre as copias: o arquivo nao incha
+        cabecas = por_peca('cabeca')
+        self.assertEqual(len({o.data.name for o in cabecas}), 1)
+        # o copo fura a folha: um Boolean por dobradica, com o cortador dela
+        furos = [m for m in folha.modifiers
+                 if m.name.startswith(addon.PREFIXO_FURO)]
+        self.assertEqual(len(furos), n)
+        self.assertTrue(all(m.operation == 'DIFFERENCE'
+                            and m.object.get('cabinet_peca') == 'furo'
+                            for m in furos))
+        # a cabeca anda COLADA na folha (tabela da folha = rig de verdade)
+        bpy.context.view_layer.update()
+        relativa = lambda c: folha.matrix_world.inverted() @ c.matrix_world
+        fechadas = [relativa(c) for c in cabecas]
+        pior = [0.0, 0.0]
+        for passo in range(1, 21):
+            addon._definir_abertura(bpy.context, folha, passo / 20.0)
+            for cabeca, antes in zip(cabecas, fechadas):
+                agora = relativa(cabeca)
+                giro = agora.to_quaternion().rotation_difference(
+                    antes.to_quaternion()).angle
+                pior[0] = max(pior[0], (agora.translation - antes.translation)
+                              .length * 1000.0)
+                pior[1] = max(pior[1], math.degrees(giro))
+        print('[rig] folha x cabeca: pior %.4f mm, %.4f graus' % tuple(pior))
+        self.assertLess(pior[0], 0.05)
+        self.assertLess(pior[1], 0.05)
+        self.assertEqual(addon._texto_abertura(folha),
+                         '%d%s' % (round(addon._giro_maximo_rig()),
+                                   addon.SIMBOLO_GRAU))
+        # Curva: o rig sai inteiro, com o furo; voltam as caixas
+        addon._definir_abertura(bpy.context, folha, 0.0)
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, 'dobradica', 'CURVA'), '')
+        self.assertFalse([o for o in bpy.data.objects if o.get('cabinet_peca')])
+        self.assertFalse([m for m in bpy.data.meshes
+                          if m.get('cabinet_origem') and m.users])
+        folha = addon._folhas_portas(grupo)[0]
+        self.assertFalse([m for m in folha.modifiers
+                          if m.name.startswith(addon.PREFIXO_FURO)])
+        self.assertEqual(len(self.ferragens(grupo, 'DOBRADICA')), n)
+
     def test_abrir_a_folha_gira_na_borda_da_dobradica(self):
+        self.sem_rig()
         conj = self.nicho()
         L = addon._caixa_do_modulo(conj)[0]
         grupo = self.porta_de_giro(conj)
@@ -827,9 +991,13 @@ class TestPortas(unittest.TestCase):
         local = lambda v: (conj.matrix_world.inverted() @ v) * 1000.0
         self.assertTrue(addon._definir_abertura(bpy.context, folha, 1.0))
         l, a, e, _c = addon._dados_da_folha(folha)
-        # o eixo: a borda da FRENTE do lado da dobradica fica parada
-        eixo = Vector((-l, 0.0, e)) / 2000.0
+        # o eixo: a quina das COSTAS do lado da dobradica fica parada (como
+        # a dobradica de caneco: aberta, sem vao entre a folha e o modulo)
+        eixo = Vector((-l, 0.0, -e)) / 2000.0
         self.assertLess((folha.matrix_world @ eixo - fechada @ eixo).length, 1e-6)
+        frente = Vector((-l, 0.0, e)) / 2000.0
+        self.assertGreater((folha.matrix_world @ frente
+                            - fechada @ frente).length, 0.01)
         # o outro lado vem para fora do movel (frente = -Y)
         ponta = Vector((l, 0.0, e)) / 2000.0
         self.assertLess(local(folha.matrix_world @ ponta).y,
@@ -855,7 +1023,8 @@ class TestPortas(unittest.TestCase):
         self.assertAlmostEqual(folha[addon.CHAVE_ABERTURA], 0.5)
         x_folha = folha.matrix_world.to_3x3() @ Vector((1, 0, 0))
         self.assertAlmostEqual(math.degrees(x_folha.angle(x_vao)), 55.0, places=3)
-        self.assertAlmostEqual(folha.chapa_largura_mm, L + 100, places=3)
+        self.assertAlmostEqual(folha.chapa_largura_mm,
+                               L + 100 - 2 * addon.RESPIRO_PORTA_MM, places=3)
         # fechar volta exatamente ao lugar
         addon._definir_abertura(bpy.context, folha, 0.0)
         self.assertLess((folha.matrix_world.translation
@@ -903,7 +1072,151 @@ class TestPortas(unittest.TestCase):
                 else:
                     self.assertGreaterEqual(comprimento(corpo) + comprimento(haste),
                                             distancia - 1e-3)
-        self.assertEqual(addon._texto_abertura(folha), '90' + addon.SIMBOLO_GRAU)
+                # automatico: fechado = metade do pistao, aberto = ele todo
+                self.assertAlmostEqual(distancia, 2 * comprimento(corpo)
+                                       if fracao else comprimento(corpo),
+                                       places=2)
+        # Reta: abre o que o rig do usuario abre (91,7 graus)
+        self.assertEqual(addon._texto_abertura(folha), '%d%s' % (
+            round(addon._giro_maximo_rig()), addon.SIMBOLO_GRAU))
+        # aberta como a de verdade (print do usuario): a borda fica junto
+        # da frente do modulo -- nada do vao da espessura entre a porta e
+        # o modulo -- e, como a dobradica de caneco real a 90 graus, a
+        # folha avanca um pouco sobre o vao (nao fica no nivel do topo)
+        cantos = lambda m: [local(m @ Vector(c)) for c in folha.bound_box]
+        fechada = cantos(addon._matriz_fechada(folha))
+        aberta = cantos(folha.matrix_world)
+        vao = max(v.y for v in fechada) - max(v.y for v in aberta)
+        altura = min(v.z for v in aberta) - max(v.z for v in fechada)
+        self.assertLess(abs(vao), 3.0, (vao, altura))
+        self.assertTrue(-30.0 < altura < 0.0, (vao, altura))
+        # volume de pistao de verdade: corpo mais grosso que a haste, e
+        # um suporte na lateral (fica) e outro na folha (gira com ela)
+        raio = lambda o: max(v.co.x for v in o.data.vertices) * 1000.0
+        self.assertGreater(raio(corpos[0]), raio(hastes[0]))
+        suportes = self.ferragens(grupo, 'PISTAO_SUPORTE')
+        self.assertEqual(sorted(s.parent.name for s in suportes),
+                         sorted([grupo.name] * 2 + [folha.name] * 2))
+
+    def test_clique_na_ferragem_seleciona_as_do_modulo(self):
+        # Pedido do usuario: clique numa dobradica = TODAS as dobradicas
+        # do modulo; num pistao = todos os pistoes; Shift soma o outro
+        # tipo. Nada mais fica selecionado (porta/modulo sem contorno).
+        self.addCleanup(addon._ferragens_selecionadas.__setitem__, 0, None)
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, abertura='BASCULANTE',
+                                   dobradica_lado='CIMA', pistoes_qtd=2)
+        folha = addon._folhas_portas(grupo)[0]
+        addon._selecionar_porta_hud(bpy.context, folha, 'PORTA')
+        caneco = self.ferragens(grupo, 'CANECO')[1]
+        pistao = self.ferragens(grupo, 'PISTAO_SUPORTE')[0]
+        self.assertFalse(addon._selecionar_ferragem(
+            bpy.context, self.ferragens(grupo, 'PISTAO_PONTO')[0]))
+
+        self.assertTrue(addon._selecionar_ferragem(bpy.context, caneco))
+        self.assertEqual(bpy.context.selected_objects, [])
+        (achado, tipos), = addon._ferragens_em_edicao(bpy.context)
+        self.assertEqual((achado, tipos), (grupo, {'DOBRADICA'}))
+        # na Reta, o volume das pecas grandes do rig (base, suporte, copo)
+        n = len([o for o in addon._ferragens_portas(grupo)
+                 if o.get('cabinet_peca') in addon.PECAS_REALCE_RIG])
+        self.assertEqual(len(addon._caixas_ferragens(grupo, tipos)), n)
+        # Shift no pistao: os dois tipos; de novo no pistao: so' as dobradicas
+        addon._selecionar_ferragem(bpy.context, pistao, somar=True)
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context)[0][1],
+                         {'DOBRADICA', 'PISTAO'})
+        caixas = addon._caixas_ferragens(grupo, {'DOBRADICA', 'PISTAO'})
+        self.assertEqual(len(caixas), n + 4 * 2)    # corpo, haste e 2 suportes
+        addon._selecionar_ferragem(bpy.context, pistao, somar=True)
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context)[0][1],
+                         {'DOBRADICA'})
+        # sem Shift: troca
+        addon._selecionar_ferragem(bpy.context, pistao)
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context)[0][1],
+                         {'PISTAO'})
+        # o volume do pistao e' o da malha de verdade: corpo entre as pontas
+        corpo = self.ferragens(grupo, 'PISTAO_CORPO')[0]
+        caixa = addon._caixas_ferragens(grupo, {'PISTAO'})[0]
+        self.assertLess((sum(caixa, Vector()) / 8 - corpo.matrix_world
+                         @ Vector((0, corpo.dimensions.y / 2, 0))).length, 1e-4)
+        # selecionar qualquer outra coisa encerra o modo
+        addon._selecionar_porta_hud(bpy.context, folha, 'PORTA')
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context), [])
+        self.assertIsNone(addon._ferragens_selecionadas[0])
+
+    def test_controladores_das_ferragens(self):
+        # Alt: um controlador por tipo. O da dobradica corre na borda
+        # (margem, espelhada); o do pistao, na lateral (so' ate' o curso).
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, abertura='BASCULANTE',
+                                   dobradica_lado='CIMA', pistoes_qtd=2)
+        controles = addon._controles_ferragens(grupo, {'DOBRADICA', 'PISTAO'})
+        self.assertEqual([c[0] for c in controles], ['DOBRADICA', 'PISTAO'])
+        (_t, ponto_d, a_d, b_d), (_t2, ponto_p, a_p, b_p) = controles
+        # na Reta, na raiz do rig da 1a dobradica
+        raiz = next(o for o in self.ferragens(grupo, 'DOBRADICA_RIG')
+                    if o[addon.CHAVE_ID_FERRAGEM].endswith('_0'))
+        self.assertLess((ponto_d - raiz.matrix_world.translation).length, 1e-6)
+        haste = self.ferragens(grupo, 'PISTAO_HASTE')[-1]          # a da ESQUERDA
+        self.assertLess((ponto_p - haste.matrix_world.translation).length, 1e-6)
+        # margem espelhada: 10% e 90% do trilho dao a mesma
+        comprimento = (b_d - a_d).length * 1000.0
+        nome, perto = addon._valor_do_controle(grupo, 'DOBRADICA', 0.1)
+        self.assertEqual(nome, 'dobradicas_margem_mm')
+        self.assertAlmostEqual(perto, 0.1 * comprimento, places=3)
+        self.assertAlmostEqual(
+            addon._valor_do_controle(grupo, 'DOBRADICA', 0.9)[1], perto, places=3)
+        # pistao: la' embaixo trava no curso (= automatico, grava 0)
+        self.assertEqual(addon._valor_do_controle(grupo, 'PISTAO', 1.0),
+                         ('pistoes_offset_mm', 0.0))
+        nome, offset = addon._valor_do_controle(grupo, 'PISTAO', 0.15)
+        self.assertGreater(offset, 0.0)
+        antes = haste.matrix_world.translation.copy()
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, nome, offset), '')
+        bpy.context.view_layer.update()
+        haste = self.ferragens(grupo, 'PISTAO_HASTE')[-1]          # a da ESQUERDA
+        cima = grupo.matrix_world.to_3x3() @ Vector((0, 1, 0))
+        self.assertGreater((haste.matrix_world.translation - antes).dot(cima), 0.01)
+        ponto_novo = addon._controles_ferragens(grupo, {'PISTAO'})[0][1]
+        self.assertLess((ponto_novo - haste.matrix_world.translation).length, 1e-6)
+        # e a margem nova move a 1a dobradica ao longo da borda
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, 'dobradicas_margem_mm', 150.0), '')
+        ponto_d = addon._controles_ferragens(grupo, {'DOBRADICA'})[0][1]
+        a_d = addon._controles_ferragens(grupo, {'DOBRADICA'})[0][2]
+        self.assertAlmostEqual((ponto_d - a_d).length * 1000.0, 150.0, places=3)
+        # O arraste (cabinet_arrastar_ferragem) refaz a porta e as
+        # ferragens continuam selecionadas; Esc devolve o valor de antes.
+        self.addCleanup(addon._ferragens_selecionadas.__setitem__, 0, None)
+        self.addCleanup(addon._arraste_ferragem.__setitem__, 0, None)
+        addon._selecionar_ferragem(bpy.context, haste)
+        estado = addon._ferragens_selecionadas[0]
+        classe = addon.OBJECT_OT_arrastar_ferragem
+        op = SimpleNamespace(
+            grupo=grupo.name, tipo='PISTAO', _nome='pistoes_offset_mm',
+            _antes=offset, _estado=estado, _trilho=(a_p, b_p),
+            _area=SimpleNamespace(tag_redraw=lambda: None))
+        op._aplicar = lambda c, v: classe._aplicar(op, c, v)
+        op._encerrar = lambda: classe._encerrar(op)
+        addon._arraste_ferragem[0] = (grupo.name, 'PISTAO')
+        op._aplicar(bpy.context, 0.0)
+        self.assertEqual(grupo['porta_parametros']['pistoes_offset_mm'], 0.0)
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context),
+                         [(grupo, {'PISTAO'})])
+        self.assertEqual(classe.modal(op, bpy.context, SimpleNamespace(
+            type='ESC', value='PRESS')), {'CANCELLED'})
+        self.assertAlmostEqual(grupo['porta_parametros']['pistoes_offset_mm'],
+                               offset)
+        self.assertIsNone(addon._arraste_ferragem[0])
+        addon._arraste_ferragem[0] = (grupo.name, 'PISTAO')
+        self.assertEqual(classe.modal(op, bpy.context, SimpleNamespace(
+            type='LEFTMOUSE', value='RELEASE')), {'FINISHED'})
+        # giro: sem pistao, so' o controlador da dobradica
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, 'abertura', 'GIRO'), '')
+        self.assertEqual([c[0] for c in addon._controles_ferragens(
+            grupo, {'DOBRADICA', 'PISTAO'})], ['DOBRADICA'])
 
     def test_correr_desliza_no_trilho(self):
         conj = self.nicho()
@@ -924,6 +1237,115 @@ class TestPortas(unittest.TestCase):
                                               - p['sobreposicao_mm']), places=3)
         self.assertEqual(addon._texto_abertura(esquerda), '%d mm' % round(
             esquerda.chapa_largura_mm - p['sobreposicao_mm']))
+
+    # ---- nomes e organizacao dos grupos (pedido do usuario, com print)
+    def test_grupo_tem_nome_colecao_e_porta_pelo_modelo(self):
+        conj = self.nicho()
+        L, A, P, _E = addon._caixa_do_modulo(conj)
+        cena = bpy.context.scene
+        # sem nome digitado vale a sugestao "Armario LxAxP"
+        self.assertEqual(conj.name, 'Armario %dx%dx%d' % (round(L), round(A),
+                                                          round(P)))
+        colecao = conj.users_collection[0]
+        self.assertEqual(colecao.name, conj.name)
+        self.assertTrue(colecao.get(addon.MARCA_COLECAO_MODULO))
+        self.assertIn(colecao, list(cena.collection.children))
+        for chapa in addon._chapas_do_conjunto(conj):
+            self.assertEqual(list(chapa.users_collection), [colecao])
+        # a porta mora no grupo, com o nome do modelo; folhas = Folha_NN
+        grupo = self.porta_no_nicho(conj)
+        self.assertEqual(grupo.name, 'Porta Dupla')
+        self.assertEqual(list(grupo.users_collection), [colecao])
+        self.assertEqual([f.name for f in addon._folhas_portas(grupo)],
+                         ['Folha_01', 'Folha_02'])
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, 'abertura', 'CORRER'), '')
+        self.assertEqual(grupo.name, 'Porta de Correr')
+        for p, nome in ((dict(abertura='BASCULANTE'), 'Porta Basculante'),
+                        (dict(folhas=1), 'Porta Unica'),
+                        (dict(folhas=2, dobradica='SUPER_CURVA'),
+                         'Porta Embutida Dupla'),
+                        (dict(folhas=1, dobradica='SUPER_CURVA'),
+                         'Porta Embutida Unica')):
+            self.assertEqual(addon._nome_da_porta(parametros(**p)), nome)
+        # nome trocado pelo usuario fica
+        grupo.name = 'Porta da pia'
+        addon._editar_parametro_porta(bpy.context, grupo, 'abertura', 'GIRO')
+        self.assertEqual(grupo.name, 'Porta da pia')
+        # renomear o grupo leva a Collection e o vinculo da porta junto
+        self.assertTrue(addon.nomear_grupo(conj, '  Cozinha  '))
+        self.assertEqual((conj.name, colecao.name), ('Cozinha', 'Cozinha'))
+        self.assertEqual(grupo[addon.CHAVE_MODULO_PORTA], 'Cozinha')
+        self.assertEqual(addon._portas_do_conjunto(conj), [grupo])
+        self.assertFalse(addon.nomear_grupo(conj, '   '))
+        # desagrupar: a chapa sai para a RAIZ da cena
+        chapa = addon._chapas_do_conjunto(conj)[0]
+        addon.desagregar(chapa)
+        self.assertIsNone(chapa.parent)
+        self.assertEqual(list(chapa.users_collection), [cena.collection])
+
+    def test_agrupar_com_nome_e_grupo_vazio_some_com_a_colecao(self):
+        bpy.ops.object.cabinet_criar_nicho()
+        bpy.ops.object.select_all(action='SELECT')
+        # F3 abre o dialogo; por script o nome vem pronto
+        self.assertEqual(bpy.ops.object.cabinet_agrupar(nome='Banheiro'),
+                         {'FINISHED'})
+        conj = bpy.context.object
+        colecao = conj.users_collection[0]
+        self.assertEqual((conj.name, colecao.name), ('Banheiro', 'Banheiro'))
+        addon.desagregar_grupo(addon._chapas_do_conjunto(conj))
+        self.assertNotIn('Banheiro', bpy.data.objects)
+        self.assertNotIn('Banheiro', bpy.data.collections)
+        # armario apagado com X: a conferencia tira a Collection vazia
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.cabinet_agrupar(nome='Sala')
+        for o in list(bpy.data.collections['Sala'].all_objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        addon._conferir_ferragens()
+        self.assertNotIn('Sala', bpy.data.collections)
+
+    def test_corrente_junta_soltas_e_pergunta_o_nome_na_gaveta(self):
+        # Pela gaveta (sem pop-up): o grupo nasce com a sugestao e a caixa
+        # preta traz o campo; o que se digita vira o nome.
+        piso = addon.nova_chapa('Piso', 600.0, 400.0, 18.0, (0, 0, 9.0),
+                                (0, 0, 0), bpy.context)
+        lateral = addon.nova_chapa('Lateral', 720.0, 400.0, 18.0,
+                                   (300.0 + 3.0 + 9.0, 0, 360.0),
+                                   (0, 90.0, 0), bpy.context)
+        bpy.context.view_layer.update()
+        addon._na_gaveta[0] = True
+        self.addCleanup(addon._na_gaveta.__setitem__, 0, False)
+        self.addCleanup(addon._pergunta_atual.__setitem__, 0, None)
+        self.assertEqual(bpy.ops.object.cabinet_conectar_distancia(
+            origem=piso.name), {'FINISHED'})
+        grupo = addon._modulo_da_chapa(piso)
+        self.assertIs(addon._modulo_da_chapa(lateral), grupo)
+        pergunta = addon._pergunta_atual[0]
+        self.assertTrue(pergunta['campo'] and pergunta['na_gaveta'])
+        estado = addon._nome_grupo_gaveta[0]
+        self.assertEqual(estado['texto'], grupo.name)
+        for letra in 'Lavanderia':      # o texto vem todo selecionado
+            addon._tecla_no_texto(estado, letra.upper(), letra)
+        self.assertEqual(estado['texto'], 'Lavanderia')
+        # Enter no modal de digitar (cabinet_digitar_nome_grupo)
+        op = SimpleNamespace(_redesenhar=lambda c: None)
+        evento = SimpleNamespace(type='RET', value='PRESS', ctrl=False,
+                                 unicode='')
+        self.assertEqual(addon.OBJECT_OT_digitar_nome_grupo.modal(
+            op, bpy.context, evento), {'FINISHED'})
+        self.assertEqual(grupo.name, 'Lavanderia')
+        self.assertIsNone(addon._pergunta_atual[0])
+        # o OK da caixa (cabinet_nomear_grupo) faz o mesmo; Manter fica
+        addon._abrir_caixa_nome(grupo)
+        addon._nome_grupo_gaveta[0]['texto'] = 'Area'
+        self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=0),
+                         {'FINISHED'})
+        self.assertEqual(grupo.name, 'Area')
+        addon._abrir_caixa_nome(grupo)
+        addon._nome_grupo_gaveta[0]['texto'] = 'Outro'
+        bpy.ops.object.cabinet_responder_pergunta(opcao=1)
+        self.assertEqual(grupo.name, 'Area')
+        self.assertIsNone(addon._nome_grupo_gaveta[0])
 
     def test_empties_de_amarracao_ficam_invisiveis(self):
         # Pedido do usuario: os Empties (modulo, grupo de portas, ponta do
@@ -1027,7 +1449,9 @@ class TestPortas(unittest.TestCase):
         L, A, P, E = (v/1000 for v in addon._caixa_do_modulo(conj))
         g = self.criar_por_pontos(conj, (L/2-E, -P/2, A-E), (-L/2, -P/2, 0))
         lo, hi = self.limites_folhas(conj, g)
-        for atual, esperado in ((lo[0], -L/2), (hi[0], L/2), (lo[2], 0), (hi[2], A)):
+        r = addon.RESPIRO_PORTA_MM / 1000        # nunca rente a' borda
+        for atual, esperado in ((lo[0], -L/2 + r), (hi[0], L/2 - r),
+                                (lo[2], r), (hi[2], A - r)):
             self.assertAlmostEqual(atual, esperado, places=5)
 
     def duas_fileiras(self, inverter=False):
@@ -1098,7 +1522,8 @@ class TestPortas(unittest.TestCase):
         self.assertAlmostEqual(conj.conj_altura_mm, 2200, places=3)
         lo_c, hi_c = self.limites_folhas(conj, cima)
         lo_b, hi_b = self.limites_folhas(conj, baixo)
-        self.assertAlmostEqual(hi_c[2], 2.2, places=5)
+        self.assertAlmostEqual(hi_c[2], 2.2 - addon.RESPIRO_PORTA_MM / 1000,
+                               places=5)
         self.assertAlmostEqual(lo_c[2] - hi_b[2], 0.002, places=5)
 
     def test_cantos_externos_usam_a_malha_com_campo_antigo(self):
@@ -1173,24 +1598,26 @@ class TestPortas(unittest.TestCase):
         self.assertAlmostEqual(grupo['porta_vao_largura_mm'], largura - 2 * E, places=2)
         self.assertAlmostEqual(grupo['porta_vao_altura_mm'], altura - 2 * E, places=2)
         lo, hi = self.limites_folhas(conj, grupo)
-        # reta: cobre o tampo inteiro e fica por cima dele
-        self.assertAlmostEqual(lo[2], A / 1000, places=5)
-        self.assertAlmostEqual(hi[2], (A + E) / 1000, places=5)
-        self.assertAlmostEqual(hi[0] - lo[0], L / 1000, places=5)
-        self.assertAlmostEqual(hi[1] - lo[1], P / 1000, places=5)
+        # reta: cobre o tampo inteiro e fica por cima dele (com a folga)
+        folga = folga_reta()
+        self.assertAlmostEqual(lo[2], (A + folga) / 1000, places=5)
+        self.assertAlmostEqual(hi[2], (A + E + folga) / 1000, places=5)
+        r2 = 2 * addon.RESPIRO_PORTA_MM
+        self.assertAlmostEqual(hi[0] - lo[0], (L - r2) / 1000, places=5)
+        self.assertAlmostEqual(hi[1] - lo[1], (P - r2) / 1000, places=5)
         conj.conj_largura_mm = L + 200
         conj.conj_altura_mm = A + 100
         bpy.context.view_layer.update()
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(hi[0] - lo[0], (L + 200) / 1000, places=5)
-        self.assertAlmostEqual(lo[2], (A + 100) / 1000, places=5)
+        self.assertAlmostEqual(hi[0] - lo[0], (L + 200 - r2) / 1000, places=5)
+        self.assertAlmostEqual(lo[2], (A + 100 + folga) / 1000, places=5)
 
     def test_porta_na_base_aponta_para_baixo(self):
         conj = self.nicho()
         grupo = self.porta_deitada(conj, 0.0)
         self.assertEqual(grupo['porta_frente'], 'NEG_Z')
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(hi[2], 0.0, places=5)
+        self.assertAlmostEqual(hi[2], -folga_reta() / 1000, places=5)
         self.assertLess(lo[2], 0.0)
 
     def test_lateral_e_porta_seguem_a_espessura_do_modulo(self):
@@ -1206,8 +1633,9 @@ class TestPortas(unittest.TestCase):
         bpy.context.view_layer.update()
         L, A, P, E = addon._caixa_do_modulo(conj)
         lo, hi = self.limites_folhas(conj, grupo)
-        self.assertAlmostEqual(hi[0] - lo[0], L / 1000, places=5)
-        self.assertAlmostEqual(hi[2] - lo[2], A / 1000, places=5)
+        r2 = 2 * addon.RESPIRO_PORTA_MM
+        self.assertAlmostEqual(hi[0] - lo[0], (L - r2) / 1000, places=5)
+        self.assertAlmostEqual(hi[2] - lo[2], (A - r2) / 1000, places=5)
         self.assertEqual(grupo['porta_parametros']['lateral_mm'], 30.0)
 
     def test_espessura_de_uma_folha_vale_para_a_porta(self):
@@ -1220,10 +1648,11 @@ class TestPortas(unittest.TestCase):
             self.assertEqual(folha.chapa_espessura_mm, 21.0)
             self.assertAlmostEqual(folha.dimensions.z, 0.021, places=5)
         self.assertEqual(grupo['porta_parametros']['espessura_mm'], 21.0)
-        # a face de tras continua no plano do vao
+        # a face de tras continua no plano do vao (mais a folga da Reta)
         lo, _ = self.limites_folhas(conj, grupo)
         L, A, P, E = addon._caixa_do_modulo(conj)
-        self.assertAlmostEqual(lo[1], -P / 2000 - 0.021, places=5)
+        self.assertAlmostEqual(lo[1], -(P / 2 + folga_reta()) / 1000 - 0.021,
+                               places=5)
         conj.conj_largura_mm = L + 100
         bpy.context.view_layer.update()
         for folha in addon._folhas_portas(grupo):
@@ -1407,12 +1836,15 @@ class TestPortas(unittest.TestCase):
         arestas = addon._arestas_da_porta(564.0, 364.0, cob, E, 'GIRO')
         self.assertEqual([a['lado'] for a in arestas], ['ESQUERDA', 'DIREITA'])
         esq, dir_ = arestas
-        self.assertEqual((esq['a'].x, esq['a'].y, esq['b'].y), (0.0, -18.0, 382.0))
+        cobre = E - addon.RESPIRO_PORTA_MM      # a Reta tambem tem respiro
+        self.assertEqual((esq['a'].x, esq['a'].y, esq['b'].y),
+                         (0.0, -cobre, 364.0 + cobre))
         self.assertEqual(dir_['a'].x, 564.0)
-        self.assertEqual((esq['cobertura'], dir_['cobertura']), (18.0, 9.0))
+        # meia = metade menos o respiro de 2 mm
+        self.assertEqual((esq['cobertura'], dir_['cobertura']), (cobre, 7.0))
         cima, = addon._arestas_da_porta(564.0, 364.0, cob, E, 'BASCULANTE')
         self.assertEqual((cima['lado'], cima['a'].y, cima['a'].x, cima['b'].x),
-                         ('CIMA', 364.0, -18.0, 573.0))
+                         ('CIMA', 364.0, -cobre, 571.0))
 
     def test_volume_da_dobradica_na_face_interna(self):
         cob = dict.fromkeys(addon.COBERTURAS_LADOS, 1.0)
@@ -1421,11 +1853,14 @@ class TestPortas(unittest.TestCase):
         faixa = lambda caixa, i: (min(p[i] for p in caixa), max(p[i] for p in caixa))
         # corpo: da face interna (x=0) para DENTRO do movel, atras da folha
         self.assertEqual(faixa(corpo, 0), (0.0, addon.DOBRADICA_AVANCO_MM))
-        self.assertEqual(faixa(corpo, 1), (82.0 - 25.0, 82.0 + 25.0))
+        cobre = 18.0 - addon.RESPIRO_PORTA_MM    # a folha comeca ai'
+        self.assertEqual(faixa(corpo, 1), (100.0 - cobre - 25.0,
+                                           100.0 - cobre + 25.0))
         self.assertEqual(faixa(corpo, 2), (-addon.DOBRADICA_FUNDO_MM, 0.0))
-        # caneco: na folha, a 5 mm da borda dela (x = -18), 12 mm de fundo
-        self.assertEqual(faixa(caneco, 0), (-13.0, 22.0))
-        self.assertEqual(faixa(caneco, 2), (0.0, addon.CANECO_FUNDO_MM))
+        # caneco: na folha, a 5 mm da borda dela (x = -cobre), 12 de fundo
+        self.assertEqual(faixa(caneco, 0), (-cobre + 5.0, -cobre + 40.0))
+        self.assertEqual(faixa(caneco, 2), (-addon.CANECO_ABA_MM,
+                                            addon.CANECO_FUNDO_MM))
         # do outro lado o volume aponta para o outro sentido
         (corpo, _caneco), = addon._caixas_dobradicas(dir_, [100.0], 0.0)
         self.assertEqual(faixa(corpo, 0), (564.0 - addon.DOBRADICA_AVANCO_MM, 564.0))
@@ -1442,8 +1877,71 @@ class TestPortas(unittest.TestCase):
                          [2, 2, 3, 4, 5])
         self.assertEqual(addon._qtd_pistoes_padrao(560), 1)
         self.assertEqual(addon._qtd_pistoes_padrao(800), 2)
-        self.assertEqual(addon._offset_pistoes_padrao(525), 175)
         self.assertEqual(addon.MARGEM_DOBRADICAS_PADRAO, 100.0)
+
+    def test_pistao_automatico_dobra_do_fechado_ao_aberto(self):
+        # Regra do usuario: aberta 90 graus = pistao no DOBRO do fechado.
+        # Modelo real do catalogo, o maior que cabe nos 2/3 de cima do vao.
+        e = 18.0
+
+        def folha(altura):          # Reta: a folha passa 18 mm em cima
+            return (600.0, altura + 2 * e, e, (300.0, altura / 2.0, e / 2.0))
+
+        def medidas(g, f):
+            lateral, fechada, aberta = addon._pontas_pistao(g, 25.0, f)
+            return (fechada - lateral).length, (aberta - lateral).length
+
+        escolhidos = []
+        for altura in (250.0, 350.0, 500.0, 800.0):
+            f = folha(altura)
+            g = addon._pistao_do_vao(altura, f)
+            self.assertIn(g['aberto'], [m[0] for m in addon.PISTOES_CATALOGO])
+            fechado, aberto = medidas(g, f)
+            self.assertAlmostEqual(fechado, g['aberto'] / 2.0, places=3)
+            self.assertAlmostEqual(aberto, g['aberto'], places=3)
+            self.assertLessEqual(g['offset'], altura * 2.0 / 3.0)
+            # a fixacao da lateral fica atras da folha, abaixo do suporte
+            lateral, na_folha, _a = addon._pontas_pistao(g, 25.0, f)
+            self.assertLess(lateral.y, na_folha.y)
+            self.assertLess(lateral.z, na_folha.z)
+            escolhidos.append(g['aberto'])
+        self.assertEqual(escolhidos, sorted(escolhidos))
+        self.assertLess(escolhidos[0], escolhidos[-1])
+        # a aberta e' a extensao maxima: a folha no lugar certo, girada
+        p = {'abertura': 'BASCULANTE'}
+        f = folha(350.0)
+        g = addon._pistao_do_vao(350.0, f)
+        _l, _f, aberta = addon._pontas_pistao(g, 25.0, f)
+        _l, fechada, _a = addon._pontas_pistao(g, 25.0, f)
+        giro = addon._matriz_abertura(p, 600.0, 1, 0, f, 1.0)
+        c = Vector(f[3])
+        girada = giro @ ((fechada - c) / 1000.0) * 1000.0
+        self.assertLess((girada - aberta).length, 1e-3)
+
+        # Manual: so' sobe. Descer alem do automatico trava no curso
+        # maximo; subir encurta o aberto e mantem o fechado.
+        auto = g['offset']
+        abaixo = addon._pistao_do_vao(350.0, f, auto + 80.0)
+        self.assertAlmostEqual(abaixo['offset'], auto, places=3)
+        acima = addon._pistao_do_vao(350.0, f, auto - 40.0)
+        self.assertAlmostEqual(acima['offset'], auto - 40.0, places=3)
+        self.assertEqual(acima['aberto'], g['aberto'])
+        fechado, aberto = medidas(acima, f)
+        self.assertAlmostEqual(fechado, g['aberto'] / 2.0, places=3)
+        self.assertLess(aberto, g['aberto'])
+        self.assertAlmostEqual(aberto, acima['alcance'], places=3)
+        # o wizard realca o VOLUME do pistao fechado (como as dobradicas):
+        # corpo e haste de ponta a ponta, mais os 2 suportes
+        itens = addon._pistoes_da_porta({'pistoes_qtd': 1}, 600.0, 350.0, [f])
+        caixas = addon._caixas_dos_itens_pistao(itens)
+        self.assertEqual(len(caixas), 4)
+        lateral, fechada, _a = addon._pontas_pistao(g, 25.0, f)
+        self.assertAlmostEqual((sum(caixas[0], Vector()) / 8
+                                - (lateral + fechada) / 2).length, 0.0, places=3)
+        # e nem o suporte da folha sobe ate' a dobradica
+        topo = addon._pistao_do_vao(350.0, f, 1.0)
+        self.assertAlmostEqual(topo['offset'], topo['offset_min'], places=3)
+        self.assertAlmostEqual(topo['d'], addon.PISTAO_DA_DOBRADICA_MIN_MM)
 
     def test_porta_guarda_as_ferragens_do_wizard(self):
         conj = self.nicho()
@@ -1481,7 +1979,9 @@ class TestPortas(unittest.TestCase):
         conj, cima, baixo = self.duas_fileiras()
         folha = addon._folhas_portas(cima)[-1]
         a = conj.matrix_world @ Vector((-0.3, -0.15, 0))
-        b = conj.matrix_world @ Vector((0.3, -0.168, 0.682))
+        # a base da porta de cima (onde a de baixo foi apoiada)
+        z = self.limites_folhas(conj, cima)[0][2]
+        b = conj.matrix_world @ Vector((0.3, -0.168, z))
         chapa = addon._chapas_do_conjunto(conj)[0]
         tipo = addon.OBJECT_OT_apanhar_vao_portas
         # 4 cliques: porta e vao no mesmo ponto nos dois cantos

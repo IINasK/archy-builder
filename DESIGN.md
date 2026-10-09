@@ -270,23 +270,25 @@ novo). Depois, caixas desenhadas ao lado do clique (popup nativo nao, o
 release respondia), na ordem: Folhas (1 | 2) -> abertura so' com o que
 nao se deduz (Giro | Basculante, ou Giro | Correr na embutida; 2 folhas
 por cima = giro direto) -> clique na borda das dobradicas (verde; 2
-folhas de giro = as duas) -> scroll = quantidade (padrao pela altura:
-2/3/4/5) -> mouse em Y = margem das quinas (padrao 100 mm) ->
-basculante: pistoes com o mesmo sistema, offset do TOPO para baixo
-(padrao 1/3 da altura). Esc cancela, botao direito volta uma etapa.
-As dobradicas aparecem como VOLUME (caixas laranja, raio-X), nao
+folhas de giro = as duas; basculante = sempre CIMA, sem perguntar) ->
+scroll = quantidade (padrao pela altura: 2/3/4/5) -> mouse em Y = margem
+das quinas (padrao 100 mm) -> basculante: scroll = quantidade de pistoes
+e a posicao nasce AUTOMATICA (modelo real do catalogo; aberta = pistao no
+dobro do fechado); o mouse em Y so' SOBE o pistao (descer passaria do
+curso). Esc cancela, botao direito volta uma etapa.
+Dobradicas e pistoes aparecem como VOLUME (caixas laranja, raio-X), nao
 pontos: o corpo na FACE INTERNA da chapa, para dentro do movel atras
 da folha, e o caneco de 35 mm nas costas da folha (print do usuario:
-os pontos ficavam na borda de fora da folha).
+os pontos ficavam na borda de fora da folha); o pistao FECHADO (corpo,
+haste e suportes) e um fio branco ate' onde ele vai com a porta aberta.
 Aba Portas: "Criar Portas" LARANJA desde o inicio e nada mais; cada
 categoria APARECE quando o wizard a responde (Folhas, depois Abertura),
 na mesma ordem, so' mostrando -- quem decide e' a caixa da viewport.
 Porta pronta selecionada revela tudo, editavel. Dobradica (automatica)
 e Converter em porta/dupla sairam da aba (pedido do usuario; F3 segue).
 Porta pronta: o clique simples (a porta inteira) mostra, em raio-X, o
-contorno BRANCO de cada folha, as linhas internas do vao em AMARELO, o
-volume das dobradicas onde o wizard as pos e os mesmos fios dos 4
-cantos; segurando Alt aparecem as 4 bolinhas brancas e arrastar
+contorno BRANCO de cada folha, as linhas internas do vao em AMARELO e
+os mesmos fios dos 4 cantos (as dobradicas nao: ver Ferragens); segurando Alt aparecem as 4 bolinhas brancas e arrastar
 uma ate' outro vertice refaz a porta como se o clique tivesse sido
 dado ali (cobertura e dobradica automaticas; fora do padrao pergunta).
 Abertura (Epico 4): um SLIDER por folha, so' com a porta ou a folha
@@ -302,10 +304,42 @@ de 7 px (ilegivel). Recuado das pontas da folha
 folga no meio. So' a BOLINHA pega o clique (gizmo do tamanho dela, que
 acende sob o mouse); o trilho nao. Pegar fora do centro nao a faz pular. Arrastar para a DIREITA abre, para a esquerda fecha, seja qual
 for o lado da dobradica (pedido do usuario). Esc/botao direito volta.
-Ferragens (dobradica, caneco, pistao, trilho) sao malhas de verdade,
-nunca selecionaveis; o clique numa delas vale pela folha.
+A folha NUNCA fica rente a' borda do armario (prints do usuario), em
+nenhum cenario: toda cobertura padrao deixa 2 mm de respiro -- Reta cobre
+a espessura menos 2, Curva a metade menos 2 (duas portas na mesma chapa
+do meio nao se encostam), embutida e correr ficam 2 mm para dentro do
+vao. A "Folga no perimetro" soma por cima; cobertura fora do padrao,
+marcada e confirmada pelo usuario, vale como marcada.
+Dobradica RETA = o modelo e o rig do usuario (arquivo dele, extraido por
+`extrair_dobradica.py`), importados tal e qual -- nada refeito: a folha
+abre como a dele (gira E anda, 91,7 graus no fim) e o copo fura a folha
+(Boolean -- o cortador e' a unica peca refeita: o do modelo era um
+octogono menor que o copo e fora do centro, sobravam lascas da porta
+dentro do copo; agora e' um cilindro medido no copo, com 0,2 mm de folga).
+A folha fica no minimo a 1,86 mm do modulo, a folga do modelo
+dele: encostada, o canto da folha aberta entrava no tampo (print do
+usuario). Curva e embutida seguem com o volume em caixa e eixo fixo.
+Ferragens (dobradica, caneco, pistao, trilho) sao malhas de verdade, e
+NADA fica fora da edicao nativa (pedido do usuario): duplo clique numa
+peca seleciona so' ela, como objeto do Blender (Tab, G/R/S, X,
+modificadores). Elas so' nao acendem junto com a porta nem com o modulo.
+A malha de uma peca do rig e' dividida entre as copias (editar uma muda
+todas); a das caixas e' refeita quando a porta muda. Dobradicas e pistoes so'
+APARECEM criando a porta ou SELECIONADOS (pedido do usuario): clique numa
+dobradica = todas as dobradicas do modulo, num pistao = todos os pistoes,
+Shift soma (ou tira) o outro tipo. Nesse modo so' elas ficam acesas
+(volume laranja, raio-X): porta sem contorno branco, modulo e puxadores
+apagados. Segurando Alt, um controlador (bolinha branca) por porta e
+tipo: o da dobradica corre na BORDA (margem; passar do meio conta da
+outra ponta, espelhada), o do pistao na LATERAL (distancia do topo, trava
+no curso; voltar ao ponto automatico grava 0). Arrastando, aparece o
+trilho; Esc/botao direito devolve. Trilho do correr: o clique vale pela
+folha.
+Varios itens selecionados: o ATIVO (a selecao principal, que manda nas
+funcoes) tem as linhas da HUD levemente mais grossas (+40%, min. 1 px;
+`_principal_hud`). Com um item so', nada muda.
 Modulo selecionado (clique nas CHAPAS, que leva a porta junto):
-nada do desenho da porta aparece -- dobradicas, vao amarelo,
+nada do desenho da porta aparece -- vao amarelo,
 diagonal, cantos e sliders; fica so' a HUD do modulo (pedido do
 usuario: visao mais limpa).
 Selecao de porta (Epico 3): clique = a porta inteira, nunca o modulo;
@@ -316,6 +350,32 @@ rotulo | controle; empilha < 250 px). EXCECAO pedida pelo usuario, so'
 ali: lista suspensa (`suspenso`, itens apos o widget `fundo`, desenhados
 por ultimo e atendidos primeiro), `faixa` 1-50 (arrasta; clique digita)
 e `cor` (atalhos + quadro S/V + matiz, aberto na propria linha).
+
+Nome do grupo (pedido do usuario): ao agrupar, F3 (viewport) abre o
+dialogo do Blender com "Armario LxAxP" ja' escrito; a Corrente juntando
+pecas soltas pela gaveta mostra a MESMA caixa preta das perguntas, com o
+campo "Nome do grupo: ...|" (digita direto, Enter/OK confirma, Esc/Manter
+fica a sugestao). Outliner: cada armario e' uma Collection com o nome dele;
+dentro, o Empty, as chapas e a porta ("Porta Dupla", "Porta de Correr"...).
+
+Orcamento (ERP do usuario), no fim da aba Modulos: titulo como o de
+Montagem (sem separador: os da aba sao da cascata). Com armario
+selecionado, o COMODO e' UMA linha "Comodo: Cozinha" com a seta da lista
+suspensa (a grade fixa de 14 segmentos ocupava a aba -- RECUSADA pelo
+usuario). O clique EXPANDE a lista dentro da aba, empurrando o resto
+(nao flutua: sem conflito com o recorte do painel): os comodos do
+prompt, os ja' digitados na cena, "Sem comodo" (se ha' um) e "Outro
+nome...", que abre o campo da caixa preta logo abaixo (Enter/OK,
+Esc/Cancelar). Escolher fecha a lista e vale para todos os armarios
+selecionados. O comodo e' uma PASTA no Outliner (Collection na raiz com
+as dos armarios dentro). Depois, "Copiar orcamento (ERP)": copiar
+ACENDE o botao com o que fez ("Copiado: N modulo(s)") e as pendencias
+aparecem numa caixa preta logo abaixo, por 30 s -- so' o relatorio da
+barra de status passava despercebido ("copiar e nada acontece").
+
+"Criar Puxador": mesmo padrao do "Criar Portas" -- LARANJA, no topo da
+aba Puxadores, largura inteira, texto centralizado, mais forte enquanto
+posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
 
 ## 10. Animacao
 

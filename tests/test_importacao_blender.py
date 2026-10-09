@@ -399,7 +399,8 @@ class TestImportacao(unittest.TestCase):
         modulos = bloco('MODULOS')
         self.assertEqual(sum(1 for b in modulos if b[4] == 'cadeado'), 3)
         self.assertEqual(relativo(bloco('PORTAS')), relativo(modulos))
-        self.assertEqual(bloco('PUXADORES'), modulos)
+        # Puxadores tambem tem o botao laranja no topo (como Portas)
+        self.assertEqual(relativo(bloco('PUXADORES')), relativo(modulos))
         # editar uma medida escala so' aquele eixo do puxador
         altura_antes = limites([pux])[1][2] - limites([pux])[0][2]
         self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(

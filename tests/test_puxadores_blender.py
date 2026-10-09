@@ -229,8 +229,11 @@ class TestPuxadores(unittest.TestCase):
                         and v[5][1] == 'cabinet_puxador_modelo']
             self.assertEqual([e[2] for e in escolhas], list(addon.MODELOS_PUXADOR))
             self.assertEqual(sum(e[3] for e in escolhas), 1)
-            self.assertIn(('operador', 'object.cabinet_posicionar_puxador'),
-                          [v[5] for v in widgets])
+            # no TOPO da aba, laranja, como o "Criar Portas"
+            criar = [v for v in widgets if v[5] and v[5][0] == 'criar_puxador']
+            self.assertEqual([v[4] for v in criar], ['Criar Puxador'])
+            self.assertGreater(criar[0][1], max(
+                v[1] for v in widgets if v[5] and v[5][0] == 'escolha'))
             caixas = [v[:4] for v in widgets]
             for i, (ax, ay, aw, ah) in enumerate(caixas):
                 for bx, by, bw, bh in caixas[i + 1:]:

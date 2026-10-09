@@ -36,7 +36,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Falha em `test_estrutura_blender.py` = "isto era de proposito": confirme
   com o usuario antes de mudar; nao conserte o teste.
 - Testes nunca escrevem na biblioteca real (`cabinet_creator/biblioteca`).
-- Cada entrega: `bl_info["version"]` +1 (hoje 165.0.0).
+- Cada entrega: `bl_info["version"]` +1 (hoje 176.0.0).
 
 ## Invariantes — NAO quebrar
 
@@ -45,7 +45,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 2. Nomes gravados nos .blend (renomear quebra a biblioteca): `eh_chapa`,
    `eh_conjunto_chapa`, `chapa_*`, `conj_*`, `adj_*`, `chapa_uid`,
    `eh_grupo_portas`, `eh_folha_porta`, `porta_*`, `eh_acessorio`,
-   `eh_puxador`, `puxador_*`, e o atributo de malha `cabinet_canto`.
+   `eh_puxador`, `puxador_*`, `eh_colecao_modulo`, `eh_colecao_comodo`,
+  atributo `cabinet_canto`.
 3. Marcadores sao ID props (`MARCA_CHAPA in obj`); props de `bpy.props`
    sao RNA e NAO aparecem em `"x" in obj`. Nao troque um pelo outro.
 4. Escrita de prop com `update=` feita por codigo: dentro de
@@ -53,13 +54,11 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
    cedo com `_ocupado[0]`. Regenere malha DEPOIS do `finally`.
 5. Geometria em MUNDO (`_eixos`, `_centro`, `_cantos`); grave posicao com
    `_definir_centro` (respeita pai e `matrix_parent_inverse`).
-6. `view_layer.update()` antes de ler `matrix_world` depois de mexer
-   (depsgraph defasado -- origem de varios bugs ja' corrigidos).
+6. `view_layer.update()` antes de ler `matrix_world` depois de mexer.
 7. Vizinho por UID, nao por nome (preset inserido vira `.001`).
 8. Espessura LIVRE (`_espessura_livre`, so' > 0); acima de 60 mm o campo
    fica vermelho. Nao arredondar para `ESPESSURAS_PERMITIDAS`.
-9. Malha por bmesh: o 5.2 nao deixa escrever input de Geometry Nodes por
-   Python (issue #160038).
+9. Malha por bmesh: o 5.2 nao escreve input de Geometry Nodes (#160038).
 10. Malha modelada nunca e' substituida: `_esticar_malha` estica;
     `gerar_malha_chapa` so' refaz a caixa padrao. `chapa_auto` e' residuo.
 11. `bpy.ops` nao roda em `register()`: adie com `bpy.app.timers`.
@@ -82,12 +81,11 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 - Pergunta Sim/Nao: pop-up SO' quando a acao veio da viewport; de botao da
   gaveta, caixa preta DENTRO dela. Sempre por `_perguntar`.
-- Selecao: clique = modulo, duplo = peca. PORTA: clique = a porta
-  inteira (nunca o modulo), duplo = uma folha; contorno nativo segue
-  desligado nas duas. Ferragens nunca se selecionam. O CLIQUE leva a
-  gaveta a' aba do item (porta/modulo/puxador; `_seguir_selecao_na_gaveta`).
-  Shift soma (`_somar_peca`). A SELECAO decide o que se edita: sem
-  "Editar como?"; varios itens = uma seta por item (os sem seta piscam).
+- Selecao: clique = modulo, duplo = peca. PORTA: clique = porta inteira
+  (nunca o modulo), duplo = folha; sem contorno nativo. FERRAGEM so' aparece
+  criando ou selecionada: clique = todas do tipo no modulo (Shift soma o
+  outro), Alt = controlador, duplo = a PECA (nativa: Tab/G/X). O CLIQUE
+  leva a gaveta a' aba do item; Shift soma. A SELECAO decide o que edita.
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo
   DESVIO dela (> 5 mm na viewport, qualquer um no botao). Regua: chapa
   ativa se move (pergunta se mudar medida); modulo ativo se adapta.
@@ -96,35 +94,38 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   quem se move (a ativa, de qualquer lado da solda) anda pelas soldas
   NORMAIS e entorta o resto (canto + o do outro lado da espessura). O par
   que ja' encostou some. Solda nova ou redetectada volta as de fabrica.
-- Vertice de canto se acha pelo atributo `cabinet_canto` (gravado na
-  caixa): pelo SINAL da coordenada erra quando o canto cruza a origem.
-  Malha modelada (chanfro): a ancora e' qualquer vertice, `v<indice>`.
-- Espessura de UMA chapa nao mexe em mais nada (sem adjacencia
-  global); so' o E do MODULO acomoda as pecas internas.
-- Aba Portas: "Criar Portas" LARANJA no TOPO (abaixo das abas); o resto
-  so' APARECE conforme o wizard responde (Folhas, depois Abertura; so'
-  mostram) ou com porta pronta selecionada (tudo, editavel). Sem
-  Dobradica (automatica) nem Converter em porta/dupla (so' F3). Portas
-  em fases: 2 (wizard) e 3 (ferragens, pivo, slider) prontas.
-- Wizard de portas (`cabinet_apanhar_vao`, porta NOVA): 4 CLIQUES =
-  canto da porta, canto do vao, vao oposto, porta oposta (fio laranja =
-  cobertura, branco = vao). Cobertura por lado em FRACAO da espessura
-  (`cobertura_*_e` em `porta_parametros`): 1 = Reta, 0.5 = Curva, 0 =
-  embutida/Super Curva -- dobradica AUTOMATICA, nao se escolhe (nem na
-  aba). Par 1-2 (ou 3-4) no mesmo ponto: vale a margem do outro, para
-  dentro. Fora do padrao (+-2 mm): "As medidas estao corretas?". Depois,
-  caixas desenhadas pelo modal (nao popup_menu: o release responderia):
-  Folhas -> abertura (so' o que nao se deduz) -> borda das dobradicas
-  (clique) -> scroll = qtd -> mouse Y = margem -> pistoes no basculante
-  (offset do topo); a aba segue a MESMA ordem. Reposicionar = diagonal de 2.
+- Vertice de canto: atributo `cabinet_canto` (pelo SINAL da coordenada erra
+  ao cruzar a origem). Malha modelada: ancora = qualquer vertice, `v<i>`.
+- Espessura de UMA chapa nao mexe em mais nada; so' o E do MODULO acomoda.
+- Grupo (armario) = Empty + Collection com o MESMO nome (`_nome_livre`), na
+  raiz da cena: chapas e a porta ("Porta Dupla"... `_nome_da_porta`). Nome
+  ao agrupar: F3 = dialogo; Corrente juntando SOLTAS = campo na gaveta.
+  Desagrupar manda a chapa a' raiz. A porta guarda o NOME do modulo.
+- Orcamento do ERP (`orcamento_da_cena`, aba Modulos): documento COMPLETO
+  no padrao do prompt do usuario, so' Moveis. Modulo = NOME do grupo,
+  detalhes so' do 3D; o que falta vira Pendencia. COMODO = PASTA no Outliner
+  (Collection marcada com as dos armarios; a unica fonte), escolhido numa
+  linha que EXPANDE (+ "Outro nome..."). Copiar mostra o resultado NA gaveta.
+- Aba Portas: "Criar Portas" LARANJA no TOPO (o "Criar Puxador" tambem, na
+  dele); o resto so' APARECE conforme o wizard responde ou com porta pronta
+  selecionada (tudo, editavel). Sem Dobradica nem Converter em porta (F3).
+- Wizard de portas (`cabinet_apanhar_vao`, porta NOVA): 4 CLIQUES = canto
+  da porta, canto do vao, vao oposto, porta oposta (fio laranja = cobertura,
+  branco = vao). Cobertura por lado em FRACAO da espessura (`cobertura_*_e`):
+  1 = Reta, 0.5 = Curva, 0 = Super Curva -- dobradica AUTOMATICA; NUNCA
+  rente a' borda: padrao deixa 2 mm (`RESPIRO_PORTA_MM`). Par 1-2 (ou 3-4)
+  no mesmo ponto: margem do outro. Fora do padrao: "As medidas estao corretas?".
+  Depois, caixas do modal (popup_menu nao: o release responderia): Folhas
+  -> abertura -> borda das dobradicas (clique; basculante = CIMA) -> scroll
+  = qtd -> mouse Y = margem -> pistoes (qtd; posicao AUTO por aberto = 2x
+  fechado, Y so' sobe); aba na MESMA ordem. Reposicionar = diagonal de 2.
 - Porta selecionada POR SI (clique nela; o modulo selecionado nao mostra
-  nada disto): contorno branco, vao amarelo, dobradicas, fios dos 4
-  cantos e um slider por folha (direita abre). Com Alt as bolinhas
-  arrastam e refazem a porta (`_cantos_da_porta`: REFEITOS de vao +
-  cobertura, nunca gravados -- seguem o modulo).
+  nada disto): contorno branco, vao amarelo, fios dos cantos e
+  um slider por folha. Alt arrasta as bolinhas e refaz a porta
+  (`_cantos_da_porta`: REFEITOS de vao + cobertura, nunca gravados).
 - Corrente conecta sozinha ate' 5 mm (`ALCANCE_CONEXAO_AUTOMATICA`); alem: vertice.
-- Empties do add-on (modulo, grupo de portas, pistao) FICAM (o parentesco
-  move o armario e salva o preset) mas invisiveis: `_ocultar_empty`.
+- Empties do add-on (modulo, porta, pistao) FICAM (o parentesco move o
+  armario e salva o preset), invisiveis: `_ocultar_empty`.
 - Gaveta sem redundancia: sem nome do item, sem "Sincronizar", sem
   Auto-regenerar, sem correntes entre as abas; Montagem = Corrente e
   Resetar distancia (Agrupar/Converter so' no F3).
@@ -174,10 +175,11 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   Folgas da porta ao modulo em ESPESSURAS (`CHAVE_FOLGAS_PORTA`), nao mm.
   Frente sempre automatica (`_frente_automatica`): grave-a ja' resolvida.
   Os dois caminhos de captura do vao usam o MESMO `_referencia_do_par`.
-  Abertura: giro na `matrix_basis` da folha (centrada, filha do grupo;
-  mede-se por `_matriz_fechada`). Ferragem e' `hide_select` (o Blender
-  nao a seleciona): `_conferir_ferragens` limpa as soltas e refaz.
-  Vertices do vao lidos UMA vez no invoke (depsgraph por movimento trava).
+  Abertura na `matrix_basis` da folha (centrada, filha do grupo; mede-se
+  por `_matriz_fechada`). Nada de `hide_select` (tudo editavel); ferragem
+  refeita por `_conferir_ferragens`. Vertices do vao lidos UMA vez.
+  Reta = modelo+rig do USUARIO (`ferragens/`, `extrair_dobradica.py` no
+  4.2): nao refazer (so' o furo do copo, medido); folha segue a TABELA.
 - Puxador parametrico: `posicionar_puxador` refaz pelas PROPS da chapa pai
   no fim de `gerar_malha_chapa`, nunca por delta. O perfil corta so' a
   malha; props e HUD continuam nominais.
@@ -188,10 +190,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 ## Git
 
-- Commit em portugues, verbo no presente, 3a pessoa ("Renomeia ...").
-  Commitar so' quando o usuario pedir.
-- `.blend` e `.png` sao binarios. `dist/`, `*.blend1`, `__pycache__`
-  ignorados.
+- Commit em portugues, verbo no presente, 3a pessoa, so' a pedido do
+  usuario. `.blend`/`.png` binarios; `dist/`, `*.blend1`, `__pycache__` fora.
 
 ## Residuos conhecidos
 

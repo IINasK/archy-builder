@@ -261,12 +261,13 @@ class TestGaveta(unittest.TestCase):
             self.cena.cabinet_aba = aba
             _cab, _conteudo, rodape = addon._partes_gaveta(
                 addon._widgets_gaveta(bpy.context, 320, 1400))
-            # fechada: o rodape e' a engrenagem no pe' da gaveta -- e, na
-            # aba Puxadores, o botao de criar ao lado dela. O "Criar
-            # Portas" subiu para o topo da aba (Epico 2.3).
-            self.assertEqual(len(rodape), 2 if aba == 'PUXADORES' else 1, aba)
-            if aba == 'PORTAS':
-                botao = next(v for v in _conteudo if v[5] and v[5][0] == 'portas')
+            # fechada: o rodape e' so' a engrenagem no pe' da gaveta. O
+            # "Criar Portas" subiu para o topo da aba (Epico 2.3) e o
+            # "Criar Puxador" foi atras, no mesmo padrao (pedido do usuario).
+            self.assertEqual(len(rodape), 1, aba)
+            if aba in {'PORTAS', 'PUXADORES'}:
+                verbo = 'portas' if aba == 'PORTAS' else 'criar_puxador'
+                botao = next(v for v in _conteudo if v[5] and v[5][0] == verbo)
                 medidas = [v for v in _conteudo if v[5] and v[5][0] == 'medida']
                 # logo abaixo das abas, largura inteira, acima do bloco
                 self.assertGreater(botao[1], max(v[1] + v[3] for v in medidas))
@@ -274,10 +275,6 @@ class TestGaveta(unittest.TestCase):
             self.assertEqual(rodape[0][5], ('operador', addon.OP_OPCOES))
             for v in rodape:
                 self.assertLess(v[1] + v[3], addon.ALTURA_RODAPE_GAVETA)
-            if aba == 'PUXADORES':
-                criar = ('operador', 'object.cabinet_posicionar_puxador')
-                self.assertEqual(rodape[1][5][:len(criar)], criar)
-                self.assertGreater(rodape[1][0], rodape[0][0] + rodape[0][2])
             if aba != 'MODULOS':
                 # nome do item e "Chapa" ficam fora das duas abas
                 widgets = addon._widgets_gaveta(bpy.context, 320, 1400)
@@ -975,7 +972,8 @@ class TestGaveta(unittest.TestCase):
         finally:
             addon._apanhando_vao[0] = False
         fonte = inspect.getsource(addon._desenhar_gaveta)
-        self.assertIn("acao[0] == 'portas' and acao[2]", fonte)
+        self.assertIn("acao[0] in BOTOES_CRIAR and acao[2]", fonte)
+        self.assertEqual(addon.BOTOES_CRIAR, ('portas', 'criar_puxador'))
 
     def test_motivo_portas_reflete_a_aba(self):
         self.assertEqual(addon._motivo_portas(self.cena), '')

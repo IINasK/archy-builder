@@ -323,6 +323,27 @@ class TestHUD(unittest.TestCase):
         bpy.context.view_layer.objects.active = primeiro
         return primeiro, segundo
 
+    def test_selecao_principal_tem_a_linha_mais_grossa(self):
+        # Pedido do usuario: com 2+ itens selecionados, o ATIVO (que manda
+        # nas funcoes) sai levemente mais grosso; com 1 so', nada muda.
+        primeiro, segundo = self.dois_modulos()
+        contexto = _ContextoRegiao()
+        desenhos = addon._desenhos_hud(contexto)
+        self.assertEqual(len(desenhos), 2)
+        principal = addon._principal_hud(contexto, desenhos)
+        self.assertIs(desenhos[principal][0]['objeto'], primeiro)
+        bpy.context.view_layer.objects.active = segundo
+        desenhos = addon._desenhos_hud(contexto)
+        principal = addon._principal_hud(contexto, desenhos)
+        self.assertIs(desenhos[principal][0]['objeto'], segundo)
+        for o in [primeiro, *primeiro.children_recursive]:
+            o.select_set(False)
+        self.assertIsNone(addon._principal_hud(
+            contexto, addon._desenhos_hud(contexto)))
+        # levemente: +40%, nunca menos de 1 px
+        self.assertEqual(addon._espessura_principal_hud(1.5), 2.5)
+        self.assertEqual(addon._espessura_principal_hud(10.0), 14.0)
+
     def test_clique_num_de_varios_selecionados_deixa_so_ele_ao_soltar(self):
         primeiro, segundo = self.dois_modulos()
         chapa = addon._chapas_do_conjunto(segundo)[0]
@@ -1154,10 +1175,18 @@ class TestHUD(unittest.TestCase):
                          {'FINISHED'})
         self.assertEqual(addon._vizinho_da_ponta(piso, 'x_pos'), lateral)
         self.assertIsNone(addon._vizinho_da_ponta(piso, 'x_neg'))
+        # as duas estavam soltas: a Corrente as junta num GRUPO com nome
+        # (pedido do usuario); a intrusa fica de fora
+        grupo = addon._modulo_da_chapa(piso)
+        self.assertIsNotNone(grupo)
+        self.assertIs(addon._modulo_da_chapa(lateral), grupo)
+        self.assertIsNone(addon._modulo_da_chapa(intrusa))
+        self.assertTrue(grupo.name.startswith('Armario '))
         # a 10 mm a automatica falha: selecionar vertice, so' nos alvos
-        addon.desagregar(piso)
+        addon.desagregar_grupo([piso, lateral])
         lateral.location.x += 0.007
         bpy.context.view_layer.update()
+        self.selecionar(lateral, piso, ativo=piso)
         self.assertEqual(addon._acao_corrente(bpy.context),
                          ('vertices', piso, [lateral]))
         estado = {'origem': piso.name, 'fase': 'destino',

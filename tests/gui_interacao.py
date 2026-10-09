@@ -677,8 +677,9 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
 
 
 def test_wizard_basculante_com_pistoes(janela, m):
-    # Basculante: dobradicas em CIMA e, com o mesmo sistema, os pistoes
-    # -- offset de cima para baixo. Quina de fora = Reta, automatica.
+    # Basculante: dobradicas SEMPRE em CIMA (sem perguntar a borda) e os
+    # pistoes na posicao automatica; o mouse em Y so' os sobe (descer
+    # passaria do curso). Quina de fora = Reta, automatica.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
     yield
@@ -692,16 +693,8 @@ def test_wizard_basculante_com_pistoes(janela, m):
     w = addon._assistente_porta[0]
     yield from _clicar_botao_do_wizard(m, regiao, '1')
     yield from _clicar_botao_do_wizard(m, regiao, 'BASCULANTE')
-    assert w['etapa'] == 'EIXO'
-    assert {x['lado'] for x in w['arestas']} == {'CIMA'}
-    cima = w['arestas'][0]
-    meio = (cima['a'] + cima['b']) / 2
-    m.mover(*na_tela(regiao, rv3d, w['matriz'] @ Vector(
-        (meio.x / 1000.0, meio.y / 1000.0, 0))))
-    yield
-    yield
-    m.clicar()                                   # borda de cima: Reta
-    yield
+    assert w['etapa'] == 'QUANTIDADE', w['etapa']
+    assert w['aresta']['lado'] == 'CIMA'
     assert w['escolhas']['dobradica_lado'] == 'CIMA', w['escolhas']
     assert w['escolhas']['dobradica'] == 'RETA', w['escolhas']
     m.clicar()                                   # quantidade padrao
@@ -717,10 +710,16 @@ def test_wizard_basculante_com_pistoes(janela, m):
     yield
     assert w['etapa'] == 'PISTOES_OFFSET'
     inicial = w['poffset']
+    assert abs(inicial - w['poffset_auto']) < 1e-6
     for passo in range(1, 4):
-        m.mover(m.x, m.y - 8 * passo)             # descer o mouse
+        m.mover(m.x, m.y - 8 * passo)             # descer: trava no curso
         yield
-    assert w['poffset'] > inicial, (inicial, w['poffset'])
+    assert abs(w['poffset'] - inicial) < 1e-6, (inicial, w['poffset'])
+    assert 'curso maximo' in w['recado'], w['recado']
+    for passo in range(1, 6):
+        m.mover(m.x, m.y + 8 * passo)             # subir: o pistao sobe
+        yield
+    assert w['poffset'] < inicial - 1, (inicial, w['poffset'])
     offset = w['poffset']
     m.clicar()
     yield
@@ -1647,6 +1646,69 @@ def test_digitar_no_campo_da_gaveta(janela, m):
     assert abs(chapa.dimensions.x - 0.75) < 1e-5
 
 
+def test_comodo_e_copiar_orcamento_pela_gaveta(janela, m):
+    # Orcamento do ERP: a linha do comodo expande, o clique na opcao poe
+    # o armario na PASTA do comodo (Outliner) e fecha a lista; o botao
+    # copia e diz na propria gaveta o que fez ("copiar e nada acontece").
+    # A area de transferencia do usuario volta como estava no fim.
+    conj = criar_modulo(janela)
+    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    bpy.context.scene.cabinet_aba = 'MODULOS'
+    yield
+    yield
+    wm = bpy.context.window_manager
+    antes = wm.clipboard
+    try:
+        m.mover(*widget(janela, lambda v: v[5][:2] == (
+            'suspenso', addon.SUSPENSO_COMODO)))
+        yield
+        m.clicar()
+        yield
+        m.mover(*widget(janela, lambda v: v[5][0] == 'escolha'
+                        and v[5][5] == addon.ALVO_COMODO
+                        and v[5][2] == 'Cozinha'))
+        yield
+        m.clicar()
+        yield
+        comodo = addon._comodo_do_modulo(conj)
+        assert comodo is not None and comodo.name == 'Cozinha', comodo
+        assert bpy.context.screen.get(addon._CHAVE_SUSPENSO, '') == '', \
+            'a lista devia fechar depois da escolha'
+        m.mover(*widget(janela, lambda v: v[5][:2] == (
+            'operador', addon.OP_EXPORTAR_ORCAMENTO)))
+        yield
+        m.clicar()
+        yield
+        copiado = wm.clipboard
+        assert copiado == addon.orcamento_da_cena(bpy.context.scene)[0]
+        assert '### Cozinha\n- %s\n' % conj.name in copiado, copiado
+        widget(janela, lambda v: v[5][:2] == (
+            'operador', addon.OP_EXPORTAR_ORCAMENTO) and v[5][2]
+            and v[4].startswith('Copiado: 1 modulo(s)'))
+    finally:
+        wm.clipboard = antes
+        addon._apagar_orcamento_copiado()
+
+
+def test_criar_puxador_no_topo_da_aba(janela, m):
+    # Mesmo padrao do "Criar Portas": topo da aba, laranja; o clique
+    # comeca o posicionamento e o botao avisa enquanto ele dura.
+    bpy.context.scene.cabinet_aba = 'PUXADORES'
+    yield
+    m.mover(*widget(janela, lambda v: v[5][0] == 'criar_puxador'))
+    yield
+    m.clicar()
+    yield
+    try:
+        assert addon._posicionador_puxador[0] is not None, 'nao comecou'
+        widget(janela, lambda v: v[5][0] == 'criar_puxador' and v[5][2]
+               and v[4].startswith('Posicionando'))
+    finally:
+        m.tecla('ESC')
+        yield
+    assert addon._posicionador_puxador[0] is None, 'Esc devia encerrar'
+
+
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_clique_na_aba_troca_a_aba,
        test_arrastar_a_divisoria,
@@ -1657,6 +1719,8 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_a_seta_da_hud_estica_com_a_quina_parada,
        test_clicar_na_seta_e_digitar_a_medida,
        test_digitar_no_campo_da_gaveta,
+       test_comodo_e_copiar_orcamento_pela_gaveta,
+       test_criar_puxador_no_topo_da_aba,
        test_digitar_com_operador_e_cursor_no_meio,
        test_wizard_quatro_cliques_meia_chapa_vira_curva,
        test_wizard_basculante_com_pistoes,
