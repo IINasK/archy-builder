@@ -61,7 +61,6 @@ duas camadas na mesma funcao e' o erro mais comum aqui.
 | Botao de operador | 28 | 34 |
 | Titulo de secao / rotulo | 23 / 20 | 31 / 26 |
 | Linha da cascata | 25 | 39 |
-| Rodape (Chapa/Auto/nome) | 26 | 29 quebrando, 35 no fim |
 
 Margem lateral `x = 12`, `w = max(24, min(540, largura - 24))`; 6 px
 entre itens da mesma linha (4 na cascata); raio 4 no botao e 3 no
@@ -94,12 +93,27 @@ logica**:
 | < 240 px | coluna unica |
 
 Botoes de Montagem: `colunas = min(3, max(1, w // 36))`. A gaveta
-**para de crescer em 564 px** (`_LARGURA_MAX_GAVETA`): texto
+**abre na menor largura com L/A/P na mesma linha**
+(`LARGURA_MEDIDAS_EM_LINHA` x escala + 2, `_largura_inicial_gaveta`;
+teto de metade da viewport) e **para de crescer em 564 px**
+(`_LARGURA_MAX_GAVETA`, nunca abaixo da inicial): texto
 em coluna larga fica ilegivel e a miniatura vira faixa. Como
 `Area.width` e' somente leitura, quem corrige e' o timer
 `_limitar_largura_gaveta`, **depois** do resize — nunca um modal.
 Regra de ouro, com teste: widget nenhum termina fora de
 `min(largura - 12, 552)`.
+
+**Dois paineis** (pedido do usuario, como Outliner | Properties): a aba
+em cima, a **biblioteca fixa embaixo** nas tres abas, sempre aberta.
+Entre eles o widget `divisa` (`_paineis_gaveta` corta o conteudo nele):
+nasce na metade (`DIVISA_PADRAO`), guarda FRACAO em
+`screen['cabinet_gaveta_divisa']` e deixa `ALTURA_MIN_PAINEL_GAVETA` a
+cada lado. Perto dela: halo, pega e cursor MOVE_Y; arrastar = modal
+transitorio (Esc desfaz). Cada painel tem rolagem propria (a roda rola
+o que esta' sob o mouse) e e' recortado por `scissor`; o carrossel
+recorta na INTERSECAO com o painel. Widget cortado recebe clique so'
+na parte visivel (`_recortar_ao_painel`); icone e slider so' inteiros.
+Exigir o widget inteiro deixou a foto do preset morta a 633 px.
 
 ## 7. Icones vem do GizmoGroup, nao da GPU
 
@@ -108,15 +122,107 @@ nativo, `draw_prepare` cria um `GIZMO_GT_button_2d` em cima do
 retangulo e `_icone_acao_gaveta(acao)` diz qual usar; icone deslocado
 costuma ser `matrix_basis`, nao o layout.
 
-## 8. Grid de medidas na cena
+## 8. HUD parametrica na viewport
 
-Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
-caixa envolvente do alvo **na viewport vizinha** e acende as quatro
-arestas do eixo daquele campo. Tres partes que precisam concordar:
-`EIXOS_MEDIDA[modo][rotulo]` (rotulo sem entrada nao acende); a caixa
-de `_caixa_da_medida`, que em `INDIVIDUAL` e' orientada **pela chapa**
-(girada, a Espessura nao e' a vertical do mundo); e
-`_desenhar_grid_medidas`, handler **`POST_VIEW`**.
+A representacao do armario agora vive na viewport principal: `gpu`
+em `POST_VIEW` desenha os contornos e `blf` em `POST_PIXEL` as letras.
+O mini-wireframe da gaveta foi descontinuado; os campos continuam nela.
+A HUD e seus eventos so' funcionam em Object Mode. Clique seleciona o
+modulo; duplo clique na mesma chapa isola essa chapa. Shift soma, como
+no Blender (`_somar_peca`): Shift+clique soma o grupo inteiro, ou so' a
+chapa se o grupo dela ja' esta' em selecao individual (Shift+clique na
+chapa ativa a tira); Shift+duplo isola a chapa DENTRO da selecao -- o
+resto do grupo dela sai, os outros grupos/chapas ficam. A HUD mostra
+TODOS os itens da selecao, sem ordem de hierarquia (`_itens_da_selecao`:
+modulo com o Empty selecionado = grupo; outra chapa = individual), e
+setas e quinas valem em qualquer um deles (`_acertar_hud` pega o mais
+perto do mouse; so' o item do alvo acende). Grupo mostra
+L/A/P; E aparece SOMENTE na chapa individual, inclusive ao passar nas
+faces estreitas. Espessura do modulo fica no menu lateral.
+`_geometria_hud` alimenta desenho e hit-test: hover em uma aresta acende
+as quatro do eixo; o contorno da porta e o gap sao alvos separados.
+Quina: arrastar move o modulo. Linha L/A/P (e a E da chapa individual):
+seta sai da quina mais perto (`lado`), que fica PARADA; arrastar estica,
+clicar digita (Enter/Esc). Caixa de digitar (HUD e gaveta, um nucleo so':
+`_tecla_no_texto`): abre com tudo selecionado, mas um OPERADOR continua
+a conta ("600" e '+' -> "600 + "); clicar DENTRO da caixa so' move o
+cursor (`_cursor_no_x`), fora confirma; "500 + cm" = 500 cm e "51cm00"
+= 5100 cm (`_arrumar_texto_medida`). Na E a face da quina fica e a chapa engrossa
+para o outro lado (`_redimensionar_chapa_ancorada`, eixo 2).
+Seta com teto fixo na tela (`COMPRIMENTO_SETA_HUD`), nunca maior que a aresta; letras somem se o
+item fica menor que `FATOR_ROTULO_HUD` x o rotulo (so' a acesa fica).
+Letra = aresta do eixo mais FORA na tela, empurrada para longe do centro
+da peca (nunca sobre a face); letras que se encostam afastam-se mais.
+Posicionar puxador (`OBJECT_OT_posicionar_puxador`): 1o a linha (borda da
+face sob o mouse), depois o ponto; scroll = n snaps (k/(n+1)); botao
+direito volta a linha. Linhas grossas em triangulos (`_quad_2d`).
+Correntes (soldas): cada ligacao de adjacencia associa 2 quinas e grava
+a folga do momento -- a ORIGEM da solda. Com a tecla das opcoes
+segurada (`tecla_corrente`) aparecem TODAS as quinas soldadas do item
+cujo DESVIO da origem passa de `LIMIAR_CORRENTE_VIEWPORT` (5 mm); o
+"so' a mais perto da camera" foi descontinuado. Cada linha tem a
+corrente (clique DESAGREGA a peca inteira, `desagregar`) e, a direita,
+a regua (`cabinet_resetar_distancia`). O Alt+clique e' de
+`cabinet_clique_corrente` (o gizmo nativo nao aceita modificador).
+PERGUNTAS (regra do usuario para todo o design): pop-up SO' quando a
+acao veio da VIEWPORT (atalho, Alt+corrente/regua, Enter no modo de
+vertices). Veio de um botao da GAVETA: a pergunta aparece DENTRO dela,
+logo abaixo do botao, numa caixa preta com as respostas lado a lado
+(`_pergunta_na_gaveta`, verbos `pergunta`/`resposta`). Tudo passa por
+`_perguntar` (`_na_gaveta` diz a origem) e se responde por
+`cabinet_responder_pergunta`; nunca `popup_menu` direto.
+Montagem tem SO dois botoes: Corrente e Resetar distancia (regua;
+Agrupar e Converter sairam da gaveta, seguem no F3). A regua fica AZUL
+com qualquer solda fora da origem; quem se mexe sai da selecao:
+chapa unica ativa = ELA se move ate' todas as soldas voltarem
+(`_plano_reset_chapa`); se so' voltar mudando de medida, pergunta
+"Mover mesmo assim?" (pop-up so' depois do SOLTAR: `esperar_soltar`).
+Modulo ativo = o MODULO se adapta a chapa: as pontas soldadas esticam
+ate' ela (`resetar_ponta`) e o modulo se redimensiona. Na viewport a
+regua passa a peca da linha (a ativa, ou a que se afastou:
+`_peca_afastada`) e volta todas as soldas dela.
+Bolinhas brancas nas pontas das linhas (Alt) sao as ANCORAS: arrastar
+uma ate' outro vertice das duas pecas (ima por tela; na malha modelada,
+qualquer vertice dela -- o chanfro --, gravado como `v<indice>`) so' grava qual
+vertice esta' soldado em qual (`OBJECT_OT_arrastar_ancora`); a regua
+leva ate' la' a peca que se move (a ativa, de qualquer lado da solda):
+ela anda pelas soldas normais e o que sobra DEFORMA a ponta ou a face
+dela (`_deformar_ancoras`), mesmo torta. Par que ja' encostou some da
+viewport (nao sobrepoe linha, bolinha e botoes). Bolinha e botao disputam o clique
+pelo mais perto do mouse (`_alvo_da_corrente`).
+Botao Corrente da gaveta (no lugar do ima), pela SELECAO
+(`_acao_corrente`): azul = o clique desagrega, cinza = associa.
+UMA peca (individual) agregada -> "Voce realmente deseja desagregar
+esse objeto do grupo?"; o GRUPO (clique no modulo) -> "Voce tem
+certeza que deseja desagregar todos os itens deste grupo?" (o modulo
+que esvazia e' apagado, `desagregar_grupo`). Peca solta sozinha -> modo
+"selecionar vertice" direto. Alvo(s) primeiro e a peca de fora POR
+ULTIMO (o ativo): conecta por distancia ate' 5 mm
+(`ALCANCE_CONEXAO_AUTOMATICA`), so' com os alvos; mais longe, o mesmo
+"selecionar vertice", so' nos cantos dos alvos -- canto da peca,
+depois o canto alvo, repetindo; Enter ou "Confirmar" no pe' -> "Juntar
+ao modulo?". Sim puxa a peca ate' os alvos (`_puxar_por_pares`: a
+ponta puxada estica, o alvo fica PARADO), entra no modulo e associa
+sem zerar as ligacoes dos outros (`associar_por_distancia`). Pop-ups
+aqui sao pedido explicito. O botao dispara no SOLTAR
+(`OPERADORES_NO_SOLTAR`): no PRESS o pop-up nascia sob o mouse e o
+proprio RELEASE escolhia "Sim".
+Esc restaura. Durante G/R/S a HUD some inteira (`_transformando`). Cores, espessura
+(`POLYLINE_UNIFORM_COLOR`, ate' 50 px) e rotulos vem da engrenagem; o
+realce "Gizmo" pinta L/P/A com os eixos X/Y/Z do tema e E de laranja.
+A gaveta segue as cores do tema.
+Varios itens selecionados (`_itens_da_selecao`, Shift soma): a SELECAO
+diz o que se edita -- grupo inteiro, uma chapa, ou so' os selecionados.
+NAO ha' "Editar como? Individual | Grupo" nem "Adicionar | Finalizar"
+(recusado pelo usuario). Clicada a seta de um item, os que ainda nao
+tem seta dao duas piscadas de luz nas linhas (`_piscar_pendentes`,
+`DURACAO_PISCADA_HUD`); cada clique numa linha deles escolhe a quina
+parada (o escolhido some da escolha) e o ultimo leva a digitar: o valor
+vale para todos, cada um ancorado na sua quina. Esc desfaz tudo.
+Individual/Grupo da gaveta so' indica.
+Modulo/porta selecionado desliga `show_outline_selected` (nao ha' contorno
+por objeto) e o devolve como era: so' religa o que o add-on desligou
+(`sincronizar_contornos`; salvar/abrir/desligar devolvem antes).
 
 O hover vem de `VIEW3D_GT_campo_gaveta`, Gizmo invisivel por widget
 (secao 11). Widget com icone tem dois gizmos: o do icone (tooltip e
@@ -125,7 +231,11 @@ roubar o pick; o glow soma os dois `is_highlight`.
 
 **O glow vale para QUALQUER botao.** `_chave_widget(acao)` da' a
 identidade (None = decoracao) e `_glow_gaveta` pinta o halo -- a mesma
-funcao da alca, nunca uma copia. Duas regras caras:
+funcao da alca, nunca uma copia. Botao de texto cujo operador recusa a
+selecao (`_operador_apagado`) sai cinza, sem halo e sem clique. Nada de
+nome do item nem medida repetida em rotulo, e nada de botao que so'
+repete o que o add-on ja' faz sozinho (Sincronizar, Recalcular): a
+gaveta mostra o estado, o timer o mantem. Duas regras caras:
 
 - O halo vai **antes** do corpo do botao. Por cima, lava o texto.
 - `_glow_gaveta` liga o **proprio** `blend_set('ALPHA')`: `blf.draw`
@@ -140,6 +250,47 @@ rotulo em cima, uma opcao por botao, a escolhida acesa com
 `inner_sel` -- mostra tudo sem clique nenhum. Cuidado com a altura:
 segmento tem 25 px e passo 29, campo de medida tem 37; emendar sem
 respiro faz o campo cobrir a fila de cima (ha' teste par a par).
+Pe' fixo: engrenagem e, ao lado dela, "Criar Puxador" (aba Puxadores).
+"Criar Portas" fica no TOPO da aba Portas, logo abaixo das abas, largura
+inteira e texto centralizado (backlog do usuario, Epico 2.3); por isso o
+bloco de medidas desce 38 px SO' nessa aba -- conteudo e posicoes entre
+os campos continuam identicos (testes comparam relativo). Sem porta
+selecionada a aba nao mostra folga/afastamento/vaos (Epico 2.1/2.4):
+a criacao usa os valores da cena; os campos vem com a porta.
+Wizard de criacao (Epico 1), desenho do usuario: QUATRO cliques -- canto
+da porta, canto do vao, canto oposto do vao, canto oposto da porta. Os
+fios 1-2 e 3-4 (laranja) mostram quanto a folha cobre de cada lado; o
+2-3 (branco), o vao. Dai' sai tudo: medida da folha, vao, espessura e a
+dobradica, que e' AUTOMATICA (borda no limite do modulo = Reta, na
+metade da chapa = Curva, dentro do vao = Super Curva) e nao aparece
+como escolha nem na aba. Clique 1 e 2 no mesmo ponto: a margem do par
+3-4 vale para ele, contada para dentro. Cobertura que nao bate com
+nenhuma das tres pergunta "As medidas estao corretas?" (Nao = marcar de
+novo). Depois, caixas desenhadas ao lado do clique (popup nativo nao, o
+release respondia), na ordem: Folhas (1 | 2) -> abertura so' com o que
+nao se deduz (Giro | Basculante, ou Giro | Correr na embutida; 2 folhas
+por cima = giro direto) -> clique na borda das dobradicas (verde; 2
+folhas de giro = as duas) -> scroll = quantidade (padrao pela altura:
+2/3/4/5) -> mouse em Y = margem das quinas (padrao 100 mm) ->
+basculante: pistoes com o mesmo sistema, offset do TOPO para baixo
+(padrao 1/3 da altura). Esc cancela, botao direito volta uma etapa.
+Aba Portas: "Criar Portas" LARANJA desde o inicio e nada mais; cada
+categoria APARECE quando o wizard a responde (Folhas, depois Abertura),
+na mesma ordem, so' mostrando -- quem decide e' a caixa da viewport.
+Porta pronta selecionada revela tudo, editavel. Dobradica (automatica)
+e Converter em porta/dupla sairam da aba (pedido do usuario; F3 segue).
+Porta pronta: o clique simples (a porta inteira) mostra os mesmos fios
+dos 4 cantos; segurando Alt aparecem as 4 bolinhas brancas e arrastar
+uma ate' outro vertice refaz a porta como se o clique tivesse sido
+dado ali (cobertura e dobradica automaticas; fora do padrao pergunta).
+Selecao de porta (Epico 3): clique = a porta inteira, nunca o modulo;
+duplo = uma folha. Folha sozinha tambem desliga o contorno nativo.
+Opcoes: engrenagem FIXA no pe' da gaveta (`_rodape_gaveta`), painel que
+sobe dela por cima do conteudo, uma linha por opcao (`LINHAS_OPCOES`,
+rotulo | controle; empilha < 250 px). EXCECAO pedida pelo usuario, so'
+ali: lista suspensa (`suspenso`, itens apos o widget `fundo`, desenhados
+por ultimo e atendidos primeiro), `faixa` 1-50 (arrasta; clique digita)
+e `cor` (atalhos + quadro S/V + matiz, aberto na propria linha).
 
 ## 10. Animacao
 
@@ -157,11 +308,9 @@ como roleta: o indice INTEIRO em `screen['cabinet_carrossel_*']` e' a verdade,
   aparece por cima das setas; todo scissor ligado tem que ser
   desligado no mesmo laco.
 
-Decaimento exponencial, nao passo fixo.
-
 ## 11. Nunca faca
 
-- **Cor literal** no lugar do tema (secao 5).
+- **Cor literal** na gaveta no lugar do tema (secao 5).
 - **Operador modal persistente** para capturar clique: roubaria evento
   de outros add-ons. Use Gizmo + `test_select` (a alca e' o modelo).
   Modal so' para interacao transitoria — arraste de slider, edicao de
@@ -175,10 +324,12 @@ Decaimento exponencial, nao passo fixo.
 - **Estimar largura de texto.** Use `blf.dimensions()`.
 
 ## 12. Antes de entregar
-
-1. Rodar as tres suites de `tests/` (ver CLAUDE.md).
+1. Rodar o harness inteiro: `tests/rodar_testes.py` (com `--gui` quando
+   puder abrir janela). Mudou o layout de proposito? `--atualizar` e
+   revise o diff dos snapshots (`tests/CLAUDE.md`).
 2. Conferir em **tres larguras** (190, 320, 564) e nos dois temas:
-   bug de layout quase sempre so' aparece num extremo.
+   bug de layout quase sempre so' aparece num extremo (o snapshot da
+   gaveta ja' grava 190/320/482/564).
 3. Incrementar `bl_info["version"]`.
 
 Captura vale mais que leitura de codigo aqui:
@@ -186,12 +337,9 @@ Captura vale mais que leitura de codigo aqui:
 teste nao pega — halo opaco, texto cortado, icone fora do lugar.
 
 ## 13. Alternativas ja' avaliadas e RECUSADAS
+A antiga restricao contra overlay foi substituida pela HUD da secao 8,
+por solicitacao explicita do usuario. A biblioteca continua na gaveta.
 
-Nao reabrir sem falar com o dono do projeto.
-
-- **Overlay na viewport principal** (jeito do BlenderKit): dividiria
-  pilha de evento, estado de GPU e o canto superior esquerdo com
-  outros add-ons. A area propria e' imune aos tres.
 - **Pop-up / `invoke_props_dialog`**: fecha quando o mouse sai, e
   clicar na viewport e' a acao seguinte do posicionador. Nao existe
   popup fixo no bpy. O dialogo das Portas virou a aba (secao 9).

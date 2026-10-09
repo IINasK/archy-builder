@@ -17,6 +17,7 @@ import os
 import sys
 import unittest
 
+import bmesh
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,7 +32,8 @@ VERBOS = frozenset({
     'aba', 'auto', 'biblioteca', 'chapa', 'item', 'medida', 'modo',
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
     'rolar_nivel', 'separador', 'slider', 'wireframe', 'escolha',
-    'ler_portas',
+    'ler_portas', 'cadeado', 'suspenso', 'faixa', 'cor', 'fundo',
+    'divisa', 'pergunta', 'resposta',
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
@@ -80,6 +82,28 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         self.assertIn('modal_operators', fonte)
         self.assertIn('screen.area_move', fonte)
         self.assertEqual(addon._LARGURA_MAX_GAVETA, 564)
+
+    def test_gaveta_abre_na_menor_largura_com_medidas_em_linha(self):
+        # Pedido do usuario: abrir no MINIMO em que Largura, Altura e
+        # Profundidade ficam na mesma linha -- nem menos, nem mais.
+        self.assertEqual(addon._LARGURA_PADRAO_GAVETA,
+                         addon.LARGURA_MEDIDAS_EM_LINHA)
+        fonte = inspect.getsource(addon.OBJECT_OT_alternar_gaveta.execute)
+        self.assertIn('_largura_inicial_gaveta', fonte)
+        bpy.ops.mesh.primitive_cube_add()
+        try:
+            bpy.context.scene.cabinet_aba = 'MODULOS'
+            def linhas(largura):
+                medidas = [v for v in addon._widgets_gaveta(
+                    bpy.context, largura, 1200)
+                    if v[5] and v[5][0] == 'medida']
+                self.assertEqual(len(medidas), 3)
+                return len({v[1] for v in medidas})
+            inicial = addon._largura_inicial_gaveta(bpy.context)
+            self.assertEqual(linhas(inicial), 1)
+            self.assertEqual(linhas(inicial - 3), 2)
+        finally:
+            bpy.ops.object.delete(use_global=False)
 
     def test_desenho_e_um_handler_post_pixel(self):
         self.assertIsNotNone(addon._handler_gaveta[0])
@@ -510,13 +534,26 @@ class TestEstruturaDaChapa(unittest.TestCase):
         for eixo in obj.scale:
             self.assertAlmostEqual(eixo, 1.0, places=5)
 
-    def test_espessura_arredonda_para_as_permitidas(self):
+    def test_espessura_livre_e_alerta_acima_de_60(self):
+        # Pedido do usuario: a espessura NAO e' limitada as convencionais
+        # (que so' sobram como opcoes/padrao); acima de 60 mm a gaveta
+        # pinta nome e valor do campo de vermelho.
         self.assertEqual(addon.ESPESSURAS_PERMITIDAS, [15.0, 18.0, 20.0, 30.0])
+        self.assertEqual(addon.ESPESSURA_ALERTA_MM, 60.0)
         obj = self.chapa()
-        for pedido, esperado in ((16.0, 15.0), (19.0, 18.0),
-                                 (26.0, 30.0), (999.0, 30.0)):
+        for pedido in (16.0, 19.0, 26.0, 75.0):
             obj.chapa_espessura_mm = pedido
-            self.assertEqual(obj.chapa_espessura_mm, esperado)
+            self.assertAlmostEqual(obj.chapa_espessura_mm, pedido, places=3)
+            self.assertAlmostEqual(obj.dimensions.z, pedido / 1000, places=5)
+        for valor, alerta in ((18.0, False), (60.0, False), (60.5, True)):
+            acao = ('medida', 'objeto', 'ui_chapa_espessura', 'Espessura',
+                    valor)
+            self.assertEqual(addon._medida_em_alerta(acao), alerta, valor)
+        # so' a Espessura: uma largura de 600 nao acende nada
+        self.assertFalse(addon._medida_em_alerta(
+            ('medida', 'objeto', 'ui_chapa_largura', 'Largura', 600.0)))
+        r, g, b, a = addon._cor_alerta_gaveta()
+        self.assertGreater(r, max(g, b))
 
     def test_vizinhanca_gravada_por_uid(self):
         # Preset inserido ganha sufixo .001; por nome a adjacencia
@@ -537,6 +574,88 @@ class TestEstruturaDaChapa(unittest.TestCase):
 
     def test_guarda_de_reentrancia_existe(self):
         self.assertEqual(addon._ocupado, [False])
+
+    def test_malha_modelada_nunca_e_substituida(self):
+        # Sem "Auto-regenerar" (usuario): mudar a medida de uma chapa
+        # MODELADA estica a malha; recorte/furo ficam, com o mesmo
+        # tamanho e a mesma distancia ate' a borda mais proxima.
+        obj = self.chapa(600.0, 400.0, 18.0)
+        self.assertTrue(addon._malha_e_caixa(obj.data))
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        # um "corte" a 50 mm da borda +X: loop que divide a largura
+        bmesh.ops.bisect_plane(
+            bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+            plane_co=(0.25, 0, 0), plane_no=(1, 0, 0))
+        bm.to_mesh(obj.data)
+        bm.free()
+        n = len(obj.data.vertices)
+        self.assertGreater(n, 8)
+        self.assertFalse(addon._malha_e_caixa(obj.data))
+        obj.chapa_largura_mm = 1000.0          # +400: 200 de cada lado
+        xs = sorted({round(v.co.x, 6) for v in obj.data.vertices})
+        self.assertEqual(len(obj.data.vertices), n)      # nada apagado
+        self.assertEqual(xs, [-0.5, 0.45, 0.5])          # corte a 50 mm
+        self.assertAlmostEqual(obj.dimensions.x, 1.0, places=5)
+        obj.chapa_espessura_mm = 70.0          # espessura livre, idem
+        self.assertAlmostEqual(obj.dimensions.z, 0.070, places=5)
+        self.assertEqual(len(obj.data.vertices), n)
+        # a caixa padrao continua sendo refeita normalmente
+        caixa = self.chapa(600.0, 400.0, 18.0)
+        caixa.chapa_largura_mm = 800.0
+        self.assertTrue(addon._malha_e_caixa(caixa.data))
+        self.assertAlmostEqual(caixa.dimensions.x, 0.8, places=5)
+
+    def test_sair_do_modo_edicao_preserva_o_que_foi_modelado(self):
+        obj = self.chapa(600.0, 400.0, 18.0)
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        bmesh.ops.bisect_plane(
+            bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
+            plane_co=(0.1, 0, 0), plane_no=(1, 0, 0))
+        for v in bm.verts:             # e estica o lado +X em 100 mm
+            if v.co.x > 0.2:
+                v.co.x += 0.1
+        bm.to_mesh(obj.data)
+        bm.free()
+        n = len(obj.data.vertices)
+        addon._chapas_em_edicao.add(obj.name)
+        addon.absorver_edicoes_de_malha()
+        self.assertAlmostEqual(obj.chapa_largura_mm, 700.0, places=3)
+        self.assertEqual(len(obj.data.vertices), n)      # o corte ficou
+
+    def test_sair_do_modo_edicao_atualiza_as_medidas(self):
+        # Print do usuario: um lado esticado no Modo Edicao e o contorno
+        # da HUD (que le as PROPS) seguia com a medida velha.
+        obj = addon.nova_chapa('Esticada', 600.0, 400.0, 18.0,
+                               (1000.0, 0.0, 0.0), (0.0, 0.0, 90.0),
+                               bpy.context)
+        intocada = self.chapa()
+        bpy.context.view_layer.update()
+        esquerda = min(addon._cantos(obj), key=lambda p: p.y)
+        # "Modo Edicao": so' o lado +X local anda 200 mm
+        for v in obj.data.vertices:
+            if v.co.x > 0:
+                v.co.x += 0.2
+        for v in intocada.data.vertices:     # mexida, mas sem transicao
+            v.co.x += 0.1
+        addon._chapas_em_edicao.add(obj.name)
+        addon.absorver_edicoes_de_malha()
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(obj.chapa_largura_mm, 800.0, places=3)
+        self.assertAlmostEqual(obj.chapa_comprimento_mm, 400.0, places=3)
+        self.assertAlmostEqual(obj.chapa_espessura_mm, 18.0, places=3)
+        # a peca nao saiu do lugar: o lado parado continua parado e a
+        # origem voltou ao centro da caixa (malha simetrica de novo)
+        xs = [v.co.x for v in obj.data.vertices]
+        self.assertAlmostEqual(min(xs), -max(xs), places=5)
+        cantos = addon._cantos(obj)
+        self.assertAlmostEqual(min(p.y for p in cantos), esquerda.y, places=5)
+        self.assertAlmostEqual(max(p.y for p in cantos),
+                               esquerda.y + 0.8, places=5)
+        # sem transicao, nada muda (importado fora do centro fica quieto)
+        self.assertAlmostEqual(intocada.chapa_largura_mm, 600.0, places=3)
+        self.assertEqual(addon._chapas_em_edicao, set())
 
 
 class TestRegistro(unittest.TestCase):

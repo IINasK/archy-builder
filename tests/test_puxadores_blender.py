@@ -1,0 +1,248 @@
+"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_puxadores_blender.py"""
+import os
+import sys
+import unittest
+
+import bpy
+from mathutils import Vector
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import cabinet_creator as addon
+
+
+def caixa_na_chapa(obj, chapa):
+    """(lo, hi) em mm do objeto no referencial LOCAL da chapa."""
+    bpy.context.view_layer.update()
+    inversa = chapa.matrix_world.inverted()
+    pontos = [inversa @ (obj.matrix_world @ Vector(c)) * 1000.0
+              for c in obj.bound_box]
+    return ([round(min(p[i] for p in pontos), 3) for i in range(3)],
+            [round(max(p[i] for p in pontos), 3) for i in range(3)])
+
+
+def malha_na_chapa(chapa):
+    """(lo, hi) em mm da MALHA da chapa (com o corte do perfil)."""
+    vs = [v.co * 1000.0 for v in chapa.data.vertices]
+    return ([round(min(v[i] for v in vs), 3) for i in range(3)],
+            [round(max(v[i] for v in vs), 3) for i in range(3)])
+
+
+class TestPuxadores(unittest.TestCase):
+    def setUp(self):
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for obj in list(bpy.data.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    def chapa(self):
+        bpy.ops.object.cabinet_criar()          # 600 x 400 x 18
+        return bpy.context.object
+
+    def nicho_com_porta(self):
+        bpy.ops.object.cabinet_criar_nicho()
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.cabinet_agrupar()
+        conj = next(o for o in bpy.data.objects if addon.MARCA_CONJUNTO in o)
+        bpy.context.view_layer.update()
+        L, A = conj.conj_largura_mm, conj.conj_altura_mm
+        P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+        a = conj.matrix_world @ (Vector((-L / 2 + E, -P / 2, E)) / 1000.0)
+        b = conj.matrix_world @ (Vector((L / 2 - E, -P / 2, A - E)) / 1000.0)
+        resultado = bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=a, ponto_b=b,
+            referencia=tuple(v for linha in
+                             conj.matrix_world.to_quaternion().to_matrix()
+                             for v in linha),
+            pai_nome=conj.name, modulo_nome=conj.name,
+            frente='NEG_Y', dobradica='RETA', folhas=2)
+        self.assertEqual(resultado, {'FINISHED'})
+        return conj, addon._portas_do_conjunto(conj)[0]
+
+    def test_modelos_geram_as_medidas_de_exemplo(self):
+        for tipo, esperado in (('ALCA', (148, 10, 30)), ('BORDA', (60, 20, 26)),
+                               ('PERFIL', (500, 30, 18))):
+            caixas = addon._caixas_puxador(tipo, 18.0, 500.0 if tipo == 'PERFIL'
+                                           else addon.MODELOS_PUXADOR[tipo][1])
+            medidas = tuple(round(max(c[2 * i + 1] for c in caixas)
+                                  - min(c[2 * i] for c in caixas), 3)
+                            for i in range(3))
+            self.assertEqual(medidas, esperado, tipo)
+
+    def test_posiciona_nas_quatro_bordas_e_nas_duas_faces(self):
+        chapa = self.chapa()
+        meias = {'X': 300.0, 'Y': 200.0}
+        for borda in addon.BORDAS_CHAPA:
+            for face in (1, -1):
+                pux = addon.criar_puxador(bpy.context, chapa, 'ALCA', borda, face)
+                lo, hi = caixa_na_chapa(pux, chapa)
+                eixo = 0 if borda[0] == 'X' else 1
+                sinal = 1 if borda[1] == '+' else -1
+                centro = [(a + b) / 2 for a, b in zip(lo, hi)]
+                # a 40 mm da linha, para dentro, centrado ao longo dela
+                self.assertAlmostEqual(centro[eixo],
+                                       sinal * (meias[borda[0]] - 40.0), places=3)
+                self.assertAlmostEqual(centro[1 - eixo], 0.0, places=3)
+                self.assertAlmostEqual(hi[1 - eixo] - lo[1 - eixo], 148.0, places=3)
+                # de pe' na face escolhida: 30 mm para fora dela
+                if face > 0:
+                    self.assertEqual((lo[2], hi[2]), (9.0, 39.0))
+                else:
+                    self.assertEqual((lo[2], hi[2]), (-39.0, -9.0))
+                bpy.data.objects.remove(pux, do_unlink=True)
+
+    def test_acompanha_a_chapa_redimensionada(self):
+        chapa = self.chapa()
+        alca = addon.criar_puxador(bpy.context, chapa, 'ALCA', 'X+', 1, 0.5)
+        borda = addon.criar_puxador(bpy.context, chapa, 'BORDA', 'Y+', 1, 0.25)
+        x_antes = (lambda c: (c[0][0] + c[1][0]) / 2)(caixa_na_chapa(borda, chapa))
+        chapa.chapa_largura_mm = 800.0
+        chapa.chapa_comprimento_mm = 700.0
+        lo, hi = caixa_na_chapa(alca, chapa)
+        self.assertAlmostEqual((lo[0] + hi[0]) / 2, 360.0, places=3)   # 40 da borda
+        self.assertAlmostEqual((lo[1] + hi[1]) / 2, 0.0, places=3)     # no meio
+        self.assertAlmostEqual(hi[1] - lo[1], 148.0, places=3)         # mesmo tamanho
+        lo, hi = caixa_na_chapa(borda, chapa)
+        self.assertAlmostEqual(hi[1], 355.0, places=3)                 # na borda nova
+        # 1/4 da borda continua 1/4: x de 150 (de 600) vira 200 (de 800)
+        self.assertAlmostEqual(abs((lo[0] + hi[0]) / 2), 200.0, places=3)
+        self.assertAlmostEqual(abs(x_antes), 150.0, places=3)
+        # perto da ponta, a alca nunca passa da borda
+        alca['puxador_fracao'] = 0.0
+        addon.posicionar_puxador(alca)
+        lo, hi = caixa_na_chapa(alca, chapa)
+        self.assertGreaterEqual(lo[1], -350.0 - 1e-6)
+
+    def test_perfil_corta_a_madeira_e_a_medida_continua_nominal(self):
+        chapa = self.chapa()
+        perfil = addon.criar_puxador(bpy.context, chapa, 'PERFIL', 'Y-', 1)
+        lo, hi = caixa_na_chapa(perfil, chapa)
+        self.assertEqual((lo, hi), ([-300.0, -200.0, -9.0], [300.0, -170.0, 9.0]))
+        self.assertEqual(malha_na_chapa(chapa),
+                         ([-300.0, -170.0, -9.0], [300.0, 200.0, 9.0]))
+        self.assertEqual(chapa.chapa_comprimento_mm, 400.0)
+        cantos = addon._caixa_hud_objetos([chapa])
+        alturas = [c.y * 1000 for c in cantos]
+        self.assertAlmostEqual(max(alturas) - min(alturas), 400.0, places=3)
+        # borda inteira tambem depois de redimensionar
+        chapa.chapa_largura_mm = 900.0
+        lo, hi = caixa_na_chapa(perfil, chapa)
+        self.assertEqual((lo[0], hi[0]), (-450.0, 450.0))
+        # outro perfil na mesma borda substitui; o corte nao dobra
+        novo = addon.criar_puxador(bpy.context, chapa, 'PERFIL', 'Y-', 1)
+        self.assertEqual([f for f in chapa.children
+                          if f.get('puxador_tipo') == 'PERFIL'], [novo])
+        self.assertEqual(malha_na_chapa(chapa)[0][1], -170.0)
+        # apagado com X: a madeira volta
+        bpy.data.objects.remove(novo, do_unlink=True)
+        addon._conferir_rebaixos()
+        self.assertEqual(malha_na_chapa(chapa)[0][1], -200.0)
+        self.assertNotIn('chapa_rebaixos', chapa)
+
+    def test_porta_do_modulo_leva_os_puxadores(self):
+        conj, grupo = self.nicho_com_porta()
+        esquerda, direita = addon._folhas_portas(grupo)
+        alca = addon.criar_puxador(bpy.context, esquerda, 'ALCA', 'X+', 1)
+        perfil = addon.criar_puxador(bpy.context, direita, 'PERFIL', 'Y+', 1)
+        conj.conj_largura_mm += 400.0
+        conj.conj_altura_mm += 300.0
+        bpy.context.view_layer.update()
+        esquerda, direita = addon._folhas_portas(grupo)
+        self.assertEqual(alca.parent, esquerda)
+        lo, hi = caixa_na_chapa(alca, esquerda)
+        self.assertAlmostEqual((lo[0] + hi[0]) / 2,
+                               esquerda.chapa_largura_mm / 2 - 40.0, places=3)
+        self.assertAlmostEqual((lo[1] + hi[1]) / 2, 0.0, places=3)
+        lo, hi = caixa_na_chapa(perfil, direita)
+        self.assertAlmostEqual(hi[0] - lo[0], direita.chapa_largura_mm, places=3)
+        # porta dupla vira simples: o que sobra vai para a folha que fica
+        erro = addon._editar_parametro_porta(bpy.context, grupo, 'folhas', 1)
+        self.assertFalse(erro)
+        (unica,) = addon._folhas_portas(grupo)
+        self.assertEqual(alca.parent, unica)
+        self.assertEqual(perfil.parent, unica)
+        lo, hi = caixa_na_chapa(perfil, unica)
+        self.assertAlmostEqual(hi[0] - lo[0], unica.chapa_largura_mm, places=3)
+        self.assertEqual(unica.get('chapa_rebaixos'), 'Y+')
+
+    def test_linha_snaps_e_fracao(self):
+        self.assertEqual(addon._snaps(0), [])
+        self.assertEqual(addon._snaps(1), [0.5])
+        self.assertEqual(addon._snaps(2), [1 / 3, 2 / 3])
+        a, b = Vector((0, 0)), Vector((300, 0))
+        self.assertAlmostEqual(addon._fracao_na_linha(a, b, Vector((60, 40))), 0.2)
+        self.assertEqual(addon._fracao_na_linha(a, b, Vector((-50, 0))), 0.0)
+        self.assertEqual(addon._fracao_na_linha(a, b, Vector((60, 0)), 1), 0.5)
+        self.assertAlmostEqual(addon._fracao_na_linha(a, b, Vector((60, 0)), 2), 1 / 3)
+        self.assertEqual(addon._texto_fracao(0.5, 3), '1/2')
+        self.assertEqual(addon._texto_fracao(2 / 3, 2), '2/3')
+        self.assertEqual(addon._texto_fracao(0.2, 0), '20%')
+        segmentos = {'Y+': (Vector((0, 100)), Vector((300, 100))),
+                     'X+': (Vector((300, 0)), Vector((300, 100)))}
+        self.assertEqual(addon._borda_mais_proxima(segmentos, Vector((150, 90))), 'Y+')
+        self.assertEqual(addon._borda_mais_proxima(segmentos, Vector((290, 40))), 'X+')
+        self.assertIsNone(addon._borda_mais_proxima({}, Vector()))
+
+    def test_face_e_bordas_da_chapa(self):
+        chapa = self.chapa()
+        olhar_de_frente = Vector((0, 0, -1))
+        self.assertEqual(addon._face_da_chapa(chapa, Vector((0, 0, 1)), olhar_de_frente), 1)
+        self.assertEqual(addon._face_da_chapa(chapa, Vector((0, 0, -1)), olhar_de_frente), -1)
+        # face estreita: vale a grande virada para quem olha
+        self.assertEqual(addon._face_da_chapa(chapa, Vector((1, 0, 0)), olhar_de_frente), 1)
+        self.assertEqual(addon._face_da_chapa(chapa, Vector((1, 0, 0)), Vector((0, 0, 1))), -1)
+        bordas = addon._bordas_da_face(chapa, 1)
+        self.assertEqual(set(bordas), set(addon.BORDAS_CHAPA))
+        a, b = bordas['Y+']
+        self.assertAlmostEqual((b - a).length, 0.6, places=6)
+        self.assertAlmostEqual(a.y, 0.2, places=6)
+        self.assertAlmostEqual(a.z, 0.009, places=6)
+
+    def test_bloco_de_medidas_do_puxador_parametrico(self):
+        chapa = self.chapa()
+        alca = addon.criar_puxador(bpy.context, chapa, 'ALCA', 'X+', 1)
+        perfil = addon.criar_puxador(bpy.context, chapa, 'PERFIL', 'Y+', 1)
+        nomes = [c[0] for c in addon._medidas_puxador_parametrico(alca)]
+        self.assertEqual(nomes, ['Comprimento', 'Recuo'])
+        self.assertTrue(all(len(c) == 3 for c in       # sem cadeado
+                            addon._medidas_puxador_parametrico(alca)))
+        self.assertEqual(addon._medidas_puxador_parametrico(perfil)[0][2], '')
+        for obj in bpy.context.selected_objects:
+            obj.select_set(False)
+        alca.select_set(True)
+        bpy.context.view_layer.objects.active = alca
+        for prop, valor, esperado in (('puxp_comprimento', 0.2, 200.0),
+                                      ('puxp_recuo', 0.06, 60.0)):
+            self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
+                dono='puxador', objeto=alca.name, propriedade=prop,
+                valor=valor), {'FINISHED'})
+        lo, hi = caixa_na_chapa(alca, chapa)
+        self.assertAlmostEqual(hi[1] - lo[1], 200.0, places=3)
+        self.assertAlmostEqual((lo[0] + hi[0]) / 2, 300.0 - 60.0, places=3)
+
+    def test_aba_puxadores_modelo_e_posicionar(self):
+        cena = bpy.context.scene
+        cena.cabinet_aba = 'PUXADORES'
+        self.addCleanup(setattr, cena, 'cabinet_aba', 'MODULOS')
+        for largura in (190, 320, 564):
+            widgets = addon._widgets_gaveta(bpy.context, largura, 1400)
+            escolhas = [v[5] for v in widgets if v[5] and v[5][0] == 'escolha'
+                        and v[5][1] == 'cabinet_puxador_modelo']
+            self.assertEqual([e[2] for e in escolhas], list(addon.MODELOS_PUXADOR))
+            self.assertEqual(sum(e[3] for e in escolhas), 1)
+            self.assertIn(('operador', 'object.cabinet_posicionar_puxador'),
+                          [v[5] for v in widgets])
+            caixas = [v[:4] for v in widgets]
+            for i, (ax, ay, aw, ah) in enumerate(caixas):
+                for bx, by, bw, bh in caixas[i + 1:]:
+                    self.assertFalse(ax < bx + bw - 0.01 and bx < ax + aw - 0.01
+                                     and ay < by + bh - 0.01 and by < ay + ah - 0.01,
+                                     'largura %d' % largura)
+        self.assertIn(addon.OBJECT_OT_posicionar_puxador, addon.CLASSES)
+
+
+addon.register()
+suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPuxadores)
+resultado = unittest.TextTestRunner(verbosity=2).run(suite)
+addon.unregister()
+if not resultado.wasSuccessful():
+    raise RuntimeError('Falha nos testes de puxadores')
