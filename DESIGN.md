@@ -274,15 +274,40 @@ folhas de giro = as duas) -> scroll = quantidade (padrao pela altura:
 2/3/4/5) -> mouse em Y = margem das quinas (padrao 100 mm) ->
 basculante: pistoes com o mesmo sistema, offset do TOPO para baixo
 (padrao 1/3 da altura). Esc cancela, botao direito volta uma etapa.
+As dobradicas aparecem como VOLUME (caixas laranja, raio-X), nao
+pontos: o corpo na FACE INTERNA da chapa, para dentro do movel atras
+da folha, e o caneco de 35 mm nas costas da folha (print do usuario:
+os pontos ficavam na borda de fora da folha).
 Aba Portas: "Criar Portas" LARANJA desde o inicio e nada mais; cada
 categoria APARECE quando o wizard a responde (Folhas, depois Abertura),
 na mesma ordem, so' mostrando -- quem decide e' a caixa da viewport.
 Porta pronta selecionada revela tudo, editavel. Dobradica (automatica)
 e Converter em porta/dupla sairam da aba (pedido do usuario; F3 segue).
-Porta pronta: o clique simples (a porta inteira) mostra os mesmos fios
-dos 4 cantos; segurando Alt aparecem as 4 bolinhas brancas e arrastar
+Porta pronta: o clique simples (a porta inteira) mostra, em raio-X, o
+contorno BRANCO de cada folha, as linhas internas do vao em AMARELO, o
+volume das dobradicas onde o wizard as pos e os mesmos fios dos 4
+cantos; segurando Alt aparecem as 4 bolinhas brancas e arrastar
 uma ate' outro vertice refaz a porta como se o clique tivesse sido
 dado ali (cobertura e dobradica automaticas; fora do padrao pergunta).
+Abertura (Epico 4): um SLIDER por folha, so' com a porta ou a folha
+selecionada, na base da folha FECHADA e 30 mm a' frente (parado enquanto
+ela abre, nao foge do mouse), por cima de tudo. GROSSO (pedido do
+usuario): trilho de 13 mm com pontas redondas e borda clara, parte
+aberta na cor de realce, bolinha branca de 12 mm de raio e o valor numa
+caixa preta acima dela (graus; mm no correr). Medidas em MM do mundo,
+nao pixels (pedido do usuario): afastar o zoom encolhe tudo na mesma
+proporcao da porta; perto para no teto de 2 px/mm; o valor some abaixo
+de 7 px (ilegivel). Recuado das pontas da folha
+(40 mm ou 12% dela): numa porta dupla os dois NUNCA se encostam, sobra
+folga no meio. So' a BOLINHA pega o clique (gizmo do tamanho dela, que
+acende sob o mouse); o trilho nao. Pegar fora do centro nao a faz pular. Arrastar para a DIREITA abre, para a esquerda fecha, seja qual
+for o lado da dobradica (pedido do usuario). Esc/botao direito volta.
+Ferragens (dobradica, caneco, pistao, trilho) sao malhas de verdade,
+nunca selecionaveis; o clique numa delas vale pela folha.
+Modulo selecionado (clique nas CHAPAS, que leva a porta junto):
+nada do desenho da porta aparece -- dobradicas, vao amarelo,
+diagonal, cantos e sliders; fica so' a HUD do modulo (pedido do
+usuario: visao mais limpa).
 Selecao de porta (Epico 3): clique = a porta inteira, nunca o modulo;
 duplo = uma folha. Folha sozinha tambem desliga o contorno nativo.
 Opcoes: engrenagem FIXA no pe' da gaveta (`_rodape_gaveta`), painel que

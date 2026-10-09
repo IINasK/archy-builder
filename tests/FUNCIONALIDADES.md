@@ -94,7 +94,10 @@ que toda classe registrada apareca aqui por algum teste.
 | Criar pelo vao (2 cliques, ima) | `cabinet_apanhar_vao`, `cabinet_portas` | portas |
 | Wizard de 4 cliques: cobertura por lado, dobradica automatica, margem espelhada, aviso fora do padrao | `_coberturas_dos_cantos`, `_espelhar_margem`, `_lados_fora_do_padrao`, `_dobradica_da_cobertura` | portas, gui |
 | Wizard: folhas, abertura, borda das dobradicas, qtd (scroll), margem (Y), pistoes do basculante | `_arestas_da_porta`, `_posicoes_ferragens` | portas, gui |
-| Porta selecionada: fios dos 4 cantos; Alt arrasta um canto e refaz a porta | `_cantos_da_porta`, `cabinet_arrastar_canto_porta`, `cabinet_cantos_porta` | portas, gui |
+| Dobradica como volume na face interna da chapa (corpo + caneco) | `_caixas_dobradicas` | portas |
+| Porta selecionada: folhas (branco), vao (amarelo), dobradicas (volume) e fios dos 4 cantos; Alt arrasta um canto e refaz a porta | `_desenho_da_porta`, `_cantos_da_porta`, `cabinet_arrastar_canto_porta`, `cabinet_cantos_porta` | portas, gui |
+| Ferragens de verdade (Fase 3): dobradica = corpo no modulo + caneco na folha; pistoes com mira (Damped Track); trilho do correr; nao selecionaveis; conferidas ao apagar/duplicar | `_ferragens_da_porta`, `_montar_ferragens`, `_conferir_ferragens` | portas, hud |
+| Abertura por folha (giro na borda da frente, basculante, correr) que sobrevive a redimensionar; slider na base da folha (direita abre, Ctrl+Z desfaz) | `_matriz_abertura`, `_definir_abertura`, `cabinet_abrir_porta` | portas, gui |
 | Ima no meio da espessura = porta cobre meia chapa (e acompanha o modulo) | `_alvos_do_ima`, `_meias_do_vao`, `_inicios_porta` | portas |
 | Porta vinculada acompanha o modulo | `atualizar_portas_do_conjunto` | portas, snapshot |
 | Porta no modulo/no mundo (so' F3; correntes entre as abas descontinuadas) | `cabinet_corrente_porta` | portas, importacao |

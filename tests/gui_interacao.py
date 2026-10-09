@@ -130,6 +130,7 @@ def limpar(janela):
         tela.pop(chave, None)
     addon._hover_hud.clear()
     addon._arraste_canto_porta[0] = None
+    addon._arraste_slider_porta[0] = None
     addon._edicao_hud[0] = None
     addon._tecla_corrente_segurada[0] = False
     addon._conexao_pendente[0] = None
@@ -808,6 +809,98 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
     p = grupo['porta_parametros']
     assert p['cobertura_dir_e'] == 1.0, dict(p)
     assert grupo in addon._portas_com_cantos(bpy.context)
+
+
+def test_slider_abre_a_folha(janela, m):
+    # Fase 3 (Epico 4): porta selecionada = um slider na base de cada
+    # folha; arrastar para a direita abre (o clique NAO vira selecao).
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    y = -P / 2
+    cliques = [_local(conj, *p) for p in (
+        (-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E), (L / 2, y, 0))]
+    ref = tuple(v for linha in conj.matrix_world.to_quaternion().to_matrix()
+                for v in linha)
+    with contexto(janela, area, regiao):
+        bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=cliques[1],
+            ponto_b=cliques[2], quatro_pontos=True, porta_a=cliques[0],
+            porta_b=cliques[3], referencia=ref, pai_nome=conj.name,
+            modulo_nome=conj.name, frente='NEG_Y', folhas=1)
+    grupo = addon._portas_do_conjunto(conj)[0]
+    folha = addon._folhas_portas(grupo)[0]
+    bpy.ops.object.select_all(action='DESELECT')
+    with contexto(janela, area, regiao):
+        bpy.ops.ed.undo_push(message='Porta criada')
+    yield
+    # como o usuario: clique de verdade na folha seleciona a porta
+    centro = folha.matrix_world.translation
+    yield from _clicar_no_mundo(m, regiao, rv3d, centro)
+    yield esperar(0.4)          # sem virar duplo clique
+    assert grupo in addon._portas_com_cantos(bpy.context), 'a porta nao selecionou'
+    with contexto(janela, area, regiao):
+        bpy.ops.ed.undo_push(message='Porta selecionada')
+        inicio, fim = addon._slider_na_tela(bpy.context, folha)
+    # a bolinha (fracao 0 = no inicio) e' um gizmo (VIEW3D_GT_slider_porta,
+    # grupo VIEW3D_GGT_slider_porta): vem antes de qualquer keymap. O
+    # trilho fora dela nao pega; passar por cima dela acende
+    with contexto(janela, area, regiao):
+        assert addon.VIEW3D_GGT_slider_porta.poll(bpy.context)
+    # tamanho em mm do mundo (pedido do usuario): afastar 3x encolhe ~3x
+    with contexto(janela, area, regiao):
+        perto = addon._px_por_mm_do_slider(bpy.context, folha)
+    distancia = rv3d.view_distance
+    rv3d.view_distance = distancia * 3
+    yield
+    with contexto(janela, area, regiao):
+        longe = addon._px_por_mm_do_slider(bpy.context, folha)
+    rv3d.view_distance = distancia
+    yield
+    yield
+    assert perto < addon.SLIDER_PX_POR_MM_MAX, perto
+    assert abs(longe / perto - 1 / 3) < 0.08, (perto, longe)
+    with contexto(janela, area, regiao):
+        inicio, fim = addon._slider_na_tela(bpy.context, folha)
+    raio = addon.SLIDER_BOTAO_MM * perto
+    m.mover(regiao.x + inicio.x + (fim.x - inicio.x) * 0.5,
+            regiao.y + inicio.y + (fim.y - inicio.y) * 0.5)
+    yield
+    yield
+    assert addon._slider_hover[0] is None, 'o trilho pegou o hover'
+    m.mover(regiao.x + inicio.x + raio * 0.6, regiao.y + inicio.y)
+    yield
+    yield
+    assert addon._slider_hover[0] == folha.name, 'a bolinha nao acendeu'
+    m.apertar()
+    yield
+    assert addon._arraste_slider_porta[0] == folha.name, 'o slider nao pegou'
+    assert any(o.bl_idname.endswith('cabinet_abrir_porta')
+               for o in m.janela.modal_operators), 'o arraste nao abriu'
+    meio = inicio.lerp(fim, 0.5)
+    for passo in range(1, 5):
+        # pegou a 0.6 raio do centro: ela anda junto, sem pular
+        m.mover(regiao.x + inicio.x + raio * 0.6
+                + (meio.x - inicio.x) * passo / 4,
+                regiao.y + inicio.y + (meio.y - inicio.y) * passo / 4)
+        yield
+    m.soltar()
+    yield
+    yield
+    assert addon._arraste_slider_porta[0] is None
+    fracao = folha[addon.CHAVE_ABERTURA]
+    assert abs(fracao - 0.5) < 0.05, fracao
+    # a porta continua selecionada (o clique foi do slider)
+    assert grupo in addon._portas_com_cantos(bpy.context)
+    # Ctrl+Z desfaz a abertura
+    m.apertar('Z', ctrl=True)
+    m.soltar('Z', ctrl=True)
+    yield
+    yield
+    # o undo troca os objetos: buscar de novo (a referencia antiga morreu)
+    grupo = next(o for o in bpy.data.objects if addon.MARCA_PORTAS in o)
+    folha = addon._folhas_portas(grupo)[0]
+    assert folha.get(addon.CHAVE_ABERTURA, 0.0) == 0.0, folha.get(addon.CHAVE_ABERTURA)
 
 
 def test_digitar_com_operador_e_cursor_no_meio(janela, m):
@@ -1569,6 +1662,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_wizard_basculante_com_pistoes,
        test_wizard_cobertura_fora_do_padrao_pergunta,
        test_alt_arrasta_o_canto_da_porta,
+       test_slider_abre_a_folha,
        test_resetar_pela_gaveta_move_a_chapa_ativa,
        test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo,
        test_regua_que_muda_a_medida_pergunta_e_espera,

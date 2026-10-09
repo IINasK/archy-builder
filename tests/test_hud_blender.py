@@ -111,8 +111,56 @@ class TestHUD(unittest.TestCase):
         folha = addon._folhas_portas(gaps[0]['objeto'])[0]
         addon._selecionar_chapa_hud(bpy.context, folha)
         self.assertEqual(bpy.context.object, modulo)
+        # ferragens da porta (hide_select) o Blender nunca seleciona
         self.assertEqual(set(bpy.context.selected_objects),
-                         {modulo, *modulo.children_recursive})
+                         {modulo, *(o for o in modulo.children_recursive
+                                    if addon.CHAVE_FERRAGEM not in o)})
+        # porta ABERTA (pedido do usuario, com print): a caixa envolveria
+        # o giro inteiro e a folga nao existe -- some; fechada, volta
+        addon._definir_abertura(bpy.context, folha, 0.5)
+        tipos = [l['tipo'] for l in addon._geometria_hud(bpy.context)['linhas']]
+        self.assertEqual(tipos.count('medida'), 12)
+        self.assertNotIn('contorno_porta', tipos)
+        self.assertNotIn('gap', tipos)
+        addon._definir_abertura(bpy.context, folha, 0.0)
+        tipos = [l['tipo'] for l in addon._geometria_hud(bpy.context)['linhas']]
+        self.assertEqual(tipos.count('contorno_porta'), 12)
+
+    def test_clique_leva_a_gaveta_para_a_aba_do_item(self):
+        # Pedido do usuario: clicou na porta -> aba Portas; no modulo ->
+        # Modulos; no puxador -> Puxadores. So' o CLIQUE troca a aba.
+        modulo = self.modulo()
+        bpy.ops.object.cabinet_portas(
+            capturado=True, ponto_a=(-0.3, -0.15, 0), ponto_b=(0.3, -0.15, 0.4),
+            pai_nome=modulo.name, modulo_nome=modulo.name,
+            frente='NEG_Y', folhas=2)
+        cena = bpy.context.scene
+        self.addCleanup(setattr, cena, 'cabinet_aba', 'MODULOS')
+        grupo = addon._portas_do_conjunto(modulo)[0]
+        folha = addon._folhas_portas(grupo)[0]
+        chapa = addon._chapas_do_conjunto(modulo)[0]
+        cena.cabinet_aba = 'MODULOS'
+        bpy.ops.object.select_all(action='DESELECT')
+        self.clicar_pelo_keymap(folha, 'PRESS')
+        self.assertEqual(cena.cabinet_aba, 'PORTAS')
+        self.clicar_pelo_keymap(chapa, 'PRESS')
+        self.assertEqual(bpy.context.object, modulo)
+        self.assertEqual(cena.cabinet_aba, 'MODULOS')
+        # puxador: o clique nativo o deixa ativo
+        pux = bpy.data.objects.new('Puxador', None)
+        bpy.context.collection.objects.link(pux)
+        pux[addon.MARCA_PUXADOR] = 1
+        bpy.ops.object.select_all(action='DESELECT')
+        pux.select_set(True)
+        bpy.context.view_layer.objects.active = pux
+        addon._seguir_selecao_na_gaveta(bpy.context)
+        self.assertEqual(cena.cabinet_aba, 'PUXADORES')
+        # o ADD-ON trocar o ativo (criar porta deixa o modulo) nao mexe
+        bpy.context.view_layer.objects.active = modulo
+        modulo.select_set(True)
+        self.assertEqual(cena.cabinet_aba, 'PUXADORES')
+        # objeto de fora nao e' de aba nenhuma
+        self.assertIsNone(addon._aba_da_selecao(bpy.data.objects.new('X', None)))
 
     def test_hover_acende_as_quatro_arestas_do_eixo(self):
         self.modulo()

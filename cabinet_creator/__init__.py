@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (155, 0, 0),
+    "version": (165, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -48,6 +48,17 @@ MARCA_FOLHA = "eh_folha_porta"
 # Objetos de fora que entram no modulo/porta sem virar chapa (IMPORTACAO).
 MARCA_ACESSORIO = "eh_acessorio"
 MARCA_PUXADOR = "eh_puxador"
+# Empties de amarracao (modulo, grupo de portas, ponta do pistao) ficam na
+# cena: o parentesco do Blender e' o que move o armario inteiro, salva o
+# preset e faz a porta seguir o modulo. Mas ninguem precisa ve-los
+# (pedido do usuario: poluiam a vista): tamanho minimo do Blender.
+TAMANHO_EMPTY_OCULTO = 0.0001
+
+
+def _ocultar_empty(obj):
+    if obj.type == 'EMPTY':
+        obj.empty_display_type = 'PLAIN_AXES'
+        obj.empty_display_size = TAMANHO_EMPTY_OCULTO
 CHAVE_TRAVAS_PUXADOR = "puxador_travas"     # [L, A, P]: 1 = travado
 
 _ocupado = [False]
@@ -332,6 +343,12 @@ def ao_atualizar_depsgraph(scene, depsgraph):
     # trocar a selecao tambem passa por aqui: o contorno acompanha na
     # hora, sem esperar o timer
     sincronizar_contornos()
+    # apagou/duplicou algo: as ferragens das portas se conferem depois
+    # (num timer: remover objeto dentro do handler do depsgraph nao)
+    if len(bpy.data.objects) != _contagem_objetos[0]:
+        _contagem_objetos[0] = len(bpy.data.objects)
+        if not bpy.app.timers.is_registered(_conferir_ferragens):
+            bpy.app.timers.register(_conferir_ferragens, first_interval=0.0)
 
     modal_ativo = False
     try:
@@ -1189,8 +1206,7 @@ def agrupar_chapas(context, sel):
     context.collection.objects.link(conj)
     conj.location = (cx, cy, cz)
     conj[MARCA_CONJUNTO] = 1
-    conj.empty_display_type = 'PLAIN_AXES'
-    conj.empty_display_size = 0.15
+    _ocultar_empty(conj)
     context.view_layer.update()
 
     for o in sel:
@@ -3780,6 +3796,40 @@ class OBJECT_OT_normalizar(Operator):
 # comportamento normal do Blender volta inteiro.
 
 
+def _aba_da_selecao(obj):
+    """Aba da gaveta que cuida de `obj`, ou None (objeto que nao e' nosso)."""
+    if obj is None:
+        return None
+    if MARCA_PUXADOR in obj:
+        return 'PUXADORES'
+    if MARCA_PORTAS in obj or MARCA_FOLHA in obj:
+        return 'PORTAS'
+    if MARCA_CONJUNTO in obj or MARCA_CHAPA in obj:
+        return 'MODULOS'
+    return None
+
+
+def _seguir_selecao_na_gaveta(context):
+    """A gaveta vai para a aba do que o CLIQUE na viewport selecionou
+    (pedido do usuario): porta -> Portas, modulo -> Modulos, puxador ->
+    Puxadores. So' no clique: o add-on tambem troca o ativo sozinho (criar
+    porta deixa o modulo ativo) e ai' a aba nao pode pular."""
+    camada = getattr(context, 'view_layer', None)
+    ativo = camada.objects.active if camada is not None else None
+    if ativo is None or not ativo.select_get():
+        return
+    aba = _aba_da_selecao(ativo)
+    if aba is None or context.scene.cabinet_aba == aba:
+        return
+    context.scene.cabinet_aba = aba
+    tela = getattr(context, 'screen', None)
+    if tela is not None:
+        # como o clique na aba: comeca do topo e fecha as opcoes
+        tela[_CHAVE_ROLAGEM] = 0
+        _fechar_opcoes(tela)
+    _redesenhar_viewports(context)
+
+
 def familia_de(obj):
     """Tudo que deve acender junto com obj: as chapas do grupo mais o
     Empty do conjunto.
@@ -3838,6 +3888,7 @@ class OBJECT_OT_selecionar(Operator):
 
     def invoke(self, context, event):
         resultado = self._invoke(context, event)
+        _seguir_selecao_na_gaveta(context)
         _log_clique('selecionar %s/%s modo=%s clique=%s pass=%s -> %s | ativo=%s n=%d nivel_gravado=%s' % (
             getattr(event, 'type', '?'), getattr(event, 'value', '?'),
             self.modo, self.clique,
@@ -3853,6 +3904,10 @@ class OBJECT_OT_selecionar(Operator):
         pendente = _clique_pendente.pop(chave, None)
         if self.clique:
             return self._soltou(context, pendente)
+        if _slider_sob_mouse(context, self.location) is not None:
+            # a bolinha do slider: no keyconfig do usuario esta entrada vem
+            # antes da do slider, e selecionar aqui esconderia o slider
+            return {'PASS_THROUGH'}
         atingido = _raio_hud(context, self.location)
         _log_clique('  raio=%s anterior=%s' % (
             atingido and atingido[0].name, _clique_chapa_hud.get(chave)))
@@ -4043,6 +4098,11 @@ def registrar_keymaps():
             _keymaps.append((km, kmi))
     kmi = km.keymap_items.new("object.cabinet_clique_corrente",
                               'LEFTMOUSE', 'PRESS', any=True, head=True)
+    _keymaps.append((km, kmi))
+    # Slider de abertura das folhas: clique SEM modificador, antes da
+    # selecao; fora de um slider o operador devolve o evento.
+    kmi = km.keymap_items.new("object.cabinet_abrir_porta",
+                              'LEFTMOUSE', 'PRESS', head=True)
     _keymaps.append((km, kmi))
 
     # Posicionador a partir da grade. O keymap "User Interface" e' o
@@ -4776,7 +4836,9 @@ def _vao_com_ancoras(grupo, vao, parametros):
         folha = grupo.get('porta_ancora_%d' % indice)
         if not isinstance(folha, bpy.types.Object) or folha.type != 'MESH':
             continue
-        valores = [(inversa @ (folha.matrix_world @ v.co))[indice // 2] * 1000
+        # fechada: a porta de apoio aberta nao muda o vao desta
+        fechada = _matriz_fechada(folha)
+        valores = [(inversa @ (fechada @ v.co))[indice // 2] * 1000
                    for v in folha.data.vertices]
         if valores:
             limites[indice] = (max(valores) + ajuste if indice % 2 == 0
@@ -4914,8 +4976,7 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             grupo = bpy.data.objects.new("Portas", None)
             context.collection.objects.link(grupo)
             grupo[MARCA_PORTAS] = 1
-            grupo.empty_display_type = 'PLAIN_AXES'
-            grupo.empty_display_size = 0.05
+            _ocultar_empty(grupo)
             grupo.parent = pai
             # As medidas sao de mundo, mesmo quando o pai tem escala.
             if pai is not None:
@@ -4947,7 +5008,11 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             folha['porta_indice'] = i
             folha.parent = grupo
             folha.matrix_parent_inverse = Matrix.Identity(4)
-            folha.matrix_basis = Matrix.Translation(Vector(centro) / 1000.0)
+            # a abertura sobrevive a redimensionar (Fase 3)
+            folha[CHAVE_CENTRO_FOLHA] = tuple(centro)
+            folha.matrix_basis = _matriz_abertura(
+                parametros, largura, len(calculadas), i, (l, a, e, centro),
+                folha.get(CHAVE_ABERTURA, 0.0))
             folha.chapa_largura_mm = l
             folha.chapa_comprimento_mm = a
             folha.chapa_espessura_mm = e
@@ -4964,10 +5029,14 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
                 pux.parent = None
                 pux.matrix_world = mundo
                 orfaos.append(pux)
+            for ferragem in [c for c in folha.children_recursive
+                             if CHAVE_FERRAGEM in c]:
+                _remover_ferragem(ferragem)
             malha = folha.data
             bpy.data.objects.remove(folha, do_unlink=True)
             if malha.users == 0:
                 bpy.data.meshes.remove(malha)
+        _montar_ferragens(grupo, parametros, largura, altura, calculadas)
     finally:
         _ocupado[0] = ocupado_antes
     for folha in _folhas_portas(grupo):
@@ -5179,18 +5248,425 @@ def _posicoes_ferragens(comprimento, qtd, margem):
 
 
 def _arestas_da_porta(largura, altura, coberturas, lateral, tipo):
-    """Bordas da FOLHA onde podem ir as dobradicas, no referencial do vao
-    (mm; x = largura, y = altura): ESQUERDA/DIREITA no giro, CIMA no
-    basculante. Borda = vao + a cobertura daquele lado."""
+    """Onde podem ir as dobradicas, no referencial do vao (mm; x = largura,
+    y = altura): ESQUERDA/DIREITA no giro, CIMA no basculante.
+
+    A linha fica na FACE INTERNA da chapa daquele lado (a borda do vao,
+    lado de dentro da espessura marcada nos cliques 1-2), nao na borda da
+    folha: e' ali que o corpo da dobradica se prende (pedido do usuario,
+    com print). O comprimento e' o da FOLHA (as margens contam das quinas
+    dela). `dentro` aponta para o interior do movel; `cobertura` (mm) e'
+    quanto a folha passa da linha para fora -- o caneco fica na folha."""
     cob = [float(coberturas.get(k, 0.0)) * lateral for k in COBERTURAS_LADOS]
     x0, x1 = -cob[0], largura + cob[1]
     y0, y1 = -cob[2], altura + cob[3]
-    lados = {'ESQUERDA': (Vector((x0, y0)), Vector((x0, y1))),
-             'DIREITA': (Vector((x1, y0)), Vector((x1, y1))),
-             'CIMA': (Vector((x0, y1)), Vector((x1, y1)))}
+    lados = {
+        'ESQUERDA': (Vector((0.0, y0)), Vector((0.0, y1)), Vector((1, 0)), cob[0]),
+        'DIREITA': (Vector((largura, y0)), Vector((largura, y1)),
+                    Vector((-1, 0)), cob[1]),
+        'CIMA': (Vector((x0, altura)), Vector((x1, altura)), Vector((0, -1)),
+                 cob[3]),
+    }
     usados = ('CIMA',) if tipo == 'BASCULANTE' else ('ESQUERDA', 'DIREITA')
-    return [{'lado': lado, 'a': lados[lado][0], 'b': lados[lado][1]}
+    return [{'lado': lado, 'a': lados[lado][0], 'b': lados[lado][1],
+             'dentro': lados[lado][2], 'cobertura': lados[lado][3]}
             for lado in usados]
+
+
+# Volume de uma dobradica de caneco de 35 mm (padrao das ocultas; ver o
+# plano das portas): o CORPO (calco + braco) preso na face interna da
+# lateral, atras da folha, e o CANECO furado nas costas da folha. Medidas
+# aproximadas -- servem para ver o espaco ocupado, nao para usinar.
+DOBRADICA_ALTURA_MM = 50.0     # ao longo da borda
+DOBRADICA_AVANCO_MM = 22.0     # da face interna para dentro do movel
+DOBRADICA_FUNDO_MM = 70.0      # das costas da folha para tras
+CANECO_DIAMETRO_MM = 35.0
+CANECO_FUNDO_MM = 12.0         # furo na folha (~11,5-13 mm)
+CANECO_BORDA_MM = 5.0          # da borda da folha ao furo (centro ~22,5)
+
+
+def _caixa_da_ferragem(centro, eixo, dentro, faixa_u, faixa_v, faixa_z):
+    """8 cantos (mm) na ordem das caixas da previa (ARESTAS_CAIXA)."""
+    return [Vector((*(centro + eixo * u + dentro * v), z))
+            for u in faixa_u for v in faixa_v for z in faixa_z]
+
+
+def _caixas_dobradicas(aresta, distancias, costas_mm):
+    """[(corpo, caneco)] por dobradica: as caixas (mm, referencial do vao)
+    do espaco que cada uma ocupa. `costas_mm` = z das costas da folha."""
+    a, b = aresta['a'], aresta['b']
+    eixo = (b - a).normalized() if (b - a).length else Vector((0, 1))
+    dentro = aresta['dentro']
+    borda = -float(aresta.get('cobertura', 0.0))     # borda da folha
+    meia, raio = DOBRADICA_ALTURA_MM / 2.0, CANECO_DIAMETRO_MM / 2.0
+    caixas = []
+    for d in distancias:
+        centro = a + eixo * d
+        corpo = _caixa_da_ferragem(
+            centro, eixo, dentro, (-meia, meia), (0.0, DOBRADICA_AVANCO_MM),
+            (costas_mm - DOBRADICA_FUNDO_MM, costas_mm))
+        caneco = _caixa_da_ferragem(
+            centro, eixo, dentro, (-raio, raio),
+            (borda + CANECO_BORDA_MM,
+             borda + CANECO_BORDA_MM + CANECO_DIAMETRO_MM),
+            (costas_mm, costas_mm + CANECO_FUNDO_MM))
+        caixas.append((corpo, caneco))
+    return caixas
+
+
+FACES_CAIXA = ((0, 1, 3, 2), (4, 5, 7, 6), (0, 1, 5, 4), (2, 3, 7, 6),
+               (0, 2, 6, 4), (1, 3, 7, 5))
+
+
+# ============================== FERRAGENS, PIVO E ABERTURA (Fase 3)
+# Backlog do usuario (Epico 1.7/1.8 e Epico 4). A folha continua uma
+# chapa CENTRADA e filha direta do grupo (`_grupo_portas`, `_cantos`, HUD
+# e puxadores dependem disso): o pivo NAO e' um Empty nem a origem
+# deslocada -- a abertura entra na matrix_basis dela como um giro em
+# volta da borda da dobradica, na face da FRENTE (girando ali a folha
+# nunca bate na lateral). Correr desliza no trilho.
+# Ferragens: malhas nao selecionaveis (hide_select), refeitas a cada
+# `_aplicar_portas`. Corpo da dobradica e haste do pistao sao filhos do
+# GRUPO (ficam no modulo); caneco e corpo do pistao, da FOLHA (giram com
+# ela). Pistao = rigging de verdade: cada metade tem um Damped Track
+# mirando a outra ponta, entao encolhe e estica sozinho com o angulo.
+# A haste fica na ponta de BAIXO (na lateral), como pedem os fabricantes.
+CHAVE_FERRAGEM = 'porta_ferragem'          # tipo; marca a ferragem
+CHAVE_ID_FERRAGEM = 'porta_ferragem_id'    # estavel: reaproveita o objeto
+CHAVE_ABERTURA = 'porta_fracao_aberta'     # na folha: 0 fechada .. 1 aberta
+CHAVE_CENTRO_FOLHA = 'porta_centro_mm'     # centro da folha FECHADA
+ABERTURA_MAX_GRAUS = {'GIRO': 110.0, 'BASCULANTE': 90.0}
+PISTAO_RAIO_CORPO_MM = 9.0
+PISTAO_RAIO_HASTE_MM = 4.0
+PISTAO_DA_LATERAL_MM = 25.0      # do eixo do pistao a' face interna
+PISTAO_FUNDO_MAX_MM = 250.0      # quanto a fixacao entra no modulo
+TRILHO_ALTURA_MM = 15.0
+NOME_MIRA_PISTAO = 'Cabinet Mira'
+
+
+def _lado_da_folha(p, indice, n):
+    """Lado das dobradicas de UMA folha de giro (2 folhas: uma de cada)."""
+    if n > 1:
+        return 'ESQUERDA' if indice == 0 else 'DIREITA'
+    lado = p.get('dobradica_lado', 'ESQUERDA')
+    return lado if lado in ('ESQUERDA', 'DIREITA') else 'ESQUERDA'
+
+
+def _matriz_abertura(p, largura, n, indice, folha, fracao):
+    """matrix_basis (metros, referencial do grupo) da folha `indice`
+    aberta `fracao` (0..1). `folha` = (l, a, e, centro) em mm, fechada."""
+    l, a, e, centro = folha
+    c = Vector(centro)
+    fechada = Matrix.Translation(c / 1000.0)
+    fracao = max(0.0, min(1.0, float(fracao)))
+    if fracao <= 0.0:
+        return fechada
+    abertura = p.get('abertura', 'GIRO')
+    if abertura == 'CORRER':
+        # cada folha corre para o meio, por cima da vizinha
+        sobra = float(p.get('sobreposicao_mm', 0.0)) if n > 1 else 0.0
+        sentido = 1.0 if n == 1 or c.x < largura / 2.0 - 1e-6 else -1.0
+        passo = Vector((sentido * fracao * (l - sobra), 0.0, 0.0))
+        return Matrix.Translation(passo / 1000.0) @ fechada
+    frente = c.z + e / 2.0
+    if abertura == 'BASCULANTE':
+        pivo = Vector((c.x, c.y + a / 2.0, frente))
+        giro = Matrix.Rotation(
+            -math.radians(ABERTURA_MAX_GRAUS['BASCULANTE']) * fracao, 4, 'X')
+    else:
+        esquerda = _lado_da_folha(p, indice, n) == 'ESQUERDA'
+        pivo = Vector((c.x - l / 2.0 if esquerda else c.x + l / 2.0,
+                       c.y, frente))
+        angulo = math.radians(ABERTURA_MAX_GRAUS['GIRO']) * fracao
+        giro = Matrix.Rotation(-angulo if esquerda else angulo, 4, 'Y')
+    pivo = pivo / 1000.0
+    return (Matrix.Translation(pivo) @ giro @ Matrix.Translation(-pivo)
+            @ fechada)
+
+
+def _dados_da_folha(folha):
+    """(l, a, e, centro) da folha FECHADA, em mm."""
+    centro = folha.get(CHAVE_CENTRO_FOLHA)
+    if centro is None:
+        centro = folha.matrix_basis.translation * 1000.0
+    return (float(folha.chapa_largura_mm), float(folha.chapa_comprimento_mm),
+            float(folha.chapa_espessura_mm), tuple(float(v) for v in centro))
+
+
+def _matriz_fechada(folha):
+    """matrix_world da folha como se estivesse fechada (quem mede o vao
+    por uma folha de apoio nao pode ver a porta aberta)."""
+    centro = folha.get(CHAVE_CENTRO_FOLHA)
+    if centro is None or folha.parent is None:
+        return folha.matrix_world.copy()
+    return folha.parent.matrix_world @ Matrix.Translation(
+        Vector(tuple(centro)) / 1000.0)
+
+
+def _posicionar_folha(grupo, folha):
+    p = grupo.get('porta_parametros') or {}
+    folha.matrix_basis = _matriz_abertura(
+        p, float(grupo.get('porta_vao_largura_mm', 0.0)),
+        len(_folhas_portas(grupo)), int(folha.get('porta_indice', 0)),
+        _dados_da_folha(folha), folha.get(CHAVE_ABERTURA, 0.0))
+
+
+def _definir_abertura(context, folha, fracao):
+    """Abre a folha `fracao` (0..1). Ferragens seguem por parentesco e o
+    pistao pela mira."""
+    grupo = _grupo_portas(folha)
+    if grupo is None or MARCA_FOLHA not in folha:
+        return False
+    ocupado_antes = _ocupado[0]
+    _ocupado[0] = True
+    try:
+        folha[CHAVE_ABERTURA] = max(0.0, min(1.0, float(fracao)))
+        _posicionar_folha(grupo, folha)
+    finally:
+        _ocupado[0] = ocupado_antes
+    context.view_layer.update()
+    return True
+
+
+def _dobradicas_da_porta(p, largura, altura, folhas):
+    """[(aresta, distancias, indice da folha)]: onde vao as dobradicas
+    (lado, quantidade e margem gravados pelo wizard)."""
+    if p.get('abertura') == 'CORRER' or not folhas:
+        return []
+    lateral = float(p['lateral_mm'])
+    cob = [float(p['folga_mm']) - i for i in _inicios_porta(p)]
+    fracoes = {k: c / lateral for k, c in zip(COBERTURAS_LADOS, cob)}
+    tipo = 'BASCULANTE' if p.get('abertura') == 'BASCULANTE' else 'GIRO'
+    arestas = _arestas_da_porta(largura, altura, fracoes, lateral, tipo)
+    lados = (['CIMA'] if tipo == 'BASCULANTE'
+             else [_lado_da_folha(p, i, len(folhas)) for i in range(len(folhas))])
+    margem = float(p.get('dobradicas_margem_mm', MARGEM_DOBRADICAS_PADRAO))
+    saida = []
+    for i, lado in enumerate(lados):
+        aresta = next((a for a in arestas if a['lado'] == lado), arestas[0])
+        comprimento = (aresta['b'] - aresta['a']).length
+        qtd = (int(p.get('dobradicas_qtd', 0) or 0)
+               or _qtd_dobradicas_padrao(comprimento))
+        saida.append((aresta, _posicoes_ferragens(comprimento, qtd, margem), i))
+    return saida
+
+
+def _pistoes_da_porta(p, largura, altura, folhas):
+    """Pistoes do basculante (mm, referencial do grupo, porta FECHADA).
+
+    Fixacao na lateral a `pistoes_offset_mm` do TOPO do vao, para dentro
+    do modulo; na folha, perto da dobradica (assim o curso cabe no
+    pistao). O comprimento de cada metade fica entre o fechado e a
+    metade do aberto: nem sobra fora da ponta, nem abre buraco."""
+    l, a, e, centro = folhas[0]
+    c = Vector(centro)
+    qtd = int(p.get('pistoes_qtd', 0) or 0) or _qtd_pistoes_padrao(l)
+    offset = (float(p.get('pistoes_offset_mm', 0.0) or 0.0)
+              or _offset_pistoes_padrao(altura))
+    costas, topo = c.z - e / 2.0, c.y + a / 2.0
+    fundo = min(offset, PISTAO_FUNDO_MAX_MM)
+    da_dobradica = max(40.0, 0.3 * offset)
+    aberta = _matriz_abertura(p, largura, 1, 0, folhas[0], 1.0)
+    saida = []
+    for lado in ('ESQUERDA', 'DIREITA')[:max(1, min(2, qtd))]:
+        x = (PISTAO_DA_LATERAL_MM if lado == 'ESQUERDA'
+             else largura - PISTAO_DA_LATERAL_MM)
+        na_lateral = Vector((x, altura - offset, costas - fundo))
+        na_folha = Vector((x, topo - da_dobradica, costas))
+        aberto = aberta @ ((na_folha - c) / 1000.0) * 1000.0
+        comprimento = max(10.0, ((na_folha - na_lateral).length
+                                 + (aberto - na_lateral).length / 2.0) / 2.0)
+        s = lado[0]
+        saida += [
+            {'id': 'PISTAO_PONTO_' + s, 'tipo': 'PISTAO_PONTO', 'folha': 0,
+             'forma': 'PONTO', 'origem': na_folha},
+            {'id': 'PISTAO_CORPO_' + s, 'tipo': 'PISTAO_CORPO', 'folha': 0,
+             'forma': 'HASTE', 'origem': na_folha,
+             'raio': PISTAO_RAIO_CORPO_MM, 'comprimento': comprimento,
+             'mira': 'PISTAO_HASTE_' + s},
+            {'id': 'PISTAO_HASTE_' + s, 'tipo': 'PISTAO_HASTE', 'folha': None,
+             'forma': 'HASTE', 'origem': na_lateral,
+             'raio': PISTAO_RAIO_HASTE_MM, 'comprimento': comprimento,
+             'mira': 'PISTAO_PONTO_' + s},
+        ]
+    return saida
+
+
+def _ferragens_da_porta(p, largura, altura, folhas):
+    """O que montar (mm, referencial do grupo, porta FECHADA): uma lista
+    de {'id', 'tipo', 'folha' (indice; None = no grupo), 'forma', ...}."""
+    saida = []
+    for aresta, distancias, i in _dobradicas_da_porta(p, largura, altura, folhas):
+        _l, _a, e, centro = folhas[i]
+        caixas = _caixas_dobradicas(aresta, distancias, centro[2] - e / 2.0)
+        for k, (corpo, caneco) in enumerate(caixas):
+            sufixo = '%s_%d' % (aresta['lado'], k)
+            saida.append({'id': 'DOBRADICA_' + sufixo, 'tipo': 'DOBRADICA',
+                          'folha': None, 'forma': 'CAIXA', 'cantos': corpo})
+            saida.append({'id': 'CANECO_' + sufixo, 'tipo': 'CANECO',
+                          'folha': i, 'forma': 'CILINDRO',
+                          'origem': sum(caneco, Vector()) / 8.0,
+                          'raio': CANECO_DIAMETRO_MM / 2.0,
+                          'comprimento': CANECO_FUNDO_MM})
+    abertura = p.get('abertura')
+    if abertura == 'BASCULANTE' and folhas:
+        saida += _pistoes_da_porta(p, largura, altura, folhas)
+    elif abertura == 'CORRER' and folhas:
+        zs = [c[2] + s * e / 2.0 for _l, _a, e, c in folhas for s in (-1, 1)]
+        saida.append({'id': 'TRILHO', 'tipo': 'TRILHO', 'folha': None,
+                      'forma': 'CAIXA', 'cantos': [
+                          Vector((x, y, z)) for x in (0.0, largura)
+                          for y in (altura - TRILHO_ALTURA_MM, altura)
+                          for z in (min(zs), max(zs))]})
+    return saida
+
+
+def _origem_da_ferragem(item):
+    if item['forma'] == 'CAIXA':
+        return sum(item['cantos'], Vector()) / len(item['cantos'])
+    return Vector(item['origem'])
+
+
+def _malha_da_ferragem(malha, item):
+    """Caixa (centrada), caneco (cilindro em Z, centrado) ou metade de
+    pistao (cilindro de 0 a +Y: o Damped Track aponta o Y para a mira)."""
+    bm = bmesh.new()
+    try:
+        if item['forma'] == 'CAIXA':
+            lo = Vector(tuple(min(v[k] for v in item['cantos']) for k in range(3)))
+            hi = Vector(tuple(max(v[k] for v in item['cantos']) for k in range(3)))
+            bmesh.ops.create_cube(bm, size=1.0)
+            bmesh.ops.scale(bm, vec=(hi - lo) / 1000.0, verts=bm.verts)
+        else:
+            raio = item['raio'] / 1000.0
+            fundo = item['comprimento'] / 1000.0
+            bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False,
+                                  segments=24, radius1=raio, radius2=raio,
+                                  depth=fundo)
+            if item['forma'] == 'HASTE':
+                bmesh.ops.rotate(bm, cent=(0.0, 0.0, 0.0), verts=bm.verts,
+                                 matrix=Matrix.Rotation(-math.pi / 2, 3, 'X'))
+                bmesh.ops.translate(bm, vec=(0.0, fundo / 2.0, 0.0),
+                                    verts=bm.verts)
+        bm.to_mesh(malha)
+    finally:
+        bm.free()
+    malha.update()
+
+
+def _ferragens_portas(grupo):
+    return [o for o in grupo.children_recursive if CHAVE_FERRAGEM in o]
+
+
+def _remover_ferragem(obj):
+    malha = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if malha is not None and malha.users == 0:
+        bpy.data.meshes.remove(malha)
+
+
+def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
+    """Cria/atualiza/remove as ferragens da porta (chamado com
+    `_ocupado`, depois que as folhas existem). Reaproveita pelo id."""
+    existentes = {}
+    for o in _ferragens_portas(grupo):
+        if o.get(CHAVE_ID_FERRAGEM) in existentes:
+            _remover_ferragem(o)
+        else:
+            existentes[o.get(CHAVE_ID_FERRAGEM)] = o
+    folhas = _folhas_portas(grupo)
+    colecao = grupo.users_collection[0]
+    feitos = {}
+    for item in _ferragens_da_porta(parametros, largura, altura, calculadas):
+        obj = existentes.pop(item['id'], None)
+        ponto = item['forma'] == 'PONTO'
+        if obj is not None and ponto != (obj.type == 'EMPTY'):
+            _remover_ferragem(obj)
+            obj = None
+        if obj is None:
+            nome = item['tipo'].title()
+            obj = bpy.data.objects.new(
+                nome, None if ponto else bpy.data.meshes.new(nome))
+            colecao.objects.link(obj)
+            obj[CHAVE_FERRAGEM] = item['tipo']
+            obj[CHAVE_ID_FERRAGEM] = item['id']
+            if ponto:
+                _ocultar_empty(obj)
+        # nunca selecionavel pelo clique; anda junto com a porta
+        obj.hide_select = True
+        if not ponto:
+            _malha_da_ferragem(obj.data, item)
+        indice = item['folha']
+        origem = _origem_da_ferragem(item)
+        if indice is not None and indice < len(folhas):
+            pai = folhas[indice]
+            origem = origem - Vector(calculadas[indice][3])
+        else:
+            pai = grupo
+        obj.parent = pai
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.matrix_basis = Matrix.Translation(origem / 1000.0)
+        feitos[item['id']] = (obj, item)
+    for obj, item in feitos.values():
+        mira = feitos.get(item.get('mira'), (None, None))[0]
+        restricoes = [r for r in obj.constraints if r.name == NOME_MIRA_PISTAO]
+        if mira is None:
+            for r in restricoes:
+                obj.constraints.remove(r)
+            continue
+        r = restricoes[0] if restricoes else obj.constraints.new('DAMPED_TRACK')
+        r.name = NOME_MIRA_PISTAO
+        r.target = mira
+        r.track_axis = 'TRACK_Y'
+    for obj in existentes.values():
+        _remover_ferragem(obj)
+
+
+_contagem_objetos = [-1]    # o handler so' confere quando ela muda
+
+
+def _conferir_ferragens():
+    """Timer: ferragem nao se seleciona (hide_select), entao apagar ou
+    duplicar a porta nao a leva. Ferragem sem porta sai; porta sem
+    nenhuma (duplicada, ou de antes da Fase 3) ganha as dela. De quebra,
+    Empty de amarracao de arquivo/preset antigo fica invisivel."""
+    try:
+        for o in bpy.data.objects:
+            if (o.type == 'EMPTY'
+                    and any(m in o for m in (MARCA_CONJUNTO, MARCA_PORTAS,
+                                             CHAVE_FERRAGEM))
+                    and o.empty_display_size > TAMANHO_EMPTY_OCULTO * 1.5):
+                _ocultar_empty(o)
+        for o in [o for o in bpy.data.objects if CHAVE_FERRAGEM in o]:
+            dono = o.parent
+            while dono is not None and MARCA_PORTAS not in dono:
+                dono = dono.parent
+            if dono is None:
+                _remover_ferragem(o)
+        for grupo in [o for o in bpy.data.objects
+                      if MARCA_PORTAS in o and o.get('porta_parametros')]:
+            if _folhas_portas(grupo) and not _ferragens_portas(grupo):
+                _refazer_ferragens(grupo)
+    except Exception as e:
+        print("[Cabinet Creator] ferragens:", e)
+    return None
+
+
+def _refazer_ferragens(grupo):
+    """Ferragens de novo pelo que a porta guarda (desfazer arraste)."""
+    p = grupo.get('porta_parametros')
+    if not p:
+        return
+    folhas = _folhas_portas(grupo)
+    ocupado_antes = _ocupado[0]
+    _ocupado[0] = True
+    try:
+        _montar_ferragens(grupo, dict(p),
+                          float(grupo.get('porta_vao_largura_mm', 0.0)),
+                          float(grupo.get('porta_vao_altura_mm', 0.0)),
+                          [_dados_da_folha(f) for f in folhas])
+    finally:
+        _ocupado[0] = ocupado_antes
 
 
 def _botoes_assistente(ancora, opcoes, escala):
@@ -5385,10 +5861,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._recado = 'Vao %.0f x %.0f mm - %d folha(s)%s' % (
             largura, altura, len(folhas), ' - embutida' if embutida else '')
         if assistente is not None:
+            _l, _a, e, centro = folhas[0]
             assistente.update(largura=largura, altura=altura,
                               matriz=matriz.copy(),
                               lateral=parametros['lateral_mm'],
-                              coberturas=dict(coberturas), embutida=embutida)
+                              coberturas=dict(coberturas), embutida=embutida,
+                              costas=centro[2] - e / 2.0)
         caixas = []
         for l, alt, e, centro in folhas:
             meia = Vector((l, alt, e)) / 2000.0
@@ -5432,9 +5910,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 arestas_cor.append((
                     _cor_realce_hud() if aresta is destaque else COR_BORDA_EIXO,
                     [self._mundo(aresta['a']), self._mundo(aresta['b'])]))
-        elif etapa in {'QUANTIDADE', 'MARGEM', 'PISTOES_QTD',
-                       'PISTOES_OFFSET'}:
-            ferragens = self._pontos_ferragens()
+        caixas_ferragens = []
+        if etapa in {'QUANTIDADE', 'MARGEM', 'PISTOES_QTD', 'PISTOES_OFFSET'}:
+            caixas_ferragens, ferragens = self._ferragens_do_wizard()
         try:
             gpu.state.blend_set('ALPHA')
             gpu.state.depth_test_set('NONE')
@@ -5448,6 +5926,18 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             for cor, pontos in arestas_cor:
                 shader.uniform_float('color', cor)
                 batch_for_shader(shader, 'LINES', {'pos': pontos}).draw(shader)
+            if caixas_ferragens:
+                # volume da dobradica: faces translucidas + arestas
+                realce = _cor_realce_hud()
+                tris = [c[i] for c in caixas_ferragens for q in FACES_CAIXA
+                        for i in (q[0], q[1], q[2], q[0], q[2], q[3])]
+                shader.uniform_float('color', (*realce[:3], 0.28))
+                batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
+                gpu.state.line_width_set(2.0)
+                shader.uniform_float('color', realce)
+                batch_for_shader(shader, 'LINES', {'pos': [
+                    c[k] for c in caixas_ferragens for i, j in ARESTAS_CAIXA
+                    for k in (i, j)]}).draw(shader)
             if ferragens:
                 gpu.state.point_size_set(10.0)
                 shader.uniform_float('color', _cor_realce_hud())
@@ -5482,26 +5972,30 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return view3d_utils.location_3d_to_region_2d(
             self._regiao, self._rv3d, ponto_mundo)
 
-    def _pontos_ferragens(self):
-        """Pontos (mundo) das dobradicas no eixo escolhido e, no
-        basculante, dos pistoes nas laterais (offset do TOPO para baixo)."""
+    def _ferragens_do_wizard(self):
+        """(caixas em mundo, pontos dos pistoes): o VOLUME de cada
+        dobradica na face interna da chapa (corpo) e nas costas da folha
+        (caneco); no basculante, os pistoes nas laterais (offset do TOPO
+        para baixo)."""
         w = self._w
         aresta = w.get('aresta')
         if aresta is None:
-            return []
-        eixo = aresta['b'] - aresta['a']
-        comprimento = eixo.length
-        direcao = eixo.normalized() if comprimento else Vector((0, 1))
+            return [], []
+        comprimento = (aresta['b'] - aresta['a']).length
         distancias = _posicoes_ferragens(comprimento, w['qtd'], w['margem'])
         # 2 folhas de giro: dobradicas nas DUAS bordas
         bordas = w['arestas'] if w.get('duas_bordas') else [aresta]
-        pontos = [self._mundo(borda['a'] + direcao * d)
-                  for borda in bordas for d in distancias]
+        caixas = [[w['matriz'] @ (p / 1000.0) for p in caixa]
+                  for borda in bordas
+                  for par in _caixas_dobradicas(borda, distancias,
+                                                w.get('costas', 0.0))
+                  for caixa in par]
+        pistoes = []
         if w.get('pistoes'):
             topo = w['altura'] - w['poffset']
             xs = (0.0,) if w['pqtd'] < 2 else (0.0, w['largura'])
-            pontos += [self._mundo(Vector((x, topo))) for x in xs]
-        return pontos
+            pistoes = [self._mundo(Vector((x, topo))) for x in xs]
+        return caixas, pistoes
 
     def _encerrar(self, context):
         _marcar_apanhando(False)
@@ -6653,8 +7147,7 @@ def _novo_grupo_portas(context, pai=None):
     grupo = bpy.data.objects.new("Portas", None)
     context.collection.objects.link(grupo)
     grupo[MARCA_PORTAS] = 1
-    grupo.empty_display_type = 'PLAIN_AXES'
-    grupo.empty_display_size = 0.05
+    _ocultar_empty(grupo)
     grupo.parent = pai
     # As medidas sao de mundo, mesmo quando o pai tem escala.
     if pai is not None:
@@ -9716,7 +10209,17 @@ def _raio_hud(context, posicao):
         context.evaluated_depsgraph_get(), origem, direcao)
     if not acertou or obj is None:
         return None
-    return obj.original, ponto, normal, face, matriz
+    obj = obj.original
+    if CHAVE_FERRAGEM in obj:
+        # ferragem nao se seleciona: o clique vale pela folha da porta
+        dono = obj.parent
+        if dono is not None and MARCA_PORTAS in dono:
+            dono = (_folhas_portas(dono) or [None])[0]
+        if dono is None or MARCA_FOLHA not in dono:
+            return None
+        # a face e' da ferragem, nao da folha: sem face (-1)
+        return dono, ponto, normal, -1, dono.matrix_world.copy()
+    return obj, ponto, normal, face, matriz
 
 
 def _familia_do_clique(obj):
@@ -10000,6 +10503,11 @@ def _geometria_do_item(obj, modo, chapas):
                            'pontos': [cantos[i], cantos[j]]})
     grupos = _grupos_de_porta(obj) if modo == 'GRUPO' else []
     for grupo in grupos:
+        if any(float(f.get(CHAVE_ABERTURA, 0.0)) > 0.0
+               for f in _folhas_portas(grupo)):
+            # porta aberta (pedido do usuario): a caixa envolveria o giro
+            # inteiro e a folga ate' o modulo nao existe -- nada da porta
+            continue
         caixa = _caixa_hud_objetos(_folhas_portas(grupo), grupo.matrix_world)
         if caixa is None:
             continue
@@ -10783,8 +11291,10 @@ def _desenhar_hud_texto():
     context = bpy.context
     if not _contexto_hud(context):
         return
-    # porta selecionada nao tem HUD de medida, mas tem os 4 cantos
+    # porta selecionada nao tem HUD de medida, mas tem os 4 cantos e o
+    # slider de abertura de cada folha
     _desenhar_cantos_porta(context)
+    _desenhar_sliders_porta(context)
     desenhos = _desenhos_hud(context)
     if not desenhos:
         return
@@ -10974,6 +11484,8 @@ class VIEW3D_GT_hud_cabinet(Gizmo):
     def test_select(self, context, location):
         if not _contexto_hud(context):
             return -1
+        if _slider_sob_mouse(context, location) is not None:
+            return -1       # a bolinha do slider de abertura e' de outro gizmo
         # Sobre uma corrente o clique e' DELE (outro gizmo): a quina e as
         # linhas da HUD ficam embaixo e nao podem roubar o pick.
         alvo_corrente = _alvo_da_corrente(context, location)
@@ -11838,11 +12350,24 @@ class OBJECT_OT_arrastar_ancora(Operator):
 _arraste_canto_porta = [None]    # estado do arraste de um canto
 
 
+def _porta_veio_do_modulo(grupo):
+    """A porta esta' selecionada so' porque o MODULO dela esta' (clique nas
+    chapas). Ai' nada da porta se desenha -- dobradicas, linhas do vao,
+    diagonal, cantos, sliders (pedido do usuario: visao mais limpa); a
+    HUD do modulo ja' mostra o contorno dela."""
+    modulo = grupo.parent
+    while modulo is not None and MARCA_CONJUNTO not in modulo:
+        modulo = modulo.parent
+    return modulo is not None and modulo.select_get()
+
+
 def _portas_com_cantos(context):
-    """Portas selecionadas INTEIRAS (clique simples, nao a folha)."""
+    """Portas selecionadas INTEIRAS (clique simples, nao a folha) por si
+    mesmas, nao junto com o modulo."""
     return [o for o in getattr(context, 'selected_objects', ()) or ()
             if MARCA_PORTAS in o and o.get('porta_parametros')
-            and o.get('porta_vao_largura_mm') is not None]
+            and o.get('porta_vao_largura_mm') is not None
+            and not _porta_veio_do_modulo(o)]
 
 
 def _cantos_da_porta(grupo):
@@ -11881,9 +12406,60 @@ def _canto_porta_sob_mouse(context, posicao):
     return (melhor[1], melhor[2]) if melhor else (None, None)
 
 
+COR_LINHAS_VAO = (1.0, 0.85, 0.1, 1.0)      # amarelo: o vao (pedido do usuario)
+
+
+def _desenho_da_porta(grupo):
+    """O que a porta selecionada mostra, em MUNDO: a caixa de cada folha,
+    o retangulo do vao (faces internas das chapas) e o volume de cada
+    dobradica onde o wizard a pos (lado, quantidade, margem gravados).
+    Refeito da porta a cada desenho: acompanha o modulo."""
+    p = dict(grupo['porta_parametros'])
+    L = float(grupo['porta_vao_largura_mm'])
+    A = float(grupo['porta_vao_altura_mm'])
+    m = grupo.matrix_world
+    mundo = lambda v: m @ (Vector(v) / 1000.0)
+    desenho = {'folhas': [], 'dobradicas': [],
+               'vao': [mundo((x, y, 0.0)) for x, y in
+                       ((0, 0), (L, 0), (L, A), (0, A))]}
+    try:
+        folhas = _calcular_folhas_portas(L, A, p)
+    except (ValueError, KeyError, TypeError):
+        return desenho
+    objetos = _folhas_portas(grupo)
+    for i, (l, alt, e, centro) in enumerate(folhas):
+        meia = Vector((l, alt, e)) / 2000.0
+        # pela folha de verdade: o contorno abre junto com ela
+        matriz = (objetos[i].matrix_world if i < len(objetos)
+                  else m @ Matrix.Translation(Vector(centro) / 1000.0))
+        desenho['folhas'].append([matriz @ Vector((meia.x * sx, meia.y * sy,
+                                                   meia.z * sz))
+                                  for sx in (-1, 1) for sy in (-1, 1)
+                                  for sz in (-1, 1)])
+    ferragens = sorted((o for o in _ferragens_portas(grupo)
+                        if o.get(CHAVE_FERRAGEM) in {'DOBRADICA', 'CANECO'}),
+                       key=lambda o: (o[CHAVE_FERRAGEM] != 'DOBRADICA',
+                                      o.get(CHAVE_ID_FERRAGEM, '')))
+    if ferragens:
+        # as malhas de verdade (o caneco gira com a folha)
+        # bound_box tem outra ordem de cantos: 0 1 3 2 4 5 7 6 = a da caixa
+        desenho['dobradicas'] = [[o.matrix_world @ Vector(o.bound_box[k])
+                                  for k in (0, 1, 3, 2, 4, 5, 7, 6)]
+                                 for o in ferragens]
+        return desenho
+    desenho['dobradicas'] = [
+        [mundo(v) for v in caixa]
+        for aresta, distancias, i in _dobradicas_da_porta(p, L, A, folhas)
+        for par in _caixas_dobradicas(aresta, distancias,
+                                      folhas[i][3][2] - folhas[i][2] / 2.0)
+        for caixa in par]
+    return desenho
+
+
 def _desenhar_cantos_porta(context):
-    """Fios da porta selecionada e, com Alt (ou arrastando), as 4
-    bolinhas brancas."""
+    """Porta selecionada (print do usuario): contorno branco das folhas,
+    linhas internas do vao em amarelo, volume das dobradicas, os fios dos
+    4 cantos e, com Alt (ou arrastando), as 4 bolinhas brancas."""
     portas = _portas_com_cantos(context)
     if not portas:
         return
@@ -11895,6 +12471,31 @@ def _desenhar_cantos_porta(context):
     try:
         shader.bind()
         for grupo in portas:
+            desenho = _desenho_da_porta(grupo)
+            for caixa in desenho['dobradicas']:
+                tela = [_projetar_hud(context, v) for v in caixa]
+                if any(v is None for v in tela):
+                    continue
+                shader.uniform_float('color', (*realce[:3], 0.28))
+                batch_for_shader(shader, 'TRIS', {'pos': [
+                    tela[i] for q in FACES_CAIXA
+                    for i in (q[0], q[1], q[2], q[0], q[2], q[3])]}).draw(shader)
+                shader.uniform_float('color', realce)
+                for i, j in ARESTAS_CAIXA:
+                    batch_for_shader(shader, 'TRIS', {'pos': _quad_2d(
+                        tela[i], tela[j], 1.2 * escala)}).draw(shader)
+            contornos = [(caixa, ARESTAS_CAIXA, COR_FIO_VAO)
+                         for caixa in desenho['folhas']]
+            contornos.append((desenho['vao'], ((0, 1), (1, 2), (2, 3), (3, 0)),
+                              COR_LINHAS_VAO))
+            for pontos, arestas, cor in contornos:
+                tela = [_projetar_hud(context, v) for v in pontos]
+                if any(v is None for v in tela):
+                    continue
+                shader.uniform_float('color', cor)
+                for i, j in arestas:
+                    batch_for_shader(shader, 'TRIS', {'pos': _quad_2d(
+                        tela[i], tela[j], 1.4 * escala)}).draw(shader)
             arrastando = estado is not None and estado['grupo'] == grupo.name
             pontos = estado['pontos'] if arrastando else _cantos_da_porta(grupo)
             tela = [_projetar_hud(context, p) for p in pontos]
@@ -12078,6 +12679,305 @@ class OBJECT_OT_arrastar_canto_porta(Operator):
                                               self._antigos)
             return {'FINISHED'} if 'FINISHED' in resultado else {'CANCELLED'}
         return {'RUNNING_MODAL'}
+
+
+# ------------------------------------------ slider de abertura (Epico 4)
+# Um por folha, so' com a porta (ou a folha) selecionada: na BASE da folha
+# FECHADA, um pouco a' frente (fica parado enquanto ela abre, entao nao
+# foge do mouse) e por cima de tudo (raio-X). Arrastar para a direita
+# abre, para a esquerda fecha -- seja qual for o lado da dobradica.
+# Grosso (pedido do usuario) e recuado das pontas da folha: em porta dupla
+# os dois nunca se encostam no meio, sobra uma folga entre eles.
+SLIDER_FRENTE_MM = 30.0
+SLIDER_RECUO_MM = 40.0           # de cada ponta da folha (min.)
+SLIDER_RECUO_FRACAO = 0.12       # ... ou esta fracao da largura
+# Medidas em MM do mundo (pedido do usuario): longe, o slider encolhe na
+# mesma proporcao da porta; perto, para no teto (2x). Calibrado na vista
+# normal de um modulo (~1 px/mm): o desenho aprovado pelo usuario.
+SLIDER_ESPESSURA_MM = 13.0       # altura do trilho
+SLIDER_BOTAO_MM = 12.0           # raio da bolinha = o alcance do clique
+SLIDER_TEXTO_MM = 13.0           # altura do valor
+SLIDER_PX_POR_MM_MAX = 2.0       # teto da escala (por ui_scale)
+SLIDER_TEXTO_MIN_PX = 7.0        # menor que isto o valor nao se le: some
+SIMBOLO_GRAU = chr(0xB0)         # codigo so' em ASCII
+_arraste_slider_porta = [None]   # nome da folha sendo arrastada
+_slider_hover = [None]           # nome da folha com a bolinha sob o mouse
+
+
+def _folhas_com_slider(context):
+    folhas = []
+    for o in getattr(context, 'selected_objects', ()) or ():
+        if MARCA_PORTAS in o and o.get('porta_parametros'):
+            grupo, candidatas = o, _folhas_portas(o)
+        elif MARCA_FOLHA in o and _grupo_portas(o) is not None:
+            grupo, candidatas = _grupo_portas(o), [o]
+        else:
+            continue
+        if _porta_veio_do_modulo(grupo):
+            continue        # modulo selecionado: sem sliders
+        folhas += [f for f in candidatas if f not in folhas]
+    return folhas
+
+
+def _slider_no_mundo(folha):
+    """As 2 pontas do slider em MUNDO: base da folha fechada, a' frente,
+    recuadas das quinas (a folga entre os sliders de uma porta dupla)."""
+    l, a, e, _centro = _dados_da_folha(folha)
+    fechada = _matriz_fechada(folha)
+    recuo = min(max(SLIDER_RECUO_MM, SLIDER_RECUO_FRACAO * l), 0.3 * l)
+    return [fechada @ (Vector((sx * (l / 2.0 - recuo), -a / 2.0,
+                               e / 2.0 + SLIDER_FRENTE_MM)) / 1000.0)
+            for sx in (-1, 1)]
+
+
+def _slider_na_tela(context, folha):
+    """(inicio, fim) do slider em pixels, o inicio sempre a' esquerda."""
+    pontos = [_projetar_hud(context, p) for p in _slider_no_mundo(folha)]
+    if any(p is None for p in pontos) or (pontos[1] - pontos[0]).length < 1:
+        return None
+    return tuple(sorted(pontos, key=lambda p: p.x))
+
+
+def _fracao_no_slider(inicio, fim, mouse):
+    trilho = fim - inicio
+    return max(0.0, min(1.0, (mouse - inicio).dot(trilho) / trilho.length_squared))
+
+
+def _px_por_mm_do_slider(context, folha):
+    """Pixels por mm no meio do slider, medidos na vertical da TELA (a
+    inclinacao do trilho nao afina o desenho), com o teto."""
+    rv3d = context.region_data
+    a, b = _slider_no_mundo(folha)
+    meio = (a + b) / 2.0
+    cima = rv3d.view_rotation @ Vector((0.0, 1.0, 0.0))
+    p, q = (_projetar_hud(context, v) for v in (meio, meio + cima * 0.1))
+    teto = SLIDER_PX_POR_MM_MAX * max(1.0, context.preferences.system.ui_scale)
+    if p is None or q is None:
+        return teto
+    return min((q - p).length / 100.0, teto)
+
+
+def _botao_do_slider(context, folha):
+    """Centro da bolinha do slider (pixels), ou None."""
+    tela = _slider_na_tela(context, folha)
+    if tela is None:
+        return None
+    return tela[0].lerp(tela[1], float(folha.get(CHAVE_ABERTURA, 0.0)))
+
+
+def _slider_sob_mouse(context, posicao):
+    """A folha cuja BOLINHA esta' sob o mouse, ou None. O alcance e' o
+    tamanho da bolinha (pedido do usuario): o trilho nao pega o clique."""
+    if getattr(context, 'region_data', None) is None:
+        return None             # sem vista 3D nao ha' slider na tela
+    mouse = Vector(posicao)
+    melhor = None
+    for folha in _folhas_com_slider(context):
+        botao = _botao_do_slider(context, folha)
+        if botao is None:
+            continue
+        # do tamanho da bolinha desenhada (3 px no minimo: ainda se pega)
+        raio = max(3.0, SLIDER_BOTAO_MM * _px_por_mm_do_slider(context, folha))
+        d = (botao - mouse).length
+        if d <= raio and (melhor is None or d < melhor[0]):
+            melhor = (d, folha)
+    return melhor[1] if melhor else None
+
+
+def _texto_abertura(folha):
+    grupo = _grupo_portas(folha)
+    p = (grupo.get('porta_parametros') or {}) if grupo is not None else {}
+    fracao = float(folha.get(CHAVE_ABERTURA, 0.0))
+    abertura = p.get('abertura', 'GIRO')
+    if abertura == 'CORRER':
+        l, a, e, centro = _dados_da_folha(folha)
+        mm = (_matriz_abertura(p, float(grupo.get('porta_vao_largura_mm', 0.0)),
+                               len(_folhas_portas(grupo)),
+                               int(folha.get('porta_indice', 0)),
+                               (l, a, e, centro), fracao).translation * 1000.0
+              - Vector(centro)).length
+        return '%d mm' % round(mm)
+    return '%d%s' % (round(ABERTURA_MAX_GRAUS.get(abertura, 110.0) * fracao),
+                     SIMBOLO_GRAU)
+
+
+def _desenhar_sliders_porta(context):
+    folhas = _folhas_com_slider(context)
+    if not folhas:
+        return
+    realce = _cor_realce_hud()
+    arrastando = _arraste_slider_porta[0]
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    gpu.state.blend_set('ALPHA')
+    try:
+        for folha in folhas:
+            tela = _slider_na_tela(context, folha)
+            if tela is None:
+                continue
+            inicio, fim = tela
+            fracao = float(folha.get(CHAVE_ABERTURA, 0.0))
+            botao = inicio.lerp(fim, fracao)
+            # tudo proporcional ao zoom: 1 "escala" = 1 mm na tela
+            mm = _px_por_mm_do_slider(context, folha)
+            grosso = SLIDER_ESPESSURA_MM * mm
+            raio = SLIDER_BOTAO_MM * mm
+            aceso = folha.name in (arrastando, _slider_hover[0])
+            shader.bind()
+            # cores opacas: com alfa, a emenda das pontas redondas apareceria
+            _capsula_2d(shader, inicio, fim, grosso + 3.0 * mm,
+                        (0.92, 0.92, 0.92, 1.0))
+            _capsula_2d(shader, inicio, fim, grosso, (0.13, 0.13, 0.13, 1.0))
+            if fracao > 0:
+                _capsula_2d(shader, inicio, botao, grosso * 0.65, realce)
+            if aceso:
+                _bolinha_2d(shader, botao, raio + 3.0 * mm, realce)
+            _bolinha_2d(shader, botao, raio, (1.0, 1.0, 1.0, 1.0))
+            _bolinha_2d(shader, botao, raio * 0.45, realce)
+            # o valor numa caixa preta, centrado acima do botao; pequeno
+            # demais para ler, some (o slider continua)
+            tamanho = SLIDER_TEXTO_MM * mm
+            if tamanho >= SLIDER_TEXTO_MIN_PX:
+                texto = _texto_abertura(folha)
+                blf.size(0, tamanho)
+                largura = blf.dimensions(0, texto)[0]
+                _caixa_texto_hud(botao.x - largura / 2.0,
+                                 botao.y + raio + 7.0 * mm, texto, tamanho,
+                                 tamanho / 12.0)
+                gpu.state.blend_set('ALPHA')
+    finally:
+        gpu.state.blend_set('NONE')
+
+
+def _capsula_2d(shader, a, b, grossura, rgba):
+    """Trilho com as pontas redondas (o slider)."""
+    shader.uniform_float('color', rgba)
+    quad = _quad_2d(a, b, grossura)
+    if quad:
+        batch_for_shader(shader, 'TRIS', {'pos': quad}).draw(shader)
+    for ponta in (a, b):
+        _bolinha_2d(shader, ponta, grossura / 2.0, rgba)
+
+
+class OBJECT_OT_abrir_porta(Operator):
+    """Arraste o slider da folha: para a direita abre, para a esquerda fecha"""
+    bl_idname = 'object.cabinet_abrir_porta'
+    bl_label = 'Abrir Porta'
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    folha: StringProperty(options={'SKIP_SAVE'})
+    fracao: FloatProperty(min=0.0, max=1.0, options={'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        return _contexto_hud(context)
+
+    def execute(self, context):
+        folha = bpy.data.objects.get(self.folha)
+        if folha is None or not _definir_abertura(context, folha, self.fracao):
+            return {'CANCELLED'}
+        _redesenhar_viewports(context)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # do gizmo da bolinha (ou do keymap): fora dela o clique segue
+        folha = _slider_sob_mouse(context, (event.mouse_region_x,
+                                            event.mouse_region_y))
+        if folha is None:
+            return {'PASS_THROUGH'}
+        self.folha = folha.name
+        self._antes = float(folha.get(CHAVE_ABERTURA, 0.0))
+        self._area = context.area
+        # pegou a bolinha fora do centro: ela nao pula ate' o mouse
+        self._desvio = self._fracao_do_mouse(context, event, folha) - self._antes
+        _arraste_slider_porta[0] = folha.name
+        context.window_manager.modal_handler_add(self)
+        self._area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    @staticmethod
+    def _fracao_do_mouse(context, event, folha):
+        tela = _slider_na_tela(context, folha)
+        if tela is None:
+            return float(folha.get(CHAVE_ABERTURA, 0.0))
+        return _fracao_no_slider(*tela, Vector((event.mouse_region_x,
+                                                event.mouse_region_y)))
+
+    def _arrastar(self, context, event):
+        folha = bpy.data.objects.get(self.folha)
+        if folha is None:
+            return
+        self.fracao = max(0.0, min(1.0, self._fracao_do_mouse(
+            context, event, folha) - self._desvio))
+        _definir_abertura(context, folha, self.fracao)
+        self._area.tag_redraw()
+
+    def _encerrar(self):
+        _arraste_slider_porta[0] = None
+        self._area.tag_redraw()
+
+    def cancel(self, context):
+        self._encerrar()
+
+    def modal(self, context, event):
+        if event.type in {'ESC', 'RIGHTMOUSE'}:
+            folha = bpy.data.objects.get(self.folha)
+            if folha is not None:
+                _definir_abertura(context, folha, self._antes)
+            self._encerrar()
+            return {'CANCELLED'}
+        if event.type == 'MOUSEMOVE':
+            self._arrastar(context, event)
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._arrastar(context, event)
+            self._encerrar()
+            return {'FINISHED'}
+        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+            return {'PASS_THROUGH'}
+        return {'RUNNING_MODAL'}
+
+
+class VIEW3D_GT_slider_porta(Gizmo):
+    """A bolinha do slider de abertura; o hit-test e' do tamanho dela.
+
+    Gizmo e nao so' keymap: o gizmo e' avaliado ANTES de qualquer keymap.
+    No keyconfig do usuario a selecao vinha antes da entrada do slider
+    (o head=True do add-on nao vale na ordem dele), limpava a selecao e
+    o slider sumia antes de receber o clique."""
+    bl_idname = 'VIEW3D_GT_slider_porta'
+
+    def draw(self, context):
+        pass
+
+    def test_select(self, context, location):
+        folha = (_slider_sob_mouse(context, location)
+                 if _contexto_hud(context) else None)
+        nome = folha.name if folha is not None else None
+        if nome != _slider_hover[0]:
+            _slider_hover[0] = nome
+            context.area.tag_redraw()
+        return 0 if folha is not None else -1
+
+
+class VIEW3D_GGT_slider_porta(GizmoGroup):
+    bl_idname = 'VIEW3D_GGT_slider_porta'
+    bl_label = 'Slider de abertura das portas'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'PERSISTENT'}
+
+    @classmethod
+    def poll(cls, context):
+        return _contexto_hud(context) and bool(_folhas_com_slider(context))
+
+    def setup(self, context):
+        self.botao = self.gizmos.new('VIEW3D_GT_slider_porta')
+        self.botao.use_tooltip = False
+        self.botao.target_set_operator('object.cabinet_abrir_porta')
+
+    def draw_prepare(self, context):
+        if not self.botao.is_highlight and _slider_hover[0] is not None:
+            _slider_hover[0] = None
 
 
 # ------------------------------------------ resetar distancia
@@ -12720,6 +13620,10 @@ def _estado_arraste_hud(context, alvo):
         objetos = [obj]
     estado = []
     for o in objetos:
+        if CHAVE_FERRAGEM in o:
+            # refeitas a cada redimensionar (podem ate' sumir): no
+            # cancelar saem de novo da porta, nunca de um backup
+            continue
         props = {}
         if MARCA_CHAPA in o:
             props = {p: getattr(o, p) for p in
@@ -12730,7 +13634,9 @@ def _estado_arraste_hud(context, alvo):
         porta = ({p: dict(o[p]) if p == 'porta_parametros' else o[p] for p in
                   ('porta_parametros', 'porta_vao_largura_mm', 'porta_vao_altura_mm')}
                  if MARCA_PORTAS in o and 'porta_parametros' in o else {})
-        vertices = [tuple(v.co) for v in o.data.vertices] if o.type == 'MESH' else None
+        if MARCA_FOLHA in o and CHAVE_CENTRO_FOLHA in o:
+            porta[CHAVE_CENTRO_FOLHA] = tuple(o[CHAVE_CENTRO_FOLHA])
+        vertices =[tuple(v.co) for v in o.data.vertices] if o.type == 'MESH' else None
         estado.append((o, o.matrix_world.copy(), o.matrix_parent_inverse.copy(),
                        props, porta, vertices))
     cena = {p: getattr(context.scene, p) for p in
@@ -12756,6 +13662,9 @@ def _restaurar_arraste_hud(context, estado):
                 obj.data.update()
         for nome, valor in cena.items():
             setattr(context.scene, nome, valor)
+        for obj, *_resto in objetos:
+            if MARCA_PORTAS in obj:
+                _refazer_ferragens(obj)
         context.view_layer.update()
     finally:
         _ocupado[0] = False
@@ -15045,6 +15954,10 @@ CLASSES = (
     OBJECT_OT_normalizar,
     VIEW3D_GT_alca_gaveta,
     VIEW3D_GT_campo_gaveta,
+    # o slider antes da HUD: a bolinha ganha o clique (gizmo e' avaliado
+    # na ordem do registro)
+    VIEW3D_GT_slider_porta,
+    VIEW3D_GGT_slider_porta,
     VIEW3D_GT_hud_cabinet,
     VIEW3D_GGT_hud_cabinet,
     VIEW3D_GGT_correntes_cabinet,
@@ -15061,6 +15974,7 @@ CLASSES = (
     OBJECT_OT_arrastar_ancora,
     OBJECT_OT_arrastar_canto_porta,
     OBJECT_OT_cantos_porta,
+    OBJECT_OT_abrir_porta,
     OBJECT_OT_juntar_modulo,
     VIEW3D_GGT_cabinet_gaveta,
     VIEW3D_AST_cabinet_creator,
@@ -15333,9 +16247,12 @@ def unregister():
     _na_gaveta[0] = False
     _arraste_ancora[0] = None
     _arraste_canto_porta[0] = None
+    _arraste_slider_porta[0] = None
+    _slider_hover[0] = None
+    _contagem_objetos[0] = -1
     _bolinha_hover[0] = None
     for timer in (_log_keymaps, _registrar_bibliotecas_adiado,
-                  _animar_piscada):
+                  _animar_piscada, _conferir_ferragens):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)
     _edicao_hud[0] = None

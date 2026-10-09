@@ -36,7 +36,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Falha em `test_estrutura_blender.py` = "isto era de proposito": confirme
   com o usuario antes de mudar; nao conserte o teste.
 - Testes nunca escrevem na biblioteca real (`cabinet_creator/biblioteca`).
-- Cada entrega: `bl_info["version"]` +1 (hoje 155.0.0).
+- Cada entrega: `bl_info["version"]` +1 (hoje 165.0.0).
 
 ## Invariantes — NAO quebrar
 
@@ -84,7 +84,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   gaveta, caixa preta DENTRO dela. Sempre por `_perguntar`.
 - Selecao: clique = modulo, duplo = peca. PORTA: clique = a porta
   inteira (nunca o modulo), duplo = uma folha; contorno nativo segue
-  desligado nas duas. Ferragens nunca se selecionam.
+  desligado nas duas. Ferragens nunca se selecionam. O CLIQUE leva a
+  gaveta a' aba do item (porta/modulo/puxador; `_seguir_selecao_na_gaveta`).
   Shift soma (`_somar_peca`). A SELECAO decide o que se edita: sem
   "Editar como?"; varios itens = uma seta por item (os sem seta piscam).
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo
@@ -103,9 +104,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Aba Portas: "Criar Portas" LARANJA no TOPO (abaixo das abas); o resto
   so' APARECE conforme o wizard responde (Folhas, depois Abertura; so'
   mostram) ou com porta pronta selecionada (tudo, editavel). Sem
-  Dobradica (automatica) nem Converter em porta/dupla (so' F3). Backlog de portas em
-  fases: Fase 2 (wizard) pronta; Fase 3 (ferragens com rigging, pivo,
-  slider de abertura) falta.
+  Dobradica (automatica) nem Converter em porta/dupla (so' F3). Portas
+  em fases: 2 (wizard) e 3 (ferragens, pivo, slider) prontas.
 - Wizard de portas (`cabinet_apanhar_vao`, porta NOVA): 4 CLIQUES =
   canto da porta, canto do vao, vao oposto, porta oposta (fio laranja =
   cobertura, branco = vao). Cobertura por lado em FRACAO da espessura
@@ -116,13 +116,15 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   caixas desenhadas pelo modal (nao popup_menu: o release responderia):
   Folhas -> abertura (so' o que nao se deduz) -> borda das dobradicas
   (clique) -> scroll = qtd -> mouse Y = margem -> pistoes no basculante
-  (offset do topo). A aba Portas segue a MESMA ordem.
-  Reposicionar porta existente continua na diagonal de 2.
-- Porta selecionada (clique simples) mostra os fios dos 4 cantos; com
-  Alt as bolinhas arrastam e refazem a porta (`_cantos_da_porta`:
-  REFEITOS de vao + cobertura, nunca gravados -- seguem o modulo).
-- Conexao automatica do botao Corrente: so' ate' 5 mm
-  (`ALCANCE_CONEXAO_AUTOMATICA`); alem disso, "selecionar vertice".
+  (offset do topo); a aba segue a MESMA ordem. Reposicionar = diagonal de 2.
+- Porta selecionada POR SI (clique nela; o modulo selecionado nao mostra
+  nada disto): contorno branco, vao amarelo, dobradicas, fios dos 4
+  cantos e um slider por folha (direita abre). Com Alt as bolinhas
+  arrastam e refazem a porta (`_cantos_da_porta`: REFEITOS de vao +
+  cobertura, nunca gravados -- seguem o modulo).
+- Corrente conecta sozinha ate' 5 mm (`ALCANCE_CONEXAO_AUTOMATICA`); alem: vertice.
+- Empties do add-on (modulo, grupo de portas, pistao) FICAM (o parentesco
+  move o armario e salva o preset) mas invisiveis: `_ocultar_empty`.
 - Gaveta sem redundancia: sem nome do item, sem "Sincronizar", sem
   Auto-regenerar, sem correntes entre as abas; Montagem = Corrente e
   Resetar distancia (Agrupar/Converter so' no F3).
@@ -147,10 +149,11 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   responde a 1a opcao. Botao da gaveta que abre pop-up/modal dispara no
   SOLTAR (`OPERADORES_NO_SOLTAR`); o gizmo de icone tambem dispara no
   PRESS e, se abrir modal, prende os cliques da gaveta.
-- `bpy.ops` chamado de dentro de outro operador recebe o estado da janela
-  (pode ja' ser o RELEASE): avise por prop (`esperar_soltar`).
-- Modal nunca recebe DOUBLE_CLICK (vira PRESS): duplo clique da foto e'
-  medido pelo relogio (`_duplo_clique_na_foto`).
+- `bpy.ops` dentro de operador ve a janela (ja' no RELEASE?): `esperar_soltar`.
+- Modal nunca recebe DOUBLE_CLICK (vira PRESS): `_duplo_clique_na_foto`.
+- Keyconfig do USUARIO guarda a ordem dele: `head=True` nao poe a entrada
+  do add-on antes da selecao. Clique que tem de ganhar dela e' GIZMO
+  (avaliado antes de keymap), como a bolinha do slider da porta.
 - `GIZMO_GT_button_2d` nao aceita clique com modificador: Alt+clique na
   corrente/regua e' do keymap `cabinet_clique_corrente`.
 - O bpy nao mede texto fora do desenho: largura vem de estimativas `PX_*`.
@@ -158,13 +161,10 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   em pixels (`ui_units_x` ignorado); `template_asset_view` saiu no 5.x.
 - `asset_generate_preview()` e' assincrono e perde o `libraries.write`:
   use `aplicar_preview_png` (grave tambem `icon_size`/`icon_pixels_float`).
-- `Window.width/height` sao somente leitura: Asset Browser entra como
-  AREA (`screen.area_split`), nao janela.
-- `show_region_asset_shelf` pode ser read-only: use `region_toggle`.
-- `bound_box` de curva/texto/meta e' dos pontos de controle: em
-  `TIPOS_BBOX_INFIEL` a medida sai de `to_mesh()`.
-- Escala durante o modal `S` nao e' interceptavel: o handler age so'
-  quando o modal termina (`ao_atualizar_depsgraph` + timer 0.2 s).
+- `Window.width/height` read-only: Asset Browser entra como AREA
+  (`screen.area_split`); `show_region_asset_shelf` idem: `region_toggle`.
+- `bound_box` de curva/texto/meta: medida por `to_mesh()` (`TIPOS_BBOX_INFIEL`).
+- Escala no modal `S` nao se intercepta: o handler age quando ele termina.
 
 ## Armadilhas por area
 
@@ -174,6 +174,9 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   Folgas da porta ao modulo em ESPESSURAS (`CHAVE_FOLGAS_PORTA`), nao mm.
   Frente sempre automatica (`_frente_automatica`): grave-a ja' resolvida.
   Os dois caminhos de captura do vao usam o MESMO `_referencia_do_par`.
+  Abertura: giro na `matrix_basis` da folha (centrada, filha do grupo;
+  mede-se por `_matriz_fechada`). Ferragem e' `hide_select` (o Blender
+  nao a seleciona): `_conferir_ferragens` limpa as soltas e refaz.
   Vertices do vao lidos UMA vez no invoke (depsgraph por movimento trava).
 - Puxador parametrico: `posicionar_puxador` refaz pelas PROPS da chapa pai
   no fim de `gerar_malha_chapa`, nunca por delta. O perfil corta so' a
