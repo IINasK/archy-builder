@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 import bpy
+from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
@@ -268,9 +269,9 @@ class TestGaveta(unittest.TestCase):
             if aba in {'PORTAS', 'PUXADORES'}:
                 verbo = 'portas' if aba == 'PORTAS' else 'criar_puxador'
                 botao = next(v for v in _conteudo if v[5] and v[5][0] == verbo)
-                medidas = [v for v in _conteudo if v[5] and v[5][0] == 'medida']
-                # logo abaixo das abas, largura inteira, acima do bloco
-                self.assertGreater(botao[1], max(v[1] + v[3] for v in medidas))
+                outros = [v for v in _conteudo if v != botao]
+                # logo abaixo das abas, largura inteira, acima de tudo
+                self.assertGreater(botao[1], max(v[1] + v[3] for v in outros))
                 self.assertAlmostEqual(botao[2], min(540, 320 - 24))
             self.assertEqual(rodape[0][5], ('operador', addon.OP_OPCOES))
             for v in rodape:
@@ -306,8 +307,9 @@ class TestGaveta(unittest.TestCase):
                 or v[5][0] == 'cor' and v[5][2] == 'amostra')]
             self.assertEqual(sorted(controles), sorted(
                 set(addon.OPCOES_PADRAO) - {'hud_linha_tema', 'hud_realce_gizmo'}))
-            # o conteudo da aba continua ali, so' o que fica sob o painel some
-            self.assertIn(addon.OP_CORRENTE_OBJETO,
+            # o conteudo da aba continua ali, so' o que fica sob o painel
+            # some (com o cubo de fora: medidas e o Orcamento)
+            self.assertIn(addon.OP_EXPORTAR_ORCAMENTO,
                           [v[5][1] for v in widgets
                            if v[5] and v[5][0] == 'operador'])
             addon._definir_opcao('hud_tamanho_rotulo', 22)
@@ -582,8 +584,14 @@ class TestGaveta(unittest.TestCase):
         self.assertEqual(addon._chave_widget(('resposta', 1)), 'resp:1')
 
     def test_montagem_tem_so_corrente_e_resetar_distancia(self):
-        # Pedido do usuario: dos tres botoes so' dois ficam
+        # Pedido do usuario: dos tres botoes so' dois ficam (Montagem so'
+        # aparece com chapa ou modulo selecionado)
         bpy.context.scene.cabinet_aba = 'MODULOS'
+        chapa = addon.nova_chapa('Chapa', 600.0, 400.0, 18.0, (0, 0, 0),
+                                 (0, 0, 0), bpy.context)
+        bpy.ops.object.select_all(action='DESELECT')
+        chapa.select_set(True)
+        bpy.context.view_layer.objects.active = chapa
         for largura in (190, 320, 564):
             widgets = addon._widgets_gaveta(bpy.context, largura, 1200)
             i = next(n for n, v in enumerate(widgets) if v[4] == 'Montagem')
@@ -598,9 +606,9 @@ class TestGaveta(unittest.TestCase):
             ('operador', addon.OP_RESETAR_DISTANCIA)), 'DRIVER_DISTANCE')
 
     def test_layout_da_aba_portas_do_usuario(self):
-        # Cada categoria APARECE quando o wizard a responde (pedido do
-        # usuario), na mesma ordem: Folhas, depois Abertura. Durante o
-        # wizard as filas so' mostram (quem decide e' a caixa na viewport).
+        # Cada categoria APARECE quando o wizard chega nela (pedido do
+        # usuario), na mesma ordem: Folhas, depois Abertura. As filas sao a
+        # COPIA da caixa da viewport: clicaveis, respondidas pelo modal.
         for largura in (190, 320, 564):
             fila = lambda ws, prop: [v for v in ws if v[5]
                                      and v[5][0] == 'escolha' and v[5][1] == prop]
@@ -614,8 +622,8 @@ class TestGaveta(unittest.TestCase):
             folhas = fila(widgets, 'porta_folhas')
             self.assertLess(max(v[1] + v[3] for v in abertura),
                             min(v[1] for v in folhas))
-            self.assertFalse([v for v in abertura + folhas if v[5][4]],
-                             'no wizard as filas so\' mostram')
+            self.assertTrue(all(v[5][4] and v[5][5] == addon.ALVO_ASSISTENTE
+                                for v in abertura + folhas))
             self.assertEqual([v[5][2] for v in folhas if v[5][3]], [2])
             self.assertFalse(fila(widgets, 'porta_dobradica'))
             rotulos = [v[4] for v in widgets if v[5] is None]
@@ -665,15 +673,17 @@ class TestGaveta(unittest.TestCase):
             self.assertFalse(hasattr(bpy.types.Scene, prop), prop)
 
     def test_fila_do_wizard_nao_escreve_na_cena(self):
-        # Durante o wizard a fila so' mostra a resposta da viewport:
-        # clicar nela nao pode desdizer a caixa.
+        # A fila do wizard responde a' caixa (pelo modal dele,
+        # `_responder_pela_gaveta`): a gaveta nao grava nada na cena.
         self.revelar(folhas=2, abertura='GIRO')
         acao = next(v[5] for v in self.portas()
                     if v[5] and v[5][0] == 'escolha'
                     and v[5][1] == 'porta_abertura' and v[5][2] == 'CORRER')
         self.assertEqual(addon.OBJECT_OT_interagir_gaveta.poll(bpy.context),
                          addon._eh_area_gaveta(bpy.context))
-        self.assertFalse(acao[4])
+        self.assertEqual(acao[5], addon.ALVO_ASSISTENTE)
+        self.assertIn('ALVO_ASSISTENTE', inspect.getsource(
+            addon.OBJECT_OT_interagir_gaveta))
 
     def test_sem_porta_nao_ha_campos_de_folga(self):
         # Epico 2.1/2.4: folga, afastamento e vaos nao se definem antes de
@@ -693,10 +703,103 @@ class TestGaveta(unittest.TestCase):
         self.cena.porta_folhas = 4
         self.cena.porta_abertura = 'BASCULANTE'
         self.assertEqual(self.cena.porta_folhas, 1)
+        # no wizard a fila e' a copia da caixa: 1 | 2 (a abertura filtra
+        # depois, em `_escolher`)
         self.revelar(folhas=1, abertura='BASCULANTE')
-        self.assertEqual(self.escolhas()['porta_folhas'], [1])
-        self.revelar(folhas=2, abertura='CORRER')
-        self.assertEqual(self.escolhas()['porta_folhas'], [1, 2, 3, 4])
+        self.assertEqual(self.escolhas()['porta_folhas'], [1, 2])
+
+    def test_wizard_aparece_na_aba_etapa_a_etapa(self):
+        # Pedido do usuario: a caixa da viewport tem copia na aba Portas;
+        # cada pergunta aparece quando o wizard chega nela.
+        def filas(**estado):
+            addon._assistente_porta[0] = estado
+            self.addCleanup(addon._assistente_porta.__setitem__, 0, None)
+            ws = self.portas()
+            return ([v[5][1] for v in ws if v[5] and v[5][0] == 'escolha'
+                     and v[5][2] in (1, 'SIM', 'GIRO')],
+                    [v[4] for v in ws if v[5] is None])
+        self.assertEqual(filas(etapa='DIAGONAL', escolhas={})[0], [])
+        props, rotulos = filas(etapa='CONFIRMAR', escolhas={})
+        self.assertEqual(props, ['porta_confirmar'])
+        self.assertIn('As medidas estao corretas?', rotulos)
+        props, rotulos = filas(etapa='FOLHAS', escolhas={})
+        self.assertEqual(props, ['porta_folhas'])
+        self.assertIn('Quantas folhas?', rotulos)
+        props, rotulos = filas(etapa='TIPO', escolhas={'folhas': 1},
+                               tipos=addon.TIPOS_SOBREPOSTA)
+        self.assertEqual(props, ['porta_folhas', 'porta_abertura'])
+        self.assertIn('Escolha a abertura', rotulos)
+        # marcada a area, as medidas da porta (so' leitura) vem primeiro
+        addon._assistente_porta[0] = dict(etapa='FOLHAS', escolhas={},
+                                          medidas_porta=(600.0, 400.0, 18.0))
+        medidas = [v[5] for v in self.portas() if v[5] and v[5][0] == 'medida']
+        self.assertEqual([(m[3], m[4], m[2]) for m in medidas],
+                         [('Largura', 600.0, ''), ('Altura', 400.0, ''),
+                          ('Espessura', 18.0, '')])
+        # na borda: ainda sem quantidade, so' o recado
+        props, rotulos = filas(etapa='EIXO', escolhas={
+            'folhas': 1, 'abertura': 'GIRO'})
+        self.assertNotIn('dobradicas_qtd', props)
+        self.assertIn('Dobradicas: clique na borda delas', rotulos)
+        # dobradicas e pistoes EDITAVEIS (pedido do usuario): quantidade
+        # em segmentos, afastamento/distancia do topo em campo
+        aresta = {'lado': 'CIMA'}
+        addon._assistente_porta[0] = dict(
+            etapa='PISTOES_OFFSET', aresta=aresta, qtd=3, margem=100.0,
+            pqtd=2, poffset=120.0, escolhas={
+                'folhas': 1, 'abertura': 'BASCULANTE', 'dobradica': 'RETA'})
+        ws = self.portas()
+        acesas = {v[5][1]: v[5][2] for v in ws if v[5]
+                  and v[5][0] == 'escolha' and v[5][3]}
+        self.assertEqual((acesas['dobradicas_qtd'], acesas['pistoes_qtd']),
+                         (3, 2))
+        campos = {v[5][2]: (v[5][1], v[5][4]) for v in ws if v[5]
+                  and v[5][0] == 'medida'}
+        self.assertEqual(campos['dobradicas_margem_mm'], ('assistente', 100.0))
+        self.assertEqual(campos['pistoes_offset_mm'], ('assistente', 120.0))
+        rotulos = [v[4] for v in ws if v[5] is None]
+        self.assertIn('Dobradicas: Reta, borda cima', rotulos)
+        self.assertIn('Pistoes', rotulos)
+        self.assertTrue(all(v[5][5] == addon.ALVO_ASSISTENTE for v in ws
+                            if v[5] and v[5][0] == 'escolha'))
+
+    def test_sem_selecao_cada_aba_so_tem_o_botao_de_criar(self):
+        # Conceito do usuario para TODAS as abas: nada selecionado = so'
+        # o "Criar Portas"/"Criar Puxador"; o resto nasce criando ou
+        # selecionando. Na Modulos (sem botao de criar: a biblioteca e' a
+        # criacao) fica so' o Orcamento, que e' da cena inteira.
+        bpy.ops.object.select_all(action='DESELECT')
+        for aba, esperado in (('PORTAS', {'portas'}),
+                              ('PUXADORES', {'criar_puxador'}),
+                              ('MODULOS', {'operador'})):
+            self.cena.cabinet_aba = aba
+            _cab, conteudo, _rod = addon._partes_gaveta(
+                addon._widgets_gaveta(bpy.context, 320, 1400))
+            painel = addon._paineis_gaveta(conteudo)[0]
+            self.assertEqual({v[5][0] for v in painel if v[5]}, esperado, aba)
+        operadores = [v[5][1] for v in painel if v[5]]
+        self.assertEqual(operadores, [addon.OP_EXPORTAR_ORCAMENTO])
+        # ativo sem selecao tambem nao conta
+        self.assertIsNone(addon._selecionado(bpy.context))
+
+    def test_caixa_do_wizard_nunca_sai_da_viewport(self):
+        # Print do usuario: a porta terminou perto da borda de baixo e a
+        # caixa "Quantas folhas?" saiu cortada.
+        tamanho = (800, 500)
+        for ancora in ((790, 5), (5, 5), (790, 495), (400, 250), (5, 495)):
+            botoes = addon._botoes_assistente(
+                Vector(ancora), addon.OPCOES_CONFIRMAR, 1.0, tamanho,
+                'As medidas estao corretas?')
+            for (x, y, w, h), _c, _t in botoes:
+                self.assertGreaterEqual(x, 0)
+                self.assertGreaterEqual(y, 0)
+                self.assertLessEqual(x + w, tamanho[0])
+            (x, y, w, h), _c, _t = botoes[0]
+            self.assertLessEqual(y + h + 24, tamanho[1])     # a pergunta
+        # longe das bordas: ao lado do mouse, como sempre
+        (x, y, _w, _h), _c, _t = addon._botoes_assistente(
+            Vector((400, 250)), addon.OPCOES_FOLHAS, 1.0, tamanho, 'x')[0]
+        self.assertEqual((x, y), (418, 236))
 
     def test_segmento_escolhido_acende(self):
         # Sem isto o usuario nao enxerga qual opcao esta' valendo.
@@ -711,8 +814,14 @@ class TestGaveta(unittest.TestCase):
     def test_nenhum_widget_da_aba_portas_se_sobrepoe(self):
         # O campo de medida tem 37 px e as filas de segmento deixam 29:
         # sem respiro ele cobria a fila de cima.
-        self.revelar(folhas=2, abertura='GIRO')
-        for largura in (190, 320, 564):
+        wizard = dict(etapa='PISTOES_OFFSET', aresta={'lado': 'CIMA'}, qtd=3,
+                      margem=100.0, pqtd=2, poffset=120.0, escolhas={
+                          'folhas': 1, 'abertura': 'BASCULANTE',
+                          'dobradica': 'RETA'})
+        self.addCleanup(addon._assistente_porta.__setitem__, 0, None)
+        for largura, estado in ((l, e) for l in (190, 320, 564) for e in (
+                {'escolhas': {'folhas': 2, 'abertura': 'GIRO'}}, wizard)):
+            addon._assistente_porta[0] = estado
             caixas = [(v[0], v[1], v[2], v[3]) for v in self.portas(largura)]
             for i, (ax, ay, aw, ah) in enumerate(caixas):
                 for bx, by, bw, bh in caixas[i + 1:]:
@@ -799,29 +908,25 @@ class TestGaveta(unittest.TestCase):
         bpy.ops.mesh.primitive_cube_add()
         self.assertIsNone(addon._porta_para_wireframe(bpy.context.object))
 
-    def test_bloco_de_medidas_e_identico_nas_duas_abas(self):
-        # "Fica fixo em porta e modulos": mesmas medidas e mesmo
-        # rodape, nas mesmas posicoes. O CONTEUDO do wireframe muda de
-        # proposito (modulo+porta contra so' a porta); aqui se compara
-        # o layout, nao o desenho.
-        # O rodape (Chapa / Auto / nome) NAO e' igual: na aba Portas o
-        # usuario tirou o "Chapa" e o nome do item.
+    def test_bloco_de_medidas_so_na_aba_do_item(self):
+        # Pedido do usuario: o menu mostra o que vale para o que esta'
+        # selecionado. As medidas de um objeto de fora (ou do modulo)
+        # sao da aba Modulos; nas abas Portas e Puxadores, sem porta nem
+        # puxador selecionado, so' o botao de criar.
         alvo = {'medida', 'wireframe', 'modo'}
 
         def bloco(aba):
             self.cena.cabinet_aba = aba
             widgets = addon._widgets_gaveta(bpy.context, 320, 1400)
-            # A aba Portas tem campos proprios DEPOIS do separador; o
-            # bloco fixo e' o que vem antes dele.
-            corte = max((v[1] for v in widgets
-                         if v[5] and v[5][0] == 'separador'), default=-1e9)
-            return [v[:4] + (v[5][0],) for v in widgets
-                    if v[5] and v[5][0] in alvo and v[1] > corte]
+            _cab, conteudo, _rod = addon._partes_gaveta(widgets)
+            return [v[:4] + (v[5][0],) for v in addon._paineis_gaveta(
+                conteudo)[0] if v[5] and v[5][0] in alvo]
 
         modulos = bloco('MODULOS')
         self.assertTrue(modulos)
         self.assertNotIn('wireframe', [b[4] for b in modulos])
-        self.assertEqual(relativo(bloco('PORTAS')), relativo(modulos))
+        self.assertEqual(bloco('PORTAS'), [])
+        self.assertEqual(bloco('PUXADORES'), [])
         # nome do item em lugar nenhum da aba Portas, nem o "Chapa"
         for selecionar in (True, False):
             for o in bpy.context.view_layer.objects:

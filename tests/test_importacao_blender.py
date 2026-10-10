@@ -386,21 +386,20 @@ class TestImportacao(unittest.TestCase):
         selecionar(pux)
         modo, campos, dono = addon._medidas_gaveta(bpy.context)
         self.assertEqual((modo, dono), ('PUXADOR', 'puxador'))
-        alvo = {'medida', 'cadeado'}   # rodape da aba Portas e' enxuto
+        alvo = {'medida', 'cadeado'}
 
         def bloco(aba):
             bpy.context.scene.cabinet_aba = aba
             widgets = addon._widgets_gaveta(bpy.context, 320, 1400)
-            corte = max((v[1] for v in widgets
-                         if v[5] and v[5][0] == 'separador'), default=-1e9)
             return [v[:4] + (v[5][0],) for v in widgets
-                    if v[5] and v[5][0] in alvo and v[1] > corte]
+                    if v[5] and v[5][0] in alvo]
 
-        modulos = bloco('MODULOS')
-        self.assertEqual(sum(1 for b in modulos if b[4] == 'cadeado'), 3)
-        self.assertEqual(relativo(bloco('PORTAS')), relativo(modulos))
-        # Puxadores tambem tem o botao laranja no topo (como Portas)
-        self.assertEqual(relativo(bloco('PUXADORES')), relativo(modulos))
+        # o puxador e' da aba Puxadores (pedido do usuario: cada menu
+        # mostra o que vale para a selecao); nas outras, nada dele
+        puxadores = bloco('PUXADORES')
+        self.assertEqual(sum(1 for b in puxadores if b[4] == 'cadeado'), 3)
+        self.assertEqual(bloco('PORTAS'), [])
+        self.assertEqual(bloco('MODULOS'), [])
         # editar uma medida escala so' aquele eixo do puxador
         altura_antes = limites([pux])[1][2] - limites([pux])[0][2]
         self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(

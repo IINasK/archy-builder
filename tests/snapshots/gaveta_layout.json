@@ -621,42 +621,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   166.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   166.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   686,
-   166.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   675,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
    12,
    441,
    166,
@@ -711,42 +675,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12.0,
-   772,
-   145.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   772,
-   145.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   145.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   718,
-   296,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -805,42 +733,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   148.667,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   166.667,
-   772,
-   148.667,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   321.333,
-   772,
-   148.667,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
    12,
    441,
    458,
@@ -895,42 +787,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12.0,
-   772,
-   176.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   194.0,
-   772,
-   176.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   376.0,
-   772,
-   176.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   540,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -989,105 +845,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   166.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   166.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   686,
-   166.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   675,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   644,
-   166,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   618,
-   52.667,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   68.667,
-   618,
-   52.667,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   125.333,
-   618,
-   52.667,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   585,
-   166,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   551,
-   166.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   517,
-   166,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
    12,
    441,
    166,
@@ -1142,105 +899,6 @@
    "Criar Puxador",
    "criar_puxador",
    false
-  ],
-  [
-   12.0,
-   772,
-   145.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   772,
-   145.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   145.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   718,
-   296,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   687,
-   296,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   661,
-   96.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   112.0,
-   661,
-   96.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   212.0,
-   661,
-   96.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   628,
-   296,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   594,
-   145.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   560,
-   296,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
   ],
   [
    12,
@@ -1299,105 +957,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   148.667,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   166.667,
-   772,
-   148.667,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   321.333,
-   772,
-   148.667,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   730,
-   458,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   704,
-   150.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   166.0,
-   704,
-   150.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   320.0,
-   704,
-   150.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   671,
-   458,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   637,
-   226.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   603,
-   458,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
    12,
    441,
    458,
@@ -1452,105 +1011,6 @@
    "Criar Puxador",
    "criar_puxador",
    false
-  ],
-  [
-   12.0,
-   772,
-   176.0,
-   37,
-   "Largura: 564.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   194.0,
-   772,
-   176.0,
-   37,
-   "Altura: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   376.0,
-   772,
-   176.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   540,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   730,
-   540,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   704,
-   177.333,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   193.333,
-   704,
-   177.333,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   374.667,
-   704,
-   177.333,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   671,
-   540,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   637,
-   267.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   603,
-   540,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
   ],
   [
    12,
@@ -2229,51 +1689,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   166.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   166.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   686,
-   166.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   643,
-   166.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   632,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
    12,
    441,
    166,
@@ -2328,51 +1743,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12.0,
-   772,
-   145.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   772,
-   145.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   145.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   729,
-   145.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   718,
-   296,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -2431,51 +1801,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   110.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   128.0,
-   772,
-   110.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   244.0,
-   772,
-   110.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   360.0,
-   772,
-   110.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
    12,
    441,
    458,
@@ -2530,51 +1855,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12.0,
-   772,
-   130.5,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   148.5,
-   772,
-   130.5,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   285.0,
-   772,
-   130.5,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   421.5,
-   772,
-   130.5,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   540,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -2633,114 +1913,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   166.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   166.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   686,
-   166.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   643,
-   166.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   632,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   601,
-   166,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   575,
-   52.667,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   68.667,
-   575,
-   52.667,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   125.333,
-   575,
-   52.667,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   542,
-   166,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   508,
-   166.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   474,
-   166,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
    12,
    441,
    166,
@@ -2795,114 +1967,6 @@
    "Criar Puxador",
    "criar_puxador",
    false
-  ],
-  [
-   12.0,
-   772,
-   145.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   772,
-   145.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12.0,
-   729,
-   145.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   163.0,
-   729,
-   145.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   718,
-   296,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   687,
-   296,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   661,
-   96.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   112.0,
-   661,
-   96.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   212.0,
-   661,
-   96.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   628,
-   296,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   594,
-   145.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   560,
-   296,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
   ],
   [
    12,
@@ -2961,114 +2025,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   110.0,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   128.0,
-   772,
-   110.0,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   244.0,
-   772,
-   110.0,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   360.0,
-   772,
-   110.0,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   730,
-   458,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   704,
-   150.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   166.0,
-   704,
-   150.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   320.0,
-   704,
-   150.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   671,
-   458,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   637,
-   226.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   603,
-   458,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
    12,
    441,
    458,
@@ -3125,114 +2081,6 @@
    false
   ],
   [
-   12.0,
-   772,
-   130.5,
-   37,
-   "Largura: 600.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   148.5,
-   772,
-   130.5,
-   37,
-   "Altura: 400.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   285.0,
-   772,
-   130.5,
-   37,
-   "Profundidade: 300.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   421.5,
-   772,
-   130.5,
-   37,
-   "Espessura: 18.0 mm",
-   "medida",
-   "objeto"
-  ],
-  [
-   12,
-   761,
-   540,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   730,
-   540,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   704,
-   177.333,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   193.333,
-   704,
-   177.333,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   374.667,
-   704,
-   177.333,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   671,
-   540,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   637,
-   267.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   603,
-   540,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
    12,
    441,
    540,
@@ -3284,40 +2132,13 @@
    818,
    166,
    23,
-   "Montagem",
-   null,
-   null
-  ],
-  [
-   12.0,
-   787,
-   80.0,
-   28,
-   "Corrente",
-   "operador",
-   "object.cabinet_corrente_objeto"
-  ],
-  [
-   98.0,
-   787,
-   80.0,
-   28,
-   "Resetar distancia",
-   "operador",
-   "object.cabinet_resetar_distancia"
-  ],
-  [
-   12,
-   747,
-   166,
-   23,
    "Orcamento",
    null,
    null
   ],
   [
    12,
-   716,
+   787,
    166,
    28,
    "Copiar orcamento (ERP)",
@@ -3376,40 +2197,13 @@
    818,
    296,
    23,
-   "Montagem",
-   null,
-   null
-  ],
-  [
-   12.0,
-   787,
-   145.0,
-   28,
-   "Corrente",
-   "operador",
-   "object.cabinet_corrente_objeto"
-  ],
-  [
-   163.0,
-   787,
-   145.0,
-   28,
-   "Resetar distancia",
-   "operador",
-   "object.cabinet_resetar_distancia"
-  ],
-  [
-   12,
-   747,
-   296,
-   23,
    "Orcamento",
    null,
    null
   ],
   [
    12,
-   716,
+   787,
    296,
    28,
    "Copiar orcamento (ERP)",
@@ -3468,40 +2262,13 @@
    818,
    458,
    23,
-   "Montagem",
-   null,
-   null
-  ],
-  [
-   12.0,
-   787,
-   226.0,
-   28,
-   "Corrente",
-   "operador",
-   "object.cabinet_corrente_objeto"
-  ],
-  [
-   244.0,
-   787,
-   226.0,
-   28,
-   "Resetar distancia",
-   "operador",
-   "object.cabinet_resetar_distancia"
-  ],
-  [
-   12,
-   747,
-   458,
-   23,
    "Orcamento",
    null,
    null
   ],
   [
    12,
-   716,
+   787,
    458,
    28,
    "Copiar orcamento (ERP)",
@@ -3560,40 +2327,13 @@
    818,
    540,
    23,
-   "Montagem",
-   null,
-   null
-  ],
-  [
-   12.0,
-   787,
-   267.0,
-   28,
-   "Corrente",
-   "operador",
-   "object.cabinet_corrente_objeto"
-  ],
-  [
-   285.0,
-   787,
-   267.0,
-   28,
-   "Resetar distancia",
-   "operador",
-   "object.cabinet_resetar_distancia"
-  ],
-  [
-   12,
-   747,
-   540,
-   23,
    "Orcamento",
    null,
    null
   ],
   [
    12,
-   716,
+   787,
    540,
    28,
    "Copiar orcamento (ERP)",
@@ -3658,15 +2398,6 @@
   ],
   [
    12,
-   811,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
    441,
    166,
    10,
@@ -3720,15 +2451,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12,
-   811,
-   296,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -3788,15 +2510,6 @@
   ],
   [
    12,
-   811,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
    441,
    458,
    10,
@@ -3850,15 +2563,6 @@
    "Criar Portas",
    "portas",
    false
-  ],
-  [
-   12,
-   811,
-   540,
-   1,
-   "",
-   "separador",
-   null
   ],
   [
    12,
@@ -3918,78 +2622,6 @@
   ],
   [
    12,
-   811,
-   166,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   780,
-   166,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   754,
-   52.667,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   68.667,
-   754,
-   52.667,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   125.333,
-   754,
-   52.667,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   721,
-   166,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   687,
-   166.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   653,
-   166,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
-   12,
    441,
    166,
    10,
@@ -4043,78 +2675,6 @@
    "Criar Puxador",
    "criar_puxador",
    false
-  ],
-  [
-   12,
-   811,
-   296,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   780,
-   296,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   754,
-   96.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   112.0,
-   754,
-   96.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   212.0,
-   754,
-   96.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   721,
-   296,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   687,
-   145.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   653,
-   296,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
   ],
   [
    12,
@@ -4174,78 +2734,6 @@
   ],
   [
    12,
-   811,
-   458,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   780,
-   458,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   754,
-   150.0,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   166.0,
-   754,
-   150.0,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   320.0,
-   754,
-   150.0,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   721,
-   458,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   687,
-   226.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   653,
-   458,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
-  ],
-  [
-   12,
    441,
    458,
    10,
@@ -4299,78 +2787,6 @@
    "Criar Puxador",
    "criar_puxador",
    false
-  ],
-  [
-   12,
-   811,
-   540,
-   1,
-   "",
-   "separador",
-   null
-  ],
-  [
-   12,
-   780,
-   540,
-   20,
-   "Modelo do puxador",
-   null,
-   null
-  ],
-  [
-   12.0,
-   754,
-   177.333,
-   25,
-   "Perfil",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   193.333,
-   754,
-   177.333,
-   25,
-   "Alca",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   374.667,
-   754,
-   177.333,
-   25,
-   "Borda",
-   "escolha",
-   "cabinet_puxador_modelo"
-  ],
-  [
-   12,
-   721,
-   540,
-   26,
-   "Puxador de fora: selecione o objeto",
-   null,
-   null
-  ],
-  [
-   12.0,
-   687,
-   267.0,
-   28,
-   "Converter em puxador",
-   "operador",
-   "object.cabinet_converter_puxador"
-  ],
-  [
-   12,
-   653,
-   540,
-   22,
-   "Puxador + porta: corrente acima",
-   null,
-   null
   ],
   [
    12,

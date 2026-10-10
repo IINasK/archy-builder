@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (176, 0, 0),
+    "version": (182, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -5155,11 +5155,12 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
                 antigo = (folha.chapa_largura_mm, folha.chapa_comprimento_mm,
                           folha.chapa_espessura_mm)
             else:
-                malha = bpy.data.meshes.new("Porta")
-                folha = bpy.data.objects.new("Folha_%02d" % (i + 1), malha)
+                malha = bpy.data.meshes.new("Folha %02d" % (i + 1))
+                folha = bpy.data.objects.new("Folha %02d" % (i + 1), malha)
                 grupo.users_collection[0].objects.link(folha)
                 folha[MARCA_CHAPA] = 1
                 folha[MARCA_FOLHA] = 1
+            _padronizar_nome(folha, "Folha %02d" % (i + 1))
             folha['porta_indice'] = i
             folha.parent = grupo
             folha.matrix_parent_inverse = Matrix.Identity(4)
@@ -5370,6 +5371,8 @@ MARGEM_DOBRADICAS_PADRAO = 100.0   # mm da quina: pratica de marcenaria
 LIMITES_DOBRADICAS = (2, 6)
 LIMITES_PISTOES = (1, 2)
 _assistente_porta = [None]          # estado do wizard (o teste le daqui)
+# alvo da 'escolha' da aba Portas que responde ao wizard (a copia da caixa)
+ALVO_ASSISTENTE = '@assistente'
 
 
 def _qtd_dobradicas_padrao(comprimento_mm):
@@ -5577,10 +5580,6 @@ def _caixas_dobradicas(aresta, distancias, costas_mm):
             (costas_mm - CANECO_ABA_MM, costas_mm + CANECO_FUNDO_MM))
         caixas.append((corpo, caneco))
     return caixas
-
-
-FACES_CAIXA = ((0, 1, 3, 2), (4, 5, 7, 6), (0, 1, 5, 4), (2, 3, 7, 6),
-               (0, 2, 6, 4), (1, 3, 7, 5))
 
 
 # ============================== FERRAGENS, PIVO E ABERTURA (Fase 3)
@@ -6016,6 +6015,25 @@ def _remover_ferragem(obj):
             getattr(bpy.data, colecao).remove(dados)
 
 
+# Nomes das pecas que o add-on cria: portugues, sem sublinhado (pedido do
+# usuario). Nome nao e' chave de nada (tipo e id ficam nas props).
+NOMES_FERRAGEM = {'DOBRADICA': 'Dobradica Corpo', 'CANECO': 'Dobradica Copo',
+                  'PISTAO_CORPO': 'Pistao Corpo', 'PISTAO_HASTE': 'Pistao Haste',
+                  'PISTAO_PONTO': 'Pistao Ponta',
+                  'PISTAO_SUPORTE': 'Pistao Suporte', 'TRILHO': 'Trilho'}
+
+
+def _padronizar_nome(obj, nome):
+    """Objeto (e a malha so' dele) com `nome`, se ainda nao tem: arquivo
+    antigo trazia 'Pistao_Corpo', 'Folha_01'... O .001 do Blender fica."""
+    if _sem_sufixo(obj.name) != nome:
+        obj.name = nome
+    dados = obj.data
+    if (dados is not None and dados.users == 1 and not dados.library
+            and _sem_sufixo(dados.name) != nome):
+        dados.name = nome
+
+
 # ---- copias do rig da dobradica reta
 COLECOES_DO_RIG = ('meshes', 'curves', 'armatures', 'materials',
                    'node_groups', 'images')
@@ -6025,14 +6043,16 @@ TIPO_DA_PECA_RIG = {'raiz': 'DOBRADICA_RIG', 'base': 'DOBRADICA',
 PECAS_OCULTAS_RIG = ('furo', 'controle', 'armacao', 'armacao_ik')
 
 
-def _instanciar_rig(colecao, raiz_id):
-    """Anexa uma copia do asset (modelo + rig do usuario, tal e qual) e
-    devolve a raiz. Malhas, materiais e node groups repetidos voltam aos
-    da 1a copia (`cabinet_origem`): o arquivo nao incha a cada porta."""
+def _anexar_sem_repetir(caminho, tipo, nomes=None):
+    """Anexa os `tipo` ('objects', 'meshes'...) de um asset do add-on e
+    devolve os novos. Malhas, materiais, imagens e node groups que ja'
+    vieram antes (mesmo `cabinet_origem`) voltam aos de antes: o arquivo
+    nao incha a cada porta."""
     antes = {nome: set(getattr(bpy.data, nome)) for nome in COLECOES_DO_RIG}
-    with bpy.data.libraries.load(ARQUIVO_DOBRADICA_RETA, link=False) as (
-            origem, destino):
-        destino.objects = sorted(origem.objects)
+    with bpy.data.libraries.load(caminho, link=False) as (origem, destino):
+        setattr(destino, tipo, sorted(n for n in getattr(origem, tipo)
+                                      if nomes is None or n in nomes))
+    novos = [d for d in getattr(destino, tipo) if d is not None]
     for nome in COLECOES_DO_RIG:
         dados = getattr(bpy.data, nome)
         velhos = {d.get('cabinet_origem'): d for d in antes[nome]
@@ -6044,8 +6064,15 @@ def _instanciar_rig(colecao, raiz_id):
                 dados.remove(novo)
             elif chave:
                 velhos[chave] = novo
+    return [d for d in novos if _vivo(d)]
+
+
+def _instanciar_rig(colecao, raiz_id):
+    """Anexa uma copia do asset (modelo + rig do usuario, tal e qual) e
+    devolve a raiz."""
     raiz = None
-    for i, o in enumerate(o for o in destino.objects if o is not None):
+    for i, o in enumerate(_anexar_sem_repetir(ARQUIVO_DOBRADICA_RETA,
+                                              'objects')):
         colecao.objects.link(o)
         peca = o.get('cabinet_peca', 'peca')
         o[CHAVE_FERRAGEM] = TIPO_DA_PECA_RIG.get(peca, 'DOBRADICA_PECA')
@@ -6122,6 +6149,11 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             _remover_ferragem(obj)
             obj = None
         if item['forma'] == 'RIG':
+            if (obj is not None and int(obj.get('cabinet_versao', 1))
+                    != int(_dados_dobradica_reta().get('versao', 1))):
+                # copia de asset antigo (nomes em ingles, furo velho): troca
+                _remover_ferragem(obj)
+                obj = None
             if obj is None:
                 obj = _instanciar_rig(colecao, item['id'])
                 if obj is None:
@@ -6142,8 +6174,8 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         if obj is not None and ponto != (obj.type == 'EMPTY'):
             _remover_ferragem(obj)
             obj = None
+        nome = NOMES_FERRAGEM.get(item['tipo'], item['tipo'].title())
         if obj is None:
-            nome = item['tipo'].title()
             obj = bpy.data.objects.new(
                 nome, None if ponto else bpy.data.meshes.new(nome))
             colecao.objects.link(obj)
@@ -6151,6 +6183,7 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             obj[CHAVE_ID_FERRAGEM] = item['id']
             if ponto:
                 _ocultar_empty(obj)
+        _padronizar_nome(obj, nome)
         # selecionavel (duplo clique / Outliner) e editavel; arquivo
         # antigo trazia hide_select
         obj.hide_select = False
@@ -6239,10 +6272,58 @@ def _refazer_ferragens(grupo):
         _ocupado[0] = ocupado_antes
 
 
-def _botoes_assistente(ancora, opcoes, escala):
-    """Botoes da caixa de escolha, ao lado de `ancora` (pixels)."""
+PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
+MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
+
+
+def _gaveta_sob_evento(context, event):
+    """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
+    None. Para os modais (wizard, posicionador): a gaveta continua sendo
+    da gaveta enquanto eles rodam."""
+    area = _area_gaveta(context.screen) if context.screen else None
+    regiao = next((r for r in area.regions if r.type == 'WINDOW'),
+                  None) if area is not None else None
+    if regiao is None:
+        return None
+    x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
+    if 0 <= x < regiao.width and 0 <= y < regiao.height:
+        return area, regiao
+    return None
+
+
+def _acao_da_gaveta(context, event, area, regiao):
+    """A acao do widget da gaveta sob o mouse (o mesmo hit-test dela)."""
+    x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
+    with context.temp_override(area=area, region=regiao):
+        for wx, wy, w, h, _rotulo, acao in _widgets_interativos(context):
+            if acao and wx <= x <= wx + w and wy <= y <= wy + h:
+                return acao
+    return None
+
+
+def _botoes_assistente(ancora, opcoes, escala, tamanho=None, pergunta=''):
+    """Botoes da caixa de escolha, ao lado de `ancora` (pixels).
+
+    `tamanho` = (largura, altura) da regiao: a caixa INTEIRA (pergunta em
+    cima, botoes embaixo) tem de caber (pedido do usuario: terminando a
+    porta perto da borda, a caixa saia cortada). Sem espaco a' direita
+    ela vai para a esquerda do mouse; embaixo/em cima, ela sobe/desce."""
     largura, altura, vao = 150 * escala, 26 * escala, 6 * escala
     x, y = ancora.x + 18 * escala, ancora.y - 14 * escala
+    if tamanho is not None:
+        margem = MARGEM_CAIXA_ASSISTENTE * escala
+        # o texto da pergunta pode ser mais largo que os botoes
+        bloco = max(largura, (len(pergunta) * PX_CARACTERE_ASSISTENTE + 8)
+                    * escala)
+        if x + bloco > tamanho[0] - margem:
+            x = ancora.x - 18 * escala - bloco
+        x = max(margem, min(x, tamanho[0] - margem - bloco))
+        fundo = y - (len(opcoes) - 1) * (altura + vao)
+        topo = y + altura + ((8 + 12 + 4) * escala if pergunta else 0)
+        if fundo < margem:
+            y += margem - fundo
+        elif topo > tamanho[1] - margem:
+            y -= topo - (tamanho[1] - margem)
     return [((x, y - i * (altura + vao), largura, altura), chave, texto)
             for i, (chave, texto) in enumerate(opcoes)]
 
@@ -6296,9 +6377,20 @@ def _desenhar_assistente_2d(estado):
         # mouse cobria o 2o botao
         if (estado.get('recado') and estado.get('mouse') is not None
                 and not estado.get('botoes')):
-            _caixa_texto_hud(estado['mouse'].x + 20 * escala,
-                             estado['mouse'].y - 30 * escala,
-                             estado['recado'], 12 * escala, escala)
+            # o recado tambem nao sai cortado: perto da borda ele vai para
+            # o outro lado do mouse (aqui, no desenho, o blf mede)
+            blf.size(0, 12 * escala)
+            largura = blf.dimensions(0, estado['recado'])[0]
+            margem = MARGEM_CAIXA_ASSISTENTE * escala
+            x = estado['mouse'].x + 20 * escala
+            if x + largura > regiao.width - margem:
+                x = estado['mouse'].x - 20 * escala - largura
+            x = max(margem, min(x, regiao.width - margem - largura))
+            y = estado['mouse'].y - 30 * escala
+            if y < margem:
+                y = estado['mouse'].y + 20 * escala
+            y = max(margem, min(y, regiao.height - margem - 12 * escala))
+            _caixa_texto_hud(x, y, estado['recado'], 12 * escala, escala)
     finally:
         gpu.state.blend_set('NONE')
 
@@ -6432,8 +6524,16 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             largura, altura, len(folhas), ' - embutida' if embutida else '')
         if assistente is not None:
             _l, _a, e, centro = folhas[0]
+            # medidas da PORTA inteira (todas as folhas): a gaveta mostra
+            # assim que a area fica marcada
+            xs = [c[0] + s * l / 2.0 for l, _al, _e, c in folhas
+                  for s in (-1, 1)]
+            ys = [c[1] + s * al / 2.0 for _l2, al, _e, c in folhas
+                  for s in (-1, 1)]
+            assistente['medidas_porta'] = (max(xs) - min(xs),
+                                           max(ys) - min(ys), e)
             assistente.update(largura=largura, altura=altura,
-                              matriz=matriz.copy(),
+                              matriz=matriz.copy(), folhas=list(folhas),
                               lateral=parametros['lateral_mm'],
                               coberturas=dict(coberturas), embutida=embutida,
                               costas=centro[2] - e / 2.0,
@@ -6482,9 +6582,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 arestas_cor.append((
                     _cor_realce_hud() if aresta is destaque else COR_BORDA_EIXO,
                     [self._mundo(aresta['a']), self._mundo(aresta['b'])]))
-        caixas_ferragens = []
+        pecas_arame, pontos_arame = [], []
         if etapa in {'QUANTIDADE', 'MARGEM', 'PISTOES_QTD', 'PISTOES_OFFSET'}:
-            caixas_ferragens, ferragens = self._ferragens_do_wizard()
+            pecas_arame, pontos_arame, ferragens = self._ferragens_do_wizard()
         try:
             gpu.state.blend_set('ALPHA')
             gpu.state.depth_test_set('NONE')
@@ -6498,18 +6598,6 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             for cor, pontos in arestas_cor:
                 shader.uniform_float('color', cor)
                 batch_for_shader(shader, 'LINES', {'pos': pontos}).draw(shader)
-            if caixas_ferragens:
-                # volume da dobradica: faces translucidas + arestas
-                realce = _cor_realce_hud()
-                tris = [c[i] for c in caixas_ferragens for q in FACES_CAIXA
-                        for i in (q[0], q[1], q[2], q[0], q[2], q[3])]
-                shader.uniform_float('color', (*realce[:3], 0.28))
-                batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
-                gpu.state.line_width_set(2.0)
-                shader.uniform_float('color', realce)
-                batch_for_shader(shader, 'LINES', {'pos': [
-                    c[k] for c in caixas_ferragens for i, j in ARESTAS_CAIXA
-                    for k in (i, j)]}).draw(shader)
             if ferragens:
                 # pistao aberto: fio branco ate' a folha levantada
                 gpu.state.line_width_set(1.5)
@@ -6525,6 +6613,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 shader.uniform_float('color', cor_ima)
                 batch_for_shader(shader, 'POINTS',
                                  {'pos': marcas}).draw(shader)
+            # as ferragens: o arame delas, na espessura da HUD
+            _desenhar_arame(bpy.context, pecas_arame, pontos_arame,
+                            matriz=self._w.get('matriz'))
         except Exception as e:
             print("[Cabinet Creator] previa do vao:", e)
         finally:
@@ -6546,39 +6637,36 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._regiao, self._rv3d, ponto_mundo)
 
     def _ferragens_do_wizard(self):
-        """(caixas em mundo, fios dos pistoes abertos): o VOLUME de cada
-        dobradica na face interna da chapa (corpo) e nas costas da folha
-        (caneco); no basculante, tambem o de cada pistao fechado."""
+        """(pecas do rig, pontos, fios dos pistoes abertos) da porta que o
+        wizard vai criar: o ARAME das ferragens de verdade (pedido do
+        usuario) -- as MESMAS que a porta monta (`_ferragens_da_porta`;
+        a Reta e' o rig do usuario) --, no referencial do vao (m). Os
+        pistoes so' depois que o wizard chega neles."""
         w = self._w
-        aresta = w.get('aresta')
-        if aresta is None:
-            return [], []
-        comprimento = (aresta['b'] - aresta['a']).length
-        distancias = _posicoes_ferragens(comprimento, w['qtd'], w['margem'])
-        # 2 folhas de giro: dobradicas nas DUAS bordas
-        bordas = w['arestas'] if w.get('duas_bordas') else [aresta]
-        caixas = [[w['matriz'] @ (p / 1000.0) for p in caixa]
-                  for borda in bordas
-                  for par in _caixas_dobradicas(borda, distancias,
-                                                w.get('costas', 0.0))
-                  for caixa in par]
+        if w.get('aresta') is None or not w.get('folhas'):
+            return [], [], []
+        p = dict(_parametros_do_wizard(w), dobradicas_qtd=w['qtd'],
+                 dobradicas_margem_mm=w['margem'])
+        if w.get('pistoes'):
+            p.update(pistoes_qtd=w['pqtd'], pistoes_offset_mm=w['poffset'])
+        try:
+            itens = _ferragens_da_porta(p, w['largura'], w['altura'],
+                                        w['folhas'])
+        except (ValueError, KeyError, TypeError):
+            return [], [], []
+        if not w.get('pistoes'):
+            itens = [i for i in itens if not i['tipo'].startswith('PISTAO')]
+        pecas, pontos = _arame_dos_itens(itens)
         fios = []
         if w.get('pistoes') and w.get('folha'):
-            # o VOLUME do pistao fechado (corpo, haste e suportes) no mesmo
-            # realce das dobradicas, e um fio ate' onde ele vai aberto
-            p = dict(_parametros_do_wizard(w), pistoes_qtd=w['pqtd'],
-                     pistoes_offset_mm=w['poffset'])
-            itens = _pistoes_da_porta(p, w['largura'], w['altura'],
-                                      [w['folha']])
-            caixas += [[w['matriz'] @ (v / 1000.0) for v in caixa]
-                       for caixa in _caixas_dos_itens_pistao(itens)]
+            # e um fio ate' onde o pistao vai com a porta aberta
             g = _pistao_do_vao(w['altura'], w['folha'], w['poffset'], p)
             xs = (PISTAO_DA_LATERAL_MM, w['largura'] - PISTAO_DA_LATERAL_MM)
             for x in xs[:max(1, min(2, w['pqtd']))]:
                 lateral, _fechada, aberta = _pontas_pistao(g, x, w['folha'])
                 fios.append([w['matriz'] @ (lateral / 1000.0),
                              w['matriz'] @ (aberta / 1000.0)])
-        return caixas, fios
+        return pecas, pontos, fios
 
     def _encerrar(self, context):
         _marcar_apanhando(False)
@@ -6630,6 +6718,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self.report({'WARNING'}, "%s (aba Portas)" % erro)
             return {'CANCELLED'}
 
+        _ferragens_selecionadas[0] = None    # criar encerra aquela selecao
         self._alvos = _alvos_do_ima(context)
         if not self._alvos:
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
@@ -6639,6 +6728,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._objeto_imantado = None
         self._recado = ''
         self._handler = None
+        self._engolir_soltar = False
         self._w = {'etapa': 'DIAGONAL', 'regiao': self._regiao_ptr,
                    'botoes': [], 'escolhas': {}, 'bolinhas': [],
                    'snap_tela': None, 'mouse': None, 'recado': ''}
@@ -6687,7 +6777,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if etapa in self.PERGUNTAS or etapa == 'TIPO':
             opcoes, pergunta = self.PERGUNTAS.get(
                 etapa, (w.get('tipos', ()), 'Abertura:'))
-            w['botoes'] = _botoes_assistente(ancora, opcoes, escala)
+            w['botoes'] = _botoes_assistente(
+                ancora, opcoes, escala,
+                (self._regiao.width, self._regiao.height), pergunta)
             w['pergunta'] = pergunta
         elif etapa == 'EIXO':
             w['arestas'] = _arestas_da_porta(w['largura'], w['altura'],
@@ -6825,7 +6917,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 w['pqtd'] = max(LIMITES_PISTOES[0],
                                 min(LIMITES_PISTOES[1], w['pqtd'] + passo))
                 w['recado'] = '%d pistao(oes) (scroll) | clique confirma' % w['pqtd']
-            self._area.tag_redraw()
+            _redesenhar_viewports(context)       # a gaveta mostra o numero
             return {'RUNNING_MODAL'}
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
@@ -6846,6 +6938,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 else:
                     w['recado'] = self.RECADOS['EIXO']
             elif etapa in {'MARGEM', 'PISTOES_OFFSET'}:
+                if w.pop('rebase', False):
+                    # valor digitado na gaveta: o mouse parte dele
+                    w['y0'] = mouse.y
+                    w['valor0'] = (w['margem'] if etapa == 'MARGEM'
+                                   else w['poffset'])
                 delta = (mouse.y - w['y0']) * w['mm_por_px']
                 if etapa == 'MARGEM':
                     comprimento = (w['aresta']['b'] - w['aresta']['a']).length
@@ -6864,6 +6961,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                                    'clique cria' % (
                                        g['aberto'], g['offset'],
                                        ' (curso maximo)' if limite else ''))
+                _redesenhar_viewports(context)   # margem/offset na gaveta
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
@@ -6938,7 +7036,53 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                           pistoes_offset_mm=float(w['poffset']) if manual else 0.0)
         return self._concluir(context, extras)
 
+    def _responder_pela_gaveta(self, context, pergunta, chave):
+        """Fila da aba Portas = a caixa da viewport (pedido do usuario).
+        Responder de novo uma pergunta ja' respondida refaz dali: o que
+        vinha depois dela cai."""
+        w = self._w
+        if pergunta in {'dobradicas_qtd', 'pistoes_qtd'}:
+            _editar_assistente(pergunta, chave)    # so' o valor; nao avanca
+            return None
+        if pergunta == 'porta_confirmar':
+            if w['etapa'] != 'CONFIRMAR':
+                return None
+            return self._escolher(context, chave)
+        if w['etapa'] == 'CONFIRMAR':
+            return None
+        folhas = w['escolhas'].get('folhas')
+        w.update(duas_bordas=False, aresta=None, pistoes=False)
+        if pergunta == 'porta_folhas':
+            w.update(escolhas={}, etapa='FOLHAS')
+            return self._escolher(context, str(chave))
+        if folhas is None:
+            return None
+        w.update(escolhas={'folhas': folhas}, etapa='TIPO')
+        return self._escolher_abertura(context, chave)
+
     def modal(self, context, event):
+        if (event.type == 'LEFTMOUSE' and event.value == 'RELEASE'
+                and self._engolir_soltar):
+            # o soltar do clique que respondeu pela gaveta: a fila ja'
+            # mudou e ele cairia noutro widget
+            self._engolir_soltar = False
+            return {'RUNNING_MODAL'}
+        gaveta = (_gaveta_sob_evento(context, event)
+                  if event.type != 'ESC' else None)
+        if gaveta is not None:
+            # Na gaveta o mouse e' DELA (hover, abas, rolagem, campos); o
+            # wizard so' atende as filas que copiam a caixa da viewport.
+            if (event.type == 'LEFTMOUSE' and event.value == 'PRESS'
+                    and self._w['etapa'] != 'DIAGONAL'):
+                acao = _acao_da_gaveta(context, event, *gaveta)
+                if (acao and acao[0] == 'escolha' and len(acao) > 5
+                        and acao[5] == ALVO_ASSISTENTE):
+                    self._engolir_soltar = True
+                    resultado = self._responder_pela_gaveta(
+                        context, acao[1], acao[2])
+                    _redesenhar_viewports(context)
+                    return resultado or {'RUNNING_MODAL'}
+            return {'PASS_THROUGH'}
         if self._w['etapa'] != 'DIAGONAL':
             if event.type == 'ESC' and event.value == 'PRESS':
                 self._encerrar(context)
@@ -8274,7 +8418,7 @@ MODELOS_PUXADOR = {
     'ALCA': ('Alca', 148.0, 40.0),
     'BORDA': ('Borda', 60.0, 0.0),
 }
-ALTURA_PERFIL_MM = 30.0     # faixa da madeira que o perfil substitui
+ALTURA_PERFIL_MM = 30.0     # faixa do perfil J de caixas (sem o asset)
 BORDAS_CHAPA = ('X-', 'X+', 'Y-', 'Y+')
 MATERIAL_PUXADOR = "Puxador"
 
@@ -8312,8 +8456,113 @@ def _material_puxador():
     return material
 
 
+# ---- Puxador PERFIL de verdade: o modelo de aluminio do usuario
+# (`extrair_puxador.py`), ja' no referencial da linha. O comprimento sai
+# esticando so' as PONTAS (o chanfro delas fica igual) e a espessura da
+# folha, escalando o que fica atras da face (a frente, o labio e a cava
+# continuam do modelo). A faixa que ele tira da madeira e' a do modelo.
+# Sem o asset, volta o perfil J de caixas.
+ARQUIVO_PUXADOR_PERFIL = os.path.join(PASTA_FERRAGENS, 'puxador_perfil.blend')
+_puxador_perfil = [None]
+_corte_perfil = [None]       # (z, vao) da secao do modelo, medido uma vez              # o .json do asset, lido uma vez
+
+
+def _dados_perfil():
+    if _puxador_perfil[0] is None:
+        try:
+            with open(os.path.join(PASTA_FERRAGENS, 'puxador_perfil.json'),
+                      encoding='utf-8') as f:
+                dados = json.load(f)
+            for chave in ('altura_mm', 'espessura_porta_mm', 'comprimento_mm'):
+                dados[chave] = float(dados[chave])
+            _puxador_perfil[0] = dados
+        except (OSError, ValueError, KeyError, TypeError):
+            _puxador_perfil[0] = {}
+    if not _puxador_perfil[0] or not os.path.exists(ARQUIVO_PUXADOR_PERFIL):
+        return None
+    return _puxador_perfil[0]
+
+
+def _altura_perfil_mm():
+    """Faixa da madeira que o perfil ocupa."""
+    dados = _dados_perfil()
+    return dados['altura_mm'] if dados else ALTURA_PERFIL_MM
+
+
+def _malha_modelo_perfil():
+    """A malha do modelo (carregada uma vez; nenhum objeto a usa)."""
+    dados = _dados_perfil()
+    if dados is None:
+        return None
+    for malha in bpy.data.meshes:
+        if malha.get('cabinet_origem') == dados['malha'] and not malha.library:
+            return malha
+    novas = _anexar_sem_repetir(ARQUIVO_PUXADOR_PERFIL, 'meshes',
+                                {dados['malha']})
+    return novas[0] if novas else None
+
+
+def _corte_do_perfil(modelo):
+    """(z do corte, vao) em m: onde a SECAO do perfil se divide para
+    acomodar a espessura da porta -- o maior vao sem vertice entre as
+    costas e a face. O que fica atras dele (cantos arredondados das
+    costas) anda inteiro; so' o trecho reto do vao estica ou encolhe."""
+    if _corte_perfil[0] is None:
+        zs = sorted({round(v.co.z, 7) for v in modelo.vertices if v.co.z < 0.0})
+        vaos = [(b - a, (a + b) / 2.0) for a, b in zip(zs, zs[1:])]
+        vao, corte = max(vaos) if vaos else (0.0, 0.0)
+        _corte_perfil[0] = (corte, vao)
+    return _corte_perfil[0]
+
+
+def _deformar_perfil(co, estica, corte, recua, fator):
+    """Ponto do modelo do perfil na porta de agora (pedido do usuario: a
+    medida muda, os chanfros NAO). Comprimento: cada ponta anda inteira
+    (`estica`). Espessura: o que esta' atras do `corte` anda `recua`;
+    sem vao que caiba (porta muito mais fina), cai na escala (`fator`)."""
+    x, y, z = co
+    if recua is None:
+        z = z * fator if z < 0.0 else z
+    elif z < corte:
+        z += recua
+    return Vector((x + math.copysign(estica, x), y, z))
+
+
+def _ajuste_do_perfil(modelo, espessura, comprimento):
+    """(estica, corte, recua, fator) do modelo para esta porta."""
+    dados = _dados_perfil()
+    estica = (comprimento - dados['comprimento_mm']) / 2000.0
+    fator = espessura / dados['espessura_porta_mm']
+    corte, vao = _corte_do_perfil(modelo)
+    recua = -(espessura - dados['espessura_porta_mm']) / 1000.0
+    # porta mais FINA que o modelo: o trecho reto encolhe ate' quase
+    # sumir; mais que isso as costas passariam da face
+    if recua > 0.9 * vao:
+        recua = None
+    return estica, corte, recua, fator
+
+
+def _malha_perfil_do_modelo(pux, modelo, espessura, comprimento):
+    ajuste = _ajuste_do_perfil(modelo, espessura, comprimento)
+    bm = bmesh.new()
+    bm.from_mesh(modelo)
+    for v in bm.verts:
+        v.co = _deformar_perfil(v.co, *ajuste)
+    bm.to_mesh(pux.data)
+    bm.free()
+    pux.data.update()
+    pux.data.materials.clear()
+    for material in modelo.materials:
+        pux.data.materials.append(material)
+
+
 def gerar_malha_puxador(pux, espessura, comprimento):
     """Malha real por bmesh, como a da chapa (nada de escala)."""
+    if pux['puxador_tipo'] == 'PERFIL':
+        modelo = _malha_modelo_perfil()
+        if modelo is not None:
+            _malha_perfil_do_modelo(pux, modelo, espessura, comprimento)
+            return
     bm = bmesh.new()
     for x0, x1, y0, y1, z0, z1 in _caixas_puxador(
             pux['puxador_tipo'], espessura, comprimento):
@@ -8364,28 +8613,39 @@ def posicionar_puxador(pux):
     if not _eh_puxador_parametrico(pux) or chapa is None or MARCA_CHAPA not in chapa:
         return False
     tipo = pux['puxador_tipo']
-    ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
-        chapa, pux.get('puxador_borda', 'Y+'), int(pux.get('puxador_face', 1)))
-    if tipo == 'PERFIL':
-        comprimento, x = tamanho * 1000.0, 0.0
-    else:
-        comprimento = float(pux.get('puxador_comprimento_mm',
-                                    MODELOS_PUXADOR[tipo][1]))
-        livre = max(0.0, tamanho - comprimento / 1000.0) / 2.0
-        x = (float(pux.get('puxador_fracao', 0.5)) - 0.5) * tamanho
-        x = max(-livre, min(livre, x))
-    recuo = float(pux.get('puxador_recuo_mm', MODELOS_PUXADOR[tipo][2])) / 1000.0
+    matriz, comprimento = _lugar_do_puxador(
+        chapa, tipo, pux.get('puxador_borda', 'Y+'),
+        int(pux.get('puxador_face', 1)), float(pux.get('puxador_fracao', 0.5)),
+        pux.get('puxador_comprimento_mm'), pux.get('puxador_recuo_mm'))
+    _padronizar_nome(pux, "Puxador " + MODELOS_PUXADOR[tipo][0])
     gerar_malha_puxador(pux, chapa.chapa_espessura_mm, comprimento)
-    matriz = Matrix((ao_longo, dentro, fora)).transposed().to_4x4()
-    matriz.translation = ponto + ao_longo * x + dentro * recuo
     pux.matrix_parent_inverse = Matrix.Identity(4)
     pux.matrix_basis = matriz
     return True
 
 
+def _lugar_do_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
+                      recuo=None):
+    """(matriz no espaco LOCAL da chapa, comprimento em mm) do puxador
+    naquela linha -- o MESMO calculo para o objeto e para a previa."""
+    ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
+        chapa, borda, int(face))
+    if tipo == 'PERFIL':
+        comprimento, x = tamanho * 1000.0, 0.0
+    else:
+        comprimento = float(MODELOS_PUXADOR[tipo][1] if comprimento is None
+                            else comprimento)
+        livre = max(0.0, tamanho - comprimento / 1000.0) / 2.0
+        x = max(-livre, min(livre, (float(fracao) - 0.5) * tamanho))
+    recuo = float(MODELOS_PUXADOR[tipo][2] if recuo is None else recuo) / 1000.0
+    matriz = Matrix((ao_longo, dentro, fora)).transposed().to_4x4()
+    matriz.translation = ponto + ao_longo * x + dentro * recuo
+    return matriz, comprimento
+
+
 def _rebaixos_da_chapa(chapa):
     """{borda: metros} que os perfis filhos tiram da madeira."""
-    return {f.get('puxador_borda', 'Y+'): ALTURA_PERFIL_MM / 1000.0
+    return {f.get('puxador_borda', 'Y+'): _altura_perfil_mm() / 1000.0
             for f in chapa.children
             if _eh_puxador_parametrico(f) and f['puxador_tipo'] == 'PERFIL'}
 
@@ -8406,8 +8666,8 @@ def _conferir_rebaixos():
 
 def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5):
     """Puxador novo pendurado na chapa (folha ou avulsa), ja' no lugar."""
-    malha = bpy.data.meshes.new("Puxador")
-    pux = bpy.data.objects.new("Puxador_" + MODELOS_PUXADOR[tipo][0], malha)
+    nome = "Puxador " + MODELOS_PUXADOR[tipo][0]
+    pux = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
     (chapa.users_collection[0] if chapa.users_collection
      else context.collection).objects.link(pux)
     pux[MARCA_PUXADOR] = 1
@@ -8439,7 +8699,7 @@ def _medidas_puxador_parametrico(pux):
     """
     tipo = pux['puxador_tipo']
     if tipo == 'PERFIL':
-        return [('Altura do perfil', ALTURA_PERFIL_MM, '')]
+        return [('Altura do perfil', _altura_perfil_mm(), '')]
     campos = [('Comprimento', float(pux.get('puxador_comprimento_mm',
                                             MODELOS_PUXADOR[tipo][1])),
                'puxp_comprimento')]
@@ -8528,6 +8788,250 @@ def _quad_2d(a, b, largura):
     return [a + n, b + n, b - n, a + n, b - n, a - n]
 
 
+# ---- ARAME: a previa das ferragens e dos puxadores (pedido do usuario)
+# Dobradica, pistao e puxador aparecem como WIREFRAME da peca de verdade,
+# na cor de realce e na espessura das linhas da HUD -- antes a dobradica
+# era uma caixa de volume e o puxador so' o ponto onde ia ancorar. Por
+# cima de tudo (raio-X), como o resto da HUD. O rig da Reta tem ~190 mil
+# arestas avaliadas: o arame dele e' so' o CONTORNO, medido uma vez no
+# asset (`extrair_arame_dobradica.py`) e desenhado em lote, peca a peca.
+ANGULO_VINCO_ARAME = 30.0        # o mesmo do extrator (contorno do perfil)
+LADOS_CILINDRO_ARAME = 16
+_arame_rig = [None]              # o arame do asset, lido uma vez
+_arame_perfil = [None]           # contorno do modelo do perfil
+_lotes_arame = {}                # malha do rig -> lote na GPU
+
+
+def _dados_arame_rig():
+    """{'malhas': {malha: [pontos aos pares, m, espaco do objeto]},
+    'pecas': [(malha, pose em m na raiz, porta fechada)]} ou None."""
+    if _arame_rig[0] is None:
+        bruto = (_dados_dobradica_reta() or {}).get('arame')
+        if not bruto:
+            return None
+        malhas = {chave: [Vector(v[i:i + 3]) / 1000.0
+                          for i in range(0, len(v), 3)]
+                  for chave, v in bruto['malhas'].items()}
+        pecas = []
+        for peca in bruto['pecas']:
+            pose = Matrix([peca['pose'][i * 4:i * 4 + 4] for i in range(4)])
+            pose.translation = pose.translation / 1000.0
+            pecas.append((peca['malha'], pose))
+        _arame_rig[0] = {'malhas': malhas, 'pecas': pecas}
+    return _arame_rig[0]
+
+
+def _arame_caixa(cantos):
+    """Pontos aos pares das 12 arestas (cantos na ordem de ARESTAS_CAIXA)."""
+    return [Vector(cantos[k]) for i, j in ARESTAS_CAIXA for k in (i, j)]
+
+
+def _arame_cilindro(base, eixo, raio, comprimento,
+                    lados=LADOS_CILINDRO_ARAME):
+    """Pontos aos pares: as duas tampas e 4 geratrizes, de `base` rumo a
+    `eixo`."""
+    eixo = (eixo.normalized() if eixo.length > 1e-9
+            else Vector((0.0, 0.0, 1.0)))
+    n1 = eixo.orthogonal().normalized()
+    n2 = eixo.cross(n1)
+    raios = [(n1 * math.cos(a) + n2 * math.sin(a)) * raio
+             for a in (k * math.tau / lados for k in range(lados))]
+    pontos = []
+    for u in (0.0, comprimento):
+        volta = [base + eixo * u + r for r in raios]
+        for a, b in zip(volta, volta[1:] + volta[:1]):
+            pontos += [a, b]
+    for r in raios[::lados // 4]:
+        pontos += [base + r, base + eixo * comprimento + r]
+    return pontos
+
+
+def _arame_dos_itens(itens):
+    """(pecas do rig [(matriz m, malha)], pontos aos pares em m) das
+    ferragens PLANEJADAS (`_ferragens_da_porta`: mm, referencial do
+    grupo/vao) -- a previa do wizard, antes de existir objeto."""
+    rig = _dados_arame_rig()
+    por_id = {item['id']: item for item in itens}
+    pecas, pontos = [], []
+    for item in itens:
+        forma = item['forma']
+        if forma == 'RIG':
+            if rig is None:
+                continue
+            raiz = item['matriz'].copy()
+            raiz.translation = raiz.translation / 1000.0
+            pecas += [(raiz @ pose, malha) for malha, pose in rig['pecas']]
+        elif forma == 'CAIXA':
+            pontos += [p / 1000.0 for p in _arame_caixa(item['cantos'])]
+        elif forma == 'CILINDRO':          # caneco: em Z, centrado
+            meio = Vector((0.0, 0.0, item['comprimento'] / 2.0))
+            pontos += [p / 1000.0 for p in _arame_cilindro(
+                Vector(item['origem']) - meio, Vector((0.0, 0.0, 1.0)),
+                item['raio'], item['comprimento'])]
+        elif forma == 'HASTE' and item.get('mira') in por_id:
+            origem = Vector(item['origem'])
+            pontos += [p / 1000.0 for p in _arame_cilindro(
+                origem, Vector(por_id[item['mira']]['origem']) - origem,
+                item['raio'], item['comprimento'])]
+    return pecas, pontos
+
+
+def _arame_ferragens(grupo, tipos):
+    """(pecas, pontos) em MUNDO das ferragens `tipos` da porta, na pose de
+    agora: as pecas do rig pelo contorno do asset, o resto (caixas,
+    canecos, pistoes) pela propria malha, que e' pouca."""
+    rig = _dados_arame_rig()
+    pecas, pontos = [], []
+    for o in _ferragens_portas(grupo):
+        if (o.type != 'MESH' or not o.visible_get() or TIPOS_SELECAO_FERRAGEM
+                .get(o.get(CHAVE_FERRAGEM)) not in tipos):
+            continue
+        chave = o.data.get('cabinet_origem')
+        if rig is not None and 'cabinet_peca' in o and chave in rig['malhas']:
+            pecas.append((o.matrix_world.copy(), chave))
+            continue
+        mundo, vertices = o.matrix_world, o.data.vertices
+        pontos += [mundo @ vertices[i].co for e in o.data.edges
+                   for i in e.vertices]
+    return pecas, pontos
+
+
+def _modelo_perfil_carregado():
+    """A malha do modelo do perfil, se ja' esta' no arquivo (no desenho
+    nao se carrega nada)."""
+    dados = _dados_perfil()
+    return next((m for m in bpy.data.meshes if dados is not None
+                 and m.get('cabinet_origem') == dados['malha']
+                 and not m.library), None)
+
+
+def _contorno_perfil():
+    """Contorno (pontos aos pares, espaco do modelo) do perfil do usuario,
+    se o modelo ja' foi carregado."""
+    if _arame_perfil[0] is None:
+        modelo = _modelo_perfil_carregado()
+        if modelo is None:
+            return None
+        bm = bmesh.new()
+        bm.from_mesh(modelo)
+        pares = []
+        for e in bm.edges:
+            if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
+                    > math.radians(ANGULO_VINCO_ARAME)):
+                pares += [v.co.copy() for v in e.verts]
+        bm.free()
+        _arame_perfil[0] = pares
+    return _arame_perfil[0]
+
+
+def _arame_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
+                   recuo=None):
+    """Pontos (MUNDO, aos pares) do puxador como ele fica naquela linha:
+    a previa do posicionador e do arraste com Alt."""
+    matriz, comprimento = _lugar_do_puxador(chapa, tipo, borda, face, fracao,
+                                            comprimento, recuo)
+    mundo = chapa.matrix_world @ matriz
+    espessura = chapa.chapa_espessura_mm
+    contorno = _contorno_perfil() if tipo == 'PERFIL' else None
+    if contorno is not None:
+        # a mesma deformacao da malha (`_malha_perfil_do_modelo`)
+        ajuste = _ajuste_do_perfil(_modelo_perfil_carregado(), espessura,
+                                   comprimento)
+        local = [_deformar_perfil(p, *ajuste) for p in contorno]
+    else:
+        local = [p / 1000.0 for x0, x1, y0, y1, z0, z1
+                 in _caixas_puxador(tipo, espessura, comprimento)
+                 for p in _arame_caixa([Vector((x, y, z)) for x in (x0, x1)
+                                        for y in (y0, y1) for z in (z0, z1)])]
+    return [mundo @ p for p in local]
+
+
+def _arame_do_objeto_puxador(pux):
+    if not _eh_puxador_parametrico(pux) or pux.parent is None:
+        return []
+    return _arame_puxador(pux.parent, pux['puxador_tipo'],
+                          pux.get('puxador_borda', 'Y+'),
+                          int(pux.get('puxador_face', 1)),
+                          float(pux.get('puxador_fracao', 0.5)),
+                          pux.get('puxador_comprimento_mm'),
+                          pux.get('puxador_recuo_mm'))
+
+
+def _lote_arame(shader, malha):
+    lote = _lotes_arame.get(malha)
+    if lote is None:
+        rig = _dados_arame_rig()
+        if rig is None or malha not in rig['malhas']:
+            return None
+        lote = _lotes_arame[malha] = batch_for_shader(
+            shader, 'LINES', {'pos': rig['malhas'][malha]})
+    return lote
+
+
+def _desenhar_arame(context, pecas, pontos, matriz=None, cor=None):
+    """Wireframe na cor de realce e na espessura das linhas da HUD,
+    por cima de tudo. `pecas` = [(matriz, malha do rig)], em lote na GPU;
+    `pontos` aos pares; `matriz` leva os dois ao mundo."""
+    if not pecas and not pontos:
+        return
+    matriz = matriz if matriz is not None else Matrix.Identity(4)
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+    gpu.state.blend_set('ALPHA')
+    gpu.state.depth_test_set('NONE')
+    try:
+        shader.bind()
+        shader.uniform_float('viewportSize', (context.region.width,
+                                              context.region.height))
+        shader.uniform_float('lineWidth', float(_opcao('hud_espessura_linha')))
+        shader.uniform_float('color', cor or _cor_realce_hud())
+        for m, malha in pecas:
+            lote = _lote_arame(shader, malha)
+            if lote is not None:
+                with gpu.matrix.push_pop():
+                    gpu.matrix.multiply_matrix(matriz @ m)
+                    lote.draw(shader)
+        if pontos:
+            batch_for_shader(shader, 'LINES', {
+                'pos': [matriz @ p for p in pontos]}).draw(shader)
+    finally:
+        gpu.state.depth_test_set('NONE')
+        gpu.state.blend_set('NONE')
+
+
+def _arame_do_posicionador():
+    """O puxador que o posicionador vai criar: na linha sob o mouse (antes
+    so' aparecia o ponto) e, escolhendo o ponto, o puxador de previa."""
+    estado = _posicionador_puxador[0]
+    if estado is None:
+        return []
+    if estado['fase'] == 'POSICAO':
+        return _arame_do_objeto_puxador(
+            bpy.data.objects.get(estado.get('pux') or ''))
+    chapa = bpy.data.objects.get(estado.get('chapa') or '')
+    if chapa is None or estado.get('borda') is None:
+        return []
+    return _arame_puxador(chapa, estado['tipo'], estado['borda'],
+                          estado['face'], estado.get('fracao', 0.5))
+
+
+def _desenhar_aramados(context):
+    """Arame das ferragens selecionadas, do puxador sendo posicionado e
+    do arrastado com Alt (o wizard desenha o das ferragens dele)."""
+    if not _contexto_hud(context):
+        return
+    pecas, pontos = [], []
+    for grupo, tipos in _ferragens_em_edicao(context):
+        mais_pecas, mais_pontos = _arame_ferragens(grupo, tipos)
+        pecas += mais_pecas
+        pontos += mais_pontos
+    pontos += _arame_do_posicionador()
+    arraste = _arraste_puxador[0]
+    if arraste is not None:
+        pontos += _arame_do_objeto_puxador(
+            bpy.data.objects.get(arraste['puxador']))
+    _desenhar_arame(context, pecas, pontos)
+
+
 def _desenhar_posicionador_puxador():
     estado = _posicionador_puxador[0]
     context = bpy.context
@@ -8592,6 +9096,10 @@ class OBJECT_OT_posicionar_puxador(Operator):
             self.report({'ERROR'}, "Sem viewport 3D para posicionar")
             return {'CANCELLED'}
         self._area, self._regiao, self._rv3d = alvo
+        # a previa do perfil e' o arame do modelo: carregado aqui (no
+        # desenho nao se carrega nada)
+        _malha_modelo_perfil()
+        _ferragens_selecionadas[0] = None    # criar encerra aquela selecao
         self._estado = {'regiao': self._regiao.as_pointer(), 'fase': 'LINHA',
                         'tipo': context.scene.cabinet_puxador_modelo,
                         'chapa': None, 'face': 1, 'borda': None,
@@ -8641,7 +9149,12 @@ class OBJECT_OT_posicionar_puxador(Operator):
         estado['chapa'] = chapa.name
         estado['face'] = _face_da_chapa(chapa, normal, direcao)
         estado['segmentos'] = _bordas_da_face(chapa, estado['face'])
-        estado['borda'] = _borda_mais_proxima(self._projetados(), mouse)
+        projetados = self._projetados()
+        estado['borda'] = _borda_mais_proxima(projetados, mouse)
+        if estado['borda'] in projetados:
+            # a previa (arame) do puxador acompanha o mouse na linha
+            estado['fracao'] = _fracao_na_linha(
+                *projetados[estado['borda']], mouse, estado['n'])
 
     def _mover_puxador(self, mouse):
         estado = self._estado
@@ -8687,8 +9200,45 @@ class OBJECT_OT_posicionar_puxador(Operator):
         self._encerrar()
         return {'FINISHED'}
 
+    def _trocar_modelo(self, context, tipo):
+        """Modelo escolhido na gaveta durante o posicionamento: o puxador
+        de previa (se ja' ha') e' refeito no mesmo ponto; perfil e' a
+        borda inteira, entao fica pronto na hora."""
+        estado = self._estado
+        if tipo not in MODELOS_PUXADOR or tipo == estado['tipo']:
+            return None
+        estado['tipo'] = tipo
+        context.scene.cabinet_puxador_modelo = tipo   # a proxima vem igual
+        chapa = bpy.data.objects.get(estado['chapa'] or '')
+        if estado['fase'] == 'POSICAO' and chapa is not None:
+            self._apagar_previa()
+            pux = criar_puxador(context, chapa, tipo, estado['borda'],
+                                estado['face'], estado['fracao'])
+            if tipo == 'PERFIL':
+                return self._confirmar(context, pux)
+            estado['pux'] = pux.name
+        self._dica(context)
+        _redesenhar_viewports(context)
+        return None
+
     def modal(self, context, event):
         estado = self._estado
+        if (event.type == 'LEFTMOUSE' and event.value == 'RELEASE'
+                and getattr(self, '_engolir_soltar', False)):
+            self._engolir_soltar = False     # o soltar do clique na gaveta
+            return {'RUNNING_MODAL'}
+        gaveta = (_gaveta_sob_evento(context, event)
+                  if event.type != 'ESC' else None)
+        if gaveta is not None:
+            # a gaveta continua dela; o posicionador so' atende o modelo
+            if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+                acao = _acao_da_gaveta(context, event, *gaveta)
+                if (acao and acao[0] == 'escolha' and len(acao) > 5
+                        and acao[5] == ALVO_ASSISTENTE):
+                    self._engolir_soltar = True
+                    return (self._trocar_modelo(context, acao[2])
+                            or {'RUNNING_MODAL'})
+            return {'PASS_THROUGH'}
         rolagem = event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}
         if (event.type in {'MIDDLEMOUSE', 'TRACKPADPAN', 'TRACKPADZOOM'}
                 or event.type.startswith('NDOF')
@@ -9759,17 +10309,17 @@ def _colunas_medidas(context, largura, n):
 
 
 def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
-                          modos=True):
-    """Medidas, wireframe e rodape -- o bloco fixo das TRES abas.
-
-    Saber o que esta' selecionado e quanto mede vale tanto montando o
-    modulo quanto configurando a porta dele, entao este bloco nao
-    pertence a uma aba so'. Nao ha' botao de sincronizar: o handler
-    rele as medidas sozinho (`_sincronizar_medidas_ativas`).
+                          modos=True, medidas=None):
+    """Os campos de medida do item. So' a aba DONA do item os mostra
+    (pedido do usuario: o menu mostra o que vale para o que esta'
+    selecionado; o modulo nao aparece na aba Portas). `medidas` =
+    (modo, campos, dono) prontos, como na porta que o wizard desenha.
+    Nao ha' botao de sincronizar: o handler rele as medidas sozinho
+    (`_sincronizar_medidas_ativas`).
     """
     obj = context.object
     y += 23
-    modo, campos, dono = _medidas_gaveta(context)
+    modo, campos, dono = medidas or _medidas_gaveta(context)
     # Na aba Portas edita-se o conjunto das folhas, nunca uma peca
     # isolada: alternar Individual/Grupo ali nao significa nada.
     if (modos and obj is not None and modo != 'PORTA'
@@ -9816,37 +10366,67 @@ def _botoes_gaveta(itens, x, y, w, botoes):
     return y - math.ceil(len(botoes) / colunas) * 34
 
 
-def _aba_puxadores_gaveta(context, itens, x, y, w, s):
-    """Puxador pronto: escolhe o modelo aqui e usa "Criar Puxador", no
-    TOPO da aba, laranja como o "Criar Portas" (clica na borda, escolhe o
-    ponto). Puxador de
-    fora: converter, ligar (corrente) e travar. Como na aba Portas, o
-    nome do item nao aparece (pedido do usuario).
-
-    As medidas (e os cadeados do importado) ficam no bloco fixo de cima;
-    aqui fica o caminho para chegar la'.
-    """
-    itens.append((x, y + 31, w, 1, '', ('separador',)))
-    y = _linha_escolha_gaveta(
-        itens, x, y, w, 'Modelo do puxador', 'cabinet_puxador_modelo',
-        tuple((k, v[0]) for k, v in MODELOS_PUXADOR.items()),
-        s.cabinet_puxador_modelo)
-    y -= 4
-    obj = context.object
-    if _eh_puxador_parametrico(obj):
-        texto = '%s na borda %s' % (MODELOS_PUXADOR[obj['puxador_tipo']][0],
-                                    obj.get('puxador_borda', '?'))
-    elif obj is not None and MARCA_PUXADOR in obj:
-        ligado = obj.parent is not None and MARCA_CHAPA in obj.parent
-        texto = 'Ligado a uma porta' if ligado else 'Solto: ligue a uma porta'
-    else:
-        texto = 'Puxador de fora: selecione o objeto'
-    itens.append((x, y, w, 26, texto, None))
-    y -= 34
-    y = _botoes_gaveta(itens, x, y, w, (
-        ('Converter em puxador', 'object.cabinet_converter_puxador'),))
-    itens.append((x, y, w, 22, 'Puxador + porta: corrente acima', None))
+def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
+    """Como as outras abas (pedido do usuario): nada selecionado = so' o
+    "Criar Puxador" (no topo, fora daqui). Criando, aparece o MODELO
+    (clicavel: o posicionador troca na hora). Puxador selecionado: as
+    medidas dele (e os cadeados do importado) e, no do add-on, o modelo
+    -- trocar refaz AQUELE puxador. Objeto de fora: Converter em puxador.
+    Como na aba Portas, o nome do item nao aparece."""
+    modelos = tuple((k, v[0]) for k, v in MODELOS_PUXADOR.items())
+    posicionando = _posicionador_puxador[0]
+    if posicionando is not None:
+        _linha_escolha_gaveta(itens, x, y + 26, w, 'Modelo do puxador',
+                              'cabinet_puxador_modelo', modelos,
+                              posicionando['tipo'], alvo=ALVO_ASSISTENTE)
+        return itens
+    obj = _selecionado(context)
+    if obj is not None and MARCA_PUXADOR in obj:
+        y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
+                                  modos=False)
+        itens.append((x, y + 31, w, 1, '', ('separador',)))
+        if _eh_puxador_parametrico(obj):
+            _linha_escolha_gaveta(itens, x, y, w, 'Modelo do puxador',
+                                  'cabinet_puxador_modelo', modelos,
+                                  obj['puxador_tipo'], alvo=ALVO_PUXADOR)
+        else:
+            ligado = obj.parent is not None and MARCA_CHAPA in obj.parent
+            itens.append((x, y, w, 26, 'Ligado a uma porta' if ligado
+                          else 'Solto: ligue a uma porta', None))
+        return itens
+    if obj is not None and obj.type == 'MESH' and not any(
+            m in obj for m in (MARCA_CHAPA, MARCA_CONJUNTO, MARCA_PORTAS,
+                               MARCA_FOLHA, MARCA_ACESSORIO, CHAVE_FERRAGEM)):
+        _botoes_gaveta(itens, x, y + 26, w, (
+            ('Converter em puxador', 'object.cabinet_converter_puxador'),))
     return itens
+
+
+def _trocar_modelo_puxador(pux, tipo):
+    """O modelo do puxador SELECIONADO trocado na gaveta: refaz ele na
+    mesma borda e ponto. Perfil corta a madeira (a chapa refaz) e e' um
+    por borda, como no `criar_puxador`."""
+    if not _eh_puxador_parametrico(pux) or tipo not in MODELOS_PUXADOR:
+        return
+    antes = pux['puxador_tipo']
+    chapa = pux.parent
+    if antes == tipo or chapa is None or MARCA_CHAPA not in chapa:
+        return
+    pux['puxador_tipo'] = tipo
+    pux['puxador_comprimento_mm'] = MODELOS_PUXADOR[tipo][1]
+    pux['puxador_recuo_mm'] = MODELOS_PUXADOR[tipo][2]
+    # o material do perfil (aluminio do usuario) nao fica no de caixas
+    pux.data.materials.clear()
+    if tipo == 'PERFIL':
+        for velho in [f for f in chapa.children if f != pux
+                      and _eh_puxador_parametrico(f)
+                      and f['puxador_tipo'] == 'PERFIL'
+                      and f.get('puxador_borda') == pux.get('puxador_borda')]:
+            bpy.data.objects.remove(velho, do_unlink=True)
+    if 'PERFIL' in (antes, tipo):
+        gerar_malha_chapa(chapa)        # corta/devolve a madeira e posiciona
+    else:
+        posicionar_puxador(pux)
 
 
 def _valores_portas(s, grupo=None):
@@ -9870,22 +10450,237 @@ def _valores_portas(s, grupo=None):
     return valores
 
 
-def _aba_portas_gaveta(context, itens, x, y, w, s):
-    """Tudo o que morava no popup de Portas Parametricas.
+ETAPAS_FERRAGENS_ASSISTENTE = ('EIXO', 'QUANTIDADE', 'MARGEM',
+                               'PISTOES_QTD', 'PISTOES_OFFSET')
+# alvo da 'escolha' (e dono da 'medida') que edita as ferragens
+# SELECIONADAS: vale para todas as portas do modulo delas
+ALVO_FERRAGENS = '@ferragens'
+# alvo da 'escolha' do modelo que troca o puxador SELECIONADO
+ALVO_PUXADOR = '@puxador'
 
-    Sem porta selecionada, a aba prepara a PROXIMA porta (valores da
-    cena). Com porta ou folha selecionada (duplo clique), ela mostra e
-    edita AQUELA porta, na hora -- e criar fica desligado.
-    """
-    # Ordem: medidas da porta logo abaixo do bloco de medidas (SO' com
-    # porta selecionada), separador, escolhas. "Criar Portas" fica no
-    # topo da aba (`_widgets_aba_gaveta`).
-    # No vao de 9 px que o rodape deixa, nao dentro do item seguinte.
+
+def _selecionado(context):
+    """O objeto ativo, se ele esta' selecionado (ativo sem selecao nao
+    conta: a gaveta mostra o que esta' SELECIONADO, pedido do usuario)."""
+    obj = getattr(context, 'object', None)
+    return obj if obj is not None and obj.select_get() else None
+
+
+def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
+                            separar=True):
+    """Dobradicas e pistoes EDITAVEIS (pedido do usuario): quantidade em
+    segmentos e o afastamento (ou a distancia do topo) num campo. A
+    mesma secao serve ao wizard (alvo do modal) e as ferragens
+    selecionadas (todas as portas do modulo). `dados[tipo]`: 'qtd' e
+    'mm' (None = ainda nao chegou la') e 'info' (texto do tipo/borda).
+    Devolve o y do rotulo seguinte."""
+    for tipo in ('DOBRADICA', 'PISTAO'):
+        d = dados.get(tipo)
+        if d is None:
+            continue
+        if separar:
+            itens.append((x, y + 30, w, 1, '', ('separador',)))
+        separar = True
+        if tipo == 'DOBRADICA':
+            rotulo = 'Dobradicas'
+            opcoes = tuple((n, str(n)) for n in range(
+                LIMITES_DOBRADICAS[0], LIMITES_DOBRADICAS[1] + 1))
+            prop_qtd, prop_mm = 'dobradicas_qtd', 'dobradicas_margem_mm'
+            nome_mm = 'Afastamento das quinas'
+        else:
+            rotulo = 'Pistoes'
+            opcoes = tuple((n, str(n)) for n in range(
+                LIMITES_PISTOES[0], LIMITES_PISTOES[1] + 1))
+            prop_qtd, prop_mm = 'pistoes_qtd', 'pistoes_offset_mm'
+            nome_mm = 'Distancia do topo'
+        if d.get('info'):
+            rotulo = '%s: %s' % (rotulo, d['info'])
+        if d.get('qtd') is None:
+            itens.append((x, y, w, 20, rotulo, None))
+            y -= 36
+            continue
+        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, prop_qtd, opcoes,
+                                  d['qtd'], alvo=alvo)
+        if d.get('mm') is None:
+            y -= 10
+            continue
+        # campo (37) logo abaixo dos segmentos (25, passo 29) sem cobri-los
+        campo = y - 12
+        itens.append((x, campo, w, 37,
+                      '%s: %s' % (nome_mm, _texto_medida(d['mm'])),
+                      ('medida', dono, prop_mm, nome_mm, d['mm'])))
+        y = campo - 42
+    return y
+
+
+def _dados_ferragens_selecionadas(context):
+    """{tipo: {'qtd', 'mm', 'info'}} das ferragens selecionadas, pelos
+    parametros da 1a porta (editar vale para todas), ou None."""
+    edicao = _ferragens_em_edicao(context)
+    if not edicao:
+        return None
+    grupo, tipos = edicao[0]
+    medidas = _porta_calculada(grupo)
+    if medidas is None:
+        return None
+    p, _largura, altura, folhas = medidas
+    dados = {}
+    if 'DOBRADICA' in tipos:
+        dobradicas = _dobradicas_da_porta(p, _largura, altura, folhas)
+        if dobradicas:
+            dados['DOBRADICA'] = {
+                'qtd': len(dobradicas[0][1]),
+                'mm': float(p.get('dobradicas_margem_mm',
+                                  MARGEM_DOBRADICAS_PADRAO)),
+                'info': NOME_DOBRADICA.get(p.get('dobradica'), '')}
+    if 'PISTAO' in tipos and p.get('abertura') == 'BASCULANTE' and folhas:
+        offset = float(p.get('pistoes_offset_mm', 0.0) or 0.0)
+        dados['PISTAO'] = {
+            'qtd': (int(p.get('pistoes_qtd', 0) or 0)
+                    or _qtd_pistoes_padrao(folhas[0][0])),
+            'mm': _pistao_do_vao(altura, folhas[0], offset, p)['offset']}
+    return dados or None
+
+
+def _valor_ferragem(grupo, nome, valor):
+    """O valor que se grava: o offset do pistao trava no curso (e volta
+    a 0, o automatico, quando cai nele); a margem nunca e' negativa."""
+    if nome == 'dobradicas_margem_mm':
+        return max(0.0, float(valor))
+    if nome != 'pistoes_offset_mm':
+        return int(valor)
+    medidas = _porta_calculada(grupo)
+    if medidas is None:
+        return float(valor)
+    p, _l, altura, folhas = medidas
+    g = _pistao_do_vao(altura, folhas[0], max(1e-3, float(valor)), p)
+    automatico = _pistao_do_vao(altura, folhas[0], p=p)['offset']
+    return 0.0 if abs(g['offset'] - automatico) <= 0.5 else g['offset']
+
+
+def _editar_ferragens_selecionadas(context, nome, valor):
+    """Quantidade/afastamento editados na gaveta com as ferragens
+    selecionadas: todas as portas do modulo delas. Refazer a porta mexe
+    na selecao: as ferragens continuam selecionadas depois."""
+    estado = _ferragens_selecionadas[0]
+    erro = ''
+    for grupo, _tipos in _ferragens_em_edicao(context):
+        erro = _editar_parametro_porta(
+            context, grupo, nome, _valor_ferragem(grupo, nome, valor)) or erro
+    for o in context.selected_objects:
+        o.select_set(False)
+    context.view_layer.objects.active = None
+    _ferragens_selecionadas[0] = estado
+    _redesenhar_viewports(context)
+    return erro
+
+
+def _editar_assistente(nome, valor):
+    """O mesmo, criando a porta: grava no estado do wizard. Na etapa do
+    mouse em Y, o 1o movimento depois parte do valor digitado."""
+    w = _assistente_porta[0]
+    if w is None:
+        return
+    if nome == 'dobradicas_qtd':
+        w['qtd'] = max(LIMITES_DOBRADICAS[0],
+                       min(LIMITES_DOBRADICAS[1], int(valor)))
+    elif nome == 'pistoes_qtd':
+        w['pqtd'] = max(LIMITES_PISTOES[0], min(LIMITES_PISTOES[1], int(valor)))
+    elif nome == 'dobradicas_margem_mm' and w.get('aresta') is not None:
+        comprimento = (w['aresta']['b'] - w['aresta']['a']).length
+        w['margem'] = max(0.0, min(comprimento / 2.0, float(valor)))
+        w['rebase'] = True
+    elif nome == 'pistoes_offset_mm' and w.get('folha'):
+        w['poffset'] = _pistao_do_vao(
+            w['altura'], w['folha'], max(1e-3, float(valor)),
+            _parametros_do_wizard(w))['offset']
+        w['rebase'] = True
+
+
+def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
+    """A aba Portas CRIANDO (pedido do usuario): tudo aparece etapa a
+    etapa. Marcada a area, as medidas da porta (so' leitura: saem dos
+    cliques); depois a copia da caixa da viewport, clicavel (quem
+    responde e' o modal: `_responder_pela_gaveta`; respondida de novo,
+    refaz dali); e as ferragens, EDITAVEIS assim que o wizard chega
+    nelas (quantidade e afastamento das dobradicas, pistoes)."""
+    etapa, escolhas = a.get('etapa'), a.get('escolhas', {})
+    medidas = a.get('medidas_porta')
+    if medidas:
+        largura_mm, altura_mm, espessura = medidas
+        y = _bloco_medidas_gaveta(
+            context, itens, x, y, w, largura, metade, modos=False,
+            medidas=('PORTA', [('Largura', largura_mm, ''),
+                               ('Altura', altura_mm, ''),
+                               ('Espessura', espessura, '')], 'porta'))
     itens.append((x, y + 31, w, 1, '', ('separador',)))
-    grupo = _grupo_portas(context.object)
+    filas = []
+    if etapa == 'CONFIRMAR':
+        filas.append(('As medidas estao corretas?', 'porta_confirmar',
+                      OPCOES_CONFIRMAR, None))
+    else:
+        filas.append(('Quantas folhas?' if etapa == 'FOLHAS' else 'Folhas',
+                      'porta_folhas',
+                      tuple((int(k), t) for k, t in OPCOES_FOLHAS),
+                      escolhas.get('folhas')))
+    if etapa == 'TIPO' or 'abertura' in escolhas:
+        filas.append(('Escolha a abertura' if etapa == 'TIPO' else 'Abertura',
+                      'porta_abertura', a.get('tipos') or ESCOLHAS_PORTAS[0][2],
+                      escolhas.get('abertura')))
+    for i, (rotulo, pergunta, opcoes, atual) in enumerate(filas):
+        if i:
+            itens.append((x, y + 30, w, 1, '', ('separador',)))
+        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, pergunta, opcoes,
+                                  atual, alvo=ALVO_ASSISTENTE) - 10
+    if etapa not in ETAPAS_FERRAGENS_ASSISTENTE:
+        return itens
+    feitas = ETAPAS_FERRAGENS_ASSISTENTE[
+        :ETAPAS_FERRAGENS_ASSISTENTE.index(etapa) + 1]
+    aresta = a.get('aresta')
+    if etapa == 'EIXO' or aresta is None:
+        dobradicas = {'info': 'clique na borda delas', 'qtd': None}
+    else:
+        dobradicas = {'info': '%s, borda %s' % (
+            NOME_DOBRADICA.get(escolhas.get('dobradica'), ''),
+            aresta['lado'].lower()),
+            'qtd': a.get('qtd'), 'mm': a.get('margem')}
+    dados = {'DOBRADICA': dobradicas}
+    if 'PISTOES_QTD' in feitas and 'pqtd' in a:
+        dados['PISTAO'] = {'qtd': a['pqtd'], 'mm': a.get('poffset')}
+    _secao_ferragens_gaveta(itens, x, y, w, dados, ALVO_ASSISTENTE,
+                            'assistente')
+    return itens
+
+
+def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
+    """A aba mostra so' o que vale AGORA (pedido do usuario, para todas
+    as abas): nada selecionado = so' o "Criar Portas" (no topo, fora
+    daqui); criando = os campos etapa a etapa (`_filas_do_assistente`);
+    ferragens selecionadas = so' as delas (quantidade e afastamento);
+    porta ou folha selecionada = medidas, folhas, abertura e folgas
+    DELA -- nada de dobradica, que e' da selecao das ferragens."""
+    grupo = _grupo_portas(_selecionado(context))
     if grupo is not None and not grupo.get('porta_parametros'):
         grupo = None
-    alvo = grupo.name if grupo is not None else ''
+    assistente = _assistente_porta[0]
+    if (grupo is None and assistente is not None
+            and assistente.get('etapa') != 'DIAGONAL'):
+        return _filas_do_assistente(context, itens, x, y, w, largura, metade,
+                                    assistente)
+    ferragens = _dados_ferragens_selecionadas(context)
+    if ferragens:
+        _secao_ferragens_gaveta(itens, x, y + 26, w, ferragens,
+                                ALVO_FERRAGENS, 'ferragens', separar=False)
+        return itens
+    if grupo is None:
+        return itens
+    y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
+                              modos=False)
+    # Ordem: medidas da porta logo abaixo do bloco de medidas, separador,
+    # escolhas. No vao de 9 px que o rodape deixa, nao dentro do item
+    # seguinte.
+    itens.append((x, y + 31, w, 1, '', ('separador',)))
+    alvo = grupo.name
     valores = _valores_portas(s, grupo)
     # Sem cabecalho "Porta N de M - vao L x A": nada de nome nem medida
     # repetida na aba (pedido do usuario); o bloco de cima ja' mede.
@@ -9913,12 +10708,9 @@ def _aba_portas_gaveta(context, itens, x, y, w, s):
         if valores['folhas'] > 1:
             medidas.append(('ui_porta_entre_folhas', 'porta_entre_folhas_mm',
                             'Entre folhas'))
+    # Folgas, afastamentos e vaos nao se definem ANTES de desenhar a porta
+    # (backlog do usuario, Epico 2.1/2.4): so' com a porta selecionada.
     medidas.append(('ui_porta_folga', 'porta_folga_mm', 'Folga no perimetro'))
-    if grupo is None:
-        # Folgas, afastamentos e vaos nao se definem ANTES de desenhar a
-        # porta (backlog do usuario, Epico 2.1/2.4): a criacao usa os
-        # valores da cena e os campos aparecem com a porta selecionada.
-        medidas = []
 
     if medidas:
         # Mesma regra de colunas do bloco de cima: as duas linhas de
@@ -9937,51 +10729,35 @@ def _aba_portas_gaveta(context, itens, x, y, w, s):
         itens.append((x, fundo_campos - 10, w, 1, '', ('separador',)))
         y = fundo_campos - 10 - 9 - 20      # rotulo da 1a fila de escolhas
 
-    # A MESMA ordem das perguntas do wizard (pedido do usuario), e cada
-    # categoria so' APARECE depois de respondida no wizard; porta pronta
-    # selecionada mostra todas. Durante o wizard a fila so' mostra (quem
-    # decide e' a caixa da viewport); a dobradica nao aparece: e'
-    # automatica (sai dos 4 cliques).
-    assistente = _assistente_porta[0] if grupo is None else None
-    escolhas = (assistente or {}).get('escolhas', {})
-    editavel = grupo is not None
-    filas = []
-    if editavel or 'folhas' in escolhas:
-        abertura = valores['abertura'] if editavel else escolhas.get('abertura')
-        # no wizard, antes da abertura, a caixa oferecia 1 | 2
-        limite = LIMITES_FOLHAS.get(abertura, 1 if editavel else 2)
-        filas.append(('Folhas', 'porta_folhas',
-                      tuple((n, str(n)) for n in range(1, limite + 1)),
-                      valores['folhas'] if editavel else escolhas['folhas']))
-    if editavel or 'abertura' in escolhas:
-        (prop, rotulo, opcoes), = ESCOLHAS_PORTAS
-        filas.append((rotulo, prop, opcoes, valores['abertura'] if editavel
-                      else escolhas['abertura']))
+    # A MESMA ordem das perguntas do wizard (pedido do usuario); a
+    # dobradica nao aparece: e' automatica (sai dos 4 cliques).
+    (prop, rotulo, opcoes), = ESCOLHAS_PORTAS
+    filas = (('Folhas', 'porta_folhas',
+              tuple((n, str(n)) for n in range(
+                  1, LIMITES_FOLHAS.get(valores['abertura'], 1) + 1)),
+              valores['folhas']),
+             (rotulo, prop, opcoes, valores['abertura']))
     for i, (rotulo, prop, opcoes, atual) in enumerate(filas):
         if i:
             itens.append((x, y + 30, w, 1, '', ('separador',)))
         y = _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
-                                  ativo=editavel, alvo=alvo) - 10
-    if filas:
-        y += 6
+                                  alvo=alvo) - 10
+    y += 6
 
     # Medida da folha nao se repete aqui; so' o ERRO aparece, quando a
     # configuracao nao cabe no vao da porta selecionada.
-    if grupo is not None:
-        try:
-            _calcular_folhas_portas(grupo['porta_vao_largura_mm'],
-                                    grupo['porta_vao_altura_mm'], valores)
-        except (ValueError, KeyError, TypeError) as erro:
-            itens.append((x, y, w, 22, str(erro), None))
-            y -= 26
+    try:
+        _calcular_folhas_portas(grupo['porta_vao_largura_mm'],
+                                grupo['porta_vao_altura_mm'], valores)
+    except (ValueError, KeyError, TypeError) as erro:
+        itens.append((x, y, w, 22, str(erro), None))
+        y -= 26
 
-    # Porta selecionada: reposicionar (diagonal no vao novo) e frente.
-    # Sem porta, nada alem do "Criar Portas" (Converter em porta/dupla
-    # sairam da aba a pedido do usuario; seguem no F3).
-    if grupo is not None:
-        y = _botoes_gaveta(itens, x, y, w, (
-            ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
-            ('Definir como frente', 'object.cabinet_definir_frente')))
+    # Reposicionar (diagonal no vao novo) e frente. Converter em
+    # porta/dupla sairam da aba a pedido do usuario; seguem no F3.
+    _botoes_gaveta(itens, x, y, w, (
+        ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
+        ('Definir como frente', 'object.cabinet_definir_frente')))
     return itens
 
 
@@ -10435,13 +11211,37 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                         else _botao_criar_puxador())
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
-    de_modulos = s.cabinet_aba == 'MODULOS'
-    y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
-                              modos=de_modulos)
+    # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
+    # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
     if s.cabinet_aba == 'PORTAS':
-        return _aba_portas_gaveta(context, itens, x, y, w, s)
+        return _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade)
     if s.cabinet_aba == 'PUXADORES':
-        return _aba_puxadores_gaveta(context, itens, x, y, w, s)
+        return _aba_puxadores_gaveta(context, itens, x, y, w, s, largura,
+                                     metade)
+    return _aba_modulos_gaveta(context, itens, x, y, w, largura, metade)
+
+
+def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
+    """Modulo ou chapa selecionado: medidas (Individual | Grupo) e
+    Montagem; objeto de fora: as medidas dele. Nada selecionado: so' o
+    Orcamento, que e' da cena inteira (a biblioteca, embaixo, e' a
+    criacao desta aba)."""
+    obj = _selecionado(context)
+    nosso = (obj is not None and MARCA_FOLHA not in obj
+             and (MARCA_CHAPA in obj or MARCA_CONJUNTO in obj))
+    de_fora = obj is not None and not any(
+        m in obj for m in (MARCA_CHAPA, MARCA_CONJUNTO, MARCA_PORTAS,
+                           MARCA_FOLHA, MARCA_PUXADOR, MARCA_ACESSORIO,
+                           CHAVE_FERRAGEM))
+    pergunta = _pergunta_atual[0]
+    pendente = (pergunta is not None and pergunta['na_gaveta']
+                and not pergunta.get('comodo'))
+    if nosso or de_fora:
+        y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade)
+    elif not pendente:
+        y += 23             # o titulo sobe para onde estariam as medidas
+    if not (nosso or pendente):
+        return _secao_orcamento_gaveta(context, itens, x, y, w)
     itens.append((x, y, w, 23, 'Montagem', None))
     y -= 31
     # Sem "Recalcular": o handler ja' normaliza as chapas ao fim de
@@ -12148,6 +12948,11 @@ def _alvo_da_corrente(context, posicao):
                      for c in _controles_ferragens(grupo, {tipo}))
         candidatos.append(((ponto - mouse).length / (RAIO_BOLINHA_PX * escala),
                            'ferragem', grupo, tipo))
+    pux = _puxador_sob_mouse(context, posicao)
+    if pux is not None:
+        ponto = _projetar_hud(context, _ancora_do_puxador(pux))
+        candidatos.append(((ponto - mouse).length / (RAIO_BOLINHA_PX * escala),
+                           'puxador', pux, None))
     if not candidatos:
         return None
     return min(candidatos, key=lambda c: c[0])[1:]
@@ -12411,6 +13216,7 @@ def _desenhar_hud_texto():
     # porta selecionada nao tem HUD de medida, mas tem os 4 cantos e o
     # slider de abertura de cada folha; ferragens selecionadas, o realce
     _desenhar_ferragens_selecionadas(context)
+    _desenhar_ancoras_puxador(context)
     _desenhar_cantos_porta(context)
     _desenhar_sliders_porta(context)
     desenhos = _desenhos_hud(context)
@@ -12462,6 +13268,9 @@ def _desenhar_hud_texto():
                 shader.bind()
                 shader.uniform_float('color', realce)
                 batch_for_shader(shader, 'LINE_STRIP', {'pos': circulo}).draw(shader)
+                if nesta and edicao.get('snap') is not None:
+                    # grudou (Ctrl): bolinha cheia no centro da quina
+                    _bolinha_2d(shader, ponto, raio * 0.45, realce)
     finally:
         gpu.state.line_width_set(1)
         gpu.state.point_size_set(1)
@@ -12744,6 +13553,11 @@ class OBJECT_OT_clique_corrente(Operator):
         if alvo is None:
             return {'PASS_THROUGH'}
         tipo_alvo, corrente, tipo = alvo
+        if tipo_alvo == 'puxador':
+            # ancora do puxador: arrastar ate' outra borda do grupo
+            bpy.ops.object.cabinet_arrastar_puxador(
+                'INVOKE_DEFAULT', puxador=corrente.name)
+            return {'FINISHED'}
         if tipo_alvo == 'ferragem':
             # controlador da dobradica (borda) ou do pistao (lateral)
             bpy.ops.object.cabinet_arrastar_ferragem(
@@ -13667,7 +14481,7 @@ COR_LINHAS_VAO = (1.0, 0.85, 0.1, 1.0)      # amarelo: o vao (pedido do usuario)
 def _desenho_da_porta(grupo):
     """O que a porta selecionada mostra, em MUNDO: a caixa de cada folha
     e o retangulo do vao (faces internas das chapas). As ferragens nao:
-    so' aparecem criando ou SELECIONADAS (`_caixas_ferragens`).
+    so' aparecem criando ou SELECIONADAS (`_arame_ferragens`).
     Refeito da porta a cada desenho: acompanha o modulo."""
     p = dict(grupo['porta_parametros'])
     L = float(grupo['porta_vao_largura_mm'])
@@ -13692,23 +14506,6 @@ def _desenho_da_porta(grupo):
                                   for sx in (-1, 1) for sy in (-1, 1)
                                   for sz in (-1, 1)])
     return desenho
-
-
-def _desenhar_caixas_2d(context, shader, caixas, cor, escala):
-    """Volume de ferragem em realce: faces translucidas + arestas (o
-    mesmo desenho do wizard), por cima de tudo."""
-    for caixa in caixas:
-        tela = [_projetar_hud(context, v) for v in caixa]
-        if any(v is None for v in tela):
-            continue
-        shader.uniform_float('color', (*cor[:3], 0.28))
-        batch_for_shader(shader, 'TRIS', {'pos': [
-            tela[i] for q in FACES_CAIXA
-            for i in (q[0], q[1], q[2], q[0], q[2], q[3])]}).draw(shader)
-        shader.uniform_float('color', cor)
-        for i, j in ARESTAS_CAIXA:
-            batch_for_shader(shader, 'TRIS', {'pos': _quad_2d(
-                tela[i], tela[j], 1.2 * escala)}).draw(shader)
 
 
 def _desenhar_cantos_porta(context):
@@ -13980,6 +14777,14 @@ def _selecionar_ferragem(context, obj, somar=False):
     context.view_layer.objects.active = None
     _ferragens_selecionadas[0] = ({'portas': portas, 'tipos': sorted(tipos)}
                                   if tipos else None)
+    if tipos and context.scene.cabinet_aba != 'PORTAS':
+        # a gaveta vai a' aba do item clicado (quantidade e afastamento
+        # das ferragens moram na aba Portas)
+        context.scene.cabinet_aba = 'PORTAS'
+        tela = getattr(context, 'screen', None)
+        if tela is not None:
+            tela[_CHAVE_ROLAGEM] = 0
+            _fechar_opcoes(tela)
     _redesenhar_viewports(context)
     return True
 
@@ -14016,7 +14821,8 @@ def _ferragens_em_edicao(context):
 
 def _caixas_ferragens(grupo, tipos):
     """Volume (8 cantos em MUNDO) das malhas de verdade dos `tipos`: o
-    caneco gira com a folha e o pistao estica pela mira."""
+    caneco gira com a folha e o pistao estica pela mira. Nao e' desenhado
+    (o realce e' o arame, `_arame_ferragens`): mede onde cada uma esta'."""
     ordem = ('DOBRADICA', 'CANECO', 'PISTAO_CORPO', 'PISTAO_HASTE',
              'PISTAO_SUPORTE', 'DOBRADICA_PECA')
     # do rig da reta, so' o volume das pecas grandes (base, suporte e
@@ -14126,8 +14932,9 @@ def _controle_ferragem_sob_mouse(context, posicao):
 
 
 def _desenhar_ferragens_selecionadas(context):
-    """Ferragens selecionadas em realce e, com Alt (ou arrastando), o
-    controlador de cada tipo (bolinha branca; arrastando, o trilho)."""
+    """Com Alt (ou arrastando), o controlador de cada tipo das ferragens
+    selecionadas (bolinha branca; arrastando, o trilho). O realce delas e'
+    o arame, desenhado em 3D (`_desenhar_aramados`)."""
     edicao = _ferragens_em_edicao(context)
     if not edicao:
         return
@@ -14138,9 +14945,6 @@ def _desenhar_ferragens_selecionadas(context):
     gpu.state.blend_set('ALPHA')
     try:
         shader.bind()
-        for grupo, tipos in edicao:
-            _desenhar_caixas_2d(context, shader,
-                                _caixas_ferragens(grupo, tipos), realce, escala)
         for grupo, tipos in edicao:
             for tipo, ponto, a, b in _controles_ferragens(grupo, tipos):
                 ativo = arraste == (grupo.name, tipo)
@@ -14158,6 +14962,219 @@ def _desenhar_ferragens_selecionadas(context):
                             (1.0, 1.0, 1.0, 1.0))
     finally:
         gpu.state.blend_set('NONE')
+
+
+# ---- puxador: Alt + arrastar a ancora leva-o a outra borda do GRUPO
+# (pedido do usuario): so' as chapas onde ele foi colocado -- as folhas da
+# porta, ou as chapas do modulo. Snap de LINHA: gruda na borda mais perto
+# do mouse (na face virada para quem olha) e sai virado conforme ela
+# (`_referencial_da_linha`), como o posicionador faria ali.
+_arraste_puxador = [None]    # {'puxador', 'linhas': [(a, b) mundo], 'escolhida'}
+
+
+def _chapas_do_grupo_do_puxador(chapa):
+    grupo = _grupo_portas(chapa)
+    if grupo is not None:
+        return _folhas_portas(grupo)
+    modulo = _modulo_da_chapa(chapa)
+    if modulo is not None:
+        return _chapas_do_conjunto(modulo)
+    return grupo_de(chapa) or [chapa]
+
+
+def _puxadores_com_ancora(context):
+    """Puxadores do add-on da selecao (ele mesmo, ou os das chapas/folhas
+    selecionadas): os que mostram a ancora com Alt."""
+    saida = []
+    for o in getattr(context, 'selected_objects', ()) or ():
+        for p in ([o] if _eh_puxador_parametrico(o) else o.children):
+            if (_eh_puxador_parametrico(p) and p not in saida
+                    and p.parent is not None and MARCA_CHAPA in p.parent):
+                saida.append(p)
+    return saida
+
+
+def _ancora_do_puxador(pux):
+    """Onde o puxador ancora: o ponto dele NA borda (mundo)."""
+    matriz, _c = _lugar_do_puxador(
+        pux.parent, pux['puxador_tipo'], pux.get('puxador_borda', 'Y+'),
+        int(pux.get('puxador_face', 1)), float(pux.get('puxador_fracao', 0.5)),
+        pux.get('puxador_comprimento_mm'), 0.0)
+    return pux.parent.matrix_world @ matriz.translation
+
+
+def _puxador_sob_mouse(context, posicao):
+    """O puxador cuja ancora esta' sob o mouse (so' com Alt), ou None."""
+    if not _correntes_visiveis():
+        return None
+    raio = RAIO_BOLINHA_PX * max(1.0, context.preferences.system.ui_scale)
+    mouse = Vector(posicao)
+    melhor = None
+    for pux in _puxadores_com_ancora(context):
+        ponto = _projetar_hud(context, _ancora_do_puxador(pux))
+        if ponto is not None and (ponto - mouse).length <= raio and (
+                melhor is None or (ponto - mouse).length < melhor[0]):
+            melhor = ((ponto - mouse).length, pux)
+    return melhor[1] if melhor else None
+
+
+def _desenhar_ancoras_puxador(context):
+    """Com Alt: a bolinha branca na ancora de cada puxador da selecao.
+    Arrastando: as bordas do grupo (a escolhida acesa) e a ancora."""
+    arraste = _arraste_puxador[0]
+    puxadores = ([] if arraste is not None or not _correntes_visiveis()
+                 else _puxadores_com_ancora(context))
+    if arraste is None and not puxadores:
+        return
+    escala = max(1.0, context.preferences.system.ui_scale)
+    realce, cor = _cor_realce_hud(), _cor_linhas_hud(context)
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    gpu.state.blend_set('ALPHA')
+    try:
+        shader.bind()
+        if arraste is not None:
+            for i, (a, b) in enumerate(arraste['linhas']):
+                a2, b2 = _projetar_hud(context, a), _projetar_hud(context, b)
+                if a2 is None or b2 is None:
+                    continue
+                acesa = i == arraste['escolhida']
+                shader.uniform_float('color', realce if acesa
+                                     else (*cor[:3], 0.6))
+                tris = _quad_2d(a2, b2, (5 if acesa else 2) * escala)
+                if tris:
+                    batch_for_shader(shader, 'TRIS', {'pos': tris}).draw(shader)
+            pux = bpy.data.objects.get(arraste['puxador'])
+            if _eh_puxador_parametrico(pux) and pux.parent is not None:
+                puxadores = [pux]
+        for pux in puxadores:
+            ponto = _projetar_hud(context, _ancora_do_puxador(pux))
+            if ponto is None:
+                continue
+            if arraste is not None:
+                _bolinha_2d(shader, ponto, 8 * escala, realce)
+            _bolinha_2d(shader, ponto, (6 if arraste else 5) * escala,
+                        (1.0, 1.0, 1.0, 1.0))
+    finally:
+        gpu.state.blend_set('NONE')
+
+
+class OBJECT_OT_arrastar_puxador(Operator):
+    """Arraste a ancora do puxador (Alt) ate' outra borda do mesmo grupo: ele gruda na linha e vira com ela"""
+    bl_idname = 'object.cabinet_arrastar_puxador'
+    bl_label = 'Mover Puxador'
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    puxador: StringProperty(options={'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        pux = bpy.data.objects.get(self.puxador)
+        if (not _eh_puxador_parametrico(pux) or pux.parent is None
+                or MARCA_CHAPA not in pux.parent or context.region is None
+                or context.region_data is None):
+            return {'CANCELLED'}
+        self._antes = (pux.parent.name, pux.get('puxador_borda', 'Y+'),
+                       int(pux.get('puxador_face', 1)),
+                       float(pux.get('puxador_fracao', 0.5)))
+        self._chapas = [c.name for c in
+                        _chapas_do_grupo_do_puxador(pux.parent)]
+        _arraste_puxador[0] = {'puxador': pux.name, 'linhas': [],
+                               'escolhida': None}
+        self._area = context.area
+        context.window_manager.modal_handler_add(self)
+        self._area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    def _linha_sob_mouse(self, context, mouse):
+        """(chapa, borda, face, fracao) da borda do grupo mais perto do
+        mouse, na face virada para quem olha."""
+        estado = _arraste_puxador[0]
+        regiao, rv3d = context.region, context.region_data
+        direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv3d, mouse)
+        linhas, melhor = [], None
+        for nome in self._chapas:
+            chapa = bpy.data.objects.get(nome)
+            if chapa is None:
+                continue
+            eixo_z = chapa.matrix_world.to_3x3().col[2].normalized()
+            face = 1 if eixo_z.dot(-direcao) >= 0 else -1
+            for borda, (a, b) in _bordas_da_face(chapa, face).items():
+                a2 = view3d_utils.location_3d_to_region_2d(regiao, rv3d, a)
+                b2 = view3d_utils.location_3d_to_region_2d(regiao, rv3d, b)
+                if a2 is None or b2 is None:
+                    continue
+                linhas.append((a, b))
+                d = _distancia_ao_segmento(mouse, a2, b2)
+                if melhor is None or d < melhor[0]:
+                    melhor = (d, len(linhas) - 1, nome, borda, face,
+                              _fracao_na_linha(a2, b2, mouse))
+        estado['linhas'] = linhas
+        estado['escolhida'] = melhor[1] if melhor else None
+        return melhor[2:] if melhor else None
+
+    def _aplicar(self, context, nome, borda, face, fracao):
+        pux = bpy.data.objects.get(self.puxador)
+        chapa = bpy.data.objects.get(nome)
+        if pux is None or chapa is None:
+            return
+        antiga = pux.parent
+        mesma_linha = (antiga == chapa and pux.get('puxador_borda') == borda
+                       and int(pux.get('puxador_face', 1)) == face)
+        if mesma_linha and abs(float(pux.get('puxador_fracao', 0.5))
+                               - fracao) < 1e-4:
+            return
+        if antiga != chapa:
+            pux.parent = chapa
+        pux['puxador_borda'] = borda
+        pux['puxador_face'] = face
+        pux['puxador_fracao'] = max(0.0, min(1.0, float(fracao)))
+        if pux['puxador_tipo'] == 'PERFIL':
+            if not mesma_linha:
+                # a madeira volta na chapa velha e sai na nova
+                if antiga is not None and antiga != chapa:
+                    gerar_malha_chapa(antiga)
+                gerar_malha_chapa(chapa)
+        else:
+            posicionar_puxador(pux)
+        context.view_layer.update()
+
+    def _encerrar(self):
+        _arraste_puxador[0] = None
+        self._area.tag_redraw()
+
+    def cancel(self, context):
+        self._aplicar(context, *self._antes)
+        self._encerrar()
+
+    def modal(self, context, event):
+        if _arraste_puxador[0] is None:
+            return {'CANCELLED'}
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self.cancel(context)
+            return {'CANCELLED'}
+        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+            return {'PASS_THROUGH'}
+        if event.type == 'MOUSEMOVE':
+            achado = self._linha_sob_mouse(
+                context, Vector((event.mouse_region_x, event.mouse_region_y)))
+            if achado is not None:
+                self._aplicar(context, *achado)
+            self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            pux = bpy.data.objects.get(self.puxador)
+            if (pux is not None and pux['puxador_tipo'] == 'PERFIL'
+                    and pux.parent is not None):
+                # um perfil por borda, como no criar: o que ja' estava sai
+                for velho in [f for f in pux.parent.children if f != pux
+                              and _eh_puxador_parametrico(f)
+                              and f['puxador_tipo'] == 'PERFIL'
+                              and f.get('puxador_borda')
+                              == pux.get('puxador_borda')]:
+                    bpy.data.objects.remove(velho, do_unlink=True)
+                gerar_malha_chapa(pux.parent)
+            self._encerrar()
+            return {'FINISHED'}
+        return {'RUNNING_MODAL'}
 
 
 class OBJECT_OT_arrastar_ferragem(Operator):
@@ -15232,6 +16249,50 @@ def _restaurar_arraste_hud(context, estado):
         _ocupado[0] = False
 
 
+# Snap ao mover o modulo pela quina (Ctrl segurado): alcance em pixels.
+RAIO_SNAP_QUINA_HUD = 20.0
+
+
+def _quinas_de_snap(modulo):
+    """Onde a quina arrastada gruda com Ctrl (pedido do usuario: snap
+    ESPECIAL, so' em quinas de OUTROS armarios ou chapas -- nada de
+    vertice qualquer, aresta ou grade). Armario = a caixa da HUD dele;
+    chapa = os 8 cantos nominais. Pontos copiados: nenhum objeto fica
+    guardado no operador."""
+    proprios = {modulo, *modulo.children_recursive}
+    quinas = []
+    for o in bpy.context.view_layer.objects:
+        if o in proprios:
+            continue
+        if MARCA_CONJUNTO in o:
+            # o Empty e' invisivel: vale o que as chapas mostram
+            chapas = [c for c in _chapas_do_conjunto(o) if c.visible_get()]
+            if chapas:
+                quinas += _caixa_hud_objetos(chapas) or []
+        elif MARCA_CHAPA in o and o.type == 'MESH' and o.visible_get():
+            quinas += _cantos(o)
+    return quinas
+
+
+def _snap_de_quina(context, ponto, quinas, escala=1.0):
+    """A quina mais perto de `ponto` NA TELA, dentro do alcance, ou None.
+    Quinas sobrepostas na tela (uma atras da outra): a mais perto em 3D."""
+    tela = _projetar_hud(context, ponto)
+    if tela is None:
+        return None
+    alcance = RAIO_SNAP_QUINA_HUD * escala
+    perto = []
+    for quina in quinas:
+        p = _projetar_hud(context, quina)
+        if p is not None and (p - tela).length <= alcance:
+            perto.append(((p - tela).length, quina))
+    if not perto:
+        return None
+    minimo = min(d for d, _q in perto)
+    return min((q for d, q in perto if d <= minimo + 2.0 * escala),
+               key=lambda q: (q - ponto).length).copy()
+
+
 class OBJECT_OT_arrastar_hud(Operator):
     """Arrasta uma dimensao, uma espessura, o vao ou um canto do modulo"""
     bl_idname = 'object.cabinet_arrastar_hud'
@@ -15258,6 +16319,8 @@ class OBJECT_OT_arrastar_hud(Operator):
         if alvo['tipo'] == 'ancora':
             self._ponto_mouse = view3d_utils.region_2d_to_location_3d(
                 context.region, context.region_data, self._inicio, self._origem)
+            self._quinas = None             # snap: medidas no 1o Ctrl
+            self._mouse = self._inicio.copy()
         else:
             if MARCA_CONJUNTO in alvo['objeto']:
                 sincronizar_medidas_conjunto(alvo['objeto'])
@@ -15302,6 +16365,27 @@ class OBJECT_OT_arrastar_hud(Operator):
     def _encerrar(self):
         _edicao_hud[0] = None
         self._area.tag_redraw()
+
+    def _mover_pela_quina(self, context, mouse, snap):
+        """Leva a quina pega ate' o mouse; com `snap` (Ctrl) ela gruda
+        na quina de outro armario/chapa que estiver no alcance."""
+        ponto = view3d_utils.region_2d_to_location_3d(
+            context.region, context.region_data, mouse, self._origem)
+        destino = self._origem + ponto - self._ponto_mouse
+        grudou = None
+        if snap:
+            if self._quinas is None:
+                self._quinas = _quinas_de_snap(self._alvo['objeto'])
+            grudou = _snap_de_quina(context, destino, self._quinas,
+                                    context.preferences.system.ui_scale)
+            if grudou is not None:
+                destino = grudou
+        matriz = self._matriz.copy()
+        matriz.translation += destino - self._origem
+        self._alvo['objeto'].matrix_world = matriz
+        self._alvo['pontos'] = [destino]
+        _edicao_hud[0]['snap'] = grudou
+        context.view_layer.update()
 
     def cancel(self, context):
         for backup in reversed(getattr(self, '_backups', [self._backup])):
@@ -15437,6 +16521,14 @@ class OBJECT_OT_arrastar_hud(Operator):
                 return {'RUNNING_MODAL'}
             self._encerrar()
             return {'FINISHED'}
+        if (event.type in {'LEFT_CTRL', 'RIGHT_CTRL'} and self._arrastou
+                and self._alvo['tipo'] == 'ancora'
+                and event.value in {'PRESS', 'RELEASE'}):
+            # apertar/soltar o Ctrl parado ja' liga/desliga o snap
+            self._mover_pela_quina(context, self._mouse,
+                                   event.value == 'PRESS')
+            self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
         if event.type != 'MOUSEMOVE':
             return {'RUNNING_MODAL'}
         if not self._arrastou:
@@ -15447,13 +16539,8 @@ class OBJECT_OT_arrastar_hud(Operator):
             self._arrastou = True
         try:
             if self._alvo['tipo'] == 'ancora':
-                ponto = view3d_utils.region_2d_to_location_3d(
-                    context.region, context.region_data, mouse, self._origem)
-                matriz = self._matriz.copy()
-                matriz.translation += ponto - self._ponto_mouse
-                self._alvo['objeto'].matrix_world = matriz
-                self._alvo['pontos'] = [self._origem + ponto - self._ponto_mouse]
-                context.view_layer.update()
+                self._mouse = mouse
+                self._mover_pela_quina(context, mouse, event.ctrl)
             else:
                 delta = (mouse-self._inicio).dot(self._direcao) * self._por_pixel
                 _aplicar_valor_hud(context, self._alvo, self._valor + delta)
@@ -15584,6 +16671,7 @@ def _definir_realce_medida(rotulo):
 
 def _desenhar_grid_medidas():
     _desenhar_hud_3d(bpy.context)
+    _desenhar_aramados(bpy.context)
 
 
 class VIEW3D_GT_campo_gaveta(Gizmo):
@@ -16275,6 +17363,20 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
                 self.report({'WARNING'}, str(erro))
                 return {'CANCELLED'}
             return {'FINISHED'}
+        if self.dono == 'assistente':
+            # criando a porta: vai para o estado do wizard
+            # FloatProperty e' float de 32 bits: 0.08 m voltava 79.9999982
+            _editar_assistente(self.propriedade,
+                               round(self.valor * 1000.0, 3))
+            _redesenhar_viewports(context)
+            return {'FINISHED'}
+        if self.dono == 'ferragens':
+            erro = _editar_ferragens_selecionadas(
+                context, self.propriedade, round(self.valor * 1000.0, 3))
+            if erro:
+                self.report({'WARNING'}, erro)
+                return {'CANCELLED'}
+            return {'FINISHED'}
         if self.dono == 'porta':
             # Porta colocada: a medida e' um parametro do GRUPO, nao uma
             # propriedade de objeto ou da cena.
@@ -16418,8 +17520,18 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'escolha':
                 grupo = (bpy.data.objects.get(acao[5])
                          if len(acao) > 5 and acao[5] else None)
-                if not acao[4]:
-                    pass
+                if not acao[4] or (len(acao) > 5
+                                   and acao[5] == ALVO_ASSISTENTE):
+                    pass        # a fila do wizard e' atendida pelo modal dele
+                elif len(acao) > 5 and acao[5] == ALVO_FERRAGENS:
+                    erro = _editar_ferragens_selecionadas(
+                        context, acao[1], acao[2])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    bpy.ops.ed.undo_push(message='Editar ferragens')
+                elif len(acao) > 5 and acao[5] == ALVO_PUXADOR:
+                    _trocar_modelo_puxador(_selecionado(context), acao[2])
+                    bpy.ops.ed.undo_push(message='Trocar modelo do puxador')
                 elif len(acao) > 5 and acao[5] == ALVO_PREFERENCIAS:
                     _definir_opcao(acao[1], acao[2])
                 elif len(acao) > 5 and acao[5] == ALVO_COMODO:
@@ -17550,6 +18662,7 @@ CLASSES = (
     OBJECT_OT_arrastar_ancora,
     OBJECT_OT_arrastar_canto_porta,
     OBJECT_OT_arrastar_ferragem,
+    OBJECT_OT_arrastar_puxador,
     OBJECT_OT_cantos_porta,
     OBJECT_OT_abrir_porta,
     OBJECT_OT_nomear_grupo,
@@ -17829,6 +18942,12 @@ def unregister():
     _arraste_ferragem[0] = None
     _ferragens_selecionadas[0] = None
     _dobradica_reta[0] = None
+    _puxador_perfil[0] = None
+    _arraste_puxador[0] = None
+    _arame_rig[0] = None
+    _arame_perfil[0] = None
+    _corte_perfil[0] = None
+    _lotes_arame.clear()
     _arraste_slider_porta[0] = None
     _slider_hover[0] = None
     _nome_grupo_gaveta[0] = None

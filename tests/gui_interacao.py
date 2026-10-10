@@ -589,6 +589,15 @@ def _clicar_botao_do_wizard(m, regiao, chave):
     yield
 
 
+def _clicar_na_fila(janela, m, prop, valor):
+    m.mover(*widget(janela, lambda v: v[5][0] == 'escolha'
+                    and v[5][1] == prop and v[5][2] == valor))
+    yield
+    yield
+    m.clicar()
+    yield
+
+
 def _local(conj, x, y, z):
     return conj.matrix_world @ (Vector((x, y, z)) / 1000.0)
 
@@ -631,12 +640,12 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
     assert w['etapa'] == 'FOLHAS', w['etapa']
     assert [w['coberturas'][k] for k in addon.COBERTURAS_LADOS] == [
         0.5, 0.5, 1.0, 1.0], w['coberturas']
-    # a aba Portas revela cada categoria so' depois da resposta
-    assert not _filas_da_aba(janela), _filas_da_aba(janela)
+    # a aba Portas mostra a COPIA da pergunta quando o wizard chega nela
+    assert _filas_da_aba(janela) == ['porta_folhas'], _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, '1')
     assert w['etapa'] == 'TIPO', w['etapa']
     assert [c for _r, c, _t in w['botoes']] == ['GIRO', 'BASCULANTE']
-    assert _filas_da_aba(janela) == ['porta_folhas'], _filas_da_aba(janela)
+    assert _filas_da_aba(janela) == ['porta_folhas', 'porta_abertura'],         _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, 'GIRO')
     assert _filas_da_aba(janela) == ['porta_folhas', 'porta_abertura']
     assert w['etapa'] == 'EIXO', w['etapa']
@@ -691,15 +700,36 @@ def test_wizard_basculante_com_pistoes(janela, m):
                   (L / 2 - E, y, E), (L / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     w = addon._assistente_porta[0]
-    yield from _clicar_botao_do_wizard(m, regiao, '1')
-    yield from _clicar_botao_do_wizard(m, regiao, 'BASCULANTE')
+    # respondido pela COPIA da caixa na aba Portas (pedido do usuario);
+    # responder de novo uma fila ja' respondida refaz dali
+    yield from _clicar_na_fila(janela, m, 'porta_folhas', 1)
+    assert w['etapa'] == 'TIPO', w['etapa']
+    yield from _clicar_na_fila(janela, m, 'porta_abertura', 'GIRO')
+    assert w['etapa'] == 'EIXO', w['etapa']
+    yield from _clicar_na_fila(janela, m, 'porta_abertura', 'BASCULANTE')
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
+    assert w['escolhas']['abertura'] == 'BASCULANTE', w['escolhas']
+    # dobradicas EDITAVEIS na gaveta (pedido do usuario): a quantidade
+    # pelos segmentos (sem avancar a etapa) e o afastamento digitado
+    yield from _clicar_na_fila(janela, m, 'dobradicas_qtd', 3)
+    assert (w['qtd'], w['etapa']) == (3, 'QUANTIDADE'), (w['qtd'], w['etapa'])
+    m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
+                    and v[5][2] == 'dobradicas_margem_mm'))
+    yield
+    m.clicar()
+    yield
+    m.digitar('80')
+    m.tecla('RET')
+    yield
+    assert abs(w['margem'] - 80.0) < 1e-6, w['margem']
+    m.mover(regiao.x + regiao.width / 2, regiao.y + regiao.height / 2)
+    yield
     assert w['aresta']['lado'] == 'CIMA'
     assert w['escolhas']['dobradica_lado'] == 'CIMA', w['escolhas']
     assert w['escolhas']['dobradica'] == 'RETA', w['escolhas']
-    m.clicar()                                   # quantidade padrao
+    m.clicar()                                   # quantidade (3)
     yield
-    m.clicar()                                   # margem padrao
+    m.clicar()                                   # margem (a digitada)
     yield
     assert w['etapa'] == 'PISTOES_QTD', w['etapa']
     assert w['pqtd'] == addon._qtd_pistoes_padrao(w['largura'])
@@ -721,6 +751,12 @@ def test_wizard_basculante_com_pistoes(janela, m):
         yield
     assert w['poffset'] < inicial - 1, (inicial, w['poffset'])
     offset = w['poffset']
+    area_g, regiao_g = gaveta(janela)
+    with contexto(janela, area_g, regiao_g):
+        campos = {v[5][2]: v[5][4] for v in addon._widgets_gaveta(
+            bpy.context, regiao_g.width, regiao_g.height)
+            if v[5] and v[5][0] == 'medida'}
+    assert abs(campos['pistoes_offset_mm'] - offset) < 1e-6, campos
     m.clicar()
     yield
     grupo = addon._portas_do_conjunto(conj)[0]
@@ -728,6 +764,8 @@ def test_wizard_basculante_com_pistoes(janela, m):
     assert p['abertura'] == 'BASCULANTE' and p['folhas'] == 1, dict(p)
     assert p['dobradica'] == 'RETA', dict(p)
     assert p['pistoes_qtd'] == 2 and abs(p['pistoes_offset_mm'] - offset) < 1e-3
+    assert p['dobradicas_qtd'] == 3, dict(p)
+    assert abs(p['dobradicas_margem_mm'] - 80.0) < 1e-3, dict(p)
 
 
 def test_wizard_cobertura_fora_do_padrao_pergunta(janela, m):
@@ -1223,6 +1261,72 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     assert (b.matrix_world.translation - pos_b).length < 1e-6, 'B moveu junto'
 
 
+def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
+    # Pedido do usuario: movendo o modulo pela quina, o Ctrl liga um snap
+    # especial, so' em quinas de outros armarios ou chapas.
+    a = _modulo_em(janela, -0.5)
+    b = _modulo_em(janela, 0.5)
+    area, regiao, rv3d = viewport(janela)
+    rv3d.view_rotation = Euler((math.radians(65), 0,
+                                math.radians(25))).to_quaternion()
+    rv3d.view_location = (0, 0, 0.3)
+    rv3d.view_distance = 3.0
+    bpy.ops.object.select_all(action='DESELECT')
+    yield
+    yield
+    m.mover(*next(iter(_chapas_visiveis(janela, a).values())))
+    yield
+    m.clicar()
+    yield
+    assert bpy.context.view_layer.objects.active == a
+    cantos = lambda o: addon._geometria_do_item(
+        o, 'GRUPO', addon._chapas_do_conjunto(o))['cantos']
+    na_vista = [(i, na_tela(regiao, rv3d, c)) for i, c in enumerate(cantos(a))]
+    i, canto = min(((i, c) for i, c in na_vista if c), key=lambda x: x[1][0])
+    alvo = cantos(b)[i].copy()
+    destino = Vector(na_tela(regiao, rv3d, alvo)) + Vector((6, 4))
+    m.mover(*canto)
+    yield
+    yield
+    hover = addon._hover_hud.get(regiao.as_pointer())
+    assert hover and hover['tipo'] == 'ancora' and hover['objeto'] == a, \
+        'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
+    m.apertar()
+    yield
+    janela.event_simulate('LEFT_CTRL', 'PRESS', ctrl=True, x=m.x, y=m.y)
+    yield
+    for passo in range(1, 6):
+        m.x, m.y = (int(round(v)) for v in
+                    Vector(canto) + (destino - Vector(canto)) * passo / 5)
+        janela.event_simulate('MOUSEMOVE', 'NOTHING', ctrl=True, x=m.x, y=m.y)
+        yield
+    # Grudou numa quina de B perto do alvo: a da caixa ou a de uma chapa
+    # dele (a espessura as separa por poucos pixels; vale a mais perto)
+    grudou = addon._edicao_hud[0].get('snap')
+    assert grudou is not None, 'nao grudou'
+    quinas_b = [q for q in addon._quinas_de_snap(a)
+                if (q - alvo).length < 0.05]
+    assert min((q - grudou).length for q in quinas_b) < 1e-6, \
+        'grudou fora das quinas de B'
+    erro = (cantos(a)[i] - grudou).length
+    assert erro < 1e-5, 'quina de A a %.4f m da quina' % erro
+    alvo = grudou.copy()
+    # soltando o Ctrl parado o snap sai; apertando de novo, volta
+    janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
+    yield
+    assert addon._edicao_hud[0].get('snap') is None, 'Ctrl solto e grudado'
+    assert min((c - alvo).length for c in cantos(a)) > 1e-3, 'nao soltou'
+    janela.event_simulate('LEFT_CTRL', 'PRESS', ctrl=True, x=m.x, y=m.y)
+    yield
+    m.soltar(ctrl=True)
+    yield
+    janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
+    yield
+    assert addon._edicao_hud[0] is None, 'o arraste nao terminou'
+    erro = min((c - alvo).length for c in cantos(a))
+    assert erro < 1e-5, 'soltou fora da quina: %.4f m' % erro
+
+
 def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
     # Crash do usuario: Ctrl+Z com o mouse sobre a HUD. O undo libera os
     # objetos, e o hover guardava um deles para o desenho seguinte (o
@@ -1295,6 +1399,47 @@ def _porta_no_modulo(janela, conj):
     return addon._portas_do_conjunto(conj)[0]
 
 
+def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
+    # Pedido do usuario: com Alt a ancora do puxador vira uma bolinha;
+    # arrastar leva-o a outra borda do GRUPO (snap de linha), virado
+    # conforme ela. So' as bordas das folhas da porta valem.
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
+    grupo = _porta_no_modulo(janela, conj)
+    folha = addon._folhas_portas(grupo)[0]
+    pux = addon.criar_puxador(bpy.context, folha, 'ALCA', 'X+', 1, 0.5)
+    bpy.ops.object.select_all(action='DESELECT')
+    folha.select_set(True)
+    bpy.context.view_layer.objects.active = folha
+    yield
+    yield
+    m.mover(*na_tela(regiao, rv3d, addon._ancora_do_puxador(pux)))
+    yield
+    m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
+    yield
+    yield
+    m.apertar(alt=True)
+    yield
+    estado = addon._arraste_puxador[0]
+    assert estado is not None, 'a ancora do puxador nao pegou'
+    a, b = addon._bordas_da_face(folha, 1)['Y-']
+    destino = na_tela(regiao, rv3d, a.lerp(b, 0.3))
+    inicio = (m.x, m.y)
+    for passo in range(1, 6):
+        m.mover(inicio[0] + (destino[0] - inicio[0]) * passo / 5,
+                inicio[1] + (destino[1] - inicio[1]) * passo / 5)
+        yield
+    assert len(estado['linhas']) == 4, 'so\' as bordas da folha: %d' % len(
+        estado['linhas'])
+    m.soltar(alt=True)
+    yield
+    m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
+    yield
+    assert addon._arraste_puxador[0] is None, 'o arraste nao terminou'
+    assert (pux.parent, pux['puxador_borda']) == (folha, 'Y-'), (
+        pux.parent.name, pux['puxador_borda'])
+    assert abs(pux['puxador_fracao'] - 0.3) < 0.05, pux['puxador_fracao']
+
+
 def test_definir_frente_com_clique_na_face(janela, m):
     conj = criar_modulo(janela)
     grupo = _porta_no_modulo(janela, conj)
@@ -1334,7 +1479,13 @@ def test_escalar_o_modulo_com_S(janela, m):
     m.mover(centro[0] + 60, centro[1])
     yield
     m.tecla('S')
-    yield
+    # com as suites em paralelo o S podia nao ter aberto a escala ainda e
+    # o X/1.5/Enter caiam no vazio (largura intacta): espera o modal
+    for _tentativa in range(25):
+        yield
+        if any(op.bl_idname == 'TRANSFORM_OT_resize'
+               for op in janela.modal_operators):
+            break
     m.tecla('X')            # so' na largura
     yield
     m.digitar('1.5')
@@ -1735,9 +1886,11 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_selecao_da_porta_e_da_folha,
        test_shift_soma_chapas_individuais_e_grupos,
        test_dois_modulos_selecionados_editam_pela_hud_os_dois,
+       test_quina_com_ctrl_gruda_na_quina_de_outro_modulo,
        test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto,
        test_hover_acende_o_botao_pelo_gizmo_da_gaveta,
        test_definir_frente_com_clique_na_face,
+       test_alt_arrasta_o_puxador_para_outra_borda,
        test_escalar_o_modulo_com_S,
        test_clique_na_corrente_desassocia,
        test_clique_na_corrente_tira_a_peca_do_modulo,

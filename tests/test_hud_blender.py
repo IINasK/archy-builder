@@ -1509,6 +1509,36 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(alvo['tipo'], 'ancora')
         self.assertNotIn('lado', alvo)
 
+    def test_snap_da_quina_so_em_quinas_de_outros_armarios_e_chapas(self):
+        # Ctrl ao mover pela quina: gruda em quina de OUTRO armario (a caixa
+        # dele) ou de chapa solta -- nunca nas do proprio modulo.
+        primeiro, segundo = self.dois_modulos()
+        antes = set(bpy.data.objects)
+        bpy.ops.object.cabinet_criar_nicho()
+        soltas = [o for o in set(bpy.data.objects) - antes if addon.MARCA_CHAPA in o]
+        for chapa in soltas:
+            chapa.location.y += 3.0
+        bpy.context.view_layer.update()
+        quinas = addon._quinas_de_snap(primeiro)
+        tem = lambda p: any((q - p).length < 1e-6 for q in quinas)
+        caixa = lambda m: addon._caixa_hud_objetos(addon._chapas_do_conjunto(m))
+        self.assertTrue(all(tem(p) for p in caixa(segundo)))
+        self.assertTrue(all(tem(p) for c in soltas for p in addon._cantos(c)))
+        self.assertFalse(any(tem(p) for p in caixa(primeiro)))
+        self.assertFalse(any(tem(p) for c in addon._chapas_do_conjunto(primeiro)
+                             for p in addon._cantos(c)))
+        projetar = lambda p: Vector((300+p.x*500+p.y*150, 200+p.z*500+p.y*90))
+        original = addon._projetar_hud
+        addon._projetar_hud = lambda _c, p: projetar(p)
+        self.addCleanup(setattr, addon, '_projetar_hud', original)
+        quina = caixa(segundo)[3]
+        perto = quina + Vector((0.01, 0.0, 0.01))           # ~7 px
+        # (a quina da chapa coincide com a da caixa: qualquer das duas)
+        grudou = addon._snap_de_quina(bpy.context, perto, quinas)
+        self.assertLess((grudou - quina).length, 1e-6)
+        longe = quina + Vector((0.1, 0.0, 0.0))             # 50 px
+        self.assertIsNone(addon._snap_de_quina(bpy.context, longe, quinas))
+
     def teclar(self, estado, texto):
         for c in texto:
             addon._tecla_no_texto(estado, 'X', c)

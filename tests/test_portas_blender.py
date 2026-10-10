@@ -965,6 +965,18 @@ class TestPortas(unittest.TestCase):
         self.assertEqual(addon._texto_abertura(folha),
                          '%d%s' % (round(addon._giro_maximo_rig()),
                                    addon.SIMBOLO_GRAU))
+        # copia de asset antigo (nomes em ingles, furo velho) e' trocada
+        # pela atual quando a porta se refaz
+        velha = raizes[0]
+        raizes[0]['cabinet_versao'] = 1
+        self.assertEqual(addon._editar_parametro_porta(
+            bpy.context, grupo, 'dobradicas_margem_mm', 120.0), '')
+        self.assertFalse(addon._vivo(velha))
+        versao = addon._dados_dobradica_reta()['versao']
+        self.assertTrue(all(o['cabinet_versao'] == versao
+                            for o in self.ferragens(grupo, 'DOBRADICA_RIG')))
+        self.assertEqual(len(self.ferragens(grupo, 'DOBRADICA_RIG')), n)
+        folha = addon._folhas_portas(grupo)[0]
         # Curva: o rig sai inteiro, com o furo; voltam as caixas
         addon._definir_abertura(bpy.context, folha, 0.0)
         self.assertEqual(addon._editar_parametro_porta(
@@ -1097,6 +1109,123 @@ class TestPortas(unittest.TestCase):
         suportes = self.ferragens(grupo, 'PISTAO_SUPORTE')
         self.assertEqual(sorted(s.parent.name for s in suportes),
                          sorted([grupo.name] * 2 + [folha.name] * 2))
+
+    def test_previa_das_dobradicas_e_o_arame_da_peca(self):
+        # Pedido do usuario: a previa da dobradica e' o wireframe da peca de
+        # verdade (antes, uma caixa de volume). O wizard planeja pelas
+        # MESMAS ferragens que a porta monta: o arame cai em cima do rig.
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        bpy.context.view_layer.update()
+        p, L, A, folhas = addon._porta_calculada(grupo)
+        pecas, pontos = addon._arame_dos_itens(
+            addon._ferragens_da_porta(p, L, A, folhas))
+        rig = addon._dados_arame_rig()
+        raizes = [o for o in addon._ferragens_portas(grupo)
+                  if o.get('cabinet_peca') == 'raiz']
+        self.assertEqual(len(pecas), len(raizes) * len(rig['pecas']))
+        self.assertEqual(pontos, [])
+        partes = [o for o in addon._ferragens_portas(grupo) if o.type == 'MESH'
+                  and o.get('cabinet_peca') not in ('furo', 'controle')]
+        for m, malha in pecas:
+            mundo = grupo.matrix_world @ m
+            self.assertTrue(any(
+                o.data.get('cabinet_origem') == malha
+                and max(abs(a - b) for la, lb in zip(mundo, o.matrix_world)
+                        for a, b in zip(la, lb)) < 1e-4
+                for o in partes), malha)
+        # selecionadas: o arame vem das copias, na pose de agora
+        pecas_sel, pontos_sel = addon._arame_ferragens(grupo, {'DOBRADICA'})
+        self.assertEqual(len(pecas_sel), len(pecas))
+        self.assertEqual(pontos_sel, [])
+        # so' o contorno: leve (a malha avaliada tem ~190 mil arestas)
+        segmentos = sum(len(v) for v in rig['malhas'].values()) // 2
+        self.assertTrue(1000 < segmentos < 6000, segmentos)
+
+    def test_previa_de_caixas_e_pistoes_e_arame(self):
+        # Curva/embutida (caixas) e pistoes: o arame da forma de cada um
+        self.sem_rig()
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, abertura='BASCULANTE',
+                                   dobradica_lado='CIMA', pistoes_qtd=2)
+        p, L, A, folhas = addon._porta_calculada(grupo)
+        itens = addon._ferragens_da_porta(p, L, A, folhas)
+        pecas, pontos = addon._arame_dos_itens(itens)
+        self.assertEqual(pecas, [])
+        caixas = sum(1 for i in itens if i['forma'] == 'CAIXA')
+        cilindros = sum(1 for i in itens if i['forma'] in ('CILINDRO', 'HASTE'))
+        lados = addon.LADOS_CILINDRO_ARAME
+        self.assertEqual(len(pontos), caixas * 24 + cilindros * (lados * 4 + 8))
+        _pecas, pistoes = addon._arame_ferragens(grupo, {'PISTAO'})
+        self.assertTrue(pistoes)
+        self.assertEqual(len(pistoes) % 2, 0)
+
+    def test_ferragens_selecionadas_editam_na_aba_portas(self):
+        # Pedido do usuario: com as ferragens selecionadas a aba Portas
+        # mostra SO' elas -- quantidade e afastamento das dobradicas,
+        # quantidade e distancia do topo dos pistoes --, editaveis; nada
+        # das medidas da porta. Editar vale para a porta e a selecao fica.
+        self.addCleanup(addon._ferragens_selecionadas.__setitem__, 0, None)
+        cena = bpy.context.scene
+        self.addCleanup(setattr, cena, 'cabinet_aba', 'MODULOS')
+        cena.cabinet_aba = 'MODULOS'
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, abertura='BASCULANTE',
+                                   dobradica_lado='CIMA', pistoes_qtd=2)
+        caneco = self.ferragens(grupo, 'CANECO')[0]
+        addon._selecionar_ferragem(bpy.context, caneco)
+        self.assertEqual(cena.cabinet_aba, 'PORTAS')      # foi a' aba dela
+
+        def painel():
+            _c, conteudo, _r = addon._partes_gaveta(
+                addon._widgets_gaveta(bpy.context, 320, 1400))
+            return [v[5] for v in addon._paineis_gaveta(conteudo)[0] if v[5]]
+
+        acoes = painel()
+        campos = {a[2]: a for a in acoes if a[0] == 'medida'}
+        self.assertEqual(set(campos), {'dobradicas_margem_mm'})
+        self.assertEqual(campos['dobradicas_margem_mm'][1], 'ferragens')
+        qtd = [a for a in acoes if a[0] == 'escolha']
+        self.assertEqual({a[1] for a in qtd}, {'dobradicas_qtd'})
+        self.assertTrue(all(a[5] == addon.ALVO_FERRAGENS for a in qtd))
+        n = len(addon._dobradicas_da_porta(
+            *addon._porta_calculada(grupo))[0][1])
+        self.assertEqual([a[2] for a in qtd if a[3]], [n])
+        # editar: a porta muda e as ferragens continuam selecionadas
+        self.assertEqual(addon._editar_ferragens_selecionadas(
+            bpy.context, 'dobradicas_qtd', 4), '')
+        self.assertEqual(grupo['porta_parametros']['dobradicas_qtd'], 4)
+        self.assertEqual(len(self.ferragens(grupo, 'CANECO')), 4)
+        self.assertEqual(addon._ferragens_em_edicao(bpy.context)[0][1],
+                         {'DOBRADICA'})
+        self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
+            'EXEC_DEFAULT', dono='ferragens', propriedade='dobradicas_margem_mm',
+            valor=0.06), {'FINISHED'})
+        self.assertAlmostEqual(
+            grupo['porta_parametros']['dobradicas_margem_mm'], 60.0, places=3)
+        # Shift no pistao: os dois tipos, cada um com a sua secao
+        addon._selecionar_ferragem(bpy.context,
+                                   self.ferragens(grupo, 'PISTAO_SUPORTE')[0],
+                                   somar=True)
+        campos = {a[2] for a in painel() if a[0] == 'medida'}
+        self.assertEqual(campos, {'dobradicas_margem_mm', 'pistoes_offset_mm'})
+        # o pistao trava no curso: descer demais fica no limite (que e' o
+        # ponto automatico: grava 0); subir grava o que foi digitado
+        addon._editar_ferragens_selecionadas(bpy.context, 'pistoes_offset_mm',
+                                             5000.0)
+        p, _l, altura, folhas = addon._porta_calculada(grupo)
+        g = addon._pistao_do_vao(altura, folhas[0], 5000.0, p)
+        mostrado = addon._dados_ferragens_selecionadas(bpy.context)
+        self.assertAlmostEqual(mostrado['PISTAO']['mm'], g['offset_max'],
+                               delta=0.5)
+        acima = g['offset_max'] - 40.0
+        addon._editar_ferragens_selecionadas(bpy.context, 'pistoes_offset_mm',
+                                             acima)
+        p = grupo['porta_parametros']
+        self.assertAlmostEqual(float(p['pistoes_offset_mm']), addon._pistao_do_vao(
+            altura, folhas[0], acima, dict(p))['offset'], delta=0.01)
+        self.assertGreater(float(p['pistoes_offset_mm']), 0.0)
+        self.assertTrue(addon._ferragens_em_edicao(bpy.context))
 
     def test_clique_na_ferragem_seleciona_as_do_modulo(self):
         # Pedido do usuario: clique numa dobradica = TODAS as dobradicas
@@ -1252,12 +1381,16 @@ class TestPortas(unittest.TestCase):
         self.assertIn(colecao, list(cena.collection.children))
         for chapa in addon._chapas_do_conjunto(conj):
             self.assertEqual(list(chapa.users_collection), [colecao])
-        # a porta mora no grupo, com o nome do modelo; folhas = Folha_NN
+        # a porta mora no grupo, com o nome do modelo; folhas = Folha NN
+        # (nomes em portugues, sem sublinhado: pedido do usuario)
         grupo = self.porta_no_nicho(conj)
         self.assertEqual(grupo.name, 'Porta Dupla')
         self.assertEqual(list(grupo.users_collection), [colecao])
         self.assertEqual([f.name for f in addon._folhas_portas(grupo)],
-                         ['Folha_01', 'Folha_02'])
+                         ['Folha 01', 'Folha 02'])
+        nomes = [o.name for o in addon._ferragens_portas(grupo)]
+        self.assertFalse([n for n in nomes if '_' in n or 'Hinge' in n
+                          or 'Screw' in n or 'Armature' in n], nomes)
         self.assertEqual(addon._editar_parametro_porta(
             bpy.context, grupo, 'abertura', 'CORRER'), '')
         self.assertEqual(grupo.name, 'Porta de Correr')
@@ -1780,23 +1913,30 @@ class TestPortas(unittest.TestCase):
         for folha in addon._folhas_portas(grupo):
             self.assertEqual(folha.chapa_espessura_mm, 21.0)   # livre
 
-    def test_bloco_de_medidas_da_porta_igual_nas_duas_abas(self):
+    def test_porta_selecionada_so_na_aba_portas_e_sem_dobradicas(self):
+        # Pedido do usuario: o menu mostra o que vale para a selecao. A
+        # porta e' da aba Portas (a Modulos nao a mostra) e, nela, nada
+        # de dobradica: isso e' da selecao das ferragens.
         conj = self.nicho()
         grupo = self.porta_no_nicho(conj)
         addon._selecionar_porta_hud(bpy.context, addon._folhas_portas(grupo)[0],
                                     'PORTA')
-        alvo = {'medida', 'modo'}   # rodape da aba Portas e' enxuto
 
-        def bloco(aba):
+        def painel(aba):
             bpy.context.scene.cabinet_aba = aba
-            widgets = addon._widgets_gaveta(bpy.context, 320, 1400)
-            corte = max((v[1] for v in widgets
-                         if v[5] and v[5][0] == 'separador'), default=-1e9)
-            return [v[:4] + (v[5][0],) for v in widgets
-                    if v[5] and v[5][0] in alvo and v[1] > corte]
+            _c, conteudo, _r = addon._partes_gaveta(
+                addon._widgets_gaveta(bpy.context, 320, 1400))
+            return [v[5] for v in addon._paineis_gaveta(conteudo)[0] if v[5]]
 
-        self.assertEqual(relativo(bloco('PORTAS')), relativo(bloco('MODULOS')))
-        self.assertNotIn('modo', [b[4] for b in bloco('MODULOS')])
+        portas = painel('PORTAS')
+        self.assertEqual([a[3] for a in portas if a[0] == 'medida'][:3],
+                         ['Largura', 'Altura', 'Espessura'])
+        self.assertNotIn('modo', [a[0] for a in portas])
+        props = {a[1] for a in portas if a[0] == 'escolha'}
+        props |= {a[2] for a in portas if a[0] == 'medida'}
+        self.assertFalse(props & {'dobradicas_qtd', 'dobradicas_margem_mm',
+                                  'pistoes_qtd', 'pistoes_offset_mm'})
+        self.assertFalse([a for a in painel('MODULOS') if a[0] == 'medida'])
 
     # ------------------------------------------------ wizard (Epico 1)
     def test_quatro_cliques_coberturas_e_dobradica(self):

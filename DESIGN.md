@@ -141,7 +141,11 @@ L/A/P; E aparece SOMENTE na chapa individual, inclusive ao passar nas
 faces estreitas. Espessura do modulo fica no menu lateral.
 `_geometria_hud` alimenta desenho e hit-test: hover em uma aresta acende
 as quatro do eixo; o contorno da porta e o gap sao alvos separados.
-Quina: arrastar move o modulo. Linha L/A/P (e a E da chapa individual):
+Quina: arrastar move o modulo; com Ctrl (a qualquer momento do arraste)
+a quina gruda na de OUTRO armario (caixa da HUD) ou chapa ao alcance de
+`RAIO_SNAP_QUINA_HUD` px -- snap especial, so' quinas (nada de vertice,
+aresta ou grade); grudada, ganha bolinha cheia no circulo laranja.
+Linha L/A/P (e a E da chapa individual):
 seta sai da quina mais perto (`lado`), que fica PARADA; arrastar estica,
 clicar digita (Enter/Esc). Caixa de digitar (HUD e gaveta, um nucleo so':
 `_tecla_no_texto`): abre com tudo selecionado, mas um OPERADOR continua
@@ -156,6 +160,18 @@ da peca (nunca sobre a face); letras que se encostam afastam-se mais.
 Posicionar puxador (`OBJECT_OT_posicionar_puxador`): 1o a linha (borda da
 face sob o mouse), depois o ponto; scroll = n snaps (k/(n+1)); botao
 direito volta a linha. Linhas grossas em triangulos (`_quad_2d`).
+Puxador PERFIL = o modelo de aluminio do usuario (arquivo dele, extraido
+por `extrair_puxador.py`: malha, material e texturas como sao), na borda
+inteira, SEM deformar chanfro nem arredondado (pedido do usuario): na
+largura as PONTAS andam inteiras; na espessura, a escala antiga esticava
+os cantos das costas -- agora a secao se divide no maior vao sem vertice
+(`_corte_do_perfil`, o trecho reto): as costas andam inteiras e so' o
+reto acomoda. Porta tao fina que o reto sumiria: volta a' escala. A
+frente, o labio e a cava sao os dele.
+Tira 34,81 mm da madeira (o J de caixas, sem o asset, tira 30).
+Nomes de objeto em portugues e sem sublinhado (pedido do usuario):
+"Folha 01", "Puxador Perfil", "Pistao Corpo", "Dobradica Copo"...; o rig
+importado tambem (objetos, malhas, ossos, modificadores, material).
 Correntes (soldas): cada ligacao de adjacencia associa 2 quinas e grava
 a folga do momento -- a ORIGEM da solda. Com a tecla das opcoes
 segurada (`tecla_corrente`) aparecem TODAS as quinas soldadas do item
@@ -250,13 +266,19 @@ rotulo em cima, uma opcao por botao, a escolhida acesa com
 `inner_sel` -- mostra tudo sem clique nenhum. Cuidado com a altura:
 segmento tem 25 px e passo 29, campo de medida tem 37; emendar sem
 respiro faz o campo cobrir a fila de cima (ha' teste par a par).
-Pe' fixo: engrenagem e, ao lado dela, "Criar Puxador" (aba Puxadores).
+**Gaveta por CONTEXTO** (conceito do usuario, TODAS as abas): sem nada
+selecionado a aba mostra SO' o botao laranja de criar ("Criar Portas" /
+"Criar Puxador"; a Modulos, cuja criacao e' a biblioteca, mostra so' o
+Orcamento, que e' da cena inteira). Criando, os campos nascem etapa a
+etapa. Selecionado, so' o que vale para AQUELE item (`_selecionado`:
+ativo sem selecao nao conta): o bloco de medidas e' da aba dona do item
+(modulo/chapa/objeto de fora = Modulos, porta = Portas, puxador =
+Puxadores), nao fixo nas tres; porta sem dobradica; ferragens
+selecionadas = so' a quantidade e o afastamento delas.
 "Criar Portas" fica no TOPO da aba Portas, logo abaixo das abas, largura
-inteira e texto centralizado (backlog do usuario, Epico 2.3); por isso o
-bloco de medidas desce 38 px SO' nessa aba -- conteudo e posicoes entre
-os campos continuam identicos (testes comparam relativo). Sem porta
-selecionada a aba nao mostra folga/afastamento/vaos (Epico 2.1/2.4):
-a criacao usa os valores da cena; os campos vem com a porta.
+inteira e texto centralizado (backlog do usuario, Epico 2.3); o bloco de
+medidas desce 38 px nessa aba. Sem porta selecionada a aba nao mostra
+folga/afastamento/vaos (Epico 2.1/2.4): os campos vem com a porta.
 Wizard de criacao (Epico 1), desenho do usuario: QUATRO cliques -- canto
 da porta, canto do vao, canto oposto do vao, canto oposto da porta. Os
 fios 1-2 e 3-4 (laranja) mostram quanto a folha cobre de cada lado; o
@@ -267,7 +289,9 @@ como escolha nem na aba. Clique 1 e 2 no mesmo ponto: a margem do par
 3-4 vale para ele, contada para dentro. Cobertura que nao bate com
 nenhuma das tres pergunta "As medidas estao corretas?" (Nao = marcar de
 novo). Depois, caixas desenhadas ao lado do clique (popup nativo nao, o
-release respondia), na ordem: Folhas (1 | 2) -> abertura so' com o que
+release respondia) que NUNCA saem cortadas (`_botoes_assistente` mede a
+regiao: perto da borda a caixa vai para o outro lado do mouse ou
+sobe/desce; o recado que segue o mouse idem), na ordem: Folhas (1 | 2) -> abertura so' com o que
 nao se deduz (Giro | Basculante, ou Giro | Correr na embutida; 2 folhas
 por cima = giro direto) -> clique na borda das dobradicas (verde; 2
 folhas de giro = as duas; basculante = sempre CIMA, sem perguntar) ->
@@ -276,16 +300,28 @@ das quinas (padrao 100 mm) -> basculante: scroll = quantidade de pistoes
 e a posicao nasce AUTOMATICA (modelo real do catalogo; aberta = pistao no
 dobro do fechado); o mouse em Y so' SOBE o pistao (descer passaria do
 curso). Esc cancela, botao direito volta uma etapa.
-Dobradicas e pistoes aparecem como VOLUME (caixas laranja, raio-X), nao
-pontos: o corpo na FACE INTERNA da chapa, para dentro do movel atras
-da folha, e o caneco de 35 mm nas costas da folha (print do usuario:
-os pontos ficavam na borda de fora da folha); o pistao FECHADO (corpo,
-haste e suportes) e um fio branco ate' onde ele vai com a porta aberta.
-Aba Portas: "Criar Portas" LARANJA desde o inicio e nada mais; cada
-categoria APARECE quando o wizard a responde (Folhas, depois Abertura),
-na mesma ordem, so' mostrando -- quem decide e' a caixa da viewport.
-Porta pronta selecionada revela tudo, editavel. Dobradica (automatica)
-e Converter em porta/dupla sairam da aba (pedido do usuario; F3 segue).
+Previa de dobradica, pistao e puxador = o WIREFRAME da peca de verdade
+(pedido do usuario; antes caixas de volume e, no puxador, so' o ponto da
+ancora), na cor de realce e na espessura das linhas da HUD, raio-X
+(`_desenhar_arame`, POLYLINE em 3D). O wizard planeja pelas MESMAS
+ferragens que a porta monta (`_ferragens_da_porta`): a Reta e' o rig do
+usuario, desenhado pelo CONTORNO (vincos > 30 graus, sem a subdivisao:
+~4 mil segmentos em vez de 190 mil) gravado no .json do asset por
+`extrair_arame_dobradica.py`, em lote na GPU peca a peca; caixas,
+canecos e pistoes pela forma deles. O pistao aberto ganha um fio branco.
+O posicionador do puxador mostra o puxador na linha sob o mouse.
+Aba Portas criando (blocagem do usuario): marcada a area, as medidas da
+porta (so' leitura: saem dos cliques); depois a COPIA da caixa -- cada
+pergunta APARECE quando o wizard chega nela (Medidas corretas?, Folhas,
+Abertura), clicavel como a da viewport: o MODAL atende o clique na gaveta
+(`_responder_pela_gaveta`); responder de novo uma fila refaz dali. Depois,
+Dobradicas e Pistoes EDITAVEIS (`_secao_ferragens_gaveta`): quantidade em
+segmentos e afastamento/distancia do topo em campo; digitado na etapa do
+mouse em Y, o 1o movimento parte do valor. A mesma secao, com as
+ferragens SELECIONADAS, edita todas as portas do modulo (o clique numa
+ferragem leva a gaveta a' aba Portas). Porta pronta selecionada: medidas,
+folhas, abertura e folgas, editaveis. Dobradica (automatica) e Converter
+em porta/dupla sairam da aba (pedido do usuario; F3 segue).
 Porta pronta: o clique simples (a porta inteira) mostra, em raio-X, o
 contorno BRANCO de cada folha, as linhas internas do vao em AMARELO e
 os mesmos fios dos 4 cantos (as dobradicas nao: ver Ferragens); segurando Alt aparecem as 4 bolinhas brancas e arrastar
@@ -328,7 +364,7 @@ todas); a das caixas e' refeita quando a porta muda. Dobradicas e pistoes so'
 APARECEM criando a porta ou SELECIONADOS (pedido do usuario): clique numa
 dobradica = todas as dobradicas do modulo, num pistao = todos os pistoes,
 Shift soma (ou tira) o outro tipo. Nesse modo so' elas ficam acesas
-(volume laranja, raio-X): porta sem contorno branco, modulo e puxadores
+(o arame delas, raio-X): porta sem contorno branco, modulo e puxadores
 apagados. Segurando Alt, um controlador (bolinha branca) por porta e
 tipo: o da dobradica corre na BORDA (margem; passar do meio conta da
 outra ponta, espelhada), o do pistao na LATERAL (distancia do topo, trava
@@ -376,6 +412,15 @@ barra de status passava despercebido ("copiar e nada acontece").
 "Criar Puxador": mesmo padrao do "Criar Portas" -- LARANJA, no topo da
 aba Puxadores, largura inteira, texto centralizado, mais forte enquanto
 posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
+Posicionando, aparece o MODELO (o posicionador atende o clique e troca a
+previa na hora). Reposicionar (pedido do usuario): com Alt, a ancora de
+cada puxador da selecao vira bolinha branca; arrastar leva-o a outra
+borda SO' das chapas do grupo dele (folhas da porta, ou chapas do
+modulo), snap de LINHA na face virada para quem olha, e ele sai virado
+conforme a borda; o perfil devolve a madeira e corta a nova (um por
+borda). Esc devolve. Puxador do add-on selecionado: medidas e o modelo
+(`_trocar_modelo_puxador` refaz AQUELE); objeto de fora: "Converter em
+puxador".
 
 ## 10. Animacao
 

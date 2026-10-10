@@ -15,7 +15,7 @@ biblioteca de presets. UI = "gaveta": area VIEW_3D desenhada por GPU a
 esquerda (nao existe UILayout ali). `cabinet_creator/__init__.py` e' o
 add-on INTEIRO, arquivo unico por decisao.
 
-Idioma: portugues (codigo, UI, commits). Texto e comentario em ASCII:
+Idioma: portugues (codigo, UI, commits, NOME de objeto). Texto em ASCII:
 `e'`, `so'`, `ja'` no lugar de acento. Comentario explica o PORQUE.
 
 ## Comandos e verificacao
@@ -36,7 +36,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Falha em `test_estrutura_blender.py` = "isto era de proposito": confirme
   com o usuario antes de mudar; nao conserte o teste.
 - Testes nunca escrevem na biblioteca real (`cabinet_creator/biblioteca`).
-- Cada entrega: `bl_info["version"]` +1 (hoje 176.0.0).
+- Cada entrega: `bl_info["version"]` +1 (hoje 182.0.0).
 
 ## Invariantes — NAO quebrar
 
@@ -79,13 +79,14 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 ## Decisoes do usuario (nao "melhorar")
 
-- Pergunta Sim/Nao: pop-up SO' quando a acao veio da viewport; de botao da
-  gaveta, caixa preta DENTRO dela. Sempre por `_perguntar`.
-- Selecao: clique = modulo, duplo = peca. PORTA: clique = porta inteira
-  (nunca o modulo), duplo = folha; sem contorno nativo. FERRAGEM so' aparece
-  criando ou selecionada: clique = todas do tipo no modulo (Shift soma o
-  outro), Alt = controlador, duplo = a PECA (nativa: Tab/G/X). O CLIQUE
-  leva a gaveta a' aba do item; Shift soma. A SELECAO decide o que edita.
+- Sim/Nao (`_perguntar`): pop-up SO' da viewport; botao da gaveta = caixa preta.
+- Selecao: clique = modulo, duplo = peca, Shift soma; a gaveta vai a' aba
+  do item; a SELECAO decide o que edita. Quina arrasta o modulo (Ctrl = snap
+  SO' em quina de outro armario/chapa). PORTA: clique = inteira (nunca o
+  modulo), duplo = folha, sem contorno nativo. FERRAGEM so' aparece criando
+  ou selecionada (ARAME da peca real): clique = todas do tipo (Shift soma o
+  outro), Alt = controlador, duplo = a PECA (nativa: Tab/G/X). PUXADOR: Alt
+  arrasta a ancora a outra borda SO' do grupo dele (snap de linha).
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo
   DESVIO dela (> 5 mm na viewport, qualquer um no botao). Regua: chapa
   ativa se move (pergunta se mudar medida); modulo ativo se adapta.
@@ -106,9 +107,10 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   detalhes so' do 3D; o que falta vira Pendencia. COMODO = PASTA no Outliner
   (Collection marcada com as dos armarios; a unica fonte), escolhido numa
   linha que EXPANDE (+ "Outro nome..."). Copiar mostra o resultado NA gaveta.
-- Aba Portas: "Criar Portas" LARANJA no TOPO (o "Criar Puxador" tambem, na
-  dele); o resto so' APARECE conforme o wizard responde ou com porta pronta
-  selecionada (tudo, editavel). Sem Dobradica nem Converter em porta (F3).
+- Gaveta por CONTEXTO (toda aba): sem selecao, so' o botao laranja de criar
+  (Modulos: so' o Orcamento); criando, os campos etapa a etapa (copia
+  clicavel da caixa; o modal atende); selecionado, so' o do ITEM (porta sem
+  dobradica; ferragens = qtd/afastamento). Sem Dobradica/Converter (F3).
 - Wizard de portas (`cabinet_apanhar_vao`, porta NOVA): 4 CLIQUES = canto
   da porta, canto do vao, vao oposto, porta oposta (fio laranja = cobertura,
   branco = vao). Cobertura por lado em FRACAO da espessura (`cobertura_*_e`):
@@ -118,17 +120,15 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   Depois, caixas do modal (popup_menu nao: o release responderia): Folhas
   -> abertura -> borda das dobradicas (clique; basculante = CIMA) -> scroll
   = qtd -> mouse Y = margem -> pistoes (qtd; posicao AUTO por aberto = 2x
-  fechado, Y so' sobe); aba na MESMA ordem. Reposicionar = diagonal de 2.
+  fechado, Y so' sobe). Caixa nunca cortada. Reposicionar = diagonal de 2.
 - Porta selecionada POR SI (clique nela; o modulo selecionado nao mostra
   nada disto): contorno branco, vao amarelo, fios dos cantos e
   um slider por folha. Alt arrasta as bolinhas e refaz a porta
   (`_cantos_da_porta`: REFEITOS de vao + cobertura, nunca gravados).
 - Corrente conecta sozinha ate' 5 mm (`ALCANCE_CONEXAO_AUTOMATICA`); alem: vertice.
-- Empties do add-on (modulo, porta, pistao) FICAM (o parentesco move o
-  armario e salva o preset), invisiveis: `_ocultar_empty`.
-- Gaveta sem redundancia: sem nome do item, sem "Sincronizar", sem
-  Auto-regenerar, sem correntes entre as abas; Montagem = Corrente e
-  Resetar distancia (Agrupar/Converter so' no F3).
+- Empties do add-on (modulo, porta, pistao) FICAM, invisiveis (`_ocultar_empty`).
+- Gaveta sem redundancia: sem nome do item, Sincronizar, Auto-regenerar nem
+  correntes entre abas; Montagem = Corrente e Resetar distancia (resto: F3).
 
 ## Armadilhas da API (confirmadas; nao "consertar")
 
@@ -181,8 +181,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   Reta = modelo+rig do USUARIO (`ferragens/`, `extrair_dobradica.py` no
   4.2): nao refazer (so' o furo do copo, medido); folha segue a TABELA.
 - Puxador parametrico: `posicionar_puxador` refaz pelas PROPS da chapa pai
-  no fim de `gerar_malha_chapa`, nunca por delta. O perfil corta so' a
-  malha; props e HUD continuam nominais.
+  no fim de `gerar_malha_chapa`, nunca por delta. PERFIL do usuario: pontas
+  e costas ANDAM (chanfro intacto); corta so' a malha, props/HUD nominais.
 - Presets: clique no nome/foto = posicionador (clique-para-posicionar e' o
   uso normal, nao remover). Salvar sempre gera o PNG; falha na foto
   cancela o cadastro. Conversao de objeto de fora pela FORMA
