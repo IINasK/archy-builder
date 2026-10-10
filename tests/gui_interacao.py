@@ -28,7 +28,7 @@ from harness_gui import (rodar, esperar, viewport_principal, na_tela,  # noqa: E
 
 # ------------------------------------------------------------- apoio
 def gaveta(janela):
-    area = addon._area_gaveta(janela.screen)
+    area = addon.gaveta._area_gaveta(janela.screen)
     assert area is not None, 'a gaveta nao abriu'
     return area, next(r for r in area.regions if r.type == 'WINDOW')
 
@@ -39,7 +39,7 @@ def contexto(janela, area, regiao):
 
 
 def viewport(janela):
-    return viewport_principal(janela, addon._area_gaveta(janela.screen))
+    return viewport_principal(janela, addon.gaveta._area_gaveta(janela.screen))
 
 
 def widget(janela, teste):
@@ -47,7 +47,7 @@ def widget(janela, teste):
     para o qual teste(v) e' verdadeiro."""
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
-        widgets = addon._widgets_interativos(bpy.context)
+        widgets = addon.gaveta._widgets_interativos(bpy.context)
     v = next((v for v in widgets if v[5] and teste(v)), None)
     assert v is not None, 'widget nao encontrado na gaveta'
     x, y, w, h = v[:4]
@@ -60,7 +60,7 @@ def criar_modulo(janela):
         bpy.ops.object.cabinet_criar_nicho()
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.cabinet_agrupar()
-    conj = next(o for o in bpy.data.objects if addon.MARCA_CONJUNTO in o)
+    conj = next(o for o in bpy.data.objects if addon.chapas.MARCA_CONJUNTO in o)
     bpy.context.view_layer.update()
     return conj
 
@@ -68,7 +68,7 @@ def criar_modulo(janela):
 def selecionar(janela, chapa, individual=False):
     area, regiao, _ = viewport(janela)
     with contexto(janela, area, regiao):
-        addon._selecionar_chapa_hud(bpy.context, chapa, individual=individual)
+        addon.hud._selecionar_chapa_hud(bpy.context, chapa, individual=individual)
 
 
 def caixa_mundo(objetos):
@@ -83,9 +83,9 @@ def widget_titulo(janela):
     """Centro do titulo "Biblioteca (n)" (decoracao, sem acao)."""
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
-        _c, conteudo, _r = addon._partes_gaveta(addon._widgets_gaveta(
+        _c, conteudo, _r = addon.gaveta._partes_gaveta(addon.gaveta._widgets_gaveta(
             bpy.context, regiao.width, regiao.height))
-    titulo = addon._paineis_gaveta(conteudo)[2][0]
+    titulo = addon.gaveta._paineis_gaveta(conteudo)[2][0]
     assert titulo[4].startswith('Biblioteca'), titulo
     x, y, w, h = titulo[:4]
     return regiao.x + x + w / 2, regiao.y + y + h / 2
@@ -102,7 +102,7 @@ def exigir_biblioteca_legivel():
 
 def mostrar_chapas_na_biblioteca(cena):
     cena.chapa_n1 = 'Chapas'
-    cena.chapa_n2 = (addon._filhos_n2('Chapas') or [''])[0]
+    cena.chapa_n2 = (addon.biblioteca._filhos_n2('Chapas') or [''])[0]
     cena.chapa_n3 = ''
 
 
@@ -121,36 +121,36 @@ def limpar(janela):
     cena = bpy.context.scene
     cena.cabinet_aba = 'MODULOS'
     cena.cursor.location = (0.0, 0.0, 0.0)
-    for nome in addon._PROPS_PORTAS_CENA:
+    for nome in addon.portas._PROPS_PORTAS_CENA:
         cena.property_unset(nome)
     cena.chapa_n1, cena.chapa_n2, cena.chapa_n3 = 'Armarios', '', ''
     tela = janela.screen
-    for chave in (addon._CHAVE_ROLAGEM, addon._CHAVE_ROLAGEM_BIB,
-                  addon._CHAVE_DIVISA, addon._CHAVE_OPCOES):
+    for chave in (addon.gaveta._CHAVE_ROLAGEM, addon.gaveta._CHAVE_ROLAGEM_BIB,
+                  addon.gaveta._CHAVE_DIVISA, addon.gaveta._CHAVE_OPCOES):
         tela.pop(chave, None)
-    addon._hover_hud.clear()
-    addon._arraste_canto_porta[0] = None
-    addon._arraste_slider_porta[0] = None
-    addon._edicao_hud[0] = None
-    addon._tecla_corrente_segurada[0] = False
-    addon._conexao_pendente[0] = None
-    addon._desagregar_pendente[0] = None
-    addon._pergunta_reset[0] = ''
-    addon._pergunta_atual[0] = None
-    addon._arraste_ancora[0] = None
+    addon.hud._hover_hud.clear()
+    addon.portas_viewport._arraste_canto_porta[0] = None
+    addon.portas_viewport._arraste_slider_porta[0] = None
+    addon.hud._edicao_hud[0] = None
+    addon.solda._tecla_corrente_segurada[0] = False
+    addon.solda._conexao_pendente[0] = None
+    addon.solda._desagregar_pendente[0] = None
+    addon.solda._pergunta_reset[0] = ''
+    addon.perguntas._pergunta_atual[0] = None
+    addon.solda._arraste_ancora[0] = None
 
 
 # ------------------------------------------------------------ testes
 def test_gaveta_abre_na_largura_com_medidas_em_linha(janela, m):
     yield esperar(0.3)
     area, regiao = gaveta(janela)
-    alvo = addon._largura_inicial_gaveta(bpy.context)
+    alvo = addon.gaveta._largura_inicial_gaveta(bpy.context)
     assert abs(area.width - alvo) <= 3, (area.width, alvo)
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     yield
     with contexto(janela, area, regiao):
-        medidas = [v for v in addon._widgets_gaveta(
+        medidas = [v for v in addon.gaveta._widgets_gaveta(
             bpy.context, regiao.width, regiao.height)
             if v[5] and v[5][0] == 'medida']
     assert len(medidas) == 4 and len({v[1] for v in medidas}) == 1, \
@@ -172,7 +172,7 @@ def test_clique_na_aba_troca_a_aba(janela, m):
 
 def test_arrastar_a_divisoria(janela, m):
     area, regiao = gaveta(janela)
-    antes = addon._divisa_gaveta(bpy.context, regiao.height)
+    antes = addon.gaveta._divisa_gaveta(bpy.context, regiao.height)
     x, y = widget(janela, lambda v: v[5][0] == 'divisa')
     m.mover(x, y)
     yield
@@ -183,16 +183,16 @@ def test_arrastar_a_divisoria(janela, m):
         yield
     m.soltar()
     yield
-    depois = addon._divisa_gaveta(bpy.context, regiao.height)
+    depois = addon.gaveta._divisa_gaveta(bpy.context, regiao.height)
     assert abs(depois - (antes + 150)) <= 2, (antes, depois)
 
 
 def test_roda_rola_so_a_biblioteca(janela, m):
     area, regiao = gaveta(janela)
-    janela.screen[addon._CHAVE_DIVISA] = 0.1      # biblioteca baixinha
+    janela.screen[addon.gaveta._CHAVE_DIVISA] = 0.1      # biblioteca baixinha
     yield
     with contexto(janela, area, regiao):
-        _lim, lim_bib = addon._limites_rolagem_gaveta(
+        _lim, lim_bib = addon.gaveta._limites_rolagem_gaveta(
             bpy.context, regiao.width, regiao.height)
     assert lim_bib > 0, 'biblioteca nao rola nem baixinha'
     # sobre o titulo "Biblioteca": em cima de um carrossel a roda
@@ -201,8 +201,8 @@ def test_roda_rola_so_a_biblioteca(janela, m):
     yield
     m.clicar('WHEELDOWNMOUSE')
     yield
-    assert janela.screen.get(addon._CHAVE_ROLAGEM_BIB, 0) > 0
-    assert janela.screen.get(addon._CHAVE_ROLAGEM, 0) == 0
+    assert janela.screen.get(addon.gaveta._CHAVE_ROLAGEM_BIB, 0) > 0
+    assert janela.screen.get(addon.gaveta._CHAVE_ROLAGEM, 0) == 0
 
 
 def test_duplo_clique_na_foto_insere_no_cursor(janela, m):
@@ -262,14 +262,14 @@ def test_clique_na_viewport_seleciona_o_modulo(janela, m):
     bpy.ops.object.select_all(action='DESELECT')
     yield
     area, regiao, rv3d = viewport(janela)
-    tampo = max(addon._chapas_do_conjunto(conj),
+    tampo = max(addon.modulos._chapas_do_conjunto(conj),
                 key=lambda o: o.matrix_world.translation.z)
     m.mover(*na_tela(regiao, rv3d, tampo.matrix_world.translation))
     yield
     m.clicar()
     yield
     selecionados = set(bpy.context.selected_objects)
-    assert selecionados == set(addon.familia_de(conj)), selecionados
+    assert selecionados == set(addon.selecao.familia_de(conj)), selecionados
     assert bpy.context.view_layer.objects.active == conj
 
 
@@ -277,7 +277,7 @@ def aproximar(janela, conj):
     """Vista centrada e perto do modulo: na vista de fabrica ele ocupa
     poucos pixels e a aresta fica dificil de mirar."""
     _area, _regiao, rv3d = viewport(janela)
-    lo, hi = caixa_mundo(addon._chapas_do_conjunto(conj))
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
     rv3d.view_distance = 2.2
 
@@ -285,7 +285,7 @@ def aproximar(janela, conj):
 def _linha_l(janela, conj):
     area, regiao, rv3d = viewport(janela)
     with contexto(janela, area, regiao):
-        geometria = addon._geometria_hud(bpy.context)
+        geometria = addon.hud._geometria_hud(bpy.context)
     for linha in (geometria or {}).get('linhas', []):
         if linha['tipo'] == 'medida' and linha['eixo'] == 0:
             a, b = (na_tela(regiao, rv3d, p) for p in linha['pontos'])
@@ -300,7 +300,7 @@ def _linha_l(janela, conj):
 
 def test_arrastar_a_seta_da_hud_estica_com_a_quina_parada(janela, m):
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     aproximar(janela, conj)
     yield
     yield
@@ -320,14 +320,14 @@ def test_arrastar_a_seta_da_hud_estica_com_a_quina_parada(janela, m):
     m.soltar()
     yield
     assert conj.conj_largura_mm > largura + 10, (largura, conj.conj_largura_mm)
-    nova = addon._geometria_do_item(conj, 'GRUPO',
-                                    addon._chapas_do_conjunto(conj))
+    nova = addon.hud._geometria_do_item(conj, 'GRUPO',
+                                    addon.modulos._chapas_do_conjunto(conj))
     assert (nova['cantos'][linha['cantos'][0]] - fixa).length < 1e-4
 
 
 def test_clicar_na_seta_e_digitar_a_medida(janela, m):
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     aproximar(janela, conj)
     yield
     yield
@@ -342,15 +342,15 @@ def test_clicar_na_seta_e_digitar_a_medida(janela, m):
     m.tecla('RET')
     yield
     assert abs(conj.conj_largura_mm - 800.0) < 1e-3, conj.conj_largura_mm
-    nova = addon._geometria_do_item(conj, 'GRUPO',
-                                    addon._chapas_do_conjunto(conj))
+    nova = addon.hud._geometria_do_item(conj, 'GRUPO',
+                                    addon.modulos._chapas_do_conjunto(conj))
     assert (nova['cantos'][linha['cantos'][0]] - fixa).length < 1e-4
 
 
 def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     # O mesmo da HUD no campo da gaveta: clicar nele em edicao nao
     # confirma, leva o cursor; '+' com tudo selecionado continua a conta
-    chapa = addon.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
+    chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
                              (0, 0, 0), bpy.context)
     selecionar(janela, chapa, individual=True)
     yield
@@ -360,7 +360,7 @@ def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     yield
     m.clicar()
     yield
-    estado = addon._edicao_gaveta[0]
+    estado = addon.gaveta._edicao_gaveta[0]
     assert estado is not None, 'o campo nao abriu'
     m.digitar('+50')
     yield
@@ -372,18 +372,18 @@ def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     yield
     m.clicar()
     yield
-    estado = addon._edicao_gaveta[0]
+    estado = addon.gaveta._edicao_gaveta[0]
     estado['texto'], estado['cursor'] = '650', 3
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
-        x = next(v for v in addon._widgets_interativos(bpy.context)
+        x = next(v for v in addon.gaveta._widgets_interativos(bpy.context)
                  if v[5] and campo(v))[0]
     # logo depois do 6 (o texto comeca em x + 7)
-    m.mover(regiao.x + x + 7 + addon._medidor_blf(12)('6') + 1, cy)
+    m.mover(regiao.x + x + 7 + addon.gaveta_desenho._medidor_blf(12)('6') + 1, cy)
     yield
     m.clicar()
     yield
-    assert addon._edicao_gaveta[0] is estado, 'o clique no campo fechou a edicao'
+    assert addon.gaveta._edicao_gaveta[0] is estado, 'o clique no campo fechou a edicao'
     assert estado['cursor'] == 1, estado['cursor']
     m.digitar('1')
     m.tecla('RET')
@@ -393,7 +393,7 @@ def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
 
 def _nicho_com_lateral_afastada(janela, metros=0.2):
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
     origem = direita.matrix_world.copy()
     direita.location.x += metros
@@ -413,10 +413,10 @@ def test_resetar_pela_gaveta_move_a_chapa_ativa(janela, m):
     selecionar(janela, direita, individual=True)
     yield
     yield
-    regua = lambda v: v[5][:2] == ('operador', addon.OP_RESETAR_DISTANCIA)
+    regua = lambda v: v[5][:2] == ('operador', addon.solda.OP_RESETAR_DISTANCIA)
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
-        botao = next(v for v in addon._widgets_interativos(bpy.context)
+        botao = next(v for v in addon.gaveta._widgets_interativos(bpy.context)
                      if v[5] and regua(v))
     assert botao[5][2] is True, 'com a solda fora, o botao devia estar azul'
     m.mover(*widget(janela, regua))
@@ -425,7 +425,7 @@ def test_resetar_pela_gaveta_move_a_chapa_ativa(janela, m):
     yield
     for a, b in zip(direita.matrix_world, origem):
         assert (a - b).length < 1e-5, 'a lateral nao voltou'
-    assert addon._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
+    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
 
 
 def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
@@ -441,11 +441,11 @@ def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     with contexto(janela, area, regiao):
-        correntes = addon._correntes_hud(bpy.context)
+        correntes = addon.solda._correntes_hud(bpy.context)
         visiveis = [c for c in correntes if c['meio'] is not None]
         assert len(correntes) == 4, '%d quinas soldadas' % len(correntes)
         assert visiveis, 'nenhuma quina na tela'
-        centro = addon._botoes_da_corrente(bpy.context, visiveis[0])['regua']
+        centro = addon.solda._botoes_da_corrente(bpy.context, visiveis[0])['regua']
     m.mover(regiao.x + centro.x, regiao.y + centro.y)
     yield
     yield
@@ -455,7 +455,7 @@ def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
     yield
     for a, b in zip(direita.matrix_world, lateral):
         assert (a - b).length < 1e-5, 'a lateral se mexeu (era o modulo)'
-    assert addon._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
+    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
     assert abs(conj.conj_largura_mm - (largura + 200.0)) < 0.5, \
         conj.conj_largura_mm
 
@@ -477,10 +477,10 @@ def test_regua_que_muda_a_medida_pergunta_e_espera(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     with contexto(janela, area, regiao):
-        correntes = [c for c in addon._correntes_hud(bpy.context)
+        correntes = [c for c in addon.solda._correntes_hud(bpy.context)
                      if c['meio'] is not None]
         assert correntes and all(c['movel'] == tampo for c in correntes),             [c['movel'].name for c in correntes]
-        centro = addon._botoes_da_corrente(bpy.context, correntes[0])['regua']
+        centro = addon.solda._botoes_da_corrente(bpy.context, correntes[0])['regua']
     m.mover(regiao.x + centro.x, regiao.y + centro.y)
     yield
     yield
@@ -488,11 +488,11 @@ def test_regua_que_muda_a_medida_pergunta_e_espera(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._pergunta_reset[0] == tampo.name, 'nao perguntou'
+    assert addon.solda._pergunta_reset[0] == tampo.name, 'nao perguntou'
     assert abs(tampo.chapa_largura_mm - largura) < 1e-6, \
         'o soltar do clique respondeu a pergunta sozinho'
     # veio da VIEWPORT (regua): essa sim e' pop-up
-    assert not addon._pergunta_atual[0]['na_gaveta'], 'regua devia ser pop-up'
+    assert not addon.perguntas._pergunta_atual[0]['na_gaveta'], 'regua devia ser pop-up'
     m.tecla('ESC')                               # fecha o pop-up
     yield
     with contexto(janela, area, regiao):
@@ -513,13 +513,13 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     with contexto(janela, area, regiao):
-        correntes = [c for c in addon._correntes_hud(bpy.context)
-                     if 'b' in addon._bolinhas_da_corrente(bpy.context, c)]
+        correntes = [c for c in addon.solda._correntes_hud(bpy.context)
+                     if 'b' in addon.solda._bolinhas_da_corrente(bpy.context, c)]
         assert correntes, 'nenhuma bolinha na tela'
         corrente = correntes[0]
-        inicio = addon._bolinhas_da_corrente(bpy.context, corrente)['b']
+        inicio = addon.solda._bolinhas_da_corrente(bpy.context, corrente)['b']
     tampo, ponta, k = corrente['a'], corrente['ponta'], corrente['indice']
-    antes = addon._ancoras_da_ligacao(tampo, ponta, direita)[k]
+    antes = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)[k]
     # destino: outro vertice da lateral, visivel na tela
     with contexto(janela, area, regiao):
         opcoes = []
@@ -527,8 +527,8 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
             for b in '+-':
                 for c in '+-':
                     s = a + b + c
-                    p = addon._projetar_hud(bpy.context,
-                                            addon._vertice_da_assinatura(direita, s))
+                    p = addon.hud._projetar_hud(bpy.context,
+                                            addon.solda._vertice_da_assinatura(direita, s))
                     if s != antes[1] and p is not None and (p - inicio).length > 30:
                         opcoes.append((s, p))
     destino, alvo = opcoes[0]
@@ -537,7 +537,7 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     yield
     m.apertar(alt=True)
     yield
-    assert addon._arraste_ancora[0] is not None, 'a bolinha nao comecou a arrastar'
+    assert addon.solda._arraste_ancora[0] is not None, 'a bolinha nao comecou a arrastar'
     for passo in range(1, 6):
         ponto = inicio + (alvo - inicio) * (passo / 5)
         m.mover(regiao.x + ponto.x, regiao.y + ponto.y)
@@ -546,8 +546,8 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._arraste_ancora[0] is None, 'o arraste nao terminou'
-    gravadas = addon._ancoras_gravadas(tampo, ponta)
+    assert addon.solda._arraste_ancora[0] is None, 'o arraste nao terminou'
+    gravadas = addon.solda._ancoras_gravadas(tampo, ponta)
     assert gravadas and gravadas[k] == (antes[0], destino), gravadas
 
 
@@ -557,7 +557,7 @@ def _wizard_ate_o_tipo(janela, m):
     conj = criar_modulo(janela)
     area, regiao, rv3d = viewport(janela)
     rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
-    lo, hi = caixa_mundo(addon._chapas_do_conjunto(conj))
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
     rv3d.view_distance = 1.6
     bpy.ops.object.select_all(action='DESELECT')
@@ -581,7 +581,7 @@ def _clicar_no_mundo(m, regiao, rv3d, ponto):
 
 
 def _clicar_botao_do_wizard(m, regiao, chave):
-    w = addon._assistente_porta[0]
+    w = addon.portas._assistente_porta[0]
     (x, y, bw, bh), _c, _t = next(b for b in w['botoes'] if b[1] == chave)
     m.mover(regiao.x + x + bw / 2, regiao.y + y + bh / 2)
     yield
@@ -606,7 +606,7 @@ def _filas_da_aba(janela):
     """Filas de escolha que a aba Portas mostra agora, de cima para baixo."""
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
-        widgets = addon._widgets_interativos(bpy.context)
+        widgets = addon.gaveta._widgets_interativos(bpy.context)
     filas = []
     for v in sorted(widgets, key=lambda v: -v[1]):
         if v[5] and v[5][0] == 'escolha' and v[5][1] not in filas:
@@ -619,7 +619,7 @@ def _abrir_wizard(janela, m):
     yield
     m.clicar()
     yield
-    assert addon._assistente_porta[0] is not None, 'Criar Portas nao abriu'
+    assert addon.portas._assistente_porta[0] is not None, 'Criar Portas nao abriu'
 
 
 def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
@@ -636,9 +636,9 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
     for ponto in ((-L / 2 + E / 2, y, A), (-L / 2 + E, y, A - E),
                   (L / 2 - E, y, E), (L / 2 - E / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
-    w = addon._assistente_porta[0]
+    w = addon.portas._assistente_porta[0]
     assert w['etapa'] == 'FOLHAS', w['etapa']
-    assert [w['coberturas'][k] for k in addon.COBERTURAS_LADOS] == [
+    assert [w['coberturas'][k] for k in addon.portas.COBERTURAS_LADOS] == [
         0.5, 0.5, 1.0, 1.0], w['coberturas']
     # a aba Portas mostra a COPIA da pergunta quando o wizard chega nela
     assert _filas_da_aba(janela) == ['porta_folhas'], _filas_da_aba(janela)
@@ -673,11 +673,11 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
         m.mover(m.x, m.y + 10 * passo)
         yield
     margem = w['margem']
-    assert margem > addon.MARGEM_DOBRADICAS_PADRAO, margem
+    assert margem > addon.portas.MARGEM_DOBRADICAS_PADRAO, margem
     m.clicar()
     yield
-    assert addon._assistente_porta[0] is None, 'o wizard nao terminou'
-    grupo = addon._portas_do_conjunto(conj)[0]
+    assert addon.portas._assistente_porta[0] is None, 'o wizard nao terminou'
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
     p = grupo['porta_parametros']
     assert p['dobradica'] == 'CURVA' and p['abertura'] == 'GIRO', dict(p)
     assert p['folhas'] == 1 and p['cobertura_esq_e'] == 0.5, dict(p)
@@ -699,7 +699,7 @@ def test_wizard_basculante_com_pistoes(janela, m):
     for ponto in ((-L / 2, y, A), (-L / 2 + E, y, A - E),
                   (L / 2 - E, y, E), (L / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
-    w = addon._assistente_porta[0]
+    w = addon.portas._assistente_porta[0]
     # respondido pela COPIA da caixa na aba Portas (pedido do usuario);
     # responder de novo uma fila ja' respondida refaz dali
     yield from _clicar_na_fila(janela, m, 'porta_folhas', 1)
@@ -732,7 +732,7 @@ def test_wizard_basculante_com_pistoes(janela, m):
     m.clicar()                                   # margem (a digitada)
     yield
     assert w['etapa'] == 'PISTOES_QTD', w['etapa']
-    assert w['pqtd'] == addon._qtd_pistoes_padrao(w['largura'])
+    assert w['pqtd'] == addon.portas._qtd_pistoes_padrao(w['largura'])
     m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
     yield
     assert w['pqtd'] == 2
@@ -753,13 +753,13 @@ def test_wizard_basculante_com_pistoes(janela, m):
     offset = w['poffset']
     area_g, regiao_g = gaveta(janela)
     with contexto(janela, area_g, regiao_g):
-        campos = {v[5][2]: v[5][4] for v in addon._widgets_gaveta(
+        campos = {v[5][2]: v[5][4] for v in addon.gaveta._widgets_gaveta(
             bpy.context, regiao_g.width, regiao_g.height)
             if v[5] and v[5][0] == 'medida'}
     assert abs(campos['pistoes_offset_mm'] - offset) < 1e-6, campos
     m.clicar()
     yield
-    grupo = addon._portas_do_conjunto(conj)[0]
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
     p = grupo['porta_parametros']
     assert p['abertura'] == 'BASCULANTE' and p['folhas'] == 1, dict(p)
     assert p['dobradica'] == 'RETA', dict(p)
@@ -785,15 +785,15 @@ def test_wizard_cobertura_fora_do_padrao_pergunta(janela, m):
     for ponto in ((-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     yield from _clicar_no_mundo(m, regiao, rv3d, fora)
-    w = addon._assistente_porta[0]
+    w = addon.portas._assistente_porta[0]
     assert w['etapa'] == 'CONFIRMAR', w['etapa']
     assert w['pergunta'] == 'As medidas estao corretas?'
     yield from _clicar_botao_do_wizard(m, regiao, 'NAO')
-    assert w['etapa'] == 'DIAGONAL' and not addon._assistente_porta[0] is None
+    assert w['etapa'] == 'DIAGONAL' and not addon.portas._assistente_porta[0] is None
     m.tecla('ESC')
     yield
-    assert addon._assistente_porta[0] is None
-    assert not addon._portas_do_conjunto(conj)
+    assert addon.portas._assistente_porta[0] is None
+    assert not addon.portas._portas_do_conjunto(conj)
 
 
 def test_alt_arrasta_o_canto_da_porta(janela, m):
@@ -814,21 +814,21 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
             ponto_b=cliques[2], quatro_pontos=True, porta_a=cliques[0],
             porta_b=cliques[3], referencia=ref, pai_nome=conj.name,
             modulo_nome=conj.name, frente='NEG_Y', folhas=1)
-    grupo = addon._portas_do_conjunto(conj)[0]
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
     assert grupo['porta_parametros']['cobertura_dir_e'] == 0.5
     with contexto(janela, area, regiao):
-        addon._selecionar_porta_hud(bpy.context, addon._folhas_portas(grupo)[0],
+        addon.hud._selecionar_porta_hud(bpy.context, addon.portas._folhas_portas(grupo)[0],
                                     'PORTA')
     yield
     yield
-    m.mover(*na_tela(regiao, rv3d, addon._cantos_da_porta(grupo)[3]))
+    m.mover(*na_tela(regiao, rv3d, addon.portas_viewport._cantos_da_porta(grupo)[3]))
     yield
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     yield
     m.apertar(alt=True)
     yield
-    assert addon._arraste_canto_porta[0] is not None, 'o canto nao pegou'
+    assert addon.portas_viewport._arraste_canto_porta[0] is not None, 'o canto nao pegou'
     assert any(o.bl_idname.endswith('cabinet_arrastar_canto_porta')
                for o in m.janela.modal_operators), 'o arraste nao abriu'
     destino = na_tela(regiao, rv3d, _local(conj, L / 2, y, 0))
@@ -842,10 +842,10 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._arraste_canto_porta[0] is None
+    assert addon.portas_viewport._arraste_canto_porta[0] is None
     p = grupo['porta_parametros']
     assert p['cobertura_dir_e'] == 1.0, dict(p)
-    assert grupo in addon._portas_com_cantos(bpy.context)
+    assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context)
 
 
 def test_slider_abre_a_folha(janela, m):
@@ -865,8 +865,8 @@ def test_slider_abre_a_folha(janela, m):
             ponto_b=cliques[2], quatro_pontos=True, porta_a=cliques[0],
             porta_b=cliques[3], referencia=ref, pai_nome=conj.name,
             modulo_nome=conj.name, frente='NEG_Y', folhas=1)
-    grupo = addon._portas_do_conjunto(conj)[0]
-    folha = addon._folhas_portas(grupo)[0]
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
+    folha = addon.portas._folhas_portas(grupo)[0]
     bpy.ops.object.select_all(action='DESELECT')
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Porta criada')
@@ -875,43 +875,43 @@ def test_slider_abre_a_folha(janela, m):
     centro = folha.matrix_world.translation
     yield from _clicar_no_mundo(m, regiao, rv3d, centro)
     yield esperar(0.4)          # sem virar duplo clique
-    assert grupo in addon._portas_com_cantos(bpy.context), 'a porta nao selecionou'
+    assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context), 'a porta nao selecionou'
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Porta selecionada')
-        inicio, fim = addon._slider_na_tela(bpy.context, folha)
+        inicio, fim = addon.portas_viewport._slider_na_tela(bpy.context, folha)
     # a bolinha (fracao 0 = no inicio) e' um gizmo (VIEW3D_GT_slider_porta,
     # grupo VIEW3D_GGT_slider_porta): vem antes de qualquer keymap. O
     # trilho fora dela nao pega; passar por cima dela acende
     with contexto(janela, area, regiao):
-        assert addon.VIEW3D_GGT_slider_porta.poll(bpy.context)
+        assert addon.portas_viewport.VIEW3D_GGT_slider_porta.poll(bpy.context)
     # tamanho em mm do mundo (pedido do usuario): afastar 3x encolhe ~3x
     with contexto(janela, area, regiao):
-        perto = addon._px_por_mm_do_slider(bpy.context, folha)
+        perto = addon.portas_viewport._px_por_mm_do_slider(bpy.context, folha)
     distancia = rv3d.view_distance
     rv3d.view_distance = distancia * 3
     yield
     with contexto(janela, area, regiao):
-        longe = addon._px_por_mm_do_slider(bpy.context, folha)
+        longe = addon.portas_viewport._px_por_mm_do_slider(bpy.context, folha)
     rv3d.view_distance = distancia
     yield
     yield
-    assert perto < addon.SLIDER_PX_POR_MM_MAX, perto
+    assert perto < addon.portas_viewport.SLIDER_PX_POR_MM_MAX, perto
     assert abs(longe / perto - 1 / 3) < 0.08, (perto, longe)
     with contexto(janela, area, regiao):
-        inicio, fim = addon._slider_na_tela(bpy.context, folha)
-    raio = addon.SLIDER_BOTAO_MM * perto
+        inicio, fim = addon.portas_viewport._slider_na_tela(bpy.context, folha)
+    raio = addon.portas_viewport.SLIDER_BOTAO_MM * perto
     m.mover(regiao.x + inicio.x + (fim.x - inicio.x) * 0.5,
             regiao.y + inicio.y + (fim.y - inicio.y) * 0.5)
     yield
     yield
-    assert addon._slider_hover[0] is None, 'o trilho pegou o hover'
+    assert addon.portas_viewport._slider_hover[0] is None, 'o trilho pegou o hover'
     m.mover(regiao.x + inicio.x + raio * 0.6, regiao.y + inicio.y)
     yield
     yield
-    assert addon._slider_hover[0] == folha.name, 'a bolinha nao acendeu'
+    assert addon.portas_viewport._slider_hover[0] == folha.name, 'a bolinha nao acendeu'
     m.apertar()
     yield
-    assert addon._arraste_slider_porta[0] == folha.name, 'o slider nao pegou'
+    assert addon.portas_viewport._arraste_slider_porta[0] == folha.name, 'o slider nao pegou'
     assert any(o.bl_idname.endswith('cabinet_abrir_porta')
                for o in m.janela.modal_operators), 'o arraste nao abriu'
     meio = inicio.lerp(fim, 0.5)
@@ -924,20 +924,20 @@ def test_slider_abre_a_folha(janela, m):
     m.soltar()
     yield
     yield
-    assert addon._arraste_slider_porta[0] is None
-    fracao = folha[addon.CHAVE_ABERTURA]
+    assert addon.portas_viewport._arraste_slider_porta[0] is None
+    fracao = folha[addon.ferragens.CHAVE_ABERTURA]
     assert abs(fracao - 0.5) < 0.05, fracao
     # a porta continua selecionada (o clique foi do slider)
-    assert grupo in addon._portas_com_cantos(bpy.context)
+    assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context)
     # Ctrl+Z desfaz a abertura
     m.apertar('Z', ctrl=True)
     m.soltar('Z', ctrl=True)
     yield
     yield
     # o undo troca os objetos: buscar de novo (a referencia antiga morreu)
-    grupo = next(o for o in bpy.data.objects if addon.MARCA_PORTAS in o)
-    folha = addon._folhas_portas(grupo)[0]
-    assert folha.get(addon.CHAVE_ABERTURA, 0.0) == 0.0, folha.get(addon.CHAVE_ABERTURA)
+    grupo = next(o for o in bpy.data.objects if addon.chapas.MARCA_PORTAS in o)
+    folha = addon.portas._folhas_portas(grupo)[0]
+    assert folha.get(addon.ferragens.CHAVE_ABERTURA, 0.0) == 0.0, folha.get(addon.ferragens.CHAVE_ABERTURA)
 
 
 def test_digitar_com_operador_e_cursor_no_meio(janela, m):
@@ -945,7 +945,7 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
     # (nao apaga o "600"); clicar DENTRO da caixa nao fecha, so' leva o
     # cursor ate' ali; "6cm00" vale 600 cm.
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     aproximar(janela, conj)
     yield
     yield
@@ -958,8 +958,8 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
     yield
     m.digitar('+100')
     yield
-    estado = addon._edicao_hud[0]
-    assert estado['texto'].replace(' ', '') == addon._numero_na_unidade(
+    estado = addon.hud._edicao_hud[0]
+    assert estado['texto'].replace(' ', '') == addon.opcoes._numero_na_unidade(
         largura).replace(' ', '') + '+100', estado['texto']
     m.tecla('RET')
     yield
@@ -970,17 +970,17 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
     yield
     m.clicar()
     yield
-    estado = addon._edicao_hud[0]
+    estado = addon.hud._edicao_hud[0]
     estado['texto'], estado['cursor'] = '600', 3
     yield
     area, regiao, _rv3d = viewport(janela)
     x, y, tamanho, _escala = estado['caixas'][0]
-    meio = x + addon._medidor_blf(tamanho)('6')
+    meio = x + addon.gaveta_desenho._medidor_blf(tamanho)('6')
     m.mover(regiao.x + meio, regiao.y + y + 3)
     yield
     m.clicar()
     yield
-    assert addon._edicao_hud[0] is not None, 'o clique na caixa fechou a edicao'
+    assert addon.hud._edicao_hud[0] is not None, 'o clique na caixa fechou a edicao'
     assert estado['cursor'] == 1, estado['cursor']
     m.digitar('cm')
     yield
@@ -995,7 +995,7 @@ def _duplo_clique_do_keymap(janela, shift=False):
     gera DOUBLE_CLICK (fonte do Blender), entao o operador e' chamado
     com as props da entrada DOUBLE_CLICK de `_ENTRADAS_KEYMAP`, no mesmo
     contexto e posicao de mouse de um clique real."""
-    entrada = next(e for e in addon._ENTRADAS_KEYMAP
+    entrada = next(e for e in addon.selecao._ENTRADAS_KEYMAP
                    if e[0] == 'DOUBLE_CLICK' and e[1] == shift)
     area, regiao, _ = viewport(janela)
     with contexto(janela, area, regiao):
@@ -1018,18 +1018,18 @@ def test_selecao_da_porta_e_da_folha(janela, m):
                              for v in linha),
             pai_nome=conj.name, modulo_nome=conj.name, frente='NEG_Y',
             dobradica='RETA', folhas=2)
-    grupo = addon._portas_do_conjunto(conj)[0]
-    folha = addon._folhas_portas(grupo)[0]
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
+    folha = addon.portas._folhas_portas(grupo)[0]
     bpy.ops.object.select_all(action='DESELECT')
     # vista de frente (olhando para +Y): a folha fica na frente de tudo
     rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
-    lo, hi = caixa_mundo(addon._chapas_do_conjunto(conj))
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
     yield
     yield
     m.mover(*na_tela(regiao, rv3d, folha.matrix_world.translation))
     yield
-    portas = {grupo, *addon._folhas_portas(grupo)}
+    portas = {grupo, *addon.portas._folhas_portas(grupo)}
     # Backlog do usuario (Epico 3): clique na porta = a PORTA inteira,
     # nunca o modulo; duplo = UMA folha ("aba")
     m.clicar()
@@ -1066,7 +1066,7 @@ def _modulo_em(janela, x):
             o.select_set(True)
         bpy.ops.object.cabinet_agrupar()
     conj = next(o for o in set(bpy.data.objects) - antes
-                if addon.MARCA_CONJUNTO in o)
+                if addon.chapas.MARCA_CONJUNTO in o)
     conj.location.x = x
     bpy.context.view_layer.update()
     return conj
@@ -1078,12 +1078,12 @@ def _chapas_visiveis(janela, conj):
     area, regiao, rv3d = viewport(janela)
     saida = {}
     with contexto(janela, area, regiao):
-        for chapa in addon._chapas_do_conjunto(conj):
+        for chapa in addon.modulos._chapas_do_conjunto(conj):
             ponto = na_tela(regiao, rv3d, chapa.matrix_world.translation)
             if ponto is None:
                 continue
             local = (ponto[0] - regiao.x, ponto[1] - regiao.y)
-            acerto = addon._raio_hud(bpy.context, local)
+            acerto = addon.hud._raio_hud(bpy.context, local)
             if acerto is not None and acerto[0] == chapa:
                 saida[chapa] = ponto
     return saida
@@ -1185,7 +1185,7 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     yield
     assert bpy.context.view_layer.objects.active == b
     with contexto(janela, area, regiao):
-        desenhos = addon._desenhos_hud(bpy.context)
+        desenhos = addon.hud._desenhos_hud(bpy.context)
     assert {g['objeto'] for g, _x in desenhos} == {a, b}, \
         'contorno devia aparecer nos dois: %s' % [g['objeto'].name
                                                  for g, _x in desenhos]
@@ -1194,8 +1194,8 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     # valor digitado vale para os dois, cada um com a sua quina parada.
     linhas = {}
     for item in (a, b):
-        geometria = addon._geometria_do_item(item, 'GRUPO',
-                                             addon._chapas_do_conjunto(item))
+        geometria = addon.hud._geometria_do_item(item, 'GRUPO',
+                                             addon.modulos._chapas_do_conjunto(item))
         for l in geometria['linhas']:
             if l['tipo'] == 'medida' and l['eixo'] == 0:
                 p, q = (na_tela(regiao, rv3d, x) for x in l['pontos'])
@@ -1208,38 +1208,38 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     m.mover(*(ini + (fim - ini) * 0.2))
     yield
     yield
-    hover = addon._hover_hud.get(regiao.as_pointer())
+    hover = addon.hud._hover_hud.get(regiao.as_pointer())
     assert hover and hover['objeto'] == a, 'a linha de A nao acendeu: %s' % (
         hover and hover['objeto'].name)
     m.clicar()
     yield
-    estado = addon._edicao_hud[0]
+    estado = addon.hud._edicao_hud[0]
     assert estado and estado.get('fase') == 'coletar', estado
     assert not estado.get('botoes'), 'voltou o "Editar como?"'
     with contexto(janela, area, regiao):
-        pendentes = [g['objeto'] for g, _x in addon._desenhos_hud(bpy.context)
+        pendentes = [g['objeto'] for g, _x in addon.hud._desenhos_hud(bpy.context)
                      if g.get('pendente')]
     assert pendentes == [b], 'B devia piscar: %s' % pendentes
-    assert time.time() - addon._piscada_hud[0] < 5, 'nao piscou'
+    assert time.time() - addon.hud._piscada_hud[0] < 5, 'nao piscou'
     fixa_b, ini, fim = linhas[b]
     m.mover(*(ini + (fim - ini) * 0.2))
     yield
     yield
     m.clicar()
     yield
-    assert addon._edicao_hud[0].get('texto') is not None, \
+    assert addon.hud._edicao_hud[0].get('texto') is not None, \
         'orientados os dois, devia digitar'
     m.digitar('900')
     m.tecla('RET')
     yield
     for item, fixa in ((a, fixa_a), (b, fixa_b)):
         assert abs(item.conj_largura_mm - 900.0) < 1e-3, item.conj_largura_mm
-        nova = addon._geometria_do_item(item, 'GRUPO',
-                                        addon._chapas_do_conjunto(item))
+        nova = addon.hud._geometria_do_item(item, 'GRUPO',
+                                        addon.modulos._chapas_do_conjunto(item))
         assert min((c - fixa).length for c in nova['cantos']) < 1e-4, \
             'a quina escolhida de %s saiu do lugar' % item.name
     # quina do modulo A: arrastar move so' ele
-    geometria = addon._geometria_do_item(a, 'GRUPO', addon._chapas_do_conjunto(a))
+    geometria = addon.hud._geometria_do_item(a, 'GRUPO', addon.modulos._chapas_do_conjunto(a))
     canto = min((na_tela(regiao, rv3d, c) for c in geometria['cantos']
                  if na_tela(regiao, rv3d, c)),
                 key=lambda c: c[0])            # a quina mais a esquerda
@@ -1247,7 +1247,7 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     m.mover(*canto)
     yield
     yield
-    hover = addon._hover_hud.get(regiao.as_pointer())
+    hover = addon.hud._hover_hud.get(regiao.as_pointer())
     assert hover and hover['tipo'] == 'ancora' and hover['objeto'] == a, \
         'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
     m.apertar()
@@ -1279,8 +1279,8 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
     m.clicar()
     yield
     assert bpy.context.view_layer.objects.active == a
-    cantos = lambda o: addon._geometria_do_item(
-        o, 'GRUPO', addon._chapas_do_conjunto(o))['cantos']
+    cantos = lambda o: addon.hud._geometria_do_item(
+        o, 'GRUPO', addon.modulos._chapas_do_conjunto(o))['cantos']
     na_vista = [(i, na_tela(regiao, rv3d, c)) for i, c in enumerate(cantos(a))]
     i, canto = min(((i, c) for i, c in na_vista if c), key=lambda x: x[1][0])
     alvo = cantos(b)[i].copy()
@@ -1288,7 +1288,7 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
     m.mover(*canto)
     yield
     yield
-    hover = addon._hover_hud.get(regiao.as_pointer())
+    hover = addon.hud._hover_hud.get(regiao.as_pointer())
     assert hover and hover['tipo'] == 'ancora' and hover['objeto'] == a, \
         'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
     m.apertar()
@@ -1302,9 +1302,9 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
         yield
     # Grudou numa quina de B perto do alvo: a da caixa ou a de uma chapa
     # dele (a espessura as separa por poucos pixels; vale a mais perto)
-    grudou = addon._edicao_hud[0].get('snap')
+    grudou = addon.hud._edicao_hud[0].get('snap')
     assert grudou is not None, 'nao grudou'
-    quinas_b = [q for q in addon._quinas_de_snap(a)
+    quinas_b = [q for q in addon.hud._quinas_de_snap(a)
                 if (q - alvo).length < 0.05]
     assert min((q - grudou).length for q in quinas_b) < 1e-6, \
         'grudou fora das quinas de B'
@@ -1314,7 +1314,7 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
     # soltando o Ctrl parado o snap sai; apertando de novo, volta
     janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._edicao_hud[0].get('snap') is None, 'Ctrl solto e grudado'
+    assert addon.hud._edicao_hud[0].get('snap') is None, 'Ctrl solto e grudado'
     assert min((c - alvo).length for c in cantos(a)) > 1e-3, 'nao soltou'
     janela.event_simulate('LEFT_CTRL', 'PRESS', ctrl=True, x=m.x, y=m.y)
     yield
@@ -1322,7 +1322,7 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
     yield
     janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._edicao_hud[0] is None, 'o arraste nao terminou'
+    assert addon.hud._edicao_hud[0] is None, 'o arraste nao terminou'
     erro = min((c - alvo).length for c in cantos(a))
     assert erro < 1e-5, 'soltou fora da quina: %.4f m' % erro
 
@@ -1335,7 +1335,7 @@ def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Antes do modulo')
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     selecionar(janela, chapas[0])
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Modulo')
@@ -1345,22 +1345,22 @@ def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
     rv3d.view_distance = 1.6
     yield
     yield
-    geometria = addon._geometria_do_item(conj, 'GRUPO', chapas)
+    geometria = addon.hud._geometria_do_item(conj, 'GRUPO', chapas)
     linha = next(l for l in geometria['linhas'] if l['tipo'] == 'medida'
                  and all(na_tela(regiao, rv3d, p) for p in l['pontos']))
     p, q = (Vector(na_tela(regiao, rv3d, x)) for x in linha['pontos'])
     m.mover(*(p + (q - p) * 0.3))
     yield
     yield
-    assert addon._hover_hud.get(regiao.as_pointer()), 'a linha nao acendeu'
+    assert addon.hud._hover_hud.get(regiao.as_pointer()), 'a linha nao acendeu'
     m.apertar('Z', ctrl=True)
     m.soltar('Z', ctrl=True)
     yield
     yield
-    assert not any(addon.MARCA_CONJUNTO in o for o in bpy.data.objects),         'o Ctrl+Z nao desfez o modulo'
-    assert all(addon._alvo_vivo(a) for a in addon._hover_hud.values()),         'o hover ficou com objeto liberado'
+    assert not any(addon.chapas.MARCA_CONJUNTO in o for o in bpy.data.objects),         'o Ctrl+Z nao desfez o modulo'
+    assert all(addon.hud._alvo_vivo(a) for a in addon.hud._hover_hud.values()),         'o hover ficou com objeto liberado'
     # o handler do depsgraph esperou o undo assentar e ja' voltou
-    assert not addon._desfazendo[0], 'o handler ficou desligado'
+    assert not addon.eventos._desfazendo[0], 'o handler ficou desligado'
     m.mover(m.x + 6, m.y)
     yield
     yield
@@ -1373,12 +1373,12 @@ def test_hover_acende_o_botao_pelo_gizmo_da_gaveta(janela, m):
     m.mover(*widget(janela, lambda v: v[5] == ('aba', 'PORTAS')))
     yield esperar(0.4)
     with contexto(janela, area, regiao):
-        aceso = addon._valor_realce(bpy.context, 'aba:PORTAS')
+        aceso = addon.gaveta._valor_realce(bpy.context, 'aba:PORTAS')
     assert aceso > 0.5, 'hover nao acendeu a aba (%.2f)' % aceso
     m.mover(regiao.x + regiao.width / 2, regiao.y + 20)   # pe' vazio
     yield esperar(0.6)
     with contexto(janela, area, regiao):
-        apagado = addon._valor_realce(bpy.context, 'aba:PORTAS')
+        apagado = addon.gaveta._valor_realce(bpy.context, 'aba:PORTAS')
     assert apagado < 0.1, 'o glow nao apagou ao sair (%.2f)' % apagado
 
 
@@ -1396,7 +1396,7 @@ def _porta_no_modulo(janela, conj):
                              for v in linha),
             pai_nome=conj.name, modulo_nome=conj.name, frente='NEG_Y',
             dobradica='RETA', folhas=1)
-    return addon._portas_do_conjunto(conj)[0]
+    return addon.portas._portas_do_conjunto(conj)[0]
 
 
 def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
@@ -1405,23 +1405,23 @@ def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
     # conforme ela. So' as bordas das folhas da porta valem.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     grupo = _porta_no_modulo(janela, conj)
-    folha = addon._folhas_portas(grupo)[0]
-    pux = addon.criar_puxador(bpy.context, folha, 'ALCA', 'X+', 1, 0.5)
+    folha = addon.portas._folhas_portas(grupo)[0]
+    pux = addon.puxadores.criar_puxador(bpy.context, folha, 'ALCA', 'X+', 1, 0.5)
     bpy.ops.object.select_all(action='DESELECT')
     folha.select_set(True)
     bpy.context.view_layer.objects.active = folha
     yield
     yield
-    m.mover(*na_tela(regiao, rv3d, addon._ancora_do_puxador(pux)))
+    m.mover(*na_tela(regiao, rv3d, addon.puxadores._ancora_do_puxador(pux)))
     yield
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     yield
     m.apertar(alt=True)
     yield
-    estado = addon._arraste_puxador[0]
+    estado = addon.puxadores._arraste_puxador[0]
     assert estado is not None, 'a ancora do puxador nao pegou'
-    a, b = addon._bordas_da_face(folha, 1)['Y-']
+    a, b = addon.puxadores._bordas_da_face(folha, 1)['Y-']
     destino = na_tela(regiao, rv3d, a.lerp(b, 0.3))
     inicio = (m.x, m.y)
     for passo in range(1, 6):
@@ -1434,7 +1434,7 @@ def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon._arraste_puxador[0] is None, 'o arraste nao terminou'
+    assert addon.puxadores._arraste_puxador[0] is None, 'o arraste nao terminou'
     assert (pux.parent, pux['puxador_borda']) == (folha, 'Y-'), (
         pux.parent.name, pux['puxador_borda'])
     assert abs(pux['puxador_fracao'] - 0.3) < 0.05, pux['puxador_fracao']
@@ -1443,7 +1443,7 @@ def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
 def test_definir_frente_com_clique_na_face(janela, m):
     conj = criar_modulo(janela)
     grupo = _porta_no_modulo(janela, conj)
-    folha = addon._folhas_portas(grupo)[0]
+    folha = addon.portas._folhas_portas(grupo)[0]
     frente = grupo.matrix_world.to_3x3().col[2].normalized()
     assert frente.y < -0.99, tuple(frente)
     bpy.ops.object.select_all(action='DESELECT')
@@ -1453,7 +1453,7 @@ def test_definir_frente_com_clique_na_face(janela, m):
     # vista de TRAS (olhando para -Y): o nicho nao tem fundo, o raio
     # bate direto na face de tras da folha
     rv3d.view_rotation = Euler((math.pi / 2, 0, math.pi)).to_quaternion()
-    lo, hi = caixa_mundo(addon._chapas_do_conjunto(conj))
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
     yield
     yield
@@ -1472,7 +1472,7 @@ def test_escalar_o_modulo_com_S(janela, m):
     # Bug achado pelo harness (corrigido na 126): S no Empty do modulo
     # nao surtia efeito -- as chapas voltavam ao tamanho antigo.
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     largura = conj.conj_largura_mm
     area, regiao, rv3d = viewport(janela)
     centro = na_tela(regiao, rv3d, conj.matrix_world.translation)
@@ -1504,7 +1504,7 @@ def test_escalar_o_modulo_com_S(janela, m):
         (largura, esperado, conj.conj_largura_mm)
     for eixo in conj.scale:
         assert abs(eixo - 1.0) < 1e-6, tuple(conj.scale)
-    for chapa in addon._chapas_do_conjunto(conj):
+    for chapa in addon.modulos._chapas_do_conjunto(conj):
         assert abs(chapa.chapa_espessura_mm - 18.0) < 1e-3, chapa.name
         assert all(abs(s - 1.0) < 1e-6 for s in chapa.scale), chapa.name
 
@@ -1515,12 +1515,12 @@ def test_clique_na_corrente_desassocia(janela, m):
     # (o gizmo nativo nao aceita clique com modificador). So' aparece com
     # a tecla das opcoes (Alt) segurada e a solda fora da origem; TODAS as
     # quinas; o clique desagrega a peca INTEIRA (todas as quinas).
-    piso = addon.nova_chapa('Piso', 600.0, 400.0, 18.0, (0, 0, 9.0),
+    piso = addon.chapas.nova_chapa('Piso', 600.0, 400.0, 18.0, (0, 0, 9.0),
                             (0, 0, 0), bpy.context)
-    lateral = addon.nova_chapa('Lateral', 720.0, 400.0, 18.0,
+    lateral = addon.chapas.nova_chapa('Lateral', 720.0, 400.0, 18.0,
                                (319.0, 0, 360.0), (0, 90.0, 0), bpy.context)
     bpy.context.view_layer.update()
-    addon.detectar_adjacencia([piso, lateral])
+    addon.chapas.detectar_adjacencia([piso, lateral])
     lateral.location.x += 0.02          # 20 mm fora da origem da solda
     bpy.context.view_layer.update()
     selecionar(janela, piso)
@@ -1532,7 +1532,7 @@ def test_clique_na_corrente_desassocia(janela, m):
 
     def corrente_visivel():
         with contexto(janela, area, regiao):
-            return addon._correntes_hud(bpy.context)
+            return addon.solda._correntes_hud(bpy.context)
 
     assert corrente_visivel() == [], 'sem Alt a corrente nao aparece'
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
@@ -1541,29 +1541,29 @@ def test_clique_na_corrente_desassocia(janela, m):
     assert len(correntes) == 2, 'com Alt: as 2 quinas, veio %d' % len(correntes)
     assert correntes[0]['meio'] is not None, 'a corrente ficou fora da tela'
     with contexto(janela, area, regiao):
-        meio = addon._botoes_da_corrente(bpy.context, correntes[0])['corrente']
+        meio = addon.solda._botoes_da_corrente(bpy.context, correntes[0])['corrente']
     m.mover(regiao.x + meio.x, regiao.y + meio.y)
     yield
     yield
     m.clicar(alt=True)
     yield
-    assert not addon.agregado(piso), 'um clique e o piso segue agregado'
-    assert addon._ligacoes_adjacencia([piso, lateral]) == []
+    assert not addon.solda.agregado(piso), 'um clique e o piso segue agregado'
+    assert addon.solda._ligacoes_adjacencia([piso, lateral]) == []
     assert corrente_visivel() == [], 'a corrente nao sumiu'
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert not addon._tecla_corrente_segurada[0], 'soltar o Alt nao escondeu'
+    assert not addon.solda._tecla_corrente_segurada[0], 'soltar o Alt nao escondeu'
     # o clique foi DA corrente: a selecao continua a mesma
     assert piso.select_get() and lateral.select_get()
 
 
 def _caixote_aberto(janela):
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     ordem = sorted(chapas, key=lambda o: o.matrix_world.translation.z)
     base, tampo = ordem[0], ordem[-1]
     for chapa in (base, tampo):
-        addon._redimensionar_chapa_ancorada(
+        addon.hud._redimensionar_chapa_ancorada(
             chapa, 0, chapa.chapa_largura_mm - 250.0, 'min')
     bpy.context.view_layer.update()
     return conj, base, tampo
@@ -1584,10 +1584,10 @@ def test_clique_na_corrente_tira_a_peca_do_modulo(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     with contexto(janela, area, regiao):
-        correntes = [c for c in addon._correntes_hud(bpy.context)
+        correntes = [c for c in addon.solda._correntes_hud(bpy.context)
                      if c['meio'] is not None]
         assert correntes, 'nenhuma corrente na tela'
-        meio = addon._botoes_da_corrente(bpy.context, correntes[0])['corrente']
+        meio = addon.solda._botoes_da_corrente(bpy.context, correntes[0])['corrente']
     peca = correntes[0]['a']
     assert peca in (base, tampo)
     mundo = peca.matrix_world.copy()
@@ -1599,7 +1599,7 @@ def test_clique_na_corrente_tira_a_peca_do_modulo(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
     assert peca.parent is None, 'a peca continua no modulo'
-    assert not addon.agregado(peca)
+    assert not addon.solda.agregado(peca)
     for a, b in zip(peca.matrix_world, mundo):
         assert (a - b).length < 1e-5, 'a peca saiu do lugar'
     outra = tampo if peca is base else base
@@ -1614,10 +1614,10 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
     # (cabinet_confirmar_conexao); "Juntar ao modulo?" -> Sim
     # (cabinet_juntar_modulo). O modulo NAO e' puxado.
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
     fixos = {o.name: o.matrix_world.copy() for o in chapas}
-    prateleira = addon.nova_chapa('Prateleira', 400.0, 300.0, 18.0,
+    prateleira = addon.chapas.nova_chapa('Prateleira', 400.0, 300.0, 18.0,
                                   (900.0, 0, 300.0), (0, 0, 0), bpy.context)
     bpy.context.view_layer.update()
     selecionar(janela, prateleira, individual=True)
@@ -1628,22 +1628,22 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
     rv3d.view_distance = 2.4
     yield
     yield
-    botao = lambda v: v[5][:2] == ('operador', addon.OP_CORRENTE_OBJETO)
+    botao = lambda v: v[5][:2] == ('operador', addon.solda.OP_CORRENTE_OBJETO)
     with contexto(janela, *gaveta(janela)):
-        estado = addon._estado_corrente_objeto(bpy.context)
+        estado = addon.solda._estado_corrente_objeto(bpy.context)
     assert estado is False, 'prateleira solta devia deixar o botao cinza'
     m.mover(*widget(janela, botao))
     yield
     m.clicar()
     yield
-    assert addon._conexao_manual[0] is not None, 'nao entrou em selecionar vertice'
-    fora_x = max(p.x for p in addon._cantos(direita))
-    alvos = sorted((p for p in addon._cantos(direita)
+    assert addon.solda._conexao_manual[0] is not None, 'nao entrou em selecionar vertice'
+    fora_x = max(p.x for p in addon.chapas._cantos(direita))
+    alvos = sorted((p for p in addon.chapas._cantos(direita)
                     if abs(p.x - fora_x) < 1e-6 and p.z < 0.01),
                    key=lambda p: p.y)
-    cantos = sorted((p for p in addon._cantos(prateleira)
-                     if addon._assinatura_canto(prateleira, p)[0] == '-'
-                     and addon._assinatura_canto(prateleira, p)[2] == '-'),
+    cantos = sorted((p for p in addon.chapas._cantos(prateleira)
+                     if addon.solda._assinatura_canto(prateleira, p)[0] == '-'
+                     and addon.solda._assinatura_canto(prateleira, p)[2] == '-'),
                     key=lambda p: p.y)
     for p, q in zip(cantos, alvos):
         for ponto in (p, q):
@@ -1651,8 +1651,8 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
             yield
             m.clicar()
             yield
-    assert len(addon._conexao_manual[0]['pares']) == 2, \
-        addon._conexao_manual[0]['pares']
+    assert len(addon.solda._conexao_manual[0]['pares']) == 2, \
+        addon.solda._conexao_manual[0]['pares']
     m.mover(*widget(janela, lambda v: v[5] == (
         'operador', 'object.cabinet_confirmar_conexao')))
     yield
@@ -1660,19 +1660,19 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
     yield
     m.mover(*na_tela(regiao, rv3d, conj.matrix_world.translation))
     yield
-    assert addon._conexao_manual[0] is None, 'Confirmar nao encerrou'
-    assert addon._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
+    assert addon.solda._conexao_manual[0] is None, 'Confirmar nao encerrou'
+    assert addon.solda._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
     # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
     # nao em pop-up -- clica no "Sim, juntar" de dentro da caixa
-    assert addon._pergunta_atual[0] and addon._pergunta_atual[0]['na_gaveta'], \
+    assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
         'a pergunta devia estar na gaveta'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
     assert prateleira.parent == conj, 'nao entrou no modulo'
-    assert addon.agregado(prateleira)
-    lo = min(p.x for p in addon._cantos(prateleira))
+    assert addon.solda.agregado(prateleira)
+    lo = min(p.x for p in addon.chapas._cantos(prateleira))
     assert abs(lo - fora_x) < 1e-5, "a ponta nao foi ate' a lateral (%f)" % lo
     for o in chapas:
         for a, b in zip(o.matrix_world, fixos[o.name]):
@@ -1693,11 +1693,11 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
     # peca de fora, que vira o ativo), botao Corrente: conecta por
     # distancia -> "Juntar ao modulo?" -> Sim. O modulo NAO e' puxado.
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
     fixos = {o.name: o.matrix_world.copy() for o in chapas}
-    fora_x = max(p.x for p in addon._cantos(direita))
-    prateleira = addon.nova_chapa('Prateleira', 400.0, 300.0, 18.0,
+    fora_x = max(p.x for p in addon.chapas._cantos(direita))
+    prateleira = addon.chapas.nova_chapa('Prateleira', 400.0, 300.0, 18.0,
                                   (fora_x * 1000.0 + 3.0 + 200.0, 0, 300.0),
                                   (0, 0, 0), bpy.context)
     bpy.ops.object.select_all(action='DESELECT')
@@ -1710,7 +1710,7 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
     yield
     m.clicar()
     yield
-    assert set(bpy.context.selected_objects) == set(addon.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
+    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
     m.mover(*na_tela(regiao, rv3d, prateleira.matrix_world.translation))
     yield
     m.clicar(shift=True)
@@ -1719,25 +1719,25 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
     assert all(o.select_get() for o in chapas), 'o Shift perdeu o alvo: %s' % (
         [o.name for o in bpy.context.selected_objects],)
     with contexto(janela, *gaveta(janela)):
-        acao = addon._acao_corrente(bpy.context)
+        acao = addon.solda._acao_corrente(bpy.context)
     assert acao[:2] == ('conectar', prateleira), acao
     m.mover(*widget(janela, lambda v: v[5][:2] == (
-        'operador', addon.OP_CORRENTE_OBJETO)))
+        'operador', addon.solda.OP_CORRENTE_OBJETO)))
     yield
     m.clicar()
     yield
-    assert addon._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
+    assert addon.solda._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
     # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
     # nao em pop-up -- clica no "Sim, juntar" de dentro da caixa
-    assert addon._pergunta_atual[0] and addon._pergunta_atual[0]['na_gaveta'], \
+    assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
         'a pergunta devia estar na gaveta'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
     assert prateleira.parent == conj, 'nao entrou no modulo'
-    assert addon.agregado(prateleira)
-    lo = min(p.x for p in addon._cantos(prateleira))
+    assert addon.solda.agregado(prateleira)
+    lo = min(p.x for p in addon.chapas._cantos(prateleira))
     assert abs(lo - fora_x) < 1e-5, "a folga nao fechou (%f)" % lo
     for o in chapas:
         for a, b in zip(o.matrix_world, fixos[o.name]):
@@ -1746,7 +1746,7 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
 
 def test_botao_corrente_no_grupo_pergunta_antes_de_desagregar(janela, m):
     conj = criar_modulo(janela)
-    chapas = addon._chapas_do_conjunto(conj)
+    chapas = addon.modulos._chapas_do_conjunto(conj)
     area, regiao, rv3d = _vista_do_lado_direito(janela)
     bpy.ops.object.select_all(action='DESELECT')
     yield
@@ -1756,32 +1756,32 @@ def test_botao_corrente_no_grupo_pergunta_antes_de_desagregar(janela, m):
     yield
     m.clicar()
     yield
-    assert set(bpy.context.selected_objects) == set(addon.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
+    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
     m.mover(*widget(janela, lambda v: v[5][:2] == (
-        'operador', addon.OP_CORRENTE_OBJETO)))
+        'operador', addon.solda.OP_CORRENTE_OBJETO)))
     yield
     m.clicar()
     yield
-    assert addon._desagregar_pendente[0] == sorted(o.name for o in chapas),         'sem "tem certeza que deseja desagregar todos os itens?" %s %s %s' % (
-            addon._desagregar_pendente[0],
+    assert addon.solda._desagregar_pendente[0] == sorted(o.name for o in chapas),         'sem "tem certeza que deseja desagregar todos os itens?" %s %s %s' % (
+            addon.solda._desagregar_pendente[0],
             [o.name for o in bpy.context.selected_objects],
             bpy.context.view_layer.objects.active)
     assert all(o.parent == conj for o in chapas), 'desagregou sem perguntar'
     nome = conj.name
     # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
     # nao em pop-up -- clica no "Sim, desagregar" de dentro da caixa
-    assert addon._pergunta_atual[0] and addon._pergunta_atual[0]['na_gaveta'], \
+    assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
         'a pergunta devia estar na gaveta'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
     assert nome not in bpy.data.objects, 'o modulo vazio ficou'
-    assert all(o.parent is None and not addon.agregado(o) for o in chapas)
+    assert all(o.parent is None and not addon.solda.agregado(o) for o in chapas)
 
 
 def test_digitar_no_campo_da_gaveta(janela, m):
-    chapa = addon.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
+    chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
                              (0, 0, 0), bpy.context)
     selecionar(janela, chapa, individual=True)
     yield
@@ -1803,7 +1803,7 @@ def test_comodo_e_copiar_orcamento_pela_gaveta(janela, m):
     # copia e diz na propria gaveta o que fez ("copiar e nada acontece").
     # A area de transferencia do usuario volta como estava no fim.
     conj = criar_modulo(janela)
-    selecionar(janela, addon._chapas_do_conjunto(conj)[0])
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     bpy.context.scene.cabinet_aba = 'MODULOS'
     yield
     yield
@@ -1811,34 +1811,34 @@ def test_comodo_e_copiar_orcamento_pela_gaveta(janela, m):
     antes = wm.clipboard
     try:
         m.mover(*widget(janela, lambda v: v[5][:2] == (
-            'suspenso', addon.SUSPENSO_COMODO)))
+            'suspenso', addon.orcamento.SUSPENSO_COMODO)))
         yield
         m.clicar()
         yield
         m.mover(*widget(janela, lambda v: v[5][0] == 'escolha'
-                        and v[5][5] == addon.ALVO_COMODO
+                        and v[5][5] == addon.orcamento.ALVO_COMODO
                         and v[5][2] == 'Cozinha'))
         yield
         m.clicar()
         yield
-        comodo = addon._comodo_do_modulo(conj)
+        comodo = addon.orcamento._comodo_do_modulo(conj)
         assert comodo is not None and comodo.name == 'Cozinha', comodo
-        assert bpy.context.screen.get(addon._CHAVE_SUSPENSO, '') == '', \
+        assert bpy.context.screen.get(addon.gaveta._CHAVE_SUSPENSO, '') == '', \
             'a lista devia fechar depois da escolha'
         m.mover(*widget(janela, lambda v: v[5][:2] == (
-            'operador', addon.OP_EXPORTAR_ORCAMENTO)))
+            'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)))
         yield
         m.clicar()
         yield
         copiado = wm.clipboard
-        assert copiado == addon.orcamento_da_cena(bpy.context.scene)[0]
+        assert copiado == addon.orcamento.orcamento_da_cena(bpy.context.scene)[0]
         assert '### Cozinha\n- %s\n' % conj.name in copiado, copiado
         widget(janela, lambda v: v[5][:2] == (
-            'operador', addon.OP_EXPORTAR_ORCAMENTO) and v[5][2]
+            'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO) and v[5][2]
             and v[4].startswith('Copiado: 1 modulo(s)'))
     finally:
         wm.clipboard = antes
-        addon._apagar_orcamento_copiado()
+        addon.orcamento._apagar_orcamento_copiado()
 
 
 def test_criar_puxador_no_topo_da_aba(janela, m):
@@ -1851,13 +1851,13 @@ def test_criar_puxador_no_topo_da_aba(janela, m):
     m.clicar()
     yield
     try:
-        assert addon._posicionador_puxador[0] is not None, 'nao comecou'
+        assert addon.puxadores._posicionador_puxador[0] is not None, 'nao comecou'
         widget(janela, lambda v: v[5][0] == 'criar_puxador' and v[5][2]
                and v[4].startswith('Posicionando'))
     finally:
         m.tecla('ESC')
         yield
-    assert addon._posicionador_puxador[0] is None, 'Esc devia encerrar'
+    assert addon.puxadores._posicionador_puxador[0] is None, 'Esc devia encerrar'
 
 
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,

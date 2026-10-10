@@ -24,7 +24,7 @@ class TestOrcamento(unittest.TestCase):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
         for col in [c for c in bpy.data.collections
-                    if c.get(addon.MARCA_COLECAO_MODULO)]:
+                    if c.get(addon.modulos.MARCA_COLECAO_MODULO)]:
             bpy.data.collections.remove(col)
 
     def nicho(self, nome='', extras=(), x=0.0):
@@ -33,14 +33,14 @@ class TestOrcamento(unittest.TestCase):
         bpy.ops.object.cabinet_criar_nicho()
         pecas = list(bpy.context.selected_objects)
         for args in extras:
-            pecas.append(addon.nova_chapa(*args, bpy.context))
+            pecas.append(addon.chapas.nova_chapa(*args, bpy.context))
         for o in pecas:
             o.location.x += x
             o.select_set(True)
         bpy.context.view_layer.update()
         bpy.ops.object.cabinet_agrupar(nome=nome)
         conj = bpy.context.object
-        self.assertIn(addon.MARCA_CONJUNTO, conj)
+        self.assertIn(addon.chapas.MARCA_CONJUNTO, conj)
         bpy.context.view_layer.update()
         return conj
 
@@ -58,10 +58,10 @@ class TestOrcamento(unittest.TestCase):
                              for v in linha),
             pai_nome=conj.name, modulo_nome=conj.name, **opcoes)
         self.assertEqual(resultado, {'FINISHED'})
-        return addon._portas_do_conjunto(conj)[-1]
+        return addon.portas._portas_do_conjunto(conj)[-1]
 
     def comodo(self, conj, nome):
-        self.assertEqual(addon.definir_comodo(bpy.context.scene, [conj], nome), 1)
+        self.assertEqual(addon.orcamento.definir_comodo(bpy.context.scene, [conj], nome), 1)
 
     def bloco(self, texto):
         self.assertTrue(texto.startswith('```markdown\n'), texto)
@@ -76,10 +76,10 @@ class TestOrcamento(unittest.TestCase):
             ('Divisoria', 364.0, 300.0, 18.0, (0.0, 0.0, 200.0),
              (0.0, 90.0, 0.0))))
         grupo = self.porta(conj)
-        for folha in addon._folhas_portas(grupo):
-            addon.criar_puxador(bpy.context, folha, 'PERFIL', 'Y-', 1)
+        for folha in addon.portas._folhas_portas(grupo):
+            addon.puxadores.criar_puxador(bpy.context, folha, 'PERFIL', 'Y-', 1)
         self.comodo(conj, 'Cozinha')
-        texto, exportados, pendencias = addon.orcamento_da_cena(bpy.context.scene)
+        texto, exportados, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
         self.assertEqual((exportados, pendencias), (1, []))
         self.assertEqual(texto, '\n'.join((
             '```markdown',
@@ -132,14 +132,14 @@ class TestOrcamento(unittest.TestCase):
                 conj = self.nicho('Superior %d' % i)
                 self.porta(conj, **opcoes)
                 self.comodo(conj, 'Sala')
-                bloco = self.bloco(addon.orcamento_da_cena(bpy.context.scene)[0])
+                bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
                 self.assertIn('### Sala\n- Superior %d\n  - %s\n'
                               '  - Sem prateleiras internas\n' % (i, esperado),
                               bloco)
         self.setUp()
         conj = self.nicho('Nicho')
         self.comodo(conj, '\u00c1rea de servi\u00e7o')
-        bloco = self.bloco(addon.orcamento_da_cena(bpy.context.scene)[0])
+        bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
         self.assertIn('### \u00c1rea de servi\u00e7o\n- Nicho\n'
                       '  - Sem prateleiras internas\n\n', bloco)
 
@@ -154,8 +154,8 @@ class TestOrcamento(unittest.TestCase):
         self.comodo(cozinha, 'Cozinha')
         cozinha.rotation_euler.z = 1.5707963
         bpy.context.view_layer.update()
-        self.assertEqual(addon._pecas_internas(cozinha), (1, 0))
-        bloco = self.bloco(addon.orcamento_da_cena(bpy.context.scene)[0])
+        self.assertEqual(addon.orcamento._pecas_internas(cozinha), (1, 0))
+        bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
         self.assertLess(bloco.index('### Cozinha'), bloco.index('### Sala'))
         self.assertIn('- Torre\n  - 1 prateleira interna\n', bloco)
 
@@ -164,11 +164,11 @@ class TestOrcamento(unittest.TestCase):
         # automatico e chapa solta viram pendencia; sem marcenaria, o
         # bloco Moveis some (bloco vazio nao tem cabecalho).
         conj = self.nicho()
-        self.assertTrue(addon.NOME_AUTOMATICO_MODULO.match(conj.name))
+        self.assertTrue(addon.orcamento.NOME_AUTOMATICO_MODULO.match(conj.name))
         bpy.ops.object.select_all(action='DESELECT')
-        addon.nova_chapa('Solta', 600.0, 400.0, 18.0, (3000.0, 0.0, 0.0),
+        addon.chapas.nova_chapa('Solta', 600.0, 400.0, 18.0, (3000.0, 0.0, 0.0),
                          (0.0, 0.0, 0.0), bpy.context)
-        texto, exportados, pendencias = addon.orcamento_da_cena(bpy.context.scene)
+        texto, exportados, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
         self.assertEqual(exportados, 0)
         self.assertNotIn('## M\u00f3veis', texto)
         self.assertIn('## Outros\n\n### Geral\n- Limpeza geral.\n', texto)
@@ -184,7 +184,7 @@ class TestOrcamento(unittest.TestCase):
             'or\u00e7amento?\n'))
         # com o comodo, o nome automatico continua cobrado, pelo comodo
         self.comodo(conj, 'Quarto')
-        pendencias = addon.orcamento_da_cena(bpy.context.scene)[2]
+        pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)[2]
         self.assertIn('- Quarto, %s: n\u00e3o foi dito que m\u00f3dulo \u00e9 '
                       '(o nome do grupo ainda \u00e9 o autom\u00e1tico).'
                       % conj.name, pendencias)
@@ -197,27 +197,27 @@ class TestOrcamento(unittest.TestCase):
         b = self.nicho('B', x=2.0)
         tela = bpy.context.screen
         bpy.context.scene.cabinet_aba = 'MODULOS'
-        self.addCleanup(tela.__setitem__, addon._CHAVE_SUSPENSO, '')
+        self.addCleanup(tela.__setitem__, addon.gaveta._CHAVE_SUSPENSO, '')
 
         def widgets():
-            return [v for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+            return [v for v in addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
                     if v[5]]
 
         def lista():
             return [v[5] for v in widgets() if v[5][0] == 'escolha'
-                    and v[5][5] == addon.ALVO_COMODO]
+                    and v[5][5] == addon.orcamento.ALVO_COMODO]
 
         def campo():
             return [v for v in widgets() if v[5][:2] == (
-                'suspenso', addon.SUSPENSO_COMODO)]
+                'suspenso', addon.orcamento.SUSPENSO_COMODO)]
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = None
         self.assertEqual(campo(), [])               # sem modulo, sem comodo
         self.assertEqual(len([v for v in widgets() if v[5][:2] == (
-            'operador', addon.OP_EXPORTAR_ORCAMENTO)]), 1)
+            'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)]), 1)
         # chapa de A + folha da porta de B: os dois modulos
-        chapa = addon._chapas_do_conjunto(a)[0]
-        folha = addon._folhas_portas(self.porta(b))[0]
+        chapa = addon.modulos._chapas_do_conjunto(a)[0]
+        folha = addon.portas._folhas_portas(self.porta(b))[0]
         bpy.ops.object.select_all(action='DESELECT')
         chapa.select_set(True)
         folha.select_set(True)
@@ -225,47 +225,47 @@ class TestOrcamento(unittest.TestCase):
         (fechado,) = campo()
         self.assertEqual(fechado[4], 'Comodo: (nenhum)')
         self.assertEqual(lista(), [])               # fechada: uma linha so'
-        tela[addon._CHAVE_SUSPENSO] = addon.SUSPENSO_COMODO
+        tela[addon.gaveta._CHAVE_SUSPENSO] = addon.orcamento.SUSPENSO_COMODO
         self.assertEqual([e[2] for e in lista()],
-                         [*addon.COMODOS, addon.COMODO_OUTRO])
+                         [*addon.orcamento.COMODOS, addon.orcamento.COMODO_OUTRO])
         self.assertEqual(bpy.ops.object.cabinet_definir_comodo(nome='Sacada'),
                          {'FINISHED'})
         for conj in (a, b):
-            self.assertEqual(addon._nome_comodo(addon._comodo_do_modulo(conj)),
+            self.assertEqual(addon.orcamento._nome_comodo(addon.orcamento._comodo_do_modulo(conj)),
                              'Sacada')
         self.assertEqual(campo()[0][4], 'Comodo: Sacada')
         self.assertEqual([e[2] for e in lista() if e[3]], ['Sacada'])
-        self.assertIn(addon.COMODO_NENHUM, [e[2] for e in lista()])
+        self.assertIn(addon.orcamento.COMODO_NENHUM, [e[2] for e in lista()])
         # "Outro nome...": o campo da caixa preta, logo abaixo da linha
-        addon._abrir_caixa_comodo(bpy.context)
-        self.addCleanup(addon._pergunta_atual.__setitem__, 0, None)
-        self.addCleanup(addon._nome_grupo_gaveta.__setitem__, 0, None)
+        addon.orcamento._abrir_caixa_comodo(bpy.context)
+        self.addCleanup(addon.perguntas._pergunta_atual.__setitem__, 0, None)
+        self.addCleanup(addon.solda._nome_grupo_gaveta.__setitem__, 0, None)
         caixa = [v for v in widgets() if v[5][0] == 'pergunta']
         self.assertEqual(len(caixa), 1)
         self.assertTrue(caixa[0][4].startswith('Nome do comodo: '))
         self.assertLess(caixa[0][1], campo()[0][1])
-        addon._nome_grupo_gaveta[0]['texto'] = 'Varanda'
+        addon.solda._nome_grupo_gaveta[0]['texto'] = 'Varanda'
         self.assertEqual(bpy.ops.object.cabinet_definir_comodo(digitado=True),
                          {'FINISHED'})
-        self.assertIsNone(addon._pergunta_atual[0])
+        self.assertIsNone(addon.perguntas._pergunta_atual[0])
         # Varanda e' Sacada (regra do prompt): a mesma pasta
         self.assertEqual([c.name for c in bpy.data.collections
-                          if c.get(addon.MARCA_COLECAO_COMODO)], ['Sacada'])
-        addon._abrir_caixa_comodo(bpy.context)
-        addon._nome_grupo_gaveta[0]['texto'] = 'Quarto do Joao'
-        self.assertTrue(addon._confirmar_campo_gaveta(
-            addon._nome_grupo_gaveta[0]))
+                          if c.get(addon.orcamento.MARCA_COLECAO_COMODO)], ['Sacada'])
+        addon.orcamento._abrir_caixa_comodo(bpy.context)
+        addon.solda._nome_grupo_gaveta[0]['texto'] = 'Quarto do Joao'
+        self.assertTrue(addon.orcamento._confirmar_campo_gaveta(
+            addon.solda._nome_grupo_gaveta[0]))
         self.assertEqual([e[2] for e in lista()][-3:],
-                         ['Quarto do Joao', addon.COMODO_NENHUM,
-                          addon.COMODO_OUTRO])
+                         ['Quarto do Joao', addon.orcamento.COMODO_NENHUM,
+                          addon.orcamento.COMODO_OUTRO])
         # Sem comodo: a Collection volta a' raiz e as pastas vazias somem
-        bpy.ops.object.cabinet_definir_comodo(nome=addon.COMODO_NENHUM)
+        bpy.ops.object.cabinet_definir_comodo(nome=addon.orcamento.COMODO_NENHUM)
         cena = bpy.context.scene
         for conj in (a, b):
-            self.assertIn(addon._colecao_do_modulo(conj).name,
+            self.assertIn(addon.modulos._colecao_do_modulo(conj).name,
                           cena.collection.children)
         self.assertFalse([c for c in bpy.data.collections
-                          if c.get(addon.MARCA_COLECAO_COMODO)])
+                          if c.get(addon.orcamento.MARCA_COLECAO_COMODO)])
 
     def test_comodo_e_pasta_no_outliner(self):
         # Outliner: Cozinha > Armario > chapas e porta. A pasta e' a fonte:
@@ -275,20 +275,20 @@ class TestOrcamento(unittest.TestCase):
         self.comodo(conj, 'Cozinha')
         cena = bpy.context.scene
         pasta = cena.collection.children['Cozinha']
-        self.assertTrue(pasta.get(addon.MARCA_COLECAO_COMODO))
-        colecao = addon._colecao_do_modulo(conj)
+        self.assertTrue(pasta.get(addon.orcamento.MARCA_COLECAO_COMODO))
+        colecao = addon.modulos._colecao_do_modulo(conj)
         self.assertEqual(list(pasta.children), [colecao])
         self.assertNotIn(colecao.name, cena.collection.children)
         self.assertEqual(set(pasta.all_objects), set(colecao.all_objects))
-        self.assertIn(addon._portas_do_conjunto(conj)[0].name,
+        self.assertIn(addon.portas._portas_do_conjunto(conj)[0].name,
                       colecao.all_objects)
         # o usuario arrasta para uma pasta "Sala" do Outliner
         sala = bpy.data.collections.new('Sala')
-        sala[addon.MARCA_COLECAO_COMODO] = 1
+        sala[addon.orcamento.MARCA_COLECAO_COMODO] = 1
         cena.collection.children.link(sala)
         sala.children.link(colecao)
         pasta.children.unlink(colecao)
-        bloco = self.bloco(addon.orcamento_da_cena(cena)[0])
+        bloco = self.bloco(addon.orcamento.orcamento_da_cena(cena)[0])
         self.assertIn('### Sala\n- ' + INFERIOR, bloco)
         self.assertNotIn('### Cozinha', bloco)
 
@@ -296,14 +296,14 @@ class TestOrcamento(unittest.TestCase):
         # Antes do v168 o modulo nao tinha Collection: so' ela entra na
         # pasta, entao ela nasce aqui (com o mesmo nome do Empty).
         conj = self.nicho('Antigo')
-        colecao = addon._colecao_do_modulo(conj)
+        colecao = addon.modulos._colecao_do_modulo(conj)
         for o in [conj, *conj.children_recursive]:
             bpy.context.scene.collection.objects.link(o)
             colecao.objects.unlink(o)
         bpy.data.collections.remove(colecao)
-        self.assertIsNone(addon._colecao_do_modulo(conj))
+        self.assertIsNone(addon.modulos._colecao_do_modulo(conj))
         self.comodo(conj, 'Copa')
-        colecao = addon._colecao_do_modulo(conj)
+        colecao = addon.modulos._colecao_do_modulo(conj)
         self.assertEqual(colecao.name, conj.name)
         self.assertIn(colecao.name,
                       bpy.context.scene.collection.children['Copa'].children)
@@ -314,13 +314,13 @@ class TestOrcamento(unittest.TestCase):
         # ficam a' vista numa caixa preta logo abaixo.
         self.nicho()
         bpy.context.scene.cabinet_aba = 'MODULOS'
-        self.addCleanup(addon._orcamento_copiado.__setitem__, 0, None)
+        self.addCleanup(addon.orcamento._orcamento_copiado.__setitem__, 0, None)
         self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(),
                          {'FINISHED'})
-        widgets = [v for v in addon._widgets_gaveta(bpy.context, 320, 1400)
+        widgets = [v for v in addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
                    if v[5]]
         (botao,) = [v for v in widgets
-                    if v[5][:2] == ('operador', addon.OP_EXPORTAR_ORCAMENTO)]
+                    if v[5][:2] == ('operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)]
         self.assertTrue(botao[5][2])
         self.assertTrue(botao[4].startswith('Copiado: 0 modulo(s)'))
         caixa = [v for v in widgets if v[5][0] == 'pergunta']
@@ -328,16 +328,16 @@ class TestOrcamento(unittest.TestCase):
         self.assertTrue(caixa[0][4].startswith('Pendencias:\n'))
         self.assertLess(caixa[0][1], botao[1])
         self.assertTrue(bpy.app.timers.is_registered(
-            addon._apagar_orcamento_copiado))
-        addon._apagar_orcamento_copiado()
-        self.assertIsNone(addon._orcamento_copiado[0])
+            addon.orcamento._apagar_orcamento_copiado))
+        addon.orcamento._apagar_orcamento_copiado()
+        self.assertIsNone(addon.orcamento._orcamento_copiado[0])
 
     def test_operador_copia_o_texto(self):
         conj = self.nicho('Gabinete')
         self.comodo(conj, 'Banheiro')
         self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(),
                          {'FINISHED'})
-        texto = addon.orcamento_da_cena(bpy.context.scene)[0]
+        texto = addon.orcamento.orcamento_da_cena(bpy.context.scene)[0]
         copiado = bpy.context.window_manager.clipboard
         # --background pode nao ter area de transferencia: so' confere
         # quando ela existe

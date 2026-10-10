@@ -77,13 +77,13 @@ class TestCaracterizacao(unittest.TestCase):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
         cena = bpy.context.scene
-        for nome in addon._PROPS_PORTAS_CENA:
+        for nome in addon.portas._PROPS_PORTAS_CENA:
             cena.property_unset(nome)
         cena.cursor.location = (0, 0, 0)
         cena.cabinet_aba = 'MODULOS'
         tela = bpy.context.screen
-        for chave in (addon._CHAVE_ROLAGEM, addon._CHAVE_ROLAGEM_BIB,
-                      addon._CHAVE_DIVISA, addon._CHAVE_OPCOES):
+        for chave in (addon.gaveta._CHAVE_ROLAGEM, addon.gaveta._CHAVE_ROLAGEM_BIB,
+                      addon.gaveta._CHAVE_DIVISA, addon.gaveta._CHAVE_OPCOES):
             tela.pop(chave, None)
 
     def conferir(self, nome, dados):
@@ -110,7 +110,7 @@ class TestCaracterizacao(unittest.TestCase):
         bpy.ops.object.cabinet_criar_nicho()
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.cabinet_agrupar()
-        conj = next(o for o in bpy.data.objects if addon.MARCA_CONJUNTO in o)
+        conj = next(o for o in bpy.data.objects if addon.chapas.MARCA_CONJUNTO in o)
         bpy.context.view_layer.update()
         return conj
 
@@ -128,7 +128,7 @@ class TestCaracterizacao(unittest.TestCase):
                              for v in linha),
             pai_nome=conj.name, modulo_nome=conj.name, **parametros)
         self.assertEqual(resultado, {'FINISHED'})
-        return addon._portas_do_conjunto(conj)[0]
+        return addon.portas._portas_do_conjunto(conj)[0]
 
     def chapas(self, objetos):
         return sorted(
@@ -136,16 +136,16 @@ class TestCaracterizacao(unittest.TestCase):
               'C': o.chapa_comprimento_mm, 'E': o.chapa_espessura_mm,
               'centro': _r(o.matrix_world.translation, 5),
               'dims': _r(o.dimensions, 5)}
-             for o in objetos if addon.MARCA_CHAPA in o),
+             for o in objetos if addon.chapas.MARCA_CHAPA in o),
             key=lambda d: (d['nome'], d['centro']))
 
     @staticmethod
     def widgets(largura, altura=900):
         """Painel da aba + divisoria + pe' fixo (a biblioteca fica de fora:
         o conteudo dela muda com os presets do usuario, nao com o codigo)."""
-        cab, conteudo, rodape = addon._partes_gaveta(
-            addon._widgets_gaveta(bpy.context, largura, altura))
-        cima, divisa, _baixo = addon._paineis_gaveta(conteudo)
+        cab, conteudo, rodape = addon.gaveta._partes_gaveta(
+            addon.gaveta._widgets_gaveta(bpy.context, largura, altura))
+        cima, divisa, _baixo = addon.gaveta._paineis_gaveta(conteudo)
         saida = []
         for x, y, w, h, rotulo, acao in cab + cima + ([divisa] if divisa else []) + rodape:
             verbo = acao[0] if acao else None
@@ -157,11 +157,11 @@ class TestCaracterizacao(unittest.TestCase):
     # ------------------------------------------------------ casos
     def test_layout_da_gaveta(self):
         conj = self.modulo()
-        chapa = addon._chapas_do_conjunto(conj)[0]
+        chapa = addon.modulos._chapas_do_conjunto(conj)[0]
         cenarios = {
             'nada': lambda: bpy.ops.object.select_all(action='DESELECT'),
-            'modulo': lambda: addon._selecionar_chapa_hud(bpy.context, chapa),
-            'chapa': lambda: addon._selecionar_chapa_hud(
+            'modulo': lambda: addon.hud._selecionar_chapa_hud(bpy.context, chapa),
+            'chapa': lambda: addon.hud._selecionar_chapa_hud(
                 bpy.context, chapa, individual=True),
         }
         dados = {}
@@ -182,30 +182,30 @@ class TestCaracterizacao(unittest.TestCase):
                 'padrao': (600.0, 400.0, 18.0, (0, 0, 0)),
                 'grossa': (1000.0, 300.0, 70.5, (0, 0, 0)),
                 'em_pe': (720.0, 560.0, 15.0, (90.0, 0, 90.0))}.items():
-            obj = addon.nova_chapa(nome, L, C, E, (100.0, 0, 0), rot,
+            obj = addon.chapas.nova_chapa(nome, L, C, E, (100.0, 0, 0), rot,
                                    bpy.context)
             bpy.context.view_layer.update()
             dados[nome] = {
                 'vertices': sorted(_r(tuple(v.co), 5) for v in obj.data.vertices),
                 'faces': len(obj.data.polygons),
-                'mundo': sorted(_r(tuple(p), 5) for p in addon._cantos(obj)),
+                'mundo': sorted(_r(tuple(p), 5) for p in addon.chapas._cantos(obj)),
             }
         self.conferir('chapa_malha', dados)
 
     def test_calculo_das_portas(self):
         dados = {}
-        for abertura, maximo in sorted(addon.LIMITES_FOLHAS.items()):
+        for abertura, maximo in sorted(addon.portas.LIMITES_FOLHAS.items()):
             dobradicas = (('RETA',) if abertura == 'CORRER'
                           else ('RETA', 'CURVA', 'SUPER_CURVA'))
             for folhas in range(1, maximo + 1):
                 for dobradica in dobradicas:
-                    p = addon._parametros_portas_da_cena(bpy.context.scene,
+                    p = addon.portas._parametros_portas_da_cena(bpy.context.scene,
                                                          numerico=True)
                     p.update(abertura=abertura, folhas=folhas,
                              dobradica=dobradica)
                     chave = '%s/%d/%s' % (abertura, folhas, dobradica)
                     try:
-                        dados[chave] = _r(addon._calcular_folhas_portas(
+                        dados[chave] = _r(addon.portas._calcular_folhas_portas(
                             764.0, 664.0, p))
                     except ValueError as erro:
                         dados[chave] = 'ERRO: %s' % erro
@@ -213,15 +213,15 @@ class TestCaracterizacao(unittest.TestCase):
 
     def test_modulo_redimensionado(self):
         conj = self.modulo()
-        dados = {'inicio': self.chapas(addon._chapas_do_conjunto(conj))}
+        dados = {'inicio': self.chapas(addon.modulos._chapas_do_conjunto(conj))}
         conj.conj_largura_mm += 200
         conj.conj_altura_mm -= 100
         conj.conj_profundidade_mm += 50
         bpy.context.view_layer.update()
-        dados['medidas'] = self.chapas(addon._chapas_do_conjunto(conj))
+        dados['medidas'] = self.chapas(addon.modulos._chapas_do_conjunto(conj))
         conj.conj_espessura_mm = 25.0
         bpy.context.view_layer.update()
-        dados['espessura'] = self.chapas(addon._chapas_do_conjunto(conj))
+        dados['espessura'] = self.chapas(addon.modulos._chapas_do_conjunto(conj))
         dados['conj'] = [conj.conj_largura_mm, conj.conj_altura_mm,
                          conj.conj_profundidade_mm, conj.conj_espessura_mm,
                          _r(conj.matrix_world.translation, 5)]
@@ -231,21 +231,21 @@ class TestCaracterizacao(unittest.TestCase):
         conj = self.modulo()
         grupo = self.porta(conj)
         dados = {'parametros': dict(grupo['porta_parametros']),
-                 'inicio': self.chapas(addon._folhas_portas(grupo))}
+                 'inicio': self.chapas(addon.portas._folhas_portas(grupo))}
         conj.conj_largura_mm += 300
         conj.conj_altura_mm += 100
         bpy.context.view_layer.update()
-        dados['redimensionado'] = self.chapas(addon._folhas_portas(grupo))
+        dados['redimensionado'] = self.chapas(addon.portas._folhas_portas(grupo))
         self.conferir('porta_no_modulo', dados)
 
     def test_geometria_da_hud(self):
         conj = self.modulo()
-        chapa = addon._chapas_do_conjunto(conj)[0]
+        chapa = addon.modulos._chapas_do_conjunto(conj)[0]
         dados = {}
         for nome, individual in (('modulo', False), ('chapa', True)):
-            addon._selecionar_chapa_hud(bpy.context, chapa,
+            addon.hud._selecionar_chapa_hud(bpy.context, chapa,
                                         individual=individual)
-            g = addon._geometria_hud(bpy.context)
+            g = addon.hud._geometria_hud(bpy.context)
             dados[nome] = {
                 'modo': g['modo'],
                 'cantos': [_r(p, 5) for p in g['cantos']],
@@ -258,13 +258,13 @@ class TestCaracterizacao(unittest.TestCase):
 
     def test_puxadores_parametricos(self):
         dados = {}
-        for tipo in sorted(addon.MODELOS_PUXADOR):
+        for tipo in sorted(addon.puxadores.MODELOS_PUXADOR):
             for borda in ('X-', 'X+', 'Y-', 'Y+'):
                 for o in list(bpy.data.objects):
                     bpy.data.objects.remove(o, do_unlink=True)
-                chapa = addon.nova_chapa('Base', 600.0, 400.0, 18.0,
+                chapa = addon.chapas.nova_chapa('Base', 600.0, 400.0, 18.0,
                                          (0, 0, 0), (0, 0, 0), bpy.context)
-                pux = addon.criar_puxador(bpy.context, chapa, tipo, borda, 1)
+                pux = addon.puxadores.criar_puxador(bpy.context, chapa, tipo, borda, 1)
                 bpy.context.view_layer.update()
                 dados['%s/%s' % (tipo, borda)] = {
                     'centro': _r(pux.matrix_world.translation, 5),

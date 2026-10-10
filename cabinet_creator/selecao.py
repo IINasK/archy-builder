@@ -1,0 +1,368 @@
+"""Selecao em camadas (clique = modulo, duplo = peca) e os keymaps."""
+
+import bpy, os, time
+from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
+from bpy.types import Operator
+
+# usados so' ao RODAR (import circular): o __init__ liga estes
+# apelidos depois de carregar todos (`_ligar_modulos`)
+_chapas = None
+_modulos = None
+_opcoes = None
+_eventos = None
+_portas = None
+_ferragens = None
+_gaveta = None
+_hud = None
+_solda = None
+_portas_viewport = None
+
+# ====================================================== SELECAO
+# 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
+# em todas as pecas); 2 cliques isolam a chapa sob o cursor.
+#
+# As entradas ficam no keyconfig do ADDON, avaliado antes do padrao.
+# Quando o poll falha -- fora do Object Mode, ou com a opcao desligada
+# nas Preferencias -- o evento cai para o `view3d.select` nativo e o
+# comportamento normal do Blender volta inteiro.
+
+
+def _aba_da_selecao(obj):
+    """Aba da gaveta que cuida de `obj`, ou None (objeto que nao e' nosso)."""
+    if obj is None:
+        return None
+    if _chapas.MARCA_PUXADOR in obj:
+        return 'PUXADORES'
+    if _chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj:
+        return 'PORTAS'
+    if _chapas.MARCA_CONJUNTO in obj or _chapas.MARCA_CHAPA in obj:
+        return 'MODULOS'
+    return None
+
+
+def _seguir_selecao_na_gaveta(context):
+    """A gaveta vai para a aba do que o CLIQUE na viewport selecionou
+    (pedido do usuario): porta -> Portas, modulo -> Modulos, puxador ->
+    Puxadores. So' no clique: o add-on tambem troca o ativo sozinho (criar
+    porta deixa o modulo ativo) e ai' a aba nao pode pular."""
+    camada = getattr(context, 'view_layer', None)
+    ativo = camada.objects.active if camada is not None else None
+    if ativo is None or not ativo.select_get():
+        return
+    aba = _aba_da_selecao(ativo)
+    if aba is None or context.scene.cabinet_aba == aba:
+        return
+    context.scene.cabinet_aba = aba
+    tela = getattr(context, 'screen', None)
+    if tela is not None:
+        # como o clique na aba: comeca do topo e fecha as opcoes
+        tela[_gaveta._CHAVE_ROLAGEM] = 0
+        _gaveta._fechar_opcoes(tela)
+    _eventos._redesenhar_viewports(context)
+
+
+def familia_de(obj):
+    """Tudo que deve acender junto com obj: as chapas do grupo mais o
+    Empty do conjunto.
+
+    Selecionar o pai JUNTO com os filhos e' seguro: o Blender nao
+    transforma duas vezes o filho cujo pai tambem esta' selecionado.
+    """
+    if obj is None:
+        return []
+    portas = _portas._grupo_portas(obj)
+    if portas is not None:
+        return [portas] + _portas._folhas_portas(portas)
+    if _chapas.MARCA_CONJUNTO in obj:
+        return [obj] + _modulos._chapas_do_conjunto(obj)
+    if _chapas.MARCA_CHAPA not in obj:
+        return []
+    chapas = _modulos.grupo_de(obj, simetrico=True)
+    pai = obj.parent
+    if pai is not None and _chapas.MARCA_CONJUNTO in pai:
+        return [pai] + chapas
+    return chapas
+
+
+class OBJECT_OT_selecionar(Operator):
+    """Clique seleciona o modulo inteiro; clique duplo isola a chapa"""
+    bl_idname = "object.cabinet_selecionar"
+    bl_label = "Selecionar Modulo"
+    bl_options = {'UNDO'}
+
+    modo: EnumProperty(
+        name="Modo", default='GRUPO',
+        items=[('GRUPO', "Grupo", "Seleciona o modulo inteiro"),
+               ('INDIVIDUAL', "Individual", "Seleciona so' a chapa clicada")])
+    # espelham as props do view3d.select: sao repassadas tal e qual.
+    # SKIP_SAVE em TODAS: a entrada do keymap so' preenche as que cita,
+    # e o resto vinha do ULTIMO uso. Depois de um Shift+clique o clique
+    # simples herdava toggle=True e somava em vez de trocar a selecao.
+    location: IntVectorProperty(size=2, options={'SKIP_SAVE'})
+    extend: BoolProperty(default=False, options={'SKIP_SAVE'})
+    deselect: BoolProperty(default=False, options={'SKIP_SAVE'})
+    toggle: BoolProperty(default=False, options={'SKIP_SAVE'})
+    deselect_all: BoolProperty(default=False, options={'SKIP_SAVE'})
+    select_passthrough: BoolProperty(default=False, options={'SKIP_SAVE'})
+    # Entrada do CLICK (soltou sem arrastar): termina o que o PRESS
+    # deixou passar, como o par PRESS/CLICK do keymap nativo
+    clique: BoolProperty(default=False, options={'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        p = _opcoes._prefs()
+        if p is not None and not p.selecao_por_grupo:
+            return False
+        return (context.mode == 'OBJECT' and context.area is not None
+                and context.area.type == 'VIEW_3D'
+                and not _gaveta._eh_area_gaveta(context))
+
+    def invoke(self, context, event):
+        resultado = self._invoke(context, event)
+        _seguir_selecao_na_gaveta(context)
+        _log_clique('selecionar %s/%s modo=%s clique=%s pass=%s -> %s | ativo=%s n=%d nivel_gravado=%s' % (
+            getattr(event, 'type', '?'), getattr(event, 'value', '?'),
+            self.modo, self.clique,
+            self.select_passthrough, sorted(resultado),
+            context.object.name if context.object else None,
+            len(context.selected_objects),
+            _hud._clique_chapa_hud.get(context.region.as_pointer())))
+        return resultado
+
+    def _invoke(self, context, event):
+        self.location = (event.mouse_region_x, event.mouse_region_y)
+        chave = context.region.as_pointer()
+        pendente = _hud._clique_pendente.pop(chave, None)
+        if self.clique:
+            return self._soltou(context, pendente)
+        if _portas_viewport._slider_sob_mouse(context, self.location) is not None:
+            # a bolinha do slider: no keyconfig do usuario esta entrada vem
+            # antes da do slider, e selecionar aqui esconderia o slider
+            return {'PASS_THROUGH'}
+        ferragem = _hud._ferragem_sob_mouse(context, self.location)
+        if ferragem is not None:
+            if self.modo == 'INDIVIDUAL':
+                # duplo = a PECA, selecao nativa: Tab, G/R/S, modificadores
+                _ferragens._selecionar_peca(context, ferragem,
+                                 somar=self.toggle or self.extend)
+            else:
+                # dobradica/pistao: todas as do modulo, no modo delas
+                _ferragens._selecionar_ferragem(context, ferragem,
+                                     somar=self.toggle or self.extend)
+            return {'FINISHED'}
+        # qualquer outro clique sai do modo de edicao das ferragens
+        _ferragens._ferragens_selecionadas[0] = None
+        atingido = _hud._raio_hud(context, self.location)
+        _log_clique('  raio=%s anterior=%s' % (
+            atingido and atingido[0].name, _hud._clique_chapa_hud.get(chave)))
+        if atingido is not None and _chapas.MARCA_CHAPA in atingido[0]:
+            obj = atingido[0]
+            anterior = _hud._clique_chapa_hud.get(chave) or ('', 'MODULO')
+            mesmo = anterior[0] == obj.name
+            if _chapas.MARCA_FOLHA in obj and _portas._grupo_portas(obj) is not None:
+                # Porta (backlog do usuario, Epico 3): clique = a PORTA
+                # inteira (nunca o modulo); duplo = UMA folha ("aba").
+                # Shift soma. Ferragens nao entram (selecao propria).
+                somar = self.toggle or self.extend
+                if (self.modo != 'INDIVIDUAL' and self.select_passthrough
+                        and not somar and obj.select_get()):
+                    familia = {_portas._grupo_portas(obj), *_portas._folhas_portas(
+                        _portas._grupo_portas(obj))}
+                    if any(o not in familia for o in context.selected_objects):
+                        # varios selecionados: o arraste leva todos; se
+                        # soltar sem arrastar, o CLICK deixa so' a porta
+                        _hud._clique_pendente[chave] = obj.name
+                        return {'PASS_THROUGH', 'CANCELLED'}
+                _hud._selecionar_porta_hud(
+                    context, obj,
+                    'FOLHA' if self.modo == 'INDIVIDUAL' else 'PORTA',
+                    somar=somar)
+                return {'FINISHED'}
+            if self.modo != 'INDIVIDUAL':
+                _hud._clique_chapa_hud[chave] = (obj.name,
+                                            _hud._nivel_da_selecao(context, obj))
+            somar = self.toggle or self.extend
+            if somar and _chapas.MARCA_FOLHA not in obj:
+                _hud._somar_peca(context, obj, duplo=self.modo == 'INDIVIDUAL')
+                return {'FINISHED'}
+            if (self.select_passthrough and not somar
+                    and self.modo != 'INDIVIDUAL' and obj.select_get()):
+                familia = set(_hud._familia_do_clique(obj)) | {obj}
+                if any(o not in familia for o in context.selected_objects):
+                    # Clicou num item JA' selecionado junto com outros:
+                    # no PRESS nada muda, senao o arraste so' levaria
+                    # este. Se soltar sem arrastar, o CLICK deixa so' ele.
+                    _hud._clique_pendente[chave] = obj.name
+                    # Como o view3d.select nativo: CANCELLED + PASS_THROUGH.
+                    # Com FINISHED o Blender da' o PRESS por consumido e
+                    # nao gera o CLICK (alem de gravar um undo vazio).
+                    return {'PASS_THROUGH', 'CANCELLED'}
+            _hud._selecionar_chapa_hud(context, obj,
+                                  self.modo == 'INDIVIDUAL' and mesmo,
+                                  somar=somar)
+            return {'FINISHED'}
+        return self.execute(context)
+
+    def _soltou(self, context, pendente):
+        """CLICK depois de um PRESS de CHAPA que deixou passar: so' o
+        modulo dela. Todo o resto e' do CLICK nativo -- para objeto comum
+        o Blender ja' deixa so' o clicado, e recriar isso aqui e' o que
+        NAO se quer."""
+        atingido = _hud._raio_hud(context, self.location)
+        if (pendente is None or atingido is None
+                or atingido[0].name != pendente):
+            return {'PASS_THROUGH'}
+        if _chapas.MARCA_FOLHA in atingido[0] and _portas._grupo_portas(atingido[0]) is not None:
+            _hud._selecionar_porta_hud(context, atingido[0], 'PORTA')
+            return {'FINISHED'}
+        _hud._selecionar_chapa_hud(context, atingido[0])
+        return {'FINISHED'}
+
+    def execute(self, context):
+        # a escolha de QUEM foi clicado continua sendo do Blender; este
+        # operador so' amplia (ou estreita) o resultado depois
+        try:
+            r = bpy.ops.view3d.select(
+                'EXEC_DEFAULT',
+                location=tuple(self.location),
+                extend=self.extend, deselect=self.deselect,
+                toggle=self.toggle, deselect_all=self.deselect_all,
+                select_passthrough=self.select_passthrough)
+        except Exception as e:
+            print("[Cabinet Creator] selecao:", e)
+            return {'CANCELLED'}
+        if 'PASS_THROUGH' in r or 'CANCELLED' in r:
+            return r
+
+        obj = context.object
+        familia = familia_de(obj)
+        if not familia:
+            return r
+
+        # se o clique DESLIGOU a peca (shift), o grupo inteiro apaga junto
+        ligado = obj.select_get()
+        for o in familia:
+            try:
+                o.select_set(False if self.modo == 'INDIVIDUAL' else ligado)
+            except Exception:
+                pass
+        if self.modo == 'INDIVIDUAL':
+            obj.select_set(True)
+        context.view_layer.objects.active = obj
+        return r
+
+
+_keymaps = []
+
+# DIAGNOSTICO TEMPORARIO do clique duplo (remover depois): grava cada
+# clique na viewport e, ao registrar, como os atalhos ficaram no keymap.
+ARQUIVO_LOG_CLIQUES = os.path.join(
+    os.environ.get('TEMP') or os.environ.get('TMP') or os.path.expanduser('~'),
+    'cabinet_cliques.log')
+
+
+def _log_clique(texto):
+    try:
+        with open(ARQUIVO_LOG_CLIQUES, 'a', encoding='utf-8') as f:
+            f.write('%.3f %s\n' % (time.time(), texto))
+    except Exception:
+        pass
+
+
+def _log_keymaps():
+    try:
+        wm = bpy.context.window_manager
+        _log_clique('--- registro; dbl_click_time=%s ms' % (
+            bpy.context.preferences.inputs.mouse_double_click_time))
+        for nome in ('addon', 'user', 'active'):
+            kc = getattr(wm.keyconfigs, nome, None)
+            km = kc.keymaps.get('3D View') if kc else None
+            if km is None:
+                _log_clique('%s: sem 3D View' % nome)
+                continue
+            for kmi in km.keymap_items:
+                if kmi.idname.startswith('object.cabinet') or (
+                        kmi.type == 'LEFTMOUSE' and kmi.idname.startswith('view3d.select')):
+                    _log_clique('%s: %s %s %s shift=%s ctrl=%s ativo=%s modo=%s' % (
+                        nome, kmi.idname, kmi.type, kmi.value, kmi.shift,
+                        kmi.ctrl, kmi.active,
+                        getattr(kmi.properties, 'modo', '-')))
+    except Exception as e:
+        _log_clique('keymaps: erro %s' % e)
+    return None
+
+# (valor do evento, shift, modo, props repassadas ao view3d.select)
+# O PRESS simples leva select_passthrough para preservar o arraste: o
+# clique sobre uma peca JA' selecionada nao desmonta a selecao, senao
+# nao daria para arrastar o modulo inteiro depois de seleciona-lo.
+# O CLICK so' age quando o PRESS de uma CHAPA deixou passar: o CLICK
+# nativo deixaria so' a chapa, nao o modulo. Para o resto ele devolve
+# PASS_THROUGH e quem desseleciona os outros e' o proprio Blender.
+_ENTRADAS_KEYMAP = (
+    ('PRESS', False, 'GRUPO',
+     {"deselect_all": True, "select_passthrough": True}),
+    ('CLICK', False, 'GRUPO', {"deselect_all": True, "clique": True}),
+    ('PRESS', True, 'GRUPO', {"toggle": True}),
+    ('DOUBLE_CLICK', False, 'INDIVIDUAL', {"deselect_all": True}),
+    # Shift+duplo: isola a chapa DENTRO da selecao (ver `_hud._somar_peca`)
+    ('DOUBLE_CLICK', True, 'INDIVIDUAL', {"toggle": True}),
+)
+
+
+def registrar_keymaps():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:          # Blender em background nao monta keyconfig
+        return
+    km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
+    # Esta entrada so' aceita eventos na area exclusiva da gaveta.
+    kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
+                              'LEFTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km, kmi))
+    for evento in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE'):
+        kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
+                                  evento, 'PRESS', head=True)
+        _keymaps.append((km, kmi))
+    for valor, shift, modo, props in _ENTRADAS_KEYMAP:
+        kmi = km.keymap_items.new("object.cabinet_selecionar",
+                                  'LEFTMOUSE', valor, shift=shift)
+        kmi.properties.modo = modo
+        for chave, v in props.items():
+            setattr(kmi.properties, chave, v)
+        _keymaps.append((km, kmi))
+
+    # Correntes: a tecla escolhida nas opcoes, segurada, mostra a
+    # corrente (o operador devolve o evento: Alt/Ctrl/Shift seguem
+    # valendo para tudo o mais).
+    for tecla in _solda.TECLAS_CORRENTE:
+        for valor in ('PRESS', 'RELEASE'):
+            kmi = km.keymap_items.new("object.cabinet_tecla_corrente",
+                                      tecla, valor, any=True)
+            kmi.properties.tecla = tecla
+            kmi.properties.apertou = valor == 'PRESS'
+            _keymaps.append((km, kmi))
+    kmi = km.keymap_items.new("object.cabinet_clique_corrente",
+                              'LEFTMOUSE', 'PRESS', any=True, head=True)
+    _keymaps.append((km, kmi))
+    # Slider de abertura das folhas: clique SEM modificador, antes da
+    # selecao; fora de um slider o operador devolve o evento.
+    kmi = km.keymap_items.new("object.cabinet_abrir_porta",
+                              'LEFTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km, kmi))
+
+    # Posicionador a partir da grade. O keymap "User Interface" e' o
+    # unico que enxerga botoes de painel. O gesto de ARRASTAR raramente
+    # chega aqui (o handler de UI consome o PRESS antes), mas o
+    # CLIQUE-para-posicionar do operador funciona de qualquer forma.
+    km_ui = kc.keymaps.new(name="User Interface", space_type='EMPTY')
+    kmi = km_ui.keymap_items.new("object.cabinet_arrastar_preset",
+                                 'LEFTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km_ui, kmi))
+
+
+def remover_keymaps():
+    for km, kmi in _keymaps:
+        try:
+            km.keymap_items.remove(kmi)
+        except Exception:
+            pass
+    _keymaps.clear()

@@ -12,8 +12,15 @@
 Add-on de Blender (bl_info 4.0, testado em 4.2 e 5.2) para moveis
 planejados: chapas (malha bmesh) agrupadas em modulos (Empty pai) e uma
 biblioteca de presets. UI = "gaveta": area VIEW_3D desenhada por GPU a
-esquerda (nao existe UILayout ali). `cabinet_creator/__init__.py` e' o
-add-on INTEIRO, arquivo unico por decisao.
+esquerda (nao existe UILayout ali). O add-on e' um PACOTE, um modulo por
+area (o `__init__` so' carrega, liga e registra): chapas, modulos
+(conjunto), opcoes, biblioteca, eventos (timer/undo), selecao, portas,
+assistente (wizard), ferragens, portas_viewport, puxadores, arame,
+importacao, solda (correntes), perguntas, hud, gaveta (layout),
+gaveta_desenho, gaveta_eventos, orcamento, painel_legado (fora de CLASSES).
+Entre modulos, SEMPRE `_modulo.nome` (apelido ligado por `_ligar_modulos`;
+`from . import` no topo so' do que se usa AO CARREGAR). Teste troca funcao
+NO MODULO dela (`addon.portas.x = ...`): no pacote nao vale.
 
 Idioma: portugues (codigo, UI, commits, NOME de objeto). Texto em ASCII:
 `e'`, `so'`, `ja'` no lugar de acento. Comentario explica o PORQUE.
@@ -28,7 +35,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 - Nao ha' `python` no PATH: use o do Blender
   (`C:/Program Files/Blender Foundation/Blender 5.2/5.2/python/bin/python.exe
-  -m py_compile cabinet_creator/__init__.py`).
+  -m compileall -q cabinet_creator`).
 - O harness roda todas as suites em todas as versoes instaladas e falha se
   algo quebrar, sumir ou ficar sem teste. Funcionalidade nova = teste novo
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
@@ -36,7 +43,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Falha em `test_estrutura_blender.py` = "isto era de proposito": confirme
   com o usuario antes de mudar; nao conserte o teste.
 - Testes nunca escrevem na biblioteca real (`cabinet_creator/biblioteca`).
-- Cada entrega: `bl_info["version"]` +1 (hoje 182.0.0).
+- Cada entrega: `bl_info["version"]` +1 (hoje 183.0.0).
 
 ## Invariantes — NAO quebrar
 
@@ -64,12 +71,10 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 11. `bpy.ops` nao roda em `register()`: adie com `bpy.app.timers`.
 12. Tudo registrado sai no `unregister()`: classe em `CLASSES`, prop,
     handler, TIMER, keymap. Estado global em lista de 1 elemento, zerado ali.
-13. Uma biblioteca so' (`pasta_biblioteca()`); ao registrar, limpar as
-    entradas antigas ANTES do add. Catalogo mora DENTRO do .blend
-    (`catalog_id`); mover = regravar (`refiliar_preset`). UUID de catalogo
-    nunca muda (`CAT_RAIZ`, `RAIZES_ANTIGAS` migram com o UUID). O
-    .cats.txt so' se grava se mudou e atomico (`_gravar_se_mudou`): com
-    "w" direto, dois Blenders juntos davam UUID novo a tudo.
+13. Uma biblioteca so' (`pasta_biblioteca()`), entradas antigas limpas ANTES
+    do add. Catalogo DENTRO do .blend (`catalog_id`; mover = `refiliar_preset`)
+    e UUID que nunca muda (`RAIZES_ANTIGAS` migram). O .cats.txt e' atomico e
+    so' se muda (`_gravar_se_mudou`): dois Blenders davam UUID novo a tudo.
 14. `_niveis_de` aceita o indice antigo `categoria/subcategoria`: manter.
 15. Clique esquerdo na viewport e' do add-on (keyconfig ADDON). O `poll` de
     `OBJECT_OT_selecionar` devolve False fora do Object Mode ou com
@@ -90,11 +95,10 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo
   DESVIO dela (> 5 mm na viewport, qualquer um no botao). Regua: chapa
   ativa se move (pergunta se mudar medida); modulo ativo se adapta.
-- Ancoras da solda: com Alt, arrastar a bolinha branca so' TROCA o
-  vertice soldado (`adj_<ponta>_ancoras`); a geometria vai la' na regua:
-  quem se move (a ativa, de qualquer lado da solda) anda pelas soldas
-  NORMAIS e entorta o resto (canto + o do outro lado da espessura). O par
-  que ja' encostou some. Solda nova ou redetectada volta as de fabrica.
+- Ancoras da solda: com Alt, arrastar a bolinha branca so' TROCA o vertice
+  soldado (`adj_<ponta>_ancoras`); a geometria vai na regua: a ativa (de
+  qualquer lado) anda pelas soldas NORMAIS e entorta o resto (canto + o do
+  outro lado da espessura). Par ja' encostado some; solda nova = de fabrica.
 - Vertice de canto: atributo `cabinet_canto` (pelo SINAL da coordenada erra
   ao cruzar a origem). Malha modelada: ancora = qualquer vertice, `v<i>`.
 - Espessura de UMA chapa nao mexe em mais nada; so' o E do MODULO acomoda.
@@ -102,11 +106,10 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   raiz da cena: chapas e a porta ("Porta Dupla"... `_nome_da_porta`). Nome
   ao agrupar: F3 = dialogo; Corrente juntando SOLTAS = campo na gaveta.
   Desagrupar manda a chapa a' raiz. A porta guarda o NOME do modulo.
-- Orcamento do ERP (`orcamento_da_cena`, aba Modulos): documento COMPLETO
-  no padrao do prompt do usuario, so' Moveis. Modulo = NOME do grupo,
-  detalhes so' do 3D; o que falta vira Pendencia. COMODO = PASTA no Outliner
-  (Collection marcada com as dos armarios; a unica fonte), escolhido numa
-  linha que EXPANDE (+ "Outro nome..."). Copiar mostra o resultado NA gaveta.
+- Orcamento do ERP (`orcamento_da_cena`, aba Modulos): documento COMPLETO no
+  padrao do prompt do usuario, so' Moveis; modulo = NOME do grupo, detalhes do
+  3D, o que falta vira Pendencia. COMODO = PASTA no Outliner (a unica fonte),
+  numa linha que EXPANDE (+ "Outro nome..."); copiar mostra NA gaveta.
 - Gaveta por CONTEXTO (toda aba): sem selecao, so' o botao laranja de criar
   (Modulos: so' o Orcamento); criando, os campos etapa a etapa (copia
   clicavel da caixa; o modal atende); selecionado, so' o do ITEM (porta sem
@@ -121,10 +124,9 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   -> abertura -> borda das dobradicas (clique; basculante = CIMA) -> scroll
   = qtd -> mouse Y = margem -> pistoes (qtd; posicao AUTO por aberto = 2x
   fechado, Y so' sobe). Caixa nunca cortada. Reposicionar = diagonal de 2.
-- Porta selecionada POR SI (clique nela; o modulo selecionado nao mostra
-  nada disto): contorno branco, vao amarelo, fios dos cantos e
-  um slider por folha. Alt arrasta as bolinhas e refaz a porta
-  (`_cantos_da_porta`: REFEITOS de vao + cobertura, nunca gravados).
+- Porta selecionada POR SI (o modulo selecionado nao mostra nada disto):
+  contorno branco, vao amarelo, fios dos cantos, slider por folha; Alt arrasta
+  as bolinhas (`_cantos_da_porta`: REFEITOS de vao + cobertura, nunca gravados).
 - Corrente conecta sozinha ate' 5 mm (`ALCANCE_CONEXAO_AUTOMATICA`); alem: vertice.
 - Empties do add-on (modulo, porta, pistao) FICAM, invisiveis (`_ocultar_empty`).
 - Gaveta sem redundancia: sem nome do item, Sincronizar, Auto-regenerar nem
@@ -152,9 +154,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   PRESS e, se abrir modal, prende os cliques da gaveta.
 - `bpy.ops` dentro de operador ve a janela (ja' no RELEASE?): `esperar_soltar`.
 - Modal nunca recebe DOUBLE_CLICK (vira PRESS): `_duplo_clique_na_foto`.
-- Keyconfig do USUARIO guarda a ordem dele: `head=True` nao poe a entrada
-  do add-on antes da selecao. Clique que tem de ganhar dela e' GIZMO
-  (avaliado antes de keymap), como a bolinha do slider da porta.
+- Keyconfig do USUARIO guarda a ordem dele (`head=True` nao adianta): clique
+  que tem de ganhar da selecao e' GIZMO (antes do keymap), como o slider.
 - `GIZMO_GT_button_2d` nao aceita clique com modificador: Alt+clique na
   corrente/regua e' do keymap `cabinet_clique_corrente`.
 - O bpy nao mede texto fora do desenho: largura vem de estimativas `PX_*`.
@@ -195,6 +196,5 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 ## Residuos conhecidos
 
-- Nome antigo "Chapa G3" (tag `chapa-g3`, descricao "Modulo G3 - ...").
-- `VIEW3D_PT_cabinet_creator` (painel N) e' legado, fora de `CLASSES` de
-  proposito. `unregister()` nao remove as props de Object/Scene.
+- Nome antigo "Chapa G3" (tag `chapa-g3`); `unregister()` nao remove as
+  props de Object/Scene.

@@ -4,7 +4,7 @@ Suite "biblioteca": indice.json, catalogos, gravacao de presets e insercao.
 
 SEGURANCA: a biblioteca real mora DENTRO do repositorio
 (cabinet_creator/biblioteca). Nenhum teste escreve la': cada teste
-trabalha numa COPIA em pasta temporaria, e `addon.pasta_biblioteca` e'
+trabalha numa COPIA em pasta temporaria, e `addon.biblioteca.pasta_biblioteca` e'
 trocada antes mesmo do register() -- o timer que register() agenda
 (registrar_bibliotecas) tambem cairia numa pasta descartavel. No fim,
 a impressao digital da pasta real e' conferida; se mudou, a suite falha.
@@ -23,15 +23,15 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
 
-PASTA_REAL = os.path.normpath(addon._pasta_addon())
+PASTA_REAL = os.path.normpath(addon.opcoes._pasta_addon())
 ARQ_CATS = "blender_assets.cats.txt"
 
 # Rede de seguranca GLOBAL: antes de qualquer register(), toda chamada a
 # pasta_biblioteca()/_pasta_addon() cai numa pasta descartavel.
 _PASTA_GUARDA = tempfile.mkdtemp(prefix="cabinet_bib_guarda_")
-addon.pasta_biblioteca = lambda: _PASTA_GUARDA
-addon._pasta_addon = lambda: _PASTA_GUARDA
-_CAPTURAR_ORIGINAL = addon.capturar_viewport
+addon.biblioteca.pasta_biblioteca = lambda: _PASTA_GUARDA
+addon.opcoes._pasta_addon = lambda: _PASTA_GUARDA
+_CAPTURAR_ORIGINAL = addon.biblioteca.capturar_viewport
 
 
 def impressao_digital(pasta):
@@ -156,20 +156,20 @@ class BaseBiblioteca(unittest.TestCase):
         shutil.copytree(PASTA_REAL, self.pasta,
                         ignore=shutil.ignore_patterns("__pycache__", "*.md"))
         pasta = self.pasta
-        addon.pasta_biblioteca = lambda: pasta
-        addon.capturar_viewport = _CAPTURAR_ORIGINAL
+        addon.biblioteca.pasta_biblioteca = lambda: pasta
+        addon.biblioteca.capturar_viewport = _CAPTURAR_ORIGINAL
         s = bpy.context.scene
         s.chapa_n1 = s.chapa_n2 = s.chapa_n3 = ""
         s.cursor.location = (0.0, 0.0, 0.0)
 
     def tearDown(self):
-        addon.pasta_biblioteca = lambda: _PASTA_GUARDA
-        addon.capturar_viewport = _CAPTURAR_ORIGINAL
+        addon.biblioteca.pasta_biblioteca = lambda: _PASTA_GUARDA
+        addon.biblioteca.capturar_viewport = _CAPTURAR_ORIGINAL
         limpar_cena()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def indice(self):
-        with open(os.path.join(self.pasta, addon.NOME_INDICE),
+        with open(os.path.join(self.pasta, addon.biblioteca.NOME_INDICE),
                   encoding="utf-8") as f:
             return json.load(f)
 
@@ -178,7 +178,7 @@ class BaseBiblioteca(unittest.TestCase):
             return f.read()
 
     def chapa(self, nome="Placa", loc=(0, 0, 0)):
-        return addon.nova_chapa(nome, 600.0, 400.0, 18.0, loc, (0, 0, 0),
+        return addon.chapas.nova_chapa(nome, 600.0, 400.0, 18.0, loc, (0, 0, 0),
                                 bpy.context)
 
     def criar_presets_de_teste(self):
@@ -191,27 +191,27 @@ class BaseBiblioteca(unittest.TestCase):
         """
         dx, dy = 100.0, 50.0          # Empty fora da origem de proposito
         placa = self.chapa(NOME_CHAPA_T, (dx + 10, dy + 20, 30))
-        addon.salvar_na_biblioteca([placa], NOME_CHAPA_T, False,
+        addon.biblioteca.salvar_na_biblioteca([placa], NOME_CHAPA_T, False,
                                    niveis=("Chapas", "Avulsas", ""))
-        addon.registrar_no_indice(self.pasta, NOME_CHAPA_T, CHAPA_T,
+        addon.biblioteca.registrar_no_indice(self.pasta, NOME_CHAPA_T, CHAPA_T,
                                   "Chapas", "Avulsas", "", "objeto")
         C = bpy.context
-        base = addon.nova_chapa("Base", 600, 400, 18, (dx, dy, 9),
+        base = addon.chapas.nova_chapa("Base", 600, 400, 18, (dx, dy, 9),
                                 (0, 0, 0), C)
-        tampo = addon.nova_chapa("Tampo", 600, 400, 18, (dx, dy, 291),
+        tampo = addon.chapas.nova_chapa("Tampo", 600, 400, 18, (dx, dy, 291),
                                  (0, 0, 0), C)
-        esq = addon.nova_chapa("Lateral_Esq", 264, 400, 18,
+        esq = addon.chapas.nova_chapa("Lateral_Esq", 264, 400, 18,
                                (dx - 291, dy, 150), (0, 90, 0), C)
-        dir_ = addon.nova_chapa("Lateral_Dir", 264, 400, 18,
+        dir_ = addon.chapas.nova_chapa("Lateral_Dir", 264, 400, 18,
                                 (dx + 291, dy, 150), (0, 90, 0), C)
         C.view_layer.update()
-        conj = addon.agrupar_chapas(C, [base, tampo, esq, dir_])
+        conj = addon.modulos.agrupar_chapas(C, [base, tampo, esq, dir_])
         conj.name = NOME_NICHO_T
-        addon.salvar_na_biblioteca([conj, base, tampo, esq, dir_],
+        addon.biblioteca.salvar_na_biblioteca([conj, base, tampo, esq, dir_],
                                    NOME_NICHO_T, True,
                                    niveis=("Armarios", "Cozinha",
                                            "Inferiores"))
-        addon.registrar_no_indice(self.pasta, NOME_NICHO_T, NICHO_T,
+        addon.biblioteca.registrar_no_indice(self.pasta, NOME_NICHO_T, NICHO_T,
                                   "Armarios", "Cozinha", "Inferiores",
                                   "modulo")
         limpar_cena()
@@ -222,14 +222,14 @@ class TestIndice(BaseBiblioteca):
     def test_ler_indice_ausente_ou_corrompido_devolve_lista_vazia(self):
         vazia = os.path.join(self.tmp, "vazia")
         os.makedirs(vazia)
-        self.assertEqual(addon._ler_indice(vazia), [])
-        with open(os.path.join(vazia, addon.NOME_INDICE), "w") as f:
+        self.assertEqual(addon.biblioteca._ler_indice(vazia), [])
+        with open(os.path.join(vazia, addon.biblioteca.NOME_INDICE), "w") as f:
             f.write("{ isto nao e' json")
         # indice quebrado nao pode derrubar o painel
-        self.assertEqual(addon._ler_indice(vazia), [])
+        self.assertEqual(addon.biblioteca._ler_indice(vazia), [])
 
     def test_ler_indice_le_a_copia_da_biblioteca(self):
-        itens = addon._ler_indice(self.pasta)
+        itens = addon.biblioteca._ler_indice(self.pasta)
         arquivos = {i["arquivo"] for i in itens}
         self.assertIn("Nicho_600x400x300.blend", arquivos)
         self.assertIn("Chapa_600x400x18.blend", arquivos)
@@ -242,29 +242,29 @@ class TestIndice(BaseBiblioteca):
         nome = "Cozinha A" + chr(0xE7) + "o"     # fonte fica ASCII
         itens = [{"nome": nome, "arquivo": "x.blend", "n1": "Armarios",
                   "n2": "Cozinha", "n3": "", "tipo": "objeto"}]
-        addon._gravar_indice(self.pasta, itens)
-        bruto = self.texto(addon.NOME_INDICE)
+        addon.biblioteca._gravar_indice(self.pasta, itens)
+        bruto = self.texto(addon.biblioteca.NOME_INDICE)
         self.assertNotIn(b"\r\n", bruto)
         self.assertTrue(bruto.endswith(b"\n"))
         # ensure_ascii=False: o acento vai em UTF-8, nao escapado
         self.assertIn(nome.encode("utf-8"), bruto)
         self.assertNotIn(b"\\u00e7", bruto)
         self.assertIn(b'[\n {\n  "nome"', bruto)    # indent=1
-        self.assertEqual(addon._ler_indice(self.pasta), itens)
+        self.assertEqual(addon.biblioteca._ler_indice(self.pasta), itens)
 
     def test_indice_completo_acrescenta_pasta_e_origem_so_em_memoria(self):
-        antes = self.texto(addon.NOME_INDICE)
-        itens = addon.indice_completo()
+        antes = self.texto(addon.biblioteca.NOME_INDICE)
+        itens = addon.biblioteca.indice_completo()
         self.assertEqual(len(itens), len(self.indice()))
         for it in itens:
             self.assertEqual(it["pasta"], self.pasta)
             self.assertEqual(it["origem"], "biblioteca")
-        self.assertEqual(self.texto(addon.NOME_INDICE), antes)
+        self.assertEqual(self.texto(addon.biblioteca.NOME_INDICE), antes)
 
     def test_registrar_no_indice_acrescenta_e_substitui_pelo_basename(self):
         n_antes = len(self.indice())
         caminho = os.path.join(self.pasta, "Novo_Item.blend")
-        addon.registrar_no_indice(self.pasta, "Novo Item", caminho,
+        addon.biblioteca.registrar_no_indice(self.pasta, "Novo Item", caminho,
                                   "Portas", "Abrir", "", "objeto")
         itens = self.indice()
         self.assertEqual(len(itens), n_antes + 1)
@@ -275,7 +275,7 @@ class TestIndice(BaseBiblioteca):
                                    "n1": "Portas", "n2": "Abrir", "n3": "",
                                    "tipo": "objeto"})
         # regravar o mesmo arquivo SUBSTITUI, nao duplica
-        addon.registrar_no_indice(self.pasta, "Renomeado", caminho,
+        addon.biblioteca.registrar_no_indice(self.pasta, "Renomeado", caminho,
                                   "Chapas", "Avulsas", "", "modulo")
         itens = self.indice()
         self.assertEqual(len(itens), n_antes + 1)
@@ -287,54 +287,54 @@ class TestIndice(BaseBiblioteca):
                       [i["arquivo"] for i in itens])
 
     def test_niveis_de_formato_novo(self):
-        self.assertEqual(addon._niveis_de(
+        self.assertEqual(addon.biblioteca._niveis_de(
             {"n1": "Armarios", "n2": "Sala", "n3": "Cantos"}),
             ("Armarios", "Sala", "Cantos"))
-        self.assertEqual(addon._niveis_de({"n1": "Chapas", "n2": "Avulsas"}),
+        self.assertEqual(addon.biblioteca._niveis_de({"n1": "Chapas", "n2": "Avulsas"}),
                          ("Chapas", "Avulsas", ""))
         # n1 presente manda, mesmo com as chaves antigas sobrando
-        self.assertEqual(addon._niveis_de(
+        self.assertEqual(addon.biblioteca._niveis_de(
             {"n1": "Portas", "n2": "Abrir", "n3": "",
              "categoria": "Cozinha", "subcategoria": "Torres"}),
             ("Portas", "Abrir", ""))
 
     def test_niveis_de_aceita_formato_legado(self):
         # INVARIANTE 12: categoria/subcategoria continua legivel
-        self.assertEqual(addon._niveis_de(
+        self.assertEqual(addon.biblioteca._niveis_de(
             {"categoria": "Cozinha", "subcategoria": "Inferiores"}),
             ("Armarios", "Cozinha", "Inferiores"))
-        for amb in addon.AMBIENTES:
-            self.assertEqual(addon._niveis_de({"categoria": amb})[0:2],
+        for amb in addon.biblioteca.AMBIENTES:
+            self.assertEqual(addon.biblioteca._niveis_de({"categoria": amb})[0:2],
                              ("Armarios", amb))
-        self.assertEqual(addon._niveis_de(
+        self.assertEqual(addon.biblioteca._niveis_de(
             {"categoria": "Portas", "subcategoria": "Correr"}),
             ("Portas", "Correr", ""))
-        self.assertEqual(addon._niveis_de({}), ("", "", ""))
+        self.assertEqual(addon.biblioteca._niveis_de({}), ("", "", ""))
 
     def test_item_legado_conta_na_arvore_e_vira_catalogo(self):
         itens = self.indice()
         itens.append({"nome": "Velho", "arquivo": "Velho.blend",
                       "categoria": "Quarto", "subcategoria": "Sapateiras",
                       "tipo": "objeto"})
-        addon._gravar_indice(self.pasta, itens)
-        self.assertIn("Sapateiras", addon._filhos_n3("Armarios", "Quarto"))
-        self.assertEqual(addon._conta(addon.indice_completo(), "Armarios",
+        addon.biblioteca._gravar_indice(self.pasta, itens)
+        self.assertIn("Sapateiras", addon.biblioteca._filhos_n3("Armarios", "Quarto"))
+        self.assertEqual(addon.biblioteca._conta(addon.biblioteca.indice_completo(), "Armarios",
                                       "Quarto", "Sapateiras"), 1)
         self.assertIn("Cabinet Creator/Armarios/Quarto/Sapateiras",
-                      addon.caminhos_catalogo())
+                      addon.biblioteca.caminhos_catalogo())
 
     def test_achar_item_exige_pasta_e_arquivo(self):
-        it = addon._achar_item(self.pasta, "Nicho_600x400x300.blend")
+        it = addon.biblioteca._achar_item(self.pasta, "Nicho_600x400x300.blend")
         self.assertIsNotNone(it)
         self.assertEqual(it["nome"], "Nicho 600x400x300")
         self.assertEqual(it["pasta"], self.pasta)
-        self.assertIsNone(addon._achar_item(self.pasta, "nao_existe.blend"))
-        self.assertIsNone(addon._achar_item(self.tmp,
+        self.assertIsNone(addon.biblioteca._achar_item(self.pasta, "nao_existe.blend"))
+        self.assertIsNone(addon.biblioteca._achar_item(self.tmp,
                                             "Nicho_600x400x300.blend"))
 
     def test_atualizar_item_mescla_so_no_item_certo(self):
         antes = {i["arquivo"]: dict(i) for i in self.indice()}
-        addon._atualizar_item(self.pasta, "Cube.blend",
+        addon.biblioteca._atualizar_item(self.pasta, "Cube.blend",
                               {"bloqueado": True, "nome": "Cubo"})
         depois = {i["arquivo"]: i for i in self.indice()}
         self.assertEqual(depois["Cube.blend"]["nome"], "Cubo")
@@ -346,66 +346,66 @@ class TestIndice(BaseBiblioteca):
                 self.assertEqual(depois[arq], it)
 
     def test_item_bloqueado_e_por_item(self):
-        self.assertFalse(addon.item_bloqueado({}))
-        self.assertFalse(addon.item_bloqueado({"bloqueado": False}))
-        self.assertTrue(addon.item_bloqueado({"bloqueado": True}))
+        self.assertFalse(addon.biblioteca.item_bloqueado({}))
+        self.assertFalse(addon.biblioteca.item_bloqueado({"bloqueado": False}))
+        self.assertTrue(addon.biblioteca.item_bloqueado({"bloqueado": True}))
         # nada e' bloqueado so' por estar na pasta da biblioteca
-        for it in addon.indice_completo():
-            self.assertEqual(addon.item_bloqueado(it),
+        for it in addon.biblioteca.indice_completo():
+            self.assertEqual(addon.biblioteca.item_bloqueado(it),
                              bool(it.get("bloqueado", False)))
 
 
 # ====================================================== CATALOGOS
 class TestCatalogos(BaseBiblioteca):
     def test_catalogo_de_monta_o_caminho_mais_fundo(self):
-        R = addon.CAT_RAIZ
-        self.assertEqual(addon.catalogo_de("Armarios", "Sala", "Cantos"),
+        R = addon.biblioteca.CAT_RAIZ
+        self.assertEqual(addon.biblioteca.catalogo_de("Armarios", "Sala", "Cantos"),
                          R + "/Armarios/Sala/Cantos")
-        self.assertEqual(addon.catalogo_de("Chapas", "Avulsas", ""),
+        self.assertEqual(addon.biblioteca.catalogo_de("Chapas", "Avulsas", ""),
                          R + "/Chapas/Avulsas")
-        self.assertEqual(addon.catalogo_de("Portas"), R + "/Portas")
-        self.assertEqual(addon.catalogo_de("", "", ""), "")
+        self.assertEqual(addon.biblioteca.catalogo_de("Portas"), R + "/Portas")
+        self.assertEqual(addon.biblioteca.catalogo_de("", "", ""), "")
 
     def test_caminhos_catalogo_cobre_a_arvore_em_cascata(self):
-        cams = addon.caminhos_catalogo()
-        self.assertEqual(cams[0], addon.CAT_RAIZ)
+        cams = addon.biblioteca.caminhos_catalogo()
+        self.assertEqual(cams[0], addon.biblioteca.CAT_RAIZ)
         self.assertEqual(len(cams), len(set(cams)))
-        for n1, filhos in addon.ARVORE.items():
-            self.assertIn(addon.catalogo_de(n1), cams)
+        for n1, filhos in addon.biblioteca.ARVORE.items():
+            self.assertIn(addon.biblioteca.catalogo_de(n1), cams)
             for n2, netos in filhos.items():
-                self.assertIn(addon.catalogo_de(n1, n2), cams)
+                self.assertIn(addon.biblioteca.catalogo_de(n1, n2), cams)
                 for n3 in netos:
-                    self.assertIn(addon.catalogo_de(n1, n2, n3), cams)
+                    self.assertIn(addon.biblioteca.catalogo_de(n1, n2, n3), cams)
         for c in cams:
-            self.assertTrue(c == addon.CAT_RAIZ
-                            or c.startswith(addon.CAT_RAIZ + "/"), c)
+            self.assertTrue(c == addon.biblioteca.CAT_RAIZ
+                            or c.startswith(addon.biblioteca.CAT_RAIZ + "/"), c)
         # os catalogos por TIPO sao so' fallback: nao entram na cascata
-        self.assertNotIn(addon.CAT_MODULOS, cams)
+        self.assertNotIn(addon.biblioteca.CAT_MODULOS, cams)
 
     def test_caminhos_catalogo_inclui_categoria_nova_do_indice(self):
-        addon.registrar_no_indice(self.pasta, "X", "X.blend", "Armarios",
+        addon.biblioteca.registrar_no_indice(self.pasta, "X", "X.blend", "Armarios",
                                   "Lavanderia", "Tanques", "objeto")
-        cams = addon.caminhos_catalogo()
+        cams = addon.biblioteca.caminhos_catalogo()
         self.assertIn("Cabinet Creator/Armarios/Lavanderia", cams)
         self.assertIn("Cabinet Creator/Armarios/Lavanderia/Tanques", cams)
 
     def test_migrar_raiz(self):
-        R = addon.CAT_RAIZ
-        for velha in addon.RAIZES_ANTIGAS:
-            self.assertEqual(addon._migrar_raiz(velha), R)
-            self.assertEqual(addon._migrar_raiz(velha + "/Chapas/Avulsas"),
+        R = addon.biblioteca.CAT_RAIZ
+        for velha in addon.biblioteca.RAIZES_ANTIGAS:
+            self.assertEqual(addon.biblioteca._migrar_raiz(velha), R)
+            self.assertEqual(addon.biblioteca._migrar_raiz(velha + "/Chapas/Avulsas"),
                              R + "/Chapas/Avulsas")
             # prefixo sem a barra NAO e' a mesma raiz
-            self.assertEqual(addon._migrar_raiz(velha + "X/a"), velha + "X/a")
-        self.assertEqual(addon._migrar_raiz(R + "/Portas"), R + "/Portas")
-        self.assertEqual(addon._migrar_raiz("Outra/Coisa"), "Outra/Coisa")
+            self.assertEqual(addon.biblioteca._migrar_raiz(velha + "X/a"), velha + "X/a")
+        self.assertEqual(addon.biblioteca._migrar_raiz(R + "/Portas"), R + "/Portas")
+        self.assertEqual(addon.biblioteca._migrar_raiz("Outra/Coisa"), "Outra/Coisa")
 
     def test_garantir_catalogos_e_idempotente_na_biblioteca_real(self):
         # o .cats.txt commitado e' GERADO por _garantir_catalogos: rodar
         # de novo sobre a copia nao pode mudar um byte nem um UUID
         antes = self.texto(ARQ_CATS)
         uuids = ler_cats(self.pasta)
-        ids = addon._garantir_catalogos(self.pasta)
+        ids = addon.biblioteca._garantir_catalogos(self.pasta)
         self.assertEqual(self.texto(ARQ_CATS), antes)
         for cam, u in uuids.items():
             self.assertEqual(ids[cam], u)
@@ -416,12 +416,12 @@ class TestCatalogos(BaseBiblioteca):
         # zerado e davam UUID NOVO a todos os catalogos da biblioteca.
         arq = os.path.join(self.pasta, ARQ_CATS)
         antes = os.path.getmtime(arq)
-        addon._garantir_catalogos(self.pasta)
+        addon.biblioteca._garantir_catalogos(self.pasta)
         self.assertEqual(os.path.getmtime(arq), antes)   # nada mudou
         texto = self.texto(ARQ_CATS).decode('utf-8')
-        self.assertFalse(addon._gravar_se_mudou(arq, texto))
-        self.assertTrue(addon._gravar_se_mudou(arq, texto + "\n"))
-        self.assertTrue(addon._gravar_se_mudou(arq, texto))
+        self.assertFalse(addon.biblioteca._gravar_se_mudou(arq, texto))
+        self.assertTrue(addon.biblioteca._gravar_se_mudou(arq, texto + "\n"))
+        self.assertTrue(addon.biblioteca._gravar_se_mudou(arq, texto))
         self.assertEqual(self.texto(ARQ_CATS).decode('utf-8'), texto)
         # sem sobra do temporario da troca atomica
         self.assertFalse([n for n in os.listdir(self.pasta)
@@ -434,13 +434,13 @@ class TestCatalogos(BaseBiblioteca):
         with open(os.path.join(pasta, ARQ_CATS), "w", encoding="utf-8") as f:
             f.write("VERSION 1\n\n%s:Cabinet Creator/Armarios/Sala:x\n"
                     % u_sala)
-        ids = addon._garantir_catalogos(pasta, extras=("Cabinet Creator/Extra",
+        ids = addon.biblioteca._garantir_catalogos(pasta, extras=("Cabinet Creator/Extra",
                                                        ""))
         cats = ler_cats(pasta)
         self.assertEqual(cats["Cabinet Creator/Armarios/Sala"], u_sala)
         self.assertEqual(ids["Cabinet Creator/Armarios/Sala"], u_sala)
         self.assertIn("Cabinet Creator/Extra", cats)
-        for cam in addon.caminhos_catalogo():
+        for cam in addon.biblioteca.caminhos_catalogo():
             self.assertIn(cam, cats)
         self.assertEqual(len(set(cats.values())), len(cats))
         bruto = open(os.path.join(pasta, ARQ_CATS), "rb").read()
@@ -451,14 +451,14 @@ class TestCatalogos(BaseBiblioteca):
                        "Cabinet Creator-Armarios-Sala\n" % u_sala).encode(),
                       bruto)
         # segunda passada: nenhum UUID novo
-        self.assertEqual(addon._garantir_catalogos(pasta), ids)
+        self.assertEqual(addon.biblioteca._garantir_catalogos(pasta), ids)
 
     def test_raiz_antiga_migra_com_o_uuid_intacto(self):
         # INVARIANTES 15/16: renomear o CAMINHO preserva o asset; trocar
         # o UUID o orfana
         pasta = os.path.join(self.tmp, "legada")
         os.makedirs(pasta)
-        velha = addon.RAIZES_ANTIGAS[0]
+        velha = addon.biblioteca.RAIZES_ANTIGAS[0]
         u_raiz = "aaaaaaaa-0000-0000-0000-000000000001"
         u_coz = "aaaaaaaa-0000-0000-0000-000000000002"
         u_custom = "aaaaaaaa-0000-0000-0000-000000000003"
@@ -467,9 +467,9 @@ class TestCatalogos(BaseBiblioteca):
             f.write("%s:%s:%s\n" % (u_raiz, velha, velha))
             f.write("%s:%s/Armarios/Cozinha:x\n" % (u_coz, velha))
             f.write("%s:%s/Coisa/Antiga:x\n" % (u_custom, velha))
-        addon._garantir_catalogos(pasta)
+        addon.biblioteca._garantir_catalogos(pasta)
         cats = ler_cats(pasta)
-        R = addon.CAT_RAIZ
+        R = addon.biblioteca.CAT_RAIZ
         self.assertEqual(cats[R], u_raiz)
         self.assertEqual(cats[R + "/Armarios/Cozinha"], u_coz)
         self.assertEqual(cats[R + "/Coisa/Antiga"], u_custom)
@@ -482,7 +482,7 @@ class TestCatalogos(BaseBiblioteca):
 class TestGravacao(BaseBiblioteca):
     def test_salvar_objeto_grava_asset_no_catalogo_da_categoria(self):
         placa = self.chapa("Placa Teste")
-        arq = addon.salvar_na_biblioteca([placa], "Placa Teste", False,
+        arq = addon.biblioteca.salvar_na_biblioteca([placa], "Placa Teste", False,
                                          niveis=("Portas", "Abrir", ""))
         self.assertEqual(os.path.dirname(arq), self.pasta)
         self.assertEqual(os.path.basename(arq), "Placa_Teste.blend")
@@ -493,22 +493,22 @@ class TestGravacao(BaseBiblioteca):
         info = lidos["Placa Teste"]
         self.assertTrue(info["asset"])
         self.assertEqual(info["catalogo"], u)
-        self.assertEqual(info["props"].get(addon.MARCA_CHAPA), 1)
+        self.assertEqual(info["props"].get(addon.chapas.MARCA_CHAPA), 1)
         self.assertEqual(info["vertices"], len(placa.data.vertices))
 
     def test_salvar_sem_niveis_cai_no_catalogo_por_tipo(self):
         a = self.chapa("A")
-        arq = addon.salvar_na_biblioteca([a], "Sem Categoria", False)
+        arq = addon.biblioteca.salvar_na_biblioteca([a], "Sem Categoria", False)
         cats = ler_cats(self.pasta)
-        self.assertIn(addon.CAT_CHAPAS, cats)
+        self.assertIn(addon.biblioteca.CAT_CHAPAS, cats)
         self.assertEqual(dict(ler_blend(arq))["A"]["catalogo"],
-                         cats[addon.CAT_CHAPAS])
+                         cats[addon.biblioteca.CAT_CHAPAS])
 
     def test_salvar_modulo_marca_a_colecao_e_nao_suja_a_cena(self):
         a = self.chapa("Lado A", (0, 0, 0))
         b = self.chapa("Lado B", (700, 0, 0))
         cols_antes = set(bpy.data.collections)
-        arq = addon.salvar_na_biblioteca([a, b], "Modulo Teste", True,
+        arq = addon.biblioteca.salvar_na_biblioteca([a, b], "Modulo Teste", True,
                                          niveis=("Armarios", "Sala",
                                                  "Cantos"))
         # a Collection era so' embalagem: nao pode sobrar na cena
@@ -527,17 +527,17 @@ class TestGravacao(BaseBiblioteca):
             self.assertFalse(i["asset"])     # so' a colecao e' asset
 
     def test_nome_de_arquivo_seguro(self):
-        self.assertEqual(addon._nome_arquivo_seguro("Nicho 60/40: x"),
+        self.assertEqual(addon.biblioteca._nome_arquivo_seguro("Nicho 60/40: x"),
                          "Nicho_60_40__x")
-        self.assertEqual(addon._nome_arquivo_seguro("  "), "sem_nome")
-        self.assertNotIn("..", addon._nome_arquivo_seguro("../../fora"))
+        self.assertEqual(addon.biblioteca._nome_arquivo_seguro("  "), "sem_nome")
+        self.assertNotIn("..", addon.biblioteca._nome_arquivo_seguro("../../fora"))
 
     def test_refiliar_move_o_catalogo_sem_perder_o_asset(self):
         self.criar_presets_de_teste()
         cam = os.path.join(self.pasta, CHAPA_T)
         uuids_antes = ler_cats(self.pasta)
         antes = dict(ler_blend(cam))
-        ok, msg = addon.refiliar_preset(cam, ("Portas", "Abrir", ""))
+        ok, msg = addon.biblioteca.refiliar_preset(cam, ("Portas", "Abrir", ""))
         self.assertTrue(ok, msg)
         self.assertEqual(msg, "Cabinet Creator/Portas/Abrir")
         depois_cats = ler_cats(self.pasta)
@@ -557,7 +557,7 @@ class TestGravacao(BaseBiblioteca):
     def test_refiliar_modulo_categoria_nova_ganha_catalogo(self):
         self.criar_presets_de_teste()
         cam = os.path.join(self.pasta, NICHO_T)
-        ok, msg = addon.refiliar_preset(cam, ("Armarios", "Lavanderia", ""))
+        ok, msg = addon.biblioteca.refiliar_preset(cam, ("Armarios", "Lavanderia", ""))
         self.assertTrue(ok, msg)
         cats = ler_cats(self.pasta)
         self.assertIn("Cabinet Creator/Armarios/Lavanderia", cats)
@@ -567,7 +567,7 @@ class TestGravacao(BaseBiblioteca):
                          cats["Cabinet Creator/Armarios/Lavanderia"])
         # as chapas do modulo continuam la', com marcador e UID
         chapas = [i for n, i in lidos
-                  if addon.MARCA_CHAPA in i["props"]]
+                  if addon.chapas.MARCA_CHAPA in i["props"]]
         self.assertEqual(len(chapas), 4)
         self.assertTrue(all(i["props"].get("chapa_uid") for i in chapas))
 
@@ -575,15 +575,15 @@ class TestGravacao(BaseBiblioteca):
         self.criar_presets_de_teste()
         cam = os.path.join(self.pasta, CHAPA_T)
         antes = self.texto(CHAPA_T)
-        self.assertFalse(addon.refiliar_preset(cam, ("", "", ""))[0])
+        self.assertFalse(addon.biblioteca.refiliar_preset(cam, ("", "", ""))[0])
         self.assertEqual(self.texto(CHAPA_T), antes)
-        self.assertFalse(addon.refiliar_preset(
+        self.assertFalse(addon.biblioteca.refiliar_preset(
             os.path.join(self.pasta, "nao_existe.blend"), ("Portas",))[0])
         # .blend sem nenhum asset marcado
         o = self.chapa("Sem Asset")
         sem = os.path.join(self.pasta, "sem_asset.blend")
         bpy.data.libraries.write(sem, {o, o.data}, fake_user=True)
-        ok, msg = addon.refiliar_preset(sem, ("Portas",))
+        ok, msg = addon.biblioteca.refiliar_preset(sem, ("Portas",))
         self.assertFalse(ok)
         self.assertIn("nenhum asset", msg)
 
@@ -596,7 +596,7 @@ class TestGravacao(BaseBiblioteca):
         self.criar_presets_de_teste()
         self.chapa(NOME_CHAPA_T)          # homonimo na cena
         cam = os.path.join(self.pasta, CHAPA_T)
-        ok, msg = addon.refiliar_preset(cam, ("Portas", "Abrir", ""))
+        ok, msg = addon.biblioteca.refiliar_preset(cam, ("Portas", "Abrir", ""))
         self.assertTrue(ok, msg)
         self.assertEqual([n for n, _i in ler_blend(cam)],
                          [NOME_CHAPA_T])
@@ -607,14 +607,14 @@ class TestGravacao(BaseBiblioteca):
         png = os.path.join(self.tmp, "foto.png")
         cor = (1.0, 0.0, 1.0, 1.0)
         png_solido(png, cor)
-        ok, msg = addon.aplicar_preview_png(cam, png)
+        ok, msg = addon.biblioteca.aplicar_preview_png(cam, png)
         self.assertTrue(ok, msg)
         lidos = dict(ler_blend(cam))
         info = lidos[NOME_CHAPA_T]
         self.assertTrue(info["asset"])
         self.assertIsNotNone(info["preview"])
         img_size, icon_size, px = info["preview"]
-        lado = (addon.LADO_PREVIEW, addon.LADO_PREVIEW)
+        lado = (addon.biblioteca.LADO_PREVIEW, addon.biblioteca.LADO_PREVIEW)
         self.assertEqual(img_size, lado)
         # sem o nivel de icone o Asset Browser mostra o icone generico
         self.assertEqual(icon_size, lado)
@@ -628,13 +628,13 @@ class TestGravacao(BaseBiblioteca):
         self.criar_presets_de_teste()
         cam = os.path.join(self.pasta, CHAPA_T)
         antes = self.texto(CHAPA_T)
-        ok, _ = addon.aplicar_preview_png(cam, os.path.join(self.tmp,
+        ok, _ = addon.biblioteca.aplicar_preview_png(cam, os.path.join(self.tmp,
                                                             "nada.png"))
         self.assertFalse(ok)
         self.assertEqual(self.texto(CHAPA_T), antes)
         png = os.path.join(self.tmp, "foto.png")
         png_solido(png, (0, 0, 0, 1))
-        ok, _ = addon.aplicar_preview_png(
+        ok, _ = addon.biblioteca.aplicar_preview_png(
             os.path.join(self.pasta, "nada.blend"), png)
         self.assertFalse(ok)
 
@@ -646,7 +646,7 @@ class TestOperadores(BaseBiblioteca):
         # verdade, que e' justamente o caminho que precisa ser guardado.
         if not bpy.app.background:
             self.skipTest("so' faz sentido sem GPU (--background)")
-        antes_indice = self.texto(addon.NOME_INDICE)
+        antes_indice = self.texto(addon.biblioteca.NOME_INDICE)
         placa = self.chapa("Sem Foto")
         selecionar(placa)
         with self.assertRaises(RuntimeError) as cm:
@@ -654,7 +654,7 @@ class TestOperadores(BaseBiblioteca):
                 'EXEC_DEFAULT', nome="Sem Foto", n1="Chapas",
                 como_modulo=False)
         self.assertIn("Foto obrigatoria falhou", str(cm.exception))
-        self.assertEqual(self.texto(addon.NOME_INDICE), antes_indice)
+        self.assertEqual(self.texto(addon.biblioteca.NOME_INDICE), antes_indice)
         self.assertFalse(os.path.exists(
             os.path.join(self.pasta, "Sem_Foto.png")))
         # a cena do usuario sobrevive a falha
@@ -682,7 +682,7 @@ class TestOperadores(BaseBiblioteca):
         def capturar(destino, camera=None, isolar=None):
             png_solido(destino, (0.0, 1.0, 0.0, 1.0))
             return True, destino
-        addon.capturar_viewport = capturar
+        addon.biblioteca.capturar_viewport = capturar
 
     def test_salvar_com_foto_cadastra_grava_preview_e_catalogo(self):
         self._foto_simulada()
@@ -709,7 +709,7 @@ class TestOperadores(BaseBiblioteca):
         self.assertEqual(assets[0]["catalogo"], u)
         self.assertIsNotNone(assets[0]["preview"])
         self.assertEqual(assets[0]["preview"][0],
-                         (addon.LADO_PREVIEW, addon.LADO_PREVIEW))
+                         (addon.biblioteca.LADO_PREVIEW, addon.biblioteca.LADO_PREVIEW))
         self.assertAlmostEqual(assets[0]["preview"][2][1], 1.0, delta=0.02)
 
     def test_salvar_modulo_inclui_filhos_do_conjunto(self):
@@ -718,7 +718,7 @@ class TestOperadores(BaseBiblioteca):
         b = self.chapa("Outra", (700, 0, 0))
         pai = bpy.data.objects.new("Conjunto X", None)
         bpy.context.collection.objects.link(pai)
-        pai[addon.MARCA_CONJUNTO] = 1
+        pai[addon.chapas.MARCA_CONJUNTO] = 1
         for f in (a, b):
             f.parent = pai
         selecionar(pai)               # so' o Empty selecionado
@@ -760,26 +760,26 @@ class TestOperadores(BaseBiblioteca):
 
     def test_bloqueio_alterna_o_cadeado_do_item(self):
         arq = "Chapa_600x400x18.blend"
-        it = addon._achar_item(self.pasta, arq)
-        self.assertFalse(addon.item_bloqueado(it))
+        it = addon.biblioteca._achar_item(self.pasta, arq)
+        self.assertFalse(addon.biblioteca.item_bloqueado(it))
         self.assertEqual(bpy.ops.object.cabinet_bloqueio(
             pasta=self.pasta, arquivo=arq), {'FINISHED'})
-        self.assertTrue(addon.item_bloqueado(
-            addon._achar_item(self.pasta, arq)))
+        self.assertTrue(addon.biblioteca.item_bloqueado(
+            addon.biblioteca._achar_item(self.pasta, arq)))
         # os outros itens nao foram trancados junto
-        for outro in addon.indice_completo():
+        for outro in addon.biblioteca.indice_completo():
             if outro["arquivo"] != arq:
-                self.assertFalse(addon.item_bloqueado(outro))
+                self.assertFalse(addon.biblioteca.item_bloqueado(outro))
         self.assertEqual(bpy.ops.object.cabinet_bloqueio(
             pasta=self.pasta, arquivo=arq), {'FINISHED'})
-        self.assertFalse(addon.item_bloqueado(
-            addon._achar_item(self.pasta, arq)))
+        self.assertFalse(addon.biblioteca.item_bloqueado(
+            addon.biblioteca._achar_item(self.pasta, arq)))
 
     def test_bloqueio_de_item_inexistente_cancela_sem_gravar(self):
-        antes = self.texto(addon.NOME_INDICE)
+        antes = self.texto(addon.biblioteca.NOME_INDICE)
         self.assertEqual(bpy.ops.object.cabinet_bloqueio(
             pasta=self.pasta, arquivo="fantasma.blend"), {'CANCELLED'})
-        self.assertEqual(self.texto(addon.NOME_INDICE), antes)
+        self.assertEqual(self.texto(addon.biblioteca.NOME_INDICE), antes)
 
     def test_editar_modelo_renomeia_e_muda_categoria_no_indice(self):
         arq = "Cube.blend"
@@ -787,11 +787,11 @@ class TestOperadores(BaseBiblioteca):
             'EXEC_DEFAULT', pasta=self.pasta, arquivo=arq,
             nome="Cubo Renomeado", n1="Portas", n2="Correr", n3="")
         self.assertEqual(r, {'FINISHED'})
-        it = addon._achar_item(self.pasta, arq)
+        it = addon.biblioteca._achar_item(self.pasta, arq)
         self.assertEqual(it["nome"], "Cubo Renomeado")
-        self.assertEqual(addon._niveis_de(it), ("Portas", "Correr", ""))
+        self.assertEqual(addon.biblioteca._niveis_de(it), ("Portas", "Correr", ""))
         # os demais itens nao foram mexidos
-        self.assertEqual(addon._achar_item(
+        self.assertEqual(addon.biblioteca._achar_item(
             self.pasta, "Nicho_600x400x300.blend")["nome"],
             "Nicho 600x400x300")
 
@@ -800,7 +800,7 @@ class TestOperadores(BaseBiblioteca):
         itens.append({"nome": "Velho", "arquivo": "Velho.blend",
                       "categoria": "Cozinha", "subcategoria": "Torres",
                       "tipo": "objeto"})
-        addon._gravar_indice(self.pasta, itens)
+        addon.biblioteca._gravar_indice(self.pasta, itens)
         bpy.ops.object.cabinet_editar_modelo(
             'EXEC_DEFAULT', pasta=self.pasta, arquivo="Velho.blend",
             nome="Velho", n1="Armarios", n2="Cozinha", n3="Torres")
@@ -812,21 +812,21 @@ class TestOperadores(BaseBiblioteca):
 
     def test_editar_modelo_bloqueado_nao_muda_nada(self):
         arq = "Cube.blend"
-        addon._atualizar_item(self.pasta, arq, {"bloqueado": True})
-        antes = self.texto(addon.NOME_INDICE)
+        addon.biblioteca._atualizar_item(self.pasta, arq, {"bloqueado": True})
+        antes = self.texto(addon.biblioteca.NOME_INDICE)
         r = bpy.ops.object.cabinet_editar_modelo(
             'EXEC_DEFAULT', pasta=self.pasta, arquivo=arq,
             nome="Nao Pode", n1="Portas", n2="Abrir", n3="")
         self.assertEqual(r, {'CANCELLED'})
-        self.assertEqual(self.texto(addon.NOME_INDICE), antes)
+        self.assertEqual(self.texto(addon.biblioteca.NOME_INDICE), antes)
 
     def test_editar_modelo_inexistente_reporta_erro(self):
-        antes = self.texto(addon.NOME_INDICE)
+        antes = self.texto(addon.biblioteca.NOME_INDICE)
         with self.assertRaises(RuntimeError):
             bpy.ops.object.cabinet_editar_modelo(
                 'EXEC_DEFAULT', pasta=self.pasta, arquivo="fantasma.blend",
                 nome="X", n1="Portas")
-        self.assertEqual(self.texto(addon.NOME_INDICE), antes)
+        self.assertEqual(self.texto(addon.biblioteca.NOME_INDICE), antes)
 
     # BUG: editar_modelo troca a categoria so' no indice.json. Pela
     # invariante 15 o catalogo mora dentro do .blend e mover exige
@@ -919,15 +919,15 @@ class InsercaoBase(BaseBiblioteca):
         # adj_* gravados ainda apontam os nomes SEM sufixo. A resolucao
         # tem de achar o vizinho pelo UID entre os irmaos -- senao a
         # copia 2 estica ate' as chapas da copia 1.
-        n1, _r1, e1 = addon.inserir_preset(
+        n1, _r1, e1 = addon.biblioteca.inserir_preset(
             bpy.context, self.pasta, arquivo, "modulo",
             destino=Vector((0, 0, 0)))
-        n2, _r2, e2 = addon.inserir_preset(
+        n2, _r2, e2 = addon.biblioteca.inserir_preset(
             bpy.context, self.pasta, arquivo, "modulo",
             destino=Vector((3.0, 0, 0)))
         self.assertEqual((e1, e2), ("", ""))
-        c1 = [o for o in n1 if addon.MARCA_CHAPA in o]
-        c2 = [o for o in n2 if addon.MARCA_CHAPA in o]
+        c1 = [o for o in n1 if addon.chapas.MARCA_CHAPA in o]
+        c2 = [o for o in n2 if addon.chapas.MARCA_CHAPA in o]
         self.assertEqual(len(c1), n_chapas)
         self.assertEqual(len(c2), n_chapas)
         self.assertTrue(all(o.name.endswith(".001") for o in c2),
@@ -939,14 +939,14 @@ class InsercaoBase(BaseBiblioteca):
         bpy.context.view_layer.update()
         resolvidos = 0
         for C in c2:
-            for k in addon.PONTAS:
+            for k in addon.chapas.PONTAS:
                 uid = C.get("adj_%s_uid" % k, "")
                 nome = C.get("adj_%s" % k, "")
                 if not uid:
                     continue
                 # o nome gravado aponta para a copia 1 -- de proposito
                 self.assertNotEqual(nome[-4:], ".001")
-                N = addon._resolver_vizinho(C, uid, nome)
+                N = addon.chapas._resolver_vizinho(C, uid, nome)
                 self.assertIsNotNone(N)
                 self.assertIs(N.parent, pai2, "%s %s -> %s" % (
                     C.name, k, N.name))
@@ -955,7 +955,7 @@ class InsercaoBase(BaseBiblioteca):
         self.assertGreater(resolvidos, 0)
         # e aplicar a adjacencia nao deforma nenhuma das duas copias
         antes = self._medidas(c1 + c2)
-        addon.aplicar_adjacencia()
+        addon.chapas.aplicar_adjacencia()
         bpy.context.view_layer.update()
         depois = self._medidas(c1 + c2)
         for nome, (l, c, p) in antes.items():
@@ -977,14 +977,14 @@ class TestInsercao(InsercaoBase):
         outro = self.chapa("Ja Estava")
         selecionar(outro)
         destino = Vector((1.0, -2.0, 0.5))
-        novos, raizes, erro = addon.inserir_preset(
+        novos, raizes, erro = addon.biblioteca.inserir_preset(
             bpy.context, self.pasta, CHAPA_T, "objeto", destino=destino)
         self.assertEqual(erro, "")
         self.assertEqual(len(novos), 1)
         self.assertEqual(raizes, novos)
         o = novos[0]
         self.assertEqual(o.name, NOME_CHAPA_T)
-        self.assertIn(addon.MARCA_CHAPA, o)
+        self.assertIn(addon.chapas.MARCA_CHAPA, o)
         self.assertAlmostEqual(o.chapa_espessura_mm, 18.0)
         self.assertIn(o.name, bpy.context.scene.objects)
         self.assertPerto(o.location, base + destino)
@@ -995,14 +995,14 @@ class TestInsercao(InsercaoBase):
         base = local_no_arquivo(os.path.join(self.pasta, CHAPA_T),
                                 NOME_CHAPA_T)
         bpy.context.scene.cursor.location = (0.3, 0.4, 1.2)
-        novos, _r, erro = addon.inserir_preset(
+        novos, _r, erro = addon.biblioteca.inserir_preset(
             bpy.context, self.pasta, CHAPA_T, "objeto")
         self.assertEqual(erro, "")
         self.assertPerto(novos[0].location, base + Vector((0.3, 0.4, 1.2)))
 
     def test_inserir_arquivo_inexistente_devolve_erro(self):
         n = len(bpy.data.objects)
-        novos, raizes, erro = addon.inserir_preset(
+        novos, raizes, erro = addon.biblioteca.inserir_preset(
             bpy.context, self.pasta, "fantasma.blend", "objeto")
         self.assertEqual((novos, raizes), ([], []))
         self.assertIn("nao encontrado", erro)
@@ -1010,8 +1010,8 @@ class TestInsercao(InsercaoBase):
 
     def test_inserir_nao_altera_a_biblioteca(self):
         antes = impressao_digital(self.pasta)
-        addon.inserir_preset(bpy.context, self.pasta, NICHO_T, "modulo")
-        addon.inserir_preset(bpy.context, self.pasta, CHAPA_T, "objeto")
+        addon.biblioteca.inserir_preset(bpy.context, self.pasta, NICHO_T, "modulo")
+        addon.biblioteca.inserir_preset(bpy.context, self.pasta, CHAPA_T, "objeto")
         self.assertEqual(impressao_digital(self.pasta), antes)
 
     def test_operador_inserir_modulo_no_cursor(self):
@@ -1023,14 +1023,14 @@ class TestInsercao(InsercaoBase):
             pasta=self.pasta, arquivo=NICHO_T, tipo="modulo")
         self.assertEqual(r, {'FINISHED'})
         vazio = bpy.data.objects[NOME_NICHO_T]
-        self.assertIn(addon.MARCA_CONJUNTO, vazio)
+        self.assertIn(addon.chapas.MARCA_CONJUNTO, vazio)
         self.assertPerto(vazio.location, base + Vector((2.0, 1.0, 0.0)))
         # o modulo chega pela Collection-asset, ligada a cena
         self.assertIn(NOME_NICHO_T, bpy.context.scene.collection.children)
         chapas = [o for o in bpy.data.objects if o.parent is vazio]
         self.assertEqual(len(chapas), 4)
         for c in chapas:
-            self.assertIn(addon.MARCA_CHAPA, c)
+            self.assertIn(addon.chapas.MARCA_CHAPA, c)
             self.assertTrue(c.get("chapa_uid"))
             self.assertTrue(c.select_get())
             self.assertIn(c.name, bpy.context.scene.objects)
@@ -1083,7 +1083,7 @@ class TestPresetsDeFabrica(InsercaoBase):
             self.assertTrue(os.path.exists(os.path.join(self.pasta, png)),
                             png)
             self.assertIn(it.get("tipo"), ("modulo", "objeto"))
-            self.assertIn(addon._niveis_de(it)[0], addon.ARVORE)
+            self.assertIn(addon.biblioteca._niveis_de(it)[0], addon.biblioteca.ARVORE)
             self.assertNotIn("pasta", it)
             self.assertNotIn("origem", it)
         # todo .blend da pasta esta' no indice (nenhum orfao commitado)
@@ -1095,9 +1095,9 @@ class TestPresetsDeFabrica(InsercaoBase):
         cats = ler_cats(self.pasta)
         self.assertEqual(len(set(cats.values())), len(cats))
         for cam in cats:
-            self.assertTrue(cam == addon.CAT_RAIZ
-                            or cam.startswith(addon.CAT_RAIZ + "/"), cam)
-        for cam in addon.caminhos_catalogo():
+            self.assertTrue(cam == addon.biblioteca.CAT_RAIZ
+                            or cam.startswith(addon.biblioteca.CAT_RAIZ + "/"), cam)
+        for cam in addon.biblioteca.caminhos_catalogo():
             self.assertIn(cam, cats)
 
     def test_presets_de_fabrica_abrem_nesta_versao(self):
@@ -1110,7 +1110,7 @@ class TestPresetsDeFabrica(InsercaoBase):
         cats = ler_cats(self.pasta)
         for it in self.indice():
             self.exigir_legivel(it["arquivo"])
-            esperado = cats[addon.catalogo_de(*addon._niveis_de(it))]
+            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca._niveis_de(it))]
             assets = [i for _n, i in ler_blend(
                 os.path.join(self.pasta, it["arquivo"])) if i["asset"]]
             self.assertTrue(assets, it["arquivo"])
@@ -1133,7 +1133,7 @@ class TestPresetsDeFabrica(InsercaoBase):
         self.assertEqual(r, {'FINISHED'})
         sel = bpy.context.selected_objects
         self.assertEqual(len(sel), 1)
-        self.assertIn(addon.MARCA_CHAPA, sel[0])
+        self.assertIn(addon.chapas.MARCA_CHAPA, sel[0])
 
     def test_refiliar_na_biblioteca_de_fabrica_mantem_catalogos(self):
         pular_no_4x(self)
@@ -1144,7 +1144,7 @@ class TestPresetsDeFabrica(InsercaoBase):
         for cam, u in uuids.items():
             self.assertEqual(cats[cam], u)
         for it in self.indice():
-            esperado = cats[addon.catalogo_de(*addon._niveis_de(it))]
+            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca._niveis_de(it))]
             assets = [(n, i) for n, i in ler_blend(
                 os.path.join(self.pasta, it["arquivo"])) if i["asset"]]
             self.assertTrue(assets, it["arquivo"])
@@ -1155,11 +1155,11 @@ class TestPresetsDeFabrica(InsercaoBase):
         pular_no_4x(self)
         r = bpy.ops.object.cabinet_regerar_previews('EXEC_DEFAULT')
         self.assertEqual(r, {'FINISHED'})
-        lado = (addon.LADO_PREVIEW, addon.LADO_PREVIEW)
+        lado = (addon.biblioteca.LADO_PREVIEW, addon.biblioteca.LADO_PREVIEW)
         for it in self.indice():
             png = os.path.join(self.pasta,
                                os.path.splitext(it["arquivo"])[0] + ".png")
-            esperado = addon._pixels_png(png)
+            esperado = addon.biblioteca._pixels_png(png)
             for _n, a in ler_blend(os.path.join(self.pasta, it["arquivo"])):
                 if not a["asset"]:
                     continue
@@ -1178,7 +1178,7 @@ class TestOperadoresDeLote(InsercaoBase):
         super().setUp()
         self.criar_presets_de_teste()
         # so' os presets gerados aqui: valem em qualquer versao
-        addon._gravar_indice(self.pasta, [
+        addon.biblioteca._gravar_indice(self.pasta, [
             i for i in self.indice() if i["arquivo"] in (CHAPA_T, NICHO_T)])
 
     def catalogo_no_arquivo(self, arquivo):
@@ -1188,9 +1188,9 @@ class TestOperadoresDeLote(InsercaoBase):
         return assets[0]
 
     def test_refiliar_rearquiva_conforme_o_indice(self):
-        addon._atualizar_item(self.pasta, CHAPA_T,
+        addon.biblioteca._atualizar_item(self.pasta, CHAPA_T,
                               {"n1": "Portas", "n2": "Abrir", "n3": ""})
-        addon._atualizar_item(self.pasta, NICHO_T,
+        addon.biblioteca._atualizar_item(self.pasta, NICHO_T,
                               {"n1": "Armarios", "n2": "Lavanderia",
                                "n3": ""})
         r = bpy.ops.object.cabinet_refiliar('EXEC_DEFAULT')
@@ -1205,7 +1205,7 @@ class TestOperadoresDeLote(InsercaoBase):
                          cats["Cabinet Creator/Armarios/Lavanderia"])
         # as chapas continuam dentro do .blend, com UID
         chapas = [i for _n, i in ler_blend(os.path.join(self.pasta, NICHO_T))
-                  if addon.MARCA_CHAPA in i["props"]]
+                  if addon.chapas.MARCA_CHAPA in i["props"]]
         self.assertEqual(len(chapas), 4)
         self.assertTrue(all(i["props"].get("chapa_uid") for i in chapas))
 
@@ -1214,8 +1214,8 @@ class TestOperadoresDeLote(InsercaoBase):
         itens.append({"nome": "Fantasma", "arquivo": "Fantasma.blend",
                       "n1": "Portas", "n2": "Abrir", "n3": "",
                       "tipo": "objeto"})
-        addon._gravar_indice(self.pasta, itens)
-        addon._atualizar_item(self.pasta, CHAPA_T,
+        addon.biblioteca._gravar_indice(self.pasta, itens)
+        addon.biblioteca._atualizar_item(self.pasta, CHAPA_T,
                               {"n1": "Puxadores", "n2": "Perfil", "n3": ""})
         # falha parcial e' WARNING (nao derruba o operador)
         r = bpy.ops.object.cabinet_refiliar('EXEC_DEFAULT')
@@ -1235,7 +1235,7 @@ class TestOperadoresDeLote(InsercaoBase):
                      for a in cores}
         r = bpy.ops.object.cabinet_regerar_previews('EXEC_DEFAULT')
         self.assertEqual(r, {'FINISHED'})
-        lado = (addon.LADO_PREVIEW, addon.LADO_PREVIEW)
+        lado = (addon.biblioteca.LADO_PREVIEW, addon.biblioteca.LADO_PREVIEW)
         for arq, cor in cores.items():
             info = self.catalogo_no_arquivo(arq)
             self.assertIsNotNone(info["preview"], arq)
@@ -1255,7 +1255,7 @@ class TestOperadoresDeLote(InsercaoBase):
         self.assertEqual(r, {'FINISHED'})
         self.assertEqual(self.texto(CHAPA_T), antes)
         img, _i, px = self.catalogo_no_arquivo(NICHO_T)["preview"]
-        self.assertEqual(img, (addon.LADO_PREVIEW, addon.LADO_PREVIEW))
+        self.assertEqual(img, (addon.biblioteca.LADO_PREVIEW, addon.biblioteca.LADO_PREVIEW))
         self.assertAlmostEqual(px[1], 1.0, delta=0.02)
 
 

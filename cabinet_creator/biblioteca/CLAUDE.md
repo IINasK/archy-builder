@@ -43,7 +43,7 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 
 - `tipo`: `"modulo"` (Collection marcada como asset; insere o conjunto) ou
   `"objeto"` (objetos soltos).
-- `n1/n2/n3`: niveis da arvore `ARVORE` em `__init__.py`. `n1` deve ser
+- `n1/n2/n3`: niveis da arvore `ARVORE` em `biblioteca.py`. `n1` deve ser
   chave de `ARVORE`; ramos sem nivel 3 usam `"n3": ""`.
 - Opcionais: `foto` (nome do png), `ordem` (int, posicao na grade),
   `bloqueado` (bool; ignorado aqui, fabrica e' sempre bloqueada).
