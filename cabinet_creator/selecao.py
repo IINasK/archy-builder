@@ -349,6 +349,20 @@ def registrar_keymaps():
                               'LEFTMOUSE', 'PRESS', head=True)
     _keymaps.append((km, kmi))
 
+    # Paredes (como no Promob): botao DIREITO segurado num modulo o
+    # arrasta ate' uma parede. No "Object Mode" porque o menu de contexto
+    # mora la' (e esse keymap vem antes do "3D View"); fora de modulo o
+    # operador devolve o evento e o menu abre como sempre.
+    km_obj = kc.keymaps.new(name="Object Mode", space_type='EMPTY')
+    kmi = km_obj.keymap_items.new("object.cabinet_arrastar_na_parede",
+                                  'RIGHTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km_obj, kmi))
+    # botao DIREITO na gaveta (pintura rapida sobre um material): tambem
+    # aqui, antes do menu de contexto; o poll so' aceita a gaveta
+    kmi = km_obj.keymap_items.new("object.cabinet_interagir_gaveta",
+                                  'RIGHTMOUSE', 'PRESS', head=True)
+    _keymaps.append((km_obj, kmi))
+
     # Posicionador a partir da grade. O keymap "User Interface" e' o
     # unico que enxerga botoes de painel. O gesto de ARRASTAR raramente
     # chega aqui (o handler de UI consome o PRESS antes), mas o

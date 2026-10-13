@@ -5,7 +5,8 @@ import bpy
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = None
+_chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
+_ferragens = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -51,6 +52,11 @@ def verificar_periodicamente():
             _chapas.absorver_edicoes_de_malha()
             _puxadores._conferir_rebaixos()
             _modulos._sincronizar_medidas_ativas()
+            # modulo associado: segue a parede / volta ao plano dela
+            _paredes.manter_nas_paredes()
+            # controlador/furo do rig: so' o slider abre a porta
+            _ferragens.ocultar_pecas_do_rig()
+            _paredes.atualizar_guias()
         except Exception as e:
             print("[Cabinet Creator] erro no timer:", e)
     return INTERVALO_TIMER
@@ -179,6 +185,7 @@ def _esquecer_referencias(*_args):
     essas acoes liberam (ver `_hud._alvo_vivo`). O proximo movimento do mouse
     acha o alvo de novo."""
     _hud._hover_hud.clear()
+    _paredes.esquecer()
 
 
 # Ctrl+Z / Ctrl+Shift+Z: os dados acabaram de ser recarregados e o

@@ -50,12 +50,13 @@ from . import solda as _solda
 from . import perguntas as _perguntas
 from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
+from . import paredes as _paredes
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
-            _portas_viewport, _gaveta_desenho, _painel_legado)
+            _portas_viewport, _gaveta_desenho, _paredes, _painel_legado)
 
 
 def _ligar_modulos():
@@ -129,6 +130,12 @@ CLASSES = (
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,
+    # guias da parede: o numero e' gizmo para ganhar da selecao (keymap)
+    _paredes.VIEW3D_GT_guia_parede,
+    _paredes.VIEW3D_GGT_guias_parede,
+    _paredes.OBJECT_OT_arrastar_na_parede,
+    _paredes.OBJECT_OT_guia_parede,
+    _paredes.OBJECT_OT_desassociar_parede,
     _solda.OBJECT_OT_desassociar,
     _solda.OBJECT_OT_tecla_corrente,
     _solda.OBJECT_OT_clique_corrente,
@@ -463,6 +470,7 @@ def unregister():
     _hud._hover_hud.clear()
     _hud._clique_chapa_hud.clear()
     _hud._clique_pendente.clear()
+    _paredes.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)

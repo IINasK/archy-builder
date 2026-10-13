@@ -21,6 +21,7 @@ _arame = None
 _gaveta = None
 _solda = None
 _portas_viewport = None
+_paredes = None
 _gaveta_desenho = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
@@ -844,6 +845,7 @@ def _desenhar_hud_texto():
     _puxadores._desenhar_ancoras_puxador(context)
     _portas_viewport._desenhar_cantos_porta(context)
     _portas_viewport._desenhar_sliders_porta(context)
+    _paredes.desenhar_guias(context)     # modulo associado a uma parede
     desenhos = _desenhos_hud(context)
     if not desenhos:
         return

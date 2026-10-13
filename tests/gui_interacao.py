@@ -2182,6 +2182,60 @@ def test_materiais_pela_gaveta(janela, m):
         shutil.rmtree(pasta, True)
 
 
+def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
+    # Promob (pedido do usuario): botao DIREITO segurado no modulo e solto
+    # na parede (cabinet_arrastar_na_parede) encosta as costas nela e
+    # associa; o numero da guia (VIEW3D_GGT_guias_parede /
+    # VIEW3D_GT_guia_parede -> cabinet_guia_parede), clicado, digita.
+    import bmesh
+    P = addon.paredes
+    conj = criar_modulo(janela)
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for v in bm.verts:
+        v.co.x, v.co.y, v.co.z = v.co.x * 3.0, v.co.y * 0.15, v.co.z * 2.7
+    malha = bpy.data.meshes.new('Parede')
+    bm.to_mesh(malha)
+    bm.free()
+    parede = bpy.data.objects.new('Parede', malha)
+    bpy.context.scene.collection.objects.link(parede)
+    parede.location = (0.0, 1.075, 1.35)          # frente em y = 1 m
+    bpy.context.view_layer.update()
+    yield
+    _area, regiao, rv3d = viewport(janela)
+    meio = conj.matrix_world @ Vector((0.0, 0.0, 0.2))
+    m.mover(*na_tela(regiao, rv3d, meio))
+    yield
+    m.apertar('RIGHTMOUSE')
+    yield
+    destino = na_tela(regiao, rv3d, Vector((-0.9, 1.0, 1.6)))
+    for t in (0.25, 0.5, 0.75, 1.0):
+        m.mover(m.x + (destino[0] - m.x) * t, m.y + (destino[1] - m.y) * t)
+        yield
+    m.soltar('RIGHTMOUSE')
+    yield
+    assert conj.get(P.CHAVE_PAREDE) == parede.get(P.CHAVE_UID_PAREDE), dict(conj)
+    assert abs(P.ponto_das_costas(conj).y - 1.0) < 1e-4, P.ponto_das_costas(conj)
+    # selecionado, as guias aparecem; clique no numero do piso digita
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
+    yield esperar(0.5)                 # o timer calcula as guias
+    assert P._guias[0] is not None, 'sem guias'
+    rotulo = next(r for r in P._rotulos.get(regiao.as_pointer(), ())
+                  if r[0] == 'piso')
+    m.mover(regiao.x + (rotulo[1] + rotulo[3]) / 2,
+            regiao.y + (rotulo[2] + rotulo[4]) / 2)
+    yield
+    m.clicar()
+    yield
+    assert P._edicao_guia[0] is not None, 'o clique nao abriu a digitacao'
+    m.digitar('1200')
+    m.tecla('RET')
+    yield
+    assert P._edicao_guia[0] is None
+    piso = P.calcular_guias(conj)['valores']['piso']
+    assert abs(piso - 1200.0) < 0.01, piso
+
+
 def test_botao_direito_no_material_pinta_o_comodo(janela, m):
     # Pintura rapida (pedido do usuario): mouse sobre o material + botao
     # DIREITO -> "quais modulos?" (por comodo) -> "pintar o que?" na caixa
