@@ -2330,9 +2330,15 @@ def test_criar_gavetas_pelo_assistente(janela, m):
     m.clicar()
     yield
     assert w['etapa'] == 'PROFUNDIDADE', w['etapa']
-    m.mover(m.x + 3, m.y + 2)
+    # De frente o eixo de profundidade colapsa na tela. Olhar de lado
+    # e usar Alt num vertice traseiro prova a profundidade e o snap reais.
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
     yield
-    m.clicar()
+    destino = na_tela(regiao, rv3d, _local(conj, L / 2 - E, P / 2, E))
+    m.mover(*destino)
+    m.janela.event_simulate('MOUSEMOVE', 'NOTHING', x=m.x, y=m.y, alt=True)
+    yield
+    m.clicar(alt=True)
     yield
     assert w['etapa'] == 'TRILHO', w['etapa']
     (x, yb, bw, bh), _c, _t = next(b for b in w['botoes'] if b[1] == 'TELESCOPICO')
@@ -2420,6 +2426,30 @@ def test_clique_nas_prateleiras_todas_duplo_uma(janela, m):
     assert any(r.startswith('Abaixo') for r in rotulos), rotulos
 
 
+def test_clique_no_puxador_da_gaveta_abre_puxadores(janela, m):
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    grupo = _gavetas_prontas(janela, conj)
+    gavetas = addon.gavetas.gavetas_do_grupo(grupo)
+    frente = addon.gavetas.frente_da_gaveta(gavetas[1])
+    pux = next(o for o in frente.children if addon.chapas.MARCA_PUXADOR in o)
+    with contexto(janela, area, regiao):
+        addon.puxadores._trocar_modelo_puxador(pux, 'ALCA')
+        addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, pux.matrix_world.translation)
+    yield esperar(0.4)
+    assert set(bpy.context.selected_objects) == {pux}, bpy.context.selected_objects
+    assert bpy.context.view_layer.objects.active == pux
+    assert bpy.context.scene.cabinet_aba == 'PUXADORES'
+    assert not addon.gavetas.gavetas_com_slider(bpy.context)
+    assert not addon.hud._itens_da_selecao(bpy.context)
+    yield from _clicar_no_mundo(m, regiao, rv3d, frente.matrix_world @ Vector((0.12, -0.025, 0.011)))
+    yield esperar(0.4)
+    assert bpy.context.view_layer.objects.active == grupo
+    assert bpy.context.scene.cabinet_aba == 'GAVETAS'
+    assert not pux.select_get()
+
+
 def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
     # clique na frente = todas as gavetas (so' elas com linha na HUD); a
     # bolinha do slider (gizmo VIEW3D_GT_slider_gaveta, grupo
@@ -2458,6 +2488,151 @@ def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
     assert bpy.context.view_layer.objects.active == grupo
 
 
+def _linha_editavel_gavetas(janela, grupo, letra, lado):
+    area, regiao, rv3d = viewport(janela)
+    with contexto(janela, area, regiao):
+        geometria = addon.hud._geometria_do_item(grupo, 'GAVETAS', [])
+        for linha in geometria['linhas']:
+            if linha['letra'] != letra:
+                continue
+            a, b = [Vector(na_tela(regiao, rv3d, p)) for p in linha['pontos']]
+            if (b - a).length < 40:
+                continue
+            ponto = a.lerp(b, 0.2 if lado == 'min' else 0.8)
+            posicao = (ponto.x - regiao.x, ponto.y - regiao.y)
+            if addon.gavetas.slider_sob_mouse(bpy.context, posicao) is not None:
+                continue
+            alvo = addon.hud._acertar_hud(bpy.context,
+                                        posicao)
+            if (alvo and alvo['tipo'] == 'gavetas' and alvo['face'] == (letra,)
+                    and alvo['lado'] == lado):
+                inicio, fim = [Vector(na_tela(regiao, rv3d, p)) for p in alvo['pontos']]
+                return alvo, ponto, (fim - inicio).normalized()
+    raise AssertionError('linha de gavetas nao encontrada: %s/%s' % (letra, lado))
+
+
+def test_arrastar_gavetas_redimensiona_sem_mexer_no_armario(janela, m):
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    conj.conj_profundidade_mm = 560.0
+    grupo = _gavetas_prontas(janela, conj)
+    with contexto(janela, area, regiao):
+        addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    modulo = addon.modulos.medir_conjunto(conj)
+    addon.gavetas.definir_abertura(addon.gavetas.gavetas_do_grupo(grupo)[0], 0.4)
+    yield
+    yield
+    for letra, lado in (('L', 'min'), ('A', 'max'), ('P', 'max')):
+        for pixels in (-20, 10):
+            alvo, inicio, direcao = _linha_editavel_gavetas(janela, grupo, letra, lado)
+            fixa = alvo['pontos'][0].copy()
+            antes = addon.gavetas.valor(grupo, (letra,))
+            m.mover(*inicio)
+            yield
+            yield
+            m.apertar()
+            yield
+            assert addon.hud._edicao_hud[0] is not None, ('o arraste nao abriu',
+                letra, lado, tuple(inicio), bpy.context.object,
+                addon.hud._hover_hud, [o.bl_idname for o in janela.modal_operators])
+            for passo in range(1, 5):
+                m.mover(*(inicio + direcao * pixels * passo / 4))
+                yield
+            m.soltar()
+            yield
+            depois = addon.gavetas.valor(grupo, (letra,))
+            assert (depois - antes) * pixels > 0, (letra, antes, depois)
+            cantos = addon.gavetas.cantos_hud(grupo)
+            assert min((c - fixa).length for c in cantos) < 1e-4, 'a quina fixa andou'
+            assert all(abs(a - b) < 0.1 for a, b in zip(modulo, addon.modulos.medir_conjunto(conj)))
+            assert bpy.context.view_layer.objects.active == grupo
+            assert len(addon.gavetas.gavetas_com_slider(bpy.context)) == 3
+            assert abs(addon.gavetas.gavetas_do_grupo(grupo)[0][addon.gavetas.CHAVE_ABERTURA] - 0.4) < 0.001
+
+
+def test_gavetas_arraste_esc_e_digitacao_na_hud(janela, m):
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    conj.conj_profundidade_mm = 560.0
+    grupo = _gavetas_prontas(janela, conj)
+    with contexto(janela, area, regiao):
+        addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    yield
+    for letra in ('A', 'P'):
+        antes = addon.gavetas.medidas(grupo)
+        origem = grupo.matrix_world.translation.copy()
+        _alvo, inicio, direcao = _linha_editavel_gavetas(janela, grupo, letra, 'max')
+        m.mover(*inicio)
+        yield
+        yield
+        m.apertar()
+        yield
+        m.mover(*(inicio - direcao * 20))
+        yield
+        m.tecla('ESC')
+        m.soltar()
+        yield
+        yield
+        assert addon.hud._edicao_hud[0] is None
+        assert all(abs(a - b) < 0.1 for a, b in zip(antes, addon.gavetas.medidas(grupo)))
+        assert (grupo.matrix_world.translation - origem).length < 1e-4
+    _alvo, inicio, _direcao = _linha_editavel_gavetas(janela, grupo, 'L', 'min')
+    m.mover(*inicio)
+    yield
+    yield
+    m.apertar()
+    yield
+    assert addon.hud._edicao_hud[0] is not None, ('clique nao abriu',
+        tuple(inicio), bpy.context.object, addon.hud._hover_hud,
+        [o.bl_idname for o in janela.modal_operators])
+    m.soltar()
+    yield
+    assert (addon.hud._edicao_hud[0] or {}).get('texto') is not None, addon.hud._edicao_hud[0]
+    m.digitar('350mm')
+    m.tecla('RET')
+    yield
+    assert abs(addon.gavetas.medidas(grupo)[0] - 350.0) < 0.1
+
+
+def test_gavetas_esc_apos_modulo_renomeado_e_aumentado(janela, m):
+    # Regressao 222: nome salvo do preset, movel fora da origem, +100 mm,
+    # entrar na edicao e Esc SEM arrastar nao pode duplicar a translacao.
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    grupo = _gavetas_prontas(janela, conj)
+    conj.location += Vector((6.7, -1.25, 0.3))
+    conj.name += ' 600x500x300'
+    conj.conj_altura_mm += 100.0
+    bpy.context.view_layer.update()
+    with contexto(janela, area, regiao):
+        addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
+    rv3d.view_location = (lo + hi) / 2
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    yield
+    origem = grupo.matrix_world.translation.copy()
+    medidas = addon.gavetas.medidas(grupo)
+    for _ in range(3):
+        _alvo, inicio, _direcao = _linha_editavel_gavetas(janela, grupo, 'A', 'max')
+        m.mover(*inicio)
+        yield
+        yield
+        m.apertar()
+        yield
+        m.soltar()
+        yield
+        assert (addon.hud._edicao_hud[0] or {}).get('texto') is not None
+        m.tecla('ESC')
+        yield
+        yield
+        assert addon.hud._edicao_hud[0] is None
+        assert (grupo.matrix_world.translation - origem).length < 1e-4
+        assert all(abs(a - b) < 0.1 for a, b in zip(medidas, addon.gavetas.medidas(grupo)))
+        assert addon.gavetas.modulo_do_grupo(grupo) == conj
+        assert grupo[addon.gavetas.CHAVE_MODULO] == conj.name
+
+
 def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     # pedido do usuario: com Alt, 3 pontos -- as duas quinas da frente na
     # diagonal e a profundidade; o de cima a' esquerda gruda num vertice
@@ -2465,6 +2640,12 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     grupo = _gavetas_prontas(janela, conj, n=2)
     with contexto(janela, area, regiao):
         addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+        bpy.ops.ed.undo_push(message='Antes da ancora nativa')
+    nome = grupo.name
+    antes = addon.gavetas.medidas(grupo)
+    cursor = bpy.context.scene.cursor.location.copy()
+    bloqueados = {o.name: o.hide_select for o in bpy.context.scene.objects}
+    overlay = area.spaces.active.overlay.show_cursor
     yield
     yield
     m.mover(*na_tela(regiao, rv3d, addon.gavetas.pontos_editaveis(grupo)[0]))
@@ -2475,6 +2656,21 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     m.apertar(alt=True)
     yield
     assert addon.gavetas._arraste_ponto[0] is not None, 'o ponto nao pegou'
+    m.mover(m.x + 15, m.y + 10)
+    yield
+    m.tecla('ESC')
+    yield
+    yield
+    assert addon.gavetas._arraste_ponto[0] is None, 'Esc nao encerrou o snap nativo'
+    assert addon.gavetas.medidas(grupo) == antes
+    assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
+    assert area.spaces.active.overlay.show_cursor == overlay
+    assert bloqueados == {o.name: o.hide_select for o in bpy.context.scene.objects}
+    m.mover(*na_tela(regiao, rv3d, addon.gavetas.pontos_editaveis(grupo)[0]))
+    yield
+    m.apertar(alt=True)
+    yield
+    assert addon.gavetas._arraste_ponto[0] is not None
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     # a quina de baixo do tampo vira a de cima da lateral: o vao sobe E
@@ -2492,12 +2688,32 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     assert addon.gavetas._arraste_ponto[0] is None
     _l, altura, _p = addon.gavetas.medidas(grupo)
     assert abs(altura - (A - E)) < 1, altura
+    assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
+    assert area.spaces.active.overlay.show_cursor == overlay
+    assert all(bpy.data.objects[n].hide_select == v for n, v in bloqueados.items()
+               if bpy.data.objects.get(n) is not None)
+    with contexto(janela, area, regiao):
+        bpy.ops.ed.undo()
+    yield
+    grupo = bpy.data.objects[nome]
+    assert all(abs(a - b) < 0.01 for a, b in zip(addon.gavetas.medidas(grupo), antes))
+    assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
+    with contexto(janela, area, regiao):
+        bpy.ops.ed.redo()
+    yield
+    grupo = bpy.data.objects[nome]
+    assert abs(addon.gavetas.medidas(grupo)[1] - (A - E)) < 1
+    assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
 
 
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
+       test_clique_no_puxador_da_gaveta_abre_puxadores,
        test_botao_direito_no_material_pinta_o_comodo,
        test_criar_gavetas_pelo_assistente,
        test_slider_abre_a_gaveta_e_clique_seleciona,
+       test_arrastar_gavetas_redimensiona_sem_mexer_no_armario,
+       test_gavetas_arraste_esc_e_digitacao_na_hud,
+       test_gavetas_esc_apos_modulo_renomeado_e_aumentado,
        test_alt_arrasta_o_ponto_das_gavetas,
        test_arrastar_modulo_com_o_direito_ate_a_parede,
        test_materiais_pela_gaveta,

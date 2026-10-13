@@ -24,7 +24,6 @@ NO MODULO dela (`addon.portas.x = ...`): no pacote nao vale.
 
 Idioma: portugues (codigo, UI, commits, NOME de objeto), em ASCII (`e'`, `so'`).
 Comentario explica o PORQUE.
-
 ## Comandos e verificacao
 
 ```
@@ -39,7 +38,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (218).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (225).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -76,14 +75,16 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 16. `sincronizar_contornos` so' religa o overlay que ELE desligou.
 
 ## Decisoes do usuario (nao "melhorar")
+- SNAP: reutilizar SEMPRE o motor nativo do Blender em novas ferramentas quando aplicavel;
+  evitar varreduras Python de malhas no clique/arraste. Cursor temporario: restaurar no confirmar/Esc, undo unico.
 - Sim/Nao (`_perguntar`): pop-up SO' da viewport; botao da gaveta = caixa preta.
-- Selecao: clique = modulo, duplo = peca, Shift soma; a gaveta vai a' aba
+- Selecao: caixa (laterais/tampo) = modulo; porta = so' porta; puxador = so' ele; duplo = peca, Shift soma; a gaveta vai a' aba
   do item; a SELECAO decide o que edita. Quina arrasta o modulo (Ctrl = snap
   SO' em quina/ponta de curva de outro armario/chapa). PORTA: clique = inteira (nunca o
   modulo), duplo = folha, sem contorno nativo. FERRAGEM so' aparece criando
   ou selecionada (ARAME da peca real): clique = todas do tipo (Shift soma o
   outro), Alt = controlador, duplo = a PECA (nativa: Tab/G/X). PUXADOR: Alt
-  arrasta a ancora a outra borda SO' do grupo dele (snap de linha).
+  arrasta a ancora a outra borda SO' do grupo dele (snap de linha). Clique no puxador = SO' ele e suas funcoes, inclusive nas gavetas; trilhos das gavetas ficam com elas.
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo DESVIO (> 5 mm
   na viewport, qualquer um no botao). Regua: chapa ativa se move (pergunta se mudar medida);
   modulo ativo se adapta. Ctrl+D numa chapa: sem soldas (UID novo); F3 "Recalcular Ancoragem".
@@ -130,8 +131,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   quantas -> mouse = profundidade (Alt gruda) -> trilho (TELESCOPICO padrao; OCULTO).
   Trilho = BLOCAGEM em tamanho real (modelo nao pronto). Como a porta: clique = todas,
   duplo = uma; SO' elas com linha na HUD; slider ANDA com a frente (nunca coberto);
-  Alt = 3 pontos (2 quinas da frente + profundidade). Margens ao modulo fixas.
-  Frente CURVA (flecha do arco: gaveteiro de canto) e alturas em PROPORCAO (Promob).
+  Alt = 3 pontos (2 quinas da frente + profundidade), snap NATIVO (translate do cursor; Esc restaura cursor e alvos). Modulo selecionado absorve os filhos;
+  redimensionar MOVE as gavetas com a face proxima, SEM esticar. Edicao direta preserva selecao; Esc restaura medidas. Vinculo = PAI real (nome antigo do preset nao manda). Frente CURVA e alturas em PROPORCAO.
 - PRATELEIRAS (aba propria): o assistente das GAVETAS (`AssistenteDoVao`) com SO' 2 cliques + scroll;
   profundidade ate' o FUNDO, folga da frente = RECUO. Espacamento IGUAL | LIVRE (vao ABAIXO de cada uma; o de cima sobra); mudar UM vao
   anda SO' uma prateleira (o vizinho cede). Clique = todas, duplo = uma (Abaixo/Acima dela); HUD:

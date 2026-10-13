@@ -29,6 +29,29 @@ _prateleiras = None
 # comportamento normal do Blender volta inteiro.
 
 
+def _puxador_do_clique(obj):
+    while obj is not None:
+        if _chapas.MARCA_PUXADOR in obj:
+            return obj
+        obj = obj.parent
+    return None
+
+
+def _selecionar_puxador(context, puxador, somar=False):
+    # A ascendencia identifica a montagem, mas nao amplia a selecao do
+    # acessorio: clicar nele abre so' as suas proprias funcoes.
+    ligado = not puxador.select_get() if somar else True
+    if not somar:
+        for obj in context.selected_objects:
+            obj.select_set(False)
+    puxador.select_set(ligado)
+    if ligado:
+        context.view_layer.objects.active = puxador
+    elif context.view_layer.objects.active == puxador:
+        context.view_layer.objects.active = next(
+            (o for o in context.selected_objects if o != puxador and o.select_get()), None)
+
+
 def _aba_da_selecao(obj):
     """Aba da gaveta que cuida de `obj`, ou None (objeto que nao e' nosso)."""
     if obj is None:
@@ -75,6 +98,8 @@ def familia_de(obj):
     transforma duas vezes o filho cujo pai tambem esta' selecionado.
     """
     if obj is None:
+        return []
+    if _puxador_do_clique(obj) is not None:
         return []
     portas = _portas._grupo_portas(obj)
     if portas is not None:
@@ -162,6 +187,10 @@ class OBJECT_OT_selecionar(Operator):
         atingido = _hud._raio_hud(context, self.location)
         _log_clique('  raio=%s anterior=%s' % (
             atingido and atingido[0].name, _hud._clique_chapa_hud.get(chave)))
+        puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
+        if puxador is not None:
+            _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
+            return {'FINISHED'}
         if atingido is not None and _gavetas.grupo_de(atingido[0]) is not None:
             # GAVETA (pedido do usuario, como a porta): clique = todas as
             # gavetas do vao, duplo = so' aquela; Shift soma. O corpo do

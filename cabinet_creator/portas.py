@@ -1558,7 +1558,7 @@ ARESTAS_CAIXA = (
 )
 
 
-def _alvos_do_ima(context):
+def _alvos_do_ima(context, ignorar=()):
     """(objeto, vertices em MUNDO) de tudo que o ima pode pegar.
 
     Os vertices sao lidos UMA vez, no invoke: reavaliar o depsgraph a
@@ -1570,8 +1570,9 @@ def _alvos_do_ima(context):
     except Exception:
         dep = None
     alvos = []
+    ignorados = set(ignorar)
     for obj in context.visible_objects:
-        if obj.type != 'MESH':
+        if obj.type != 'MESH' or obj.name in ignorados:
             continue
         avaliado = obj.evaluated_get(dep) if dep is not None else obj
         try:
@@ -1592,7 +1593,7 @@ def _alvos_do_ima(context):
                           if v.index not in ruido]
                 pontos += [m @ p['co'] for p in notaveis['pontos']
                            if p['tipo'] == 'CENTRO']
-                _geometria.lembrar_rotulos(obj, malha)
+                _geometria.lembrar_rotulos(obj, malha, notaveis=notaveis)
                 if _chapas.MARCA_CHAPA in obj:
                     # Porta que cobre METADE de uma chapa (pedido do
                     # usuario): o meio de cada aresta da espessura (Z

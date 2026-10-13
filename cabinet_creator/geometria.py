@@ -270,12 +270,15 @@ def rotulo(tipo, angulo):
 _rotulos = {}
 
 
-def lembrar_rotulos(obj, malha=None):
+def lembrar_rotulos(obj, malha=None, notaveis=None):
     """Guarda o rotulo de cada ponto notavel do objeto, pela posicao de
     mundo arredondada (o ima so' devolve o ponto)."""
     if len(_rotulos) > 50000:
         _rotulos.clear()            # cada assistente relembra o que ve
-    for co, tipo, angulo in pontos_no_mundo(obj, malha):
+    pontos = ([(obj.matrix_world @ p['co'], p['tipo'], p['angulo'])
+               for p in notaveis['pontos']] if notaveis is not None
+              else pontos_no_mundo(obj, malha))
+    for co, tipo, angulo in pontos:
         _rotulos[_chave_ponto(co)] = rotulo(tipo, angulo)
 
 

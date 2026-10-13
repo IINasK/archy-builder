@@ -373,6 +373,14 @@ def _itens_da_selecao(context):
             itens.append((obj, modo, chapas))
 
     for o in selecionados:
+        pai = o.parent
+        while pai is not None and not (
+                pai in marcados and _chapas.MARCA_CONJUNTO in pai):
+            pai = pai.parent
+        if pai is not None and _chapas.MARCA_CONJUNTO in pai:
+            # Os filhos acendem com o modulo, mas nao sao novos alvos.
+            somar(pai, 'GRUPO', _modulos.pecas_do_envelope(pai))
+            continue
         prateleiras = _prateleiras.grupo_de(o)
         if prateleiras is not None:
             # prateleiras (o grupo ou uma, pelo duplo): as linhas do vao
@@ -1509,6 +1517,8 @@ def _aplicar_valor_hud(context, alvo, valor):
 
 def _estado_arraste_hud(context, alvo):
     obj = alvo['objeto']
+    if alvo['tipo'] == 'gavetas':
+        return 'GAVETAS', _gavetas.copia(obj)
     if alvo['tipo'] == 'prateleiras':
         # o Esc devolve os PARAMETROS (as chapas se refazem por eles)
         return 'PRATELEIRAS', _prateleiras.copia(obj)
@@ -1534,6 +1544,8 @@ def _estado_arraste_hud(context, alvo):
         porta = ({p: dict(o[p]) if p == 'porta_parametros' else o[p] for p in
                   ('porta_parametros', 'porta_vao_largura_mm', 'porta_vao_altura_mm')}
                  if _chapas.MARCA_PORTAS in o and 'porta_parametros' in o else {})
+        if _gavetas.MARCA_GRUPO in o:
+            porta[_gavetas.CHAVE_MARGENS] = tuple(o[_gavetas.CHAVE_MARGENS])
         if _chapas.MARCA_FOLHA in o and _ferragens.CHAVE_CENTRO_FOLHA in o:
             porta[_ferragens.CHAVE_CENTRO_FOLHA] = tuple(o[_ferragens.CHAVE_CENTRO_FOLHA])
         vertices =[tuple(v.co) for v in o.data.vertices] if o.type == 'MESH' else None
@@ -1547,6 +1559,9 @@ def _estado_arraste_hud(context, alvo):
 
 def _restaurar_arraste_hud(context, estado):
     objetos, cena = estado
+    if objetos == 'GAVETAS':
+        _gavetas.restaurar(cena)
+        return
     if objetos == 'PRATELEIRAS':
         _prateleiras.restaurar(cena)
         return

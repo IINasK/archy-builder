@@ -21,6 +21,7 @@ _gaveta_eventos = None
 _importacao = None
 _hud = None
 _solda = None
+_gavetas = None
 
 # ======================================== PUXADORES PARAMETRICOS
 # Tres modelos prontos, montados no referencial da LINHA -- a borda da
@@ -875,6 +876,9 @@ def _trocar_modelo_puxador(pux, valor):
             or chapa is None or _chapas.MARCA_CHAPA not in chapa):
         return
     _dados_do_tipo(pux, tipo, arquivo)
+    gaveta = _gavetas.gaveta_de(pux)
+    if gaveta is not None:
+        gaveta[_gavetas.CHAVE_PUXADOR] = valor
     # o material do perfil (aluminio do usuario) nao fica no de caixas
     pux.data.materials.clear()
     if tipo == 'PERFIL':

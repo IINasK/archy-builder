@@ -8,7 +8,7 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _gaveta = None
+_chapas = _portas = _gaveta = _gavetas = None
 
 # ================================================= MODULO (CONJUNTO)
 # Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
@@ -233,6 +233,7 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
     pai = chapas[0].parent if chapas else None
     if pai is not None and _chapas.MARCA_CONJUNTO in pai:
         _acompanhar_acessorios(pai, lo_antes, hi_antes, lo, hi)
+        _gavetas.acompanhar_redimensionamento(pai, lo_antes, hi_antes, lo, hi)
     try:
         bpy.context.view_layer.update()
     except Exception:
@@ -918,8 +919,8 @@ def _colecao_do_modulo(conj):
 
 
 def nomear_grupo(conj, nome):
-    """Renomeia o grupo: o Empty, a Collection dele e o vinculo das portas
-    (elas guardam o NOME do modulo em `porta_modulo`)."""
+    """Renomeia o Empty, a Collection e os vinculos das portas/gavetas
+    que guardam o nome do modulo."""
     nome = (nome or '').strip()
     if conj is None or _chapas.MARCA_CONJUNTO not in conj or not nome:
         return False
@@ -932,6 +933,8 @@ def nomear_grupo(conj, nome):
     for o in bpy.data.objects:
         if _chapas.MARCA_PORTAS in o and o.get(_portas.CHAVE_MODULO_PORTA) == antigo:
             o[_portas.CHAVE_MODULO_PORTA] = conj.name
+    for grupo in _gavetas.grupos_do_modulo(conj):
+        grupo[_gavetas.CHAVE_MODULO] = conj.name
     return True
 
 

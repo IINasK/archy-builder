@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (218, 0, 0),
+    "version": (225, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -141,6 +141,8 @@ CLASSES = (
     _gavetas.OBJECT_OT_criar_gavetas,
     _gavetas.OBJECT_OT_abrir_gaveta,
     _gavetas.OBJECT_OT_arrastar_ponto_gaveta,
+    _gavetas.OBJECT_OT_confirmar_ancora_gaveta,
+    _gavetas.OBJECT_OT_mover_ancora_gaveta,
     _prateleiras.OBJECT_OT_criar_prateleiras,
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
@@ -298,6 +300,7 @@ def register():
                                first_interval=0.3, persistent=True)
     for c in CLASSES:
         bpy.utils.register_class(c)
+    _gavetas.registrar_macro_ancora()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
     # POST_VIEW: a caixa vive em coordenada de MUNDO, junto da cena

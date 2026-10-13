@@ -16,9 +16,10 @@ import math
 import bpy, bmesh, blf, gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
+from mathutils.kdtree import KDTree
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, IntProperty, StringProperty
-from bpy.types import Gizmo, GizmoGroup, Operator
+from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -119,6 +120,13 @@ def grupos_do_modulo(conj):
 
 
 def modulo_do_grupo(grupo):
+    # Preset inserido/renomeado pode guardar o nome do modulo original.
+    # A hierarquia real prevalece, inclusive se aquele nome ainda existir.
+    pai = grupo.parent
+    while pai is not None:
+        if _chapas.MARCA_CONJUNTO in pai:
+            return pai
+        pai = pai.parent
     modulo = bpy.data.objects.get(grupo.get(CHAVE_MODULO, ''))
     if modulo is not None and _chapas.MARCA_CONJUNTO in modulo:
         return modulo
@@ -127,7 +135,8 @@ def modulo_do_grupo(grupo):
 
 def parametros(grupo):
     p = dict(PARAMETROS_PADRAO)
-    p.update(dict(grupo.get(CHAVE_PARAMETROS) or {}))
+    dados = grupo.get(CHAVE_PARAMETROS)
+    p.update(dados.to_dict() if dados is not None else {})
     return p
 
 
@@ -243,8 +252,8 @@ def margens_do_vao(conj, ponto_a, ponto_b):
 
 
 def vao(grupo):
-    """(largura, altura, matriz do grupo no modulo) do vao de HOJE: o
-    modulo mudou de medida, as margens ficam e o vao acompanha."""
+    """(largura, altura, matriz do grupo no modulo) pelas margens atuais.
+    Redimensionar o modulo move o bloco e recalcula estas margens."""
     conj = modulo_do_grupo(grupo)
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     if conj is None or _limites(conj) is None:
@@ -385,15 +394,30 @@ def montar(grupo):
     largura, altura, matriz = vao(grupo)
     dados = calcular(largura, altura, p)
     antigas = {int(g.get(CHAVE_INDICE, 0)): g for g in gavetas_do_grupo(grupo)}
+    selecionadas = {i for i, g in antigas.items() if g.select_get()}
+    grupo_selecionado = grupo.select_get()
+    ativo = gaveta_de(bpy.context.view_layer.objects.active)
+    indice_ativo = next((i for i, g in antigas.items() if g == ativo), None)
     fracoes = {i: float(g.get(CHAVE_ABERTURA, 0.0)) for i, g in antigas.items()}
     puxadores = {i: g.get(CHAVE_PUXADOR, p['puxador']) for i, g in antigas.items()}
+    ajustes_puxadores = {}
+    for i, gaveta in antigas.items():
+        frente = frente_da_gaveta(gaveta)
+        pux = next((o for o in frente.children if _puxadores._eh_puxador_parametrico(o)),
+                   None) if frente is not None else None
+        if pux is not None:
+            ajustes_puxadores[i] = {k: pux[k] for k in (
+                'puxador_borda', 'puxador_face', 'puxador_fracao',
+                'puxador_comprimento_mm', 'puxador_recuo_mm') if k in pux}
     pecas = [o for o in grupo.children_recursive if o.get(MARCA_PECA)]
     mat_frente = _material_de([o for o in pecas if o.get(MARCA_PECA) == 'FRENTE'])
     mat_caixa = _material_de([o for o in pecas if o.get(MARCA_PECA) not in ('FRENTE', 'TRILHO')])
     for o in list(reversed(grupo.children_recursive)):
         _remover(o)
     grupo.matrix_parent_inverse = Matrix.Identity(4)
-    if modulo_do_grupo(grupo) is not None:
+    modulo = modulo_do_grupo(grupo)
+    if modulo is not None:
+        grupo[CHAVE_MODULO] = modulo.name
         grupo.matrix_basis = matriz
     grupo[CHAVE_VAO] = (largura, altura)
     grupo[CHAVE_TRILHO_MM] = float(dados['trilho_mm'])
@@ -421,11 +445,33 @@ def montar(grupo):
             _novo_trilho(grupo, grupo, 'Trilho %s Gaveta %d' % (lado, i + 1), caixa)
         for lado, caixa in zip(('Esquerdo', 'Direito'), d['moveis']):
             _novo_trilho(grupo, gaveta, 'Corredica %s Gaveta %d' % (lado, i + 1), caixa)
-        colocar_puxador(gaveta, puxadores.get(i, p['puxador']))
+        pux = colocar_puxador(gaveta, puxadores.get(i, p['puxador']))
+        ajustes = ajustes_puxadores.get(i, {})
+        if pux is not None and any(pux.get(k) != v for k, v in ajustes.items()
+                                  if k != 'puxador_comprimento_mm' or
+                                  pux.get('puxador_tipo') != 'PERFIL'):
+            for chave, valor in ajustes.items():
+                pux[chave] = valor
+            # O perfil precisa recortar a borda escolhida; os outros
+            # puxadores so' refazem o lugar e as medidas individuais.
+            if pux.get('puxador_tipo') == 'PERFIL' and pux.get('puxador_borda') != 'Y+':
+                _chapas.gerar_malha_chapa(pux.parent)
+            else:
+                _puxadores.posicionar_puxador(pux)
         definir_abertura(gaveta, fracoes.get(i, 0.0))
     _pintar(frentes_novas, mat_frente)
     _pintar(caixas_novas, mat_caixa)
     bpy.context.view_layer.update()
+    # As chapas sao refeitas, mas a selecao continua no mesmo nivel.
+    if grupo_selecionado:
+        selecionar(bpy.context, grupo, 'GRUPO', somar=True)
+    else:
+        novas = {int(g[CHAVE_INDICE]): g for g in gavetas_do_grupo(grupo)}
+        for i in sorted(selecionadas):
+            if i in novas:
+                selecionar(bpy.context, novas[i], 'GAVETA', somar=True)
+        if indice_ativo in novas:
+            bpy.context.view_layer.objects.active = novas[indice_ativo]
 
 
 def criar_gavetas(context, conj, margens, p):
@@ -451,20 +497,46 @@ def criar_gavetas(context, conj, margens, p):
     return grupo
 
 
-def atualizar_gavetas_do_conjunto(conj):
-    """O modulo mudou de medida: as gavetas seguem o vao (margens fixas).
-    Se nao couberem mais, ficam como estavam."""
+def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
+    """Move o bloco inteiro pela face mais proxima, sem esticar pecas.
+    Usa o vao FECHADO de antes: abrir uma gaveta nao muda sua ancoragem."""
     for grupo in grupos_do_modulo(conj):
-        try:
-            montar(grupo)
-        except ValueError as erro:
-            print("[Cabinet Creator] gavetas de %s: %s" % (conj.name, erro))
+        largura, altura = grupo[CHAVE_VAO]
+        profundidade = float(parametros(grupo)['profundidade_mm'])
+        cantos = [grupo.matrix_world @ (Vector((x, y, z)) / 1000.0)
+                  for x in (0.0, largura) for y in (0.0, profundidade)
+                  for z in (0.0, altura)]
+        delta = Vector()
+        for eixo in range(3):
+            minimo = min(p[eixo] for p in cantos)
+            maximo = max(p[eixo] for p in cantos)
+            # Empate ancora no minimo; erro de float nao deve trocar de face.
+            perto_do_min = (minimo - lo_antes[eixo]) <= (hi_antes[eixo] - maximo) + 1e-6
+            delta[eixo] = (lo[eixo] - lo_antes[eixo] if perto_do_min
+                           else hi[eixo] - hi_antes[eixo])
+        if delta.length > 1e-9:
+            matriz = grupo.matrix_world.copy()
+            matriz.translation += delta
+            grupo.matrix_world = matriz
+
+
+def atualizar_gavetas_do_conjunto(conj):
+    """Redimensionar a caixa nao redimensiona as gavetas internas.
+    Recalcula as margens para a edicao direta partir das mesmas medidas."""
+    lo, hi = _limites(conj)
+    for grupo in grupos_do_modulo(conj):
+        largura, altura = grupo[CHAVE_VAO]
+        # A origem do modulo compensa os filhos pela matrix_parent_inverse.
+        origem = (conj.matrix_world.inverted() @ grupo.matrix_world).translation * 1000.0
+        grupo[CHAVE_MARGENS] = (origem.x - lo.x, hi.x - origem.x - largura,
+                                origem.z - lo.z, hi.z - origem.z - altura,
+                                origem.y - lo.y)
 
 
 def editar(context, grupo, nome, valor):
     """Muda um parametro (aba Gavetas). Devolve o erro (e desfaz) ou None."""
     nome = nome[len('gavetas_'):] if nome.startswith('gavetas_') else nome
-    antes = dict(grupo.get(CHAVE_PARAMETROS) or {})
+    antes = grupo[CHAVE_PARAMETROS].to_dict()
     novo = dict(antes)
     if nome == 'quantidade':
         valor = max(1, min(MAXIMO_GAVETAS, int(valor)))
@@ -539,6 +611,9 @@ def selecionados(context):
     for o in getattr(context, 'selected_objects', ()) or ():
         if MARCA_GRUPO in o or MARCA_GAVETA in o:
             g = grupo_de(o)
+            modulo = modulo_do_grupo(g) if g is not None else None
+            if modulo is not None and modulo.select_get():
+                continue
             if g is not None and g not in grupos:
                 grupos.append(g)
     return grupos
@@ -547,6 +622,10 @@ def selecionados(context):
 def gavetas_com_slider(context):
     saida = []
     for o in getattr(context, 'selected_objects', ()) or ():
+        grupo = grupo_de(o)
+        modulo = modulo_do_grupo(grupo) if grupo is not None else None
+        if modulo is not None and modulo.select_get():
+            continue
         if MARCA_GRUPO in o:
             candidatas = gavetas_do_grupo(o)
         elif MARCA_GAVETA in o:
@@ -598,7 +677,19 @@ def aplicar(context, grupo, chave, novo, lado=None):
     perto do mouse fica); P e' a profundidade."""
     letra = chave[0] if isinstance(chave, (tuple, list)) else chave
     if letra == 'P':
-        return editar(context, grupo, 'profundidade_mm', max(100.0, float(novo)))
+        novo = max(100.0, float(novo))
+        if lado != 'max':
+            return editar(context, grupo, 'profundidade_mm', novo)
+        antes = list(grupo[CHAVE_MARGENS])
+        margens = list(antes)
+        # Costas fixas: a frente anda pelo delta da profundidade.
+        margens[4] -= novo - valor(grupo, ('P',))
+        grupo[CHAVE_MARGENS] = margens
+        erro = editar(context, grupo, 'profundidade_mm', novo)
+        if erro:
+            grupo[CHAVE_MARGENS] = antes
+            montar(grupo)
+        return erro
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     variacao = float(novo) - valor(grupo, (letra,))
     if letra == 'L':
@@ -615,6 +706,21 @@ def aplicar(context, grupo, chave, novo, lado=None):
         montar(grupo)
         return str(erro)
     return None
+
+
+def copia(grupo):
+    """Parametros copiados, sem referencias a pecas que montar apaga."""
+    return (grupo.name, grupo[CHAVE_PARAMETROS].to_dict(), list(grupo[CHAVE_MARGENS]))
+
+
+def restaurar(estado):
+    nome, p, margens = estado
+    grupo = bpy.data.objects.get(nome)
+    if grupo is None:
+        return
+    grupo[CHAVE_PARAMETROS] = p
+    grupo[CHAVE_MARGENS] = margens
+    montar(grupo)
 
 
 # ---- os 3 pontos com Alt (pedido do usuario): as duas quinas da frente
@@ -710,11 +816,182 @@ def _ponto_livre(context, grupo, indice, mouse):
     return p0 + eixo * s
 
 
+class IndiceSnapGavetas:
+    """Pontos em mundo indexados na tela durante UM arraste.
+    Movimentos do mouse consultam a arvore; so' navegar refaz a projecao."""
+
+    def __init__(self, alvos):
+        # NumPy vem com o Blender. Carregar so' no arraste evita custo no register.
+        import numpy as np
+        self._pontos = np.asarray([co for _nome, pontos in alvos for co in pontos],
+                                  dtype=np.float32).reshape((-1, 3))
+        self._vista = None
+        self._arvore = None
+
+    def _reconstruir(self, matriz, largura, altura):
+        import numpy as np
+        self._arvore = None
+        if not len(self._pontos):
+            return
+        m = np.asarray(matriz, dtype=np.float32)
+        # Mesma projecao de location_3d_to_region_2d, em lote: w > 0.
+        clip = self._pontos @ m[:, :3].T + m[:, 3]
+        indices = np.flatnonzero(clip[:, 3] > 0)
+        clip = clip[indices]
+        tela = (clip[:, :2] / clip[:, 3, None] + 1) * np.asarray(
+            (largura / 2.0, altura / 2.0), dtype=np.float32)
+        raio = _portas.RAIO_IMA_PX
+        visiveis = (np.isfinite(tela).all(axis=1) &
+                    (tela[:, 0] >= -raio) & (tela[:, 0] <= largura + raio) &
+                    (tela[:, 1] >= -raio) & (tela[:, 1] <= altura + raio))
+        # Vertices coincidentes (frente/costas, soldas) nao precisam de
+        # milhares de entradas iguais. A primeira preserva a prioridade.
+        unicos = {}
+        for indice, (x, y) in zip(indices[visiveis], tela[visiveis]):
+            unicos.setdefault((float(x), float(y)), int(indice))
+        if not unicos:
+            return
+        arvore = KDTree(len(unicos))
+        for (x, y), indice in unicos.items():
+            arvore.insert((x, y, 0.0), indice)
+        arvore.balance()
+        self._arvore = arvore
+
+    def buscar(self, context, mouse):
+        regiao, rv3d = context.region, context.region_data
+        matriz = tuple(tuple(linha) for linha in rv3d.perspective_matrix)
+        vista = (regiao.width, regiao.height, matriz)
+        if vista != self._vista:
+            self._reconstruir(matriz, regiao.width, regiao.height)
+            self._vista = vista
+        if self._arvore is None:
+            return None
+        ponto = Vector((mouse[0], mouse[1], 0.0))
+        _co, indice, distancia = self._arvore.find(ponto)
+        if distancia > _portas.RAIO_IMA_PX:
+            return None
+        # Empate na tela continua escolhendo o primeiro ponto, como antes.
+        empatados = self._arvore.find_range(ponto, distancia + 1e-5)
+        _co, indice, _dist = min(empatados, key=lambda item: (item[2], item[1]))
+        return Vector(self._pontos[indice])
+
+
+def _preparar_ancora_nativa(context, grupo, indice):
+    """O cursor e' so' o ponto temporario: o translate nativo nao move
+    nenhum objeto selecionado. A macro faz translate + aplicar num undo."""
+    ponto = pontos_editaveis(grupo)[indice]
+    # O filtro nativo ONLY_SELECTABLE evita BVHs das ferragens e que a
+    # propria frente capture a ancora. O bloqueio dura so' esta macro.
+    proprias = {o.name for o in grupo.children_recursive}
+    bloqueados = []
+    for obj in context.visible_objects:
+        dono = obj
+        acessorio = False
+        while dono is not None:
+            if ('eh_puxador' in dono or
+                    ('eh_acessorio' in dono and 'eh_peca_curva' not in dono)):
+                acessorio = True
+                break
+            dono = dono.parent
+        if obj.type == 'MESH' and (obj.name in proprias or acessorio):
+            bloqueados.append((obj.name, obj.hide_select))
+            obj.hide_select = True
+    _arraste_ponto[0] = {
+        'nativo': True, 'regiao': context.region.as_pointer(),
+        'area': context.area.as_pointer(), 'cena': context.scene.name,
+        'grupo': grupo.name, 'indice': indice, 'ponto': ponto.copy(), 'ima': False,
+        'cursor': tuple(context.scene.cursor.location),
+        'mostrar_cursor': context.space_data.overlay.show_cursor,
+        'bloqueados': bloqueados,
+    }
+    context.space_data.overlay.show_cursor = False
+    context.scene.cursor.location = ponto
+    return dict(cursor_transform=True, snap=True,
+                snap_elements={'VERTEX', 'EDGE_MIDPOINT'}, snap_target='CENTER',
+                snap_align=False, use_snap_selectable=True, release_confirm=True,
+                orient_type='GLOBAL', orient_matrix_type='GLOBAL',
+                orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3()),
+                constraint_axis=(True, False, True) if indice < 2 else (False, True, False))
+
+
+def _terminar_ancora_nativa(remover_timer=True):
+    estado = _arraste_ponto[0]
+    if estado and estado.get('nativo'):
+        for nome, oculto in estado.get('bloqueados', ()):
+            obj = bpy.data.objects.get(nome)
+            if obj is not None:
+                obj.hide_select = oculto
+        cena = bpy.data.scenes.get(estado['cena'])
+        if cena is not None:
+            cena.cursor.location = estado['cursor']
+        for janela in bpy.context.window_manager.windows:
+            for area in janela.screen.areas:
+                if area.as_pointer() == estado['area'] and area.type == 'VIEW_3D':
+                    area.spaces.active.overlay.show_cursor = estado['mostrar_cursor']
+                    area.tag_redraw()
+    _arraste_ponto[0] = None
+    if remover_timer and bpy.app.timers.is_registered(_acompanhar_ancora_nativa):
+        bpy.app.timers.unregister(_acompanhar_ancora_nativa)
+
+
+def _acompanhar_ancora_nativa():
+    """Le so' a posicao do cursor, nunca malhas. Esc da macro tambem
+    devolve o cursor/overlay quando o translate nativo termina cancelado."""
+    estado = _arraste_ponto[0]
+    if not estado or not estado.get('nativo'):
+        return None
+    ativa = any(op.bl_idname == 'OBJECT_OT_cabinet_mover_ancora_gaveta'
+                for janela in bpy.context.window_manager.windows for op in janela.modal_operators)
+    cena = bpy.data.scenes.get(estado['cena'])
+    if not ativa or cena is None:
+        _terminar_ancora_nativa(remover_timer=False)
+        return None
+    estado['ponto'] = cena.cursor.location.copy()
+    for janela in bpy.context.window_manager.windows:
+        for area in janela.screen.areas:
+            if area.as_pointer() == estado['area']:
+                area.tag_redraw()
+    return 1.0 / 60.0
+
+
+class OBJECT_OT_confirmar_ancora_gaveta(Operator):
+    bl_idname = 'object.cabinet_confirmar_ancora_gaveta'
+    bl_label = 'Confirmar Ancora das Gavetas'
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        estado = _arraste_ponto[0]
+        if not estado or not estado.get('nativo'):
+            return {'CANCELLED'}
+        grupo = bpy.data.objects.get(estado['grupo'])
+        indice = estado['indice']
+        ponto = context.scene.cursor.location.copy()
+        _terminar_ancora_nativa()
+        if grupo is None:
+            return {'CANCELLED'}
+        erro = _aplicar_ponto(grupo, indice, ponto)
+        if erro:
+            self.report({'WARNING'}, erro)
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class OBJECT_OT_mover_ancora_gaveta(Macro):
+    bl_idname = 'object.cabinet_mover_ancora_gaveta'
+    bl_label = 'Editar Ancora das Gavetas'
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+
+def registrar_macro_ancora():
+    OBJECT_OT_mover_ancora_gaveta.define('TRANSFORM_OT_translate')
+    OBJECT_OT_mover_ancora_gaveta.define('OBJECT_OT_cabinet_confirmar_ancora_gaveta')
+
+
 class OBJECT_OT_arrastar_ponto_gaveta(Operator):
     """Arraste uma quina da frente ou a profundidade das gavetas (Alt): ima nos vertices"""
     bl_idname = 'object.cabinet_arrastar_ponto_gaveta'
     bl_label = 'Mover Ponto das Gavetas'
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+    bl_options = {'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
     indice: IntProperty(options={'SKIP_SAVE'})
@@ -723,69 +1000,20 @@ class OBJECT_OT_arrastar_ponto_gaveta(Operator):
         grupo = bpy.data.objects.get(self.grupo)
         if grupo is None or MARCA_GRUPO not in grupo or context.region is None:
             return {'CANCELLED'}
-        self._alvos = [(o.name, vs) for o, vs in _portas._alvos_do_ima(context)
-                       if not _dentro(o, grupo)]
-        _arraste_ponto[0] = {'regiao': context.region.as_pointer(),
-                             'grupo': grupo.name, 'indice': self.indice,
-                             'ponto': pontos_editaveis(grupo)[self.indice],
-                             'ima': False}
-        self._area = context.area
-        context.window_manager.modal_handler_add(self)
-        self._area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    def _encerrar(self):
-        _arraste_ponto[0] = None
-        self._area.tag_redraw()
-
-    def cancel(self, context):
-        self._encerrar()
-
-    def _alvo(self, context, mouse):
-        melhor = None
-        for _nome, vertices in self._alvos:
-            for co in vertices:
-                p = _hud._projetar_hud(context, co)
-                if p is None:
-                    continue
-                d = (p - mouse).length
-                if d <= _portas.RAIO_IMA_PX and (melhor is None or d < melhor[0]):
-                    melhor = (d, co)
-        if melhor is not None:
-            return melhor[1], True
-        grupo = bpy.data.objects.get(self.grupo)
-        return (_ponto_livre(context, grupo, self.indice, mouse)
-                if grupo is not None else None), False
-
-    def modal(self, context, event):
-        estado = _arraste_ponto[0]
-        if estado is None:
+        if self.indice not in (0, 1, 2):
             return {'CANCELLED'}
-        mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-        if event.type in {'ESC', 'RIGHTMOUSE'}:
-            self._encerrar()
+        parametros = _preparar_ancora_nativa(context, grupo, self.indice)
+        try:
+            resultado = bpy.ops.object.cabinet_mover_ancora_gaveta(
+                'INVOKE_DEFAULT', TRANSFORM_OT_translate=parametros)
+        except Exception:
+            _terminar_ancora_nativa()
+            raise
+        if 'RUNNING_MODAL' not in resultado:
+            _terminar_ancora_nativa()
             return {'CANCELLED'}
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}
-        if event.type == 'MOUSEMOVE':
-            ponto, ima = self._alvo(context, mouse)
-            if ponto is not None:
-                estado.update(ponto=ponto, ima=ima)
-            self._area.tag_redraw()
-            return {'RUNNING_MODAL'}
-        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            ponto = estado['ponto']
-            self._encerrar()
-            grupo = bpy.data.objects.get(self.grupo)
-            if grupo is None:
-                return {'CANCELLED'}
-            erro = _aplicar_ponto(grupo, self.indice, ponto)
-            if erro:
-                self.report({'WARNING'}, erro)
-                return {'CANCELLED'}
-            selecionar(context, grupo, 'GRUPO')
-            return {'FINISHED'}
-        return {'RUNNING_MODAL'}
+        bpy.app.timers.register(_acompanhar_ancora_nativa, first_interval=0.0)
+        return {'FINISHED'}
 
 
 # ------------------------------------------------------------ slider
@@ -1419,7 +1647,7 @@ class OBJECT_OT_criar_gavetas(AssistenteDoVao, Operator):
 
 
 def esquecer():
-    _arraste_ponto[0] = None
+    _terminar_ancora_nativa()
     _arraste_slider[0] = None
     _slider_hover[0] = None
     _assistente_gavetas[0] = None

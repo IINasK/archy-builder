@@ -183,11 +183,11 @@ Portas | Gav. | Prat. | Pux.). "Criar Gavetas" laranja no topo;
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
-do trilho (Telescopico | Oculto). Selecionadas (clique na frente = todas
+do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); as gavetas acompanham a face proxima (base/topo) SEM mudar as medidas ao redimensionar a caixa. Selecionadas (clique na frente = todas
 do vao, duplo = uma): so' elas tem linha branca; L/A/P da HUD mudam o vao
 (a quina perto do mouse fica) e a profundidade; Alt mostra 3 bolinhas --
 as quinas de cima a' esquerda e de baixo a' direita da frente e a da
-profundidade. O slider fica NA frente (um pouco a' frente dela, no meio da
+profundidade. O arraste usa o snap nativo do Blender (vertice/meio de aresta), sem varrer malhas em Python; a propria gaveta e ferragens nao sao alvos, e Esc restaura o cursor e a selecao. O slider fica NA frente (um pouco a' frente dela, no meio da
 altura) e anda com ela: a gaveta aberta nunca o cobre. Na aba: Gavetas
 (L/A/P + contador), Frente (Sobreposta | Embutida, Espacamento frontal,
 Entre gavetas, Recuo, Espessura, Curva), Trilho e o carrossel do Puxador -- de
@@ -518,7 +518,7 @@ cada puxador da selecao vira bolinha branca; arrastar leva-o a outra
 borda SO' das chapas do grupo dele (folhas da porta, ou chapas do
 modulo), snap de LINHA na face virada para quem olha, e ele sai virado
 conforme a borda; o perfil devolve a madeira e corta a nova (um por
-borda). Esc devolve. Puxador do add-on selecionado: medidas e o modelo
+borda). Esc devolve. Clique no puxador (tambem de gaveta) seleciona SOMENTE ele e abre Puxadores; trilhos das gavetas permanecem com elas. Puxador do add-on selecionado: medidas e o modelo
 (`_trocar_modelo_puxador` refaz AQUELE); objeto de fora: "Usar como
 puxador" -- encostado numa chapa vira o puxador dela no mesmo lugar;
 solto, a gaveta pede o clique na face que encosta na porta e o criador
