@@ -130,12 +130,22 @@ def caminhos_catalogo():
                 caminhos.append("%s/%s/%s" % (CAT_RAIZ, n1, n2))
                 for n3 in netos:
                     caminhos.append("%s/%s/%s/%s" % (CAT_RAIZ, n1, n2, n3))
+    # e os niveis mais fundos dos presets (a biblioteca nao tem limite de
+    # niveis: Armarios > Cozinha > Altos > Despenseiros)
+    try:
+        for it in indice_completo():
+            trilha = caminho_de(it)
+            for k in range(1, len(trilha) + 1):
+                caminhos.append(catalogo_de(*trilha[:k]))
+    except Exception as e:
+        print("[Cabinet Creator] niveis do indice:", e)
     return list(dict.fromkeys(caminhos))
 
 
-def catalogo_de(n1, n2="", n3=""):
-    """Caminho de catalogo mais fundo para os niveis escolhidos."""
-    partes = [x for x in (n1, n2, n3) if x]
+def catalogo_de(*niveis):
+    """Caminho de catalogo mais fundo para os niveis escolhidos (quantos
+    forem)."""
+    partes = [x for x in niveis if x]
     if not partes:
         return ""
     return CAT_RAIZ + "/" + "/".join(partes)
@@ -420,7 +430,7 @@ class OBJECT_OT_refiliar_catalogos(Operator):
         feitos, falhas = 0, []
         for it in indice_completo():
             ok, msg = refiliar_preset(
-                os.path.join(it["pasta"], it["arquivo"]), _niveis_de(it))
+                os.path.join(it["pasta"], it["arquivo"]), caminho_de(it))
             if ok:
                 feitos += 1
             else:
@@ -495,9 +505,11 @@ def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
     return arquivo
 
 
-# ======================================= ARVORE DA BIBLIOTECA (3 niveis)
-# Cascata horizontal: nivel 1 no topo, nivel 2 abaixo ao clicar, nivel 3
-# abaixo do 2. Ramos com lista vazia no nivel 3 terminam no nivel 2.
+# ======================================= ARVORE DA BIBLIOTECA
+# Cascata horizontal: nivel 1 no topo, cada nivel escolhido abre o de baixo.
+# A ARVORE e' so' o MODELO de 3 niveis para salvar; os presets podem ir
+# mais fundo (pedido do usuario: sem limite de niveis) -- o caminho inteiro
+# mora em `niveis` no indice (`caminho_de`).
 AMBIENTES = ["Sala", "Cozinha", "Varanda", "Quarto", "Banheiro", "Externo"]
 
 ARVORE = {
@@ -517,8 +529,12 @@ ARVORE = {
 
 
 def _niveis_de(it):
-    """Le os 3 niveis de um item do indice, aceitando o formato antigo
-    (categoria/subcategoria) para nao invalidar indices ja' gravados."""
+    """Le os 3 PRIMEIROS niveis de um item do indice, aceitando o formato
+    antigo (categoria/subcategoria) para nao invalidar indices ja' gravados.
+    O caminho inteiro (qualquer profundidade) e' `caminho_de`."""
+    if it.get("niveis"):
+        trilha = list(caminho_de(it)) + ["", "", ""]
+        return trilha[0], trilha[1], trilha[2]
     n1 = it.get("n1")
     if n1:
         return n1, it.get("n2", ""), it.get("n3", "")
@@ -526,6 +542,69 @@ def _niveis_de(it):
     if cat in AMBIENTES:
         return "Armarios", cat, sub
     return cat, sub, ""
+
+
+def caminho_de(it):
+    """TODOS os niveis do item, sem os vazios: ('Armarios', 'Cozinha',
+    'Altos', 'Despenseiros'). Sem `niveis` gravado, os 3 de sempre."""
+    if it.get("niveis"):
+        return tuple(str(n) for n in it["niveis"] if n)
+    n1 = it.get("n1")
+    if n1:
+        trilha = (n1, it.get("n2", ""), it.get("n3", ""))
+    else:
+        cat, sub = it.get("categoria", ""), it.get("subcategoria", "")
+        trilha = ("Armarios", cat, sub) if cat in AMBIENTES else (cat, sub)
+    return tuple(n for n in trilha if n)
+
+
+def filhos_de(itens, pai):
+    """Os nomes do nivel logo abaixo de `pai` (tupla) que TEM preset em
+    `itens` -- a cascata nao mostra ramo vazio (sem a contagem, ele seria
+    um botao que nao leva a nada). Ordem: a da ARVORE, depois a do indice."""
+    pai = tuple(pai)
+    modelo = []
+    if len(pai) == 0:
+        modelo = list(ARVORE.keys())
+    elif len(pai) == 1:
+        modelo = list(ARVORE.get(pai[0], {}).keys())
+    elif len(pai) == 2:
+        modelo = list(ARVORE.get(pai[0], {}).get(pai[1], []))
+    n = len(pai)
+    com_itens = []
+    for it in itens:
+        trilha = caminho_de(it)
+        if len(trilha) > n and trilha[:n] == pai and trilha[n] not in com_itens:
+            com_itens.append(trilha[n])
+    return ([k for k in modelo if k in com_itens]
+            + [k for k in com_itens if k not in modelo])
+
+
+def itens_em(itens, trilha):
+    """Os presets que moram EXATAMENTE neste caminho."""
+    trilha = tuple(trilha)
+    return [it for it in itens if caminho_de(it) == trilha]
+
+
+def trilha_da_cena(s, prefixo='chapa_n'):
+    """O caminho escolhido na cascata: os 3 niveis da cena e o resto em
+    `<prefixo>_mais` (separado por '/')."""
+    trilha = [getattr(s, prefixo + str(i), '') for i in (1, 2, 3)]
+    trilha += (getattr(s, prefixo + '_mais', '') or '').split('/')
+    saida = []
+    for n in trilha:
+        if not n:
+            break
+        saida.append(n)
+    return tuple(saida)
+
+
+def definir_trilha(s, trilha, prefixo='chapa_n'):
+    trilha = list(trilha)
+    for i in (1, 2, 3):
+        setattr(s, prefixo + str(i), trilha[i - 1] if len(trilha) >= i else "")
+    if hasattr(s, prefixo + '_mais'):
+        setattr(s, prefixo + '_mais', '/'.join(trilha[3:]))
 
 
 def _niveis_do_indice():
@@ -618,12 +697,23 @@ def indice_completo():
     return itens
 
 
-def registrar_no_indice(pasta, nome, arquivo, n1, n2, n3, tipo):
+def registrar_no_indice(pasta, nome, arquivo, *niveis_e_tipo):
+    """`niveis_e_tipo` = os niveis (QUANTOS forem) e, por ultimo, o tipo:
+    (n1, n2, n3, tipo) como sempre, ou (n1, n2, n3, n4, ..., tipo). Mais
+    de 3 niveis vao inteiros em `niveis`; n1/n2/n3 ficam (indice antigo)."""
+    *niveis, tipo = niveis_e_tipo
+    niveis = [n for n in niveis if n]
     itens = [i for i in _ler_indice(pasta)
              if not (i.get("arquivo") == os.path.basename(arquivo))]
-    itens.append({"nome": nome, "arquivo": os.path.basename(arquivo),
-                  "n1": n1, "n2": n2, "n3": n3, "tipo": tipo})
+    tres = (niveis + ["", "", ""])[:3]
+    item = {"nome": nome, "arquivo": os.path.basename(arquivo),
+            "n1": tres[0], "n2": tres[1], "n3": tres[2], "tipo": tipo}
+    if len(niveis) > 3:
+        item["niveis"] = niveis
+    itens.append(item)
     _gravar_indice(pasta, itens)
+
+
 def itens_de_fabrica():
     """Os modelos de FABRICA do criador de puxadores e das dobradicas, na
     cascata da biblioteca (pedido do usuario): TRAVADOS -- moram no add-on,
@@ -1173,7 +1263,7 @@ class OBJECT_OT_navegar(Operator):
     bl_idname = "object.cabinet_navegar"
     bl_label = "Navegar"
 
-    nivel: bpy.props.IntProperty(default=1)
+    nivel: bpy.props.IntProperty(default=1, min=1)
     valor: bpy.props.StringProperty()
 
     def execute(self, context):
@@ -2229,6 +2319,8 @@ class OBJECT_OT_editar_modelo(Operator):
                                items=lambda s, c: [(k, k, "") for k in ARVORE.keys()])
     n2: bpy.props.StringProperty(name="Subcategoria")
     n3: bpy.props.StringProperty(name="Tipo")
+    mais: bpy.props.StringProperty(
+        name="Mais niveis", description="Niveis abaixo do Tipo, separados por /")
     tirar_foto: bpy.props.BoolProperty(
         name="Capturar foto da viewport", default=False,
         description="Salva o enquadramento atual da viewport 3D como foto do modelo")
@@ -2243,6 +2335,7 @@ class OBJECT_OT_editar_modelo(Operator):
             except Exception:
                 pass
             self.n2, self.n3 = b, c
+            self.mais = "/".join(caminho_de(it)[3:])
         return context.window_manager.invoke_props_dialog(self, width=340)
 
     def draw(self, context):
@@ -2251,6 +2344,7 @@ class OBJECT_OT_editar_modelo(Operator):
         lay.prop(self, "n1")
         lay.prop(self, "n2")
         lay.prop(self, "n3")
+        lay.prop(self, "mais")
         lay.separator()
         it = _achar_item(self.pasta, self.arquivo)
         icone = icone_do_item(it) if it else 0
@@ -2292,6 +2386,12 @@ class OBJECT_OT_editar_modelo(Operator):
                 i["n1"] = self.n1
                 i["n2"] = self.n2
                 i["n3"] = self.n3
+                trilha = [n for n in (self.n1, self.n2, self.n3) if n]
+                trilha += [n for n in self.mais.split("/") if n.strip()]
+                if len(trilha) > 3:
+                    i["niveis"] = trilha
+                else:
+                    i.pop("niveis", None)
                 i.pop("categoria", None)
                 i.pop("subcategoria", None)
                 i["foto"] = png
@@ -2311,6 +2411,9 @@ class OBJECT_OT_salvar_biblioteca(Operator):
                                items=lambda s, c: [(k, k, "") for k in ARVORE.keys()])
     n2: bpy.props.StringProperty(name="Subcategoria", default="")
     n3: bpy.props.StringProperty(name="Tipo", default="")
+    mais: bpy.props.StringProperty(
+        name="Mais niveis", default="",
+        description="Niveis abaixo do Tipo, separados por / (sem limite)")
     como_modulo: bpy.props.BoolProperty(
         name="Como modulo (varias pecas)", default=True,
         description="Ligado: salva como Collection (arrasta o conjunto inteiro). "
@@ -2340,9 +2443,10 @@ class OBJECT_OT_salvar_biblioteca(Operator):
         # catalogo em que o asset vai ser arquivado
         n2 = self.n2 or (_filhos_n2(self.n1) or [""])[0]
         n3 = self.n3 or (_filhos_n3(self.n1, n2) or [""])[0]
+        niveis = [self.n1, n2, n3] + [n for n in self.mais.split("/") if n.strip()]
         try:
             arq = salvar_na_biblioteca(completos, self.nome, self.como_modulo,
-                                       niveis=(self.n1, n2, n3))
+                                       niveis=niveis)
             png = os.path.splitext(os.path.basename(arq))[0] + ".png"
             # Todo preset precisa nascer com representacao visual. Nao e'
             # uma preferencia do usuario nem pode ser desativada no dialogo.
@@ -2359,8 +2463,7 @@ class OBJECT_OT_salvar_biblioteca(Operator):
                 arq, os.path.join(pasta_biblioteca(), png))
             if not okp:
                 print("[Cabinet Creator] preview do asset:", msgp)
-            registrar_no_indice(pasta_biblioteca(), self.nome, arq,
-                                self.n1, n2, n3,
+            registrar_no_indice(pasta_biblioteca(), self.nome, arq, *niveis,
                                 "modulo" if self.como_modulo else "objeto")
         except Exception as e:
             self.report({'ERROR'}, "Falha ao salvar: %s" % e)

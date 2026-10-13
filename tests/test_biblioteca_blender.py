@@ -57,6 +57,35 @@ DIGITAL_REAL = impressao_digital(PASTA_REAL)
 AMOSTRA_POR_CATEGORIA = 2
 
 
+def copiar_amostra(destino):
+    """Copia a biblioteca real com ate' AMOSTRA_POR_CATEGORIA presets por
+    categoria (n1/n2/n3) e o indice so' com eles; o resto (catalogos...)
+    vai inteiro."""
+    os.makedirs(destino)
+    with open(os.path.join(PASTA_REAL, addon.biblioteca.NOME_INDICE), encoding="utf-8") as f:
+        itens = json.load(f)
+    contagem, escolhidos = {}, []
+    for it in itens:
+        chave = addon.biblioteca.caminho_de(it)
+        if contagem.get(chave, 0) < AMOSTRA_POR_CATEGORIA:
+            contagem[chave] = contagem.get(chave, 0) + 1
+            escolhidos.append(it)
+    presets = {it["arquivo"] for it in itens}
+    levar = {it["arquivo"] for it in escolhidos}
+    for nome in os.listdir(PASTA_REAL):
+        base, ext = os.path.splitext(nome)
+        origem = os.path.join(PASTA_REAL, nome)
+        if (os.path.isdir(origem) or ext == ".md"
+                or nome == addon.biblioteca.NOME_INDICE):
+            continue
+        dono = base + ".blend"
+        if ext in (".blend", ".png", ".blend1") and dono in presets and dono not in levar:
+            continue
+        shutil.copy2(origem, os.path.join(destino, nome))
+    with open(os.path.join(destino, addon.biblioteca.NOME_INDICE), "w",
+              encoding="utf-8", newline="\n") as f:
+        json.dump(escolhidos, f, ensure_ascii=False, indent=1)
+        f.write("\n")
 
 # Presets gerados pelo proprio teste (ver criar_presets_de_teste)
 NOME_CHAPA_T = "Chapa Teste"
@@ -162,8 +191,7 @@ class BaseBiblioteca(unittest.TestCase):
         limpar_cena()
         self.tmp = tempfile.mkdtemp(prefix="cabinet_bib_teste_")
         self.pasta = os.path.join(self.tmp, "biblioteca")
-        shutil.copytree(PASTA_REAL, self.pasta,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.md"))
+        copiar_amostra(self.pasta)
         pasta = self.pasta
         addon.biblioteca.pasta_biblioteca = lambda: pasta
         addon.biblioteca.capturar_viewport = _CAPTURAR_ORIGINAL
@@ -887,6 +915,44 @@ class TestOperadores(BaseBiblioteca):
         nav(nivel=1, valor="Portas")
         self.assertEqual((s.chapa_n1, s.chapa_n2, s.chapa_n3), ("", "", ""))
 
+    def test_niveis_sem_limite_na_cascata_e_sem_contagem(self):
+        # pedido do usuario: a biblioteca nao tem limite de niveis (Altos e'
+        # um ramo, Despenseiros outro carrossel abaixo) e o botao da
+        # categoria nao leva a quantidade de itens (ocupava espaco)
+        B = addon.biblioteca
+        trilha = ("Armarios", "Cozinha", "Altos", "Despenseiros", "Com Gaveta")
+        B.registrar_no_indice(self.pasta, "Fundo", "Fundo.blend", *trilha, "modulo")
+        it = next(i for i in self.indice() if i["arquivo"] == "Fundo.blend")
+        self.assertEqual(it["niveis"], list(trilha))
+        self.assertEqual((it["n1"], it["n2"], it["n3"]), trilha[:3])
+        self.assertEqual(B.caminho_de(it), trilha)
+        self.assertEqual(B._niveis_de(it), trilha[:3])
+        self.assertIn(B.catalogo_de(*trilha), B.caminhos_catalogo())
+        self.assertIn("Altos", B.filhos_de(B.indice_completo(), trilha[:2]))
+        # ramo sem preset nao aparece (sem a contagem, levaria a nada)
+        self.assertNotIn("Portas", B.filhos_de(B.indice_completo(), ()))
+        s = bpy.context.scene
+        s.cabinet_bib_modo = 'MODULOS'
+        nav = bpy.ops.object.cabinet_navegar
+        for nivel, valor in enumerate(trilha, 1):
+            nav(nivel=nivel, valor=valor)
+        self.assertEqual(B.trilha_da_cena(s), trilha)
+        self.assertEqual(s.chapa_n_mais, "Despenseiros/Com Gaveta")
+        itens = []
+        addon.gaveta._biblioteca_gaveta(bpy.context, itens, 0, 2000, 900)
+        niveis = {}
+        for item in itens:
+            if item[5] and item[5][0] == 'navegar':
+                niveis.setdefault(item[5][1], []).append(item[4])
+        self.assertEqual(sorted(niveis), [1, 2, 3, 4, 5])      # um carrossel por nivel
+        for rotulos in niveis.values():
+            self.assertFalse([r for r in rotulos if '(' in r], rotulos)
+        self.assertIn('Fundo', [i[4] for i in itens if i[5] and i[5][0] == 'preset'])
+        # fechar o nivel 4 limpa o 4 e o 5
+        nav(nivel=4, valor="Despenseiros")
+        self.assertEqual(B.trilha_da_cena(s), trilha[:3])
+        self.assertEqual(s.chapa_n_mais, "")
+
 
 # ====================================================== INSERCAO
 def local_no_arquivo(caminho, nome):
@@ -1072,36 +1138,47 @@ def pular_no_4x(caso):
 
 
 class TestPresetsDeFabrica(InsercaoBase):
-    """Os arquivos REAIS da biblioteca (sempre pela copia temporaria)."""
+    """Os arquivos REAIS da biblioteca: a integridade de TODOS, so' lendo
+    da pasta real; o que grava, na amostra (copia temporaria)."""
 
     def exigir_legivel(self, arquivo):
         pular_no_4x(self)
         self.assertTrue(legivel(os.path.join(self.pasta, arquivo)), arquivo)
 
+    def indice_real(self):
+        with open(os.path.join(PASTA_REAL, addon.biblioteca.NOME_INDICE),
+                  encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_amostra_tem_cada_categoria_da_biblioteca(self):
+        reais = {addon.biblioteca.caminho_de(i) for i in self.indice_real()}
+        copia = {addon.biblioteca.caminho_de(i) for i in self.indice()}
+        self.assertEqual(reais, copia)
+
     def test_indice_de_fabrica_e_consistente(self):
-        itens = self.indice()
+        itens = self.indice_real()        # a pasta REAL, so' lendo
         self.assertTrue(itens)
         arquivos = [i["arquivo"] for i in itens]
         self.assertEqual(len(arquivos), len(set(arquivos)))
         for it in itens:
             self.assertEqual(it["arquivo"], os.path.basename(it["arquivo"]))
             self.assertTrue(os.path.exists(
-                os.path.join(self.pasta, it["arquivo"])), it["arquivo"])
+                os.path.join(PASTA_REAL, it["arquivo"])), it["arquivo"])
             # todo preset nasce com foto (CLAUDE.md, armadilhas por area)
             png = os.path.splitext(it["arquivo"])[0] + ".png"
-            self.assertTrue(os.path.exists(os.path.join(self.pasta, png)),
+            self.assertTrue(os.path.exists(os.path.join(PASTA_REAL, png)),
                             png)
             self.assertIn(it.get("tipo"), ("modulo", "objeto"))
             self.assertIn(addon.biblioteca._niveis_de(it)[0], addon.biblioteca.ARVORE)
             self.assertNotIn("pasta", it)
             self.assertNotIn("origem", it)
         # todo .blend da pasta esta' no indice (nenhum orfao commitado)
-        soltos = [a for a in os.listdir(self.pasta)
+        soltos = [a for a in os.listdir(PASTA_REAL)
                   if a.endswith(".blend") and a not in arquivos]
         self.assertEqual(soltos, [])
 
     def test_cats_de_fabrica_tem_uuid_unico_e_raiz_unica(self):
-        cats = ler_cats(self.pasta)
+        cats = ler_cats(PASTA_REAL)
         self.assertEqual(len(set(cats.values())), len(cats))
         for cam in cats:
             self.assertTrue(cam == addon.biblioteca.CAT_RAIZ
@@ -1111,17 +1188,17 @@ class TestPresetsDeFabrica(InsercaoBase):
 
     def test_presets_de_fabrica_abrem_nesta_versao(self):
         pular_no_4x(self)
-        for it in self.indice():
-            self.assertTrue(legivel(os.path.join(self.pasta, it["arquivo"])),
+        for it in self.indice_real():
+            self.assertTrue(legivel(os.path.join(PASTA_REAL, it["arquivo"])),
                             it["arquivo"])
 
     def test_catalogo_de_cada_preset_bate_com_o_indice(self):
-        cats = ler_cats(self.pasta)
-        for it in self.indice():
-            self.exigir_legivel(it["arquivo"])
-            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca._niveis_de(it))]
+        pular_no_4x(self)
+        cats = ler_cats(PASTA_REAL)
+        for it in self.indice_real():
+            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca.caminho_de(it))]
             assets = [i for _n, i in ler_blend(
-                os.path.join(self.pasta, it["arquivo"])) if i["asset"]]
+                os.path.join(PASTA_REAL, it["arquivo"])) if i["asset"]]
             self.assertTrue(assets, it["arquivo"])
             for a in assets:
                 self.assertEqual(a["catalogo"], esperado, it["arquivo"])
@@ -1153,7 +1230,7 @@ class TestPresetsDeFabrica(InsercaoBase):
         for cam, u in uuids.items():
             self.assertEqual(cats[cam], u)
         for it in self.indice():
-            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca._niveis_de(it))]
+            esperado = cats[addon.biblioteca.catalogo_de(*addon.biblioteca.caminho_de(it))]
             assets = [(n, i) for n, i in ler_blend(
                 os.path.join(self.pasta, it["arquivo"])) if i["asset"]]
             self.assertTrue(assets, it["arquivo"])
@@ -1268,6 +1345,7 @@ class TestOperadoresDeLote(InsercaoBase):
         self.assertAlmostEqual(px[1], 1.0, delta=0.02)
 
 
+# ====================================================== MATERIAIS
 class TestMateriais(BaseBiblioteca):
     """Biblioteca de materiais (MDF/MDP): catalogo, cascata, aplicar a
     cor solida na selecao, criar/editar/apagar e a grade na gaveta."""
@@ -1397,10 +1475,263 @@ class TestMateriais(BaseBiblioteca):
         bpy.ops.object.cabinet_agrupar()
         return self.selecionar(bpy.context.object)
 
+    def test_catalogo_de_fabrica_sem_arquivo(self):
+        self.assertFalse(os.path.exists(self.arquivo()))
+        itens = addon.materiais.ler_materiais()
+        self.assertEqual(addon.materiais.filhos_n1(itens), ['MDF', 'MDP'])
+        self.assertEqual(len({it['chave'] for it in itens}), len(itens))
+        for it in itens:
+            self.assertRegex(it['cor'], r'^#[0-9A-F]{6}$')
+        self.assertIsNotNone(self.item('MDF', 'Unicolores', 'Branco TX'))
+        self.assertIsNotNone(self.item('MDP', 'Madeirados', 'Freijo'))
+
+    def test_navegar_usa_a_cascata_dos_materiais(self):
+        s = bpy.context.scene
+        s.chapa_n1 = 'Armarios'
+        bpy.ops.object.cabinet_navegar(nivel=1, valor='MDF')
+        bpy.ops.object.cabinet_navegar(nivel=2, valor='Madeirados')
+        self.assertEqual((s.cabinet_mat_n1, s.cabinet_mat_n2), ('MDF', 'Madeirados'))
+        self.assertEqual(s.chapa_n1, 'Armarios')       # a outra nao muda
+        bpy.ops.object.cabinet_navegar(nivel=1, valor='MDP')
+        self.assertEqual((s.cabinet_mat_n1, s.cabinet_mat_n2), ('MDP', ''))
+
+    def test_aplicar_no_modulo_pinta_todas_as_chapas(self):
+        modulo = self.modulo()
+        it = self.item('MDF', 'Unicolores', 'Grafite')
+        r = bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        self.assertEqual(r, {'FINISHED'})
+        mat = addon.materiais.material_da_chave(it['chave'])
+        self.assertEqual(mat.name, 'MDF Grafite')
+        for c, esperado in zip(mat.diffuse_color[:3],
+                               addon.materiais.rgb_linear(it['cor'])):
+            self.assertAlmostEqual(c, esperado, places=4)
+        chapas = [o for o in modulo.children_recursive
+                  if addon.chapas.MARCA_CHAPA in o]
+        self.assertEqual(len(chapas), 4)
+        for chapa in chapas:
+            self.assertEqual([s.link for s in chapa.material_slots], ['OBJECT'])
+            self.assertIs(chapa.material_slots[0].material, mat)
+        self.assertEqual(addon.materiais.chave_aplicada(modulo), it['chave'])
+        # outro material troca; reaplicar nao duplica o Material
+        outro = self.item('MDP', 'Madeirados', 'Carvalho')
+        bpy.ops.object.cabinet_aplicar_material(chave=outro['chave'])
+        self.assertEqual(chapas[0].material_slots[0].material.name, 'MDP Carvalho')
+        bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        self.assertEqual(len(bpy.data.materials), 2)
+        self.assertIs(chapas[0].material_slots[0].material, mat)
+
+    def test_aplicar_sem_selecao_cancela(self):
+        self.modulo().select_set(False)
+        it = self.item('MDF', 'Unicolores', 'Grafite')
+        r = bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        self.assertEqual(r, {'CANCELLED'})
+        self.assertEqual(len(bpy.data.materials), 0)
+
+    def test_material_sobrevive_a_malha_refeita(self):
+        chapa = self.selecionar(self.chapa())
+        it = self.item('MDF', 'Madeirados', 'Freijo')
+        bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        chapa.chapa_largura_mm = 750.0
+        addon.chapas.gerar_malha_chapa(chapa)
+        self.assertEqual(chapa.material_slots[0].material.get(
+            addon.materiais.CHAVE_MATERIAL), it['chave'])
+
+    def test_porta_pinta_folhas_e_moldura_nunca_ferragem_nem_puxador(self):
+        grupo = bpy.data.objects.new('Porta', None)
+        grupo[addon.chapas.MARCA_PORTAS] = 1
+        bpy.context.scene.collection.objects.link(grupo)
+        pecas = {}
+        for nome, marca in (('Folha', addon.chapas.MARCA_FOLHA),
+                            ('Moldura', addon.chapas.MARCA_MOLDURA),
+                            ('Dobradica', addon.ferragens.CHAVE_FERRAGEM),
+                            ('Puxador', addon.chapas.MARCA_PUXADOR)):
+            obj = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
+            obj[marca] = 1
+            obj.parent = grupo
+            bpy.context.scene.collection.objects.link(obj)
+            pecas[nome] = obj
+        self.assertEqual(set(addon.materiais.pecas_dos_alvos([grupo])),
+                         {pecas['Folha'], pecas['Moldura']})
+        # duplo clique: a folha sozinha
+        self.assertEqual(addon.materiais.pecas_dos_alvos([pecas['Folha']]),
+                         [pecas['Folha']])
+        self.assertEqual(addon.materiais.pecas_dos_alvos([pecas['Puxador']]), [])
+        # solta sobre a folha (fora da selecao): a porta inteira
+        for o in bpy.context.selected_objects:
+            o.select_set(False)
+        self.assertEqual(set(addon.materiais.pecas_do_solte(pecas['Folha'], [])),
+                         {pecas['Folha'], pecas['Moldura']})
+
+    def test_um_clique_na_esfera_nao_aplica_so_o_duplo(self):
+        # pedido do usuario: um clique errado nao pode pintar nada
+        duplo = addon.materiais.duplo_clique_na_esfera
+        a, b = 'MDF/Unicolores//Areia', 'MDF/Unicolores//Fendi'
+        self.assertFalse(duplo(a, 100, 100, 350, agora=10.0))
+        self.assertTrue(duplo(a, 104, 103, 350, agora=10.2))
+        # o 3o clique comeca outro duplo
+        self.assertFalse(duplo(a, 104, 103, 350, agora=10.3))
+        # devagar, longe ou em outra esfera: e' um 1o clique de novo
+        self.assertFalse(duplo(a, 104, 103, 350, agora=11.0))
+        self.assertFalse(duplo(a, 140, 103, 350, agora=11.1))
+        self.assertFalse(duplo(b, 140, 103, 350, agora=11.2))
+        self.assertTrue(duplo(b, 140, 103, 350, agora=11.3))
+        self.assertIsNone(addon.materiais._clique_esfera[0])
+
+    def test_soltar_a_esfera_pinta_o_que_esta_embaixo(self):
+        a = self.modulo()
+        chapas_a = [o for o in a.children_recursive if addon.chapas.MARCA_CHAPA in o]
+        antes = set(bpy.data.objects)
+        bpy.ops.object.cabinet_criar_nicho()
+        for o in bpy.data.objects:
+            o.select_set(o not in antes)
+        bpy.ops.object.cabinet_agrupar()
+        b = bpy.context.object
+        chapas_b = [o for o in b.children_recursive if addon.chapas.MARCA_CHAPA in o]
+        self.assertTrue(chapas_b and not set(chapas_a) & set(chapas_b))
+        grafite = self.item('MDF', 'Unicolores', 'Grafite')
+        areia = self.item('MDF', 'Unicolores', 'Areia')
+
+        def nomes(chapas):
+            return {c.material_slots[0].material.name if c.material_slots
+                    else None for c in chapas}
+        # B selecionado, solta sobre uma chapa de A: pinta A, nao B
+        self.selecionar(b)
+        r = bpy.ops.object.cabinet_aplicar_material(
+            chave=grafite['chave'], alvo=chapas_a[0].name)
+        self.assertEqual(r, {'FINISHED'})
+        self.assertEqual(nomes(chapas_a), {'MDF Grafite'})
+        self.assertEqual(nomes(chapas_b), {None})
+        # peca isolada (duplo clique) e solta sobre ela: so' ela
+        self.selecionar(chapas_a[1])
+        bpy.ops.object.cabinet_aplicar_material(
+            chave=areia['chave'], alvo=chapas_a[1].name)
+        self.assertEqual(chapas_a[1].material_slots[0].material.name, 'MDF Areia')
+        self.assertEqual(nomes(chapas_a[:1] + chapas_a[2:]), {'MDF Grafite'})
+        # nada embaixo que leve material: cancela sem pintar
+        r = bpy.ops.object.cabinet_aplicar_material(
+            chave=areia['chave'], alvo='Nao Existe')
+        self.assertEqual(r, {'CANCELLED'})
+        self.assertEqual(nomes(chapas_b), {None})
+
+    def test_novo_material_grava_na_biblioteca(self):
+        r = bpy.ops.object.cabinet_novo_material(
+            'EXEC_DEFAULT', nome='Verde Salvia', cor=(0.5, 0.6, 0.5),
+            n1='MDF', n2='Unicolores', n3='')
+        self.assertEqual(r, {'FINISHED'})
+        with open(self.arquivo(), encoding='utf-8') as f:
+            gravados = json.load(f)
+        self.assertEqual(len(gravados), len(addon.materiais.MATERIAIS_PADRAO) + 1)
+        novo = self.item('MDF', 'Unicolores', 'Verde Salvia')
+        self.assertEqual(novo['cor'], '#809980')
+        # mesmo nome na mesma categoria: recusado, nada gravado
+        antes = self.texto(addon.materiais.NOME_ARQUIVO)
+        with self.assertRaises(RuntimeError):
+            bpy.ops.object.cabinet_novo_material(
+                'EXEC_DEFAULT', nome='Verde Salvia', n1='MDF', n2='Unicolores')
+        self.assertEqual(self.texto(addon.materiais.NOME_ARQUIVO), antes)
+
+    def test_editar_material_acompanha_o_material_aplicado(self):
+        chapa = self.selecionar(self.chapa())
+        it = self.item('MDF', 'Unicolores', 'Areia')
+        bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        r = bpy.ops.object.cabinet_editar_material(
+            'EXEC_DEFAULT', chave=it['chave'], nome='Areia Clara',
+            cor=(0.9, 0.85, 0.8), n1='MDF', n2='Unicolores', n3='')
+        self.assertEqual(r, {'FINISHED'})
+        self.assertIsNone(self.item('MDF', 'Unicolores', 'Areia'))
+        novo = self.item('MDF', 'Unicolores', 'Areia Clara')
+        mat = chapa.material_slots[0].material
+        self.assertEqual(mat.get(addon.materiais.CHAVE_MATERIAL), novo['chave'])
+        self.assertEqual(mat.name, 'MDF Areia Clara')
+        self.assertAlmostEqual(mat.diffuse_color[0],
+                               addon.materiais.rgb_linear(novo['cor'])[0], places=4)
+
+    def test_apagar_pergunta_na_biblioteca_e_so_apaga_no_sim(self):
+        it = self.item('MDP', 'Unicolores', 'Grafite')
+        s = bpy.context.scene
+        s.cabinet_mat_n1, s.cabinet_mat_n2 = 'MDP', 'Unicolores'
+        addon.materiais.perguntar_apagar(bpy.context, it)
+        pergunta = addon.perguntas._pergunta_atual[0]
+        self.assertTrue(pergunta['na_gaveta'] and pergunta['biblioteca'])
+        ws = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
+        caixa = [w for w in ws if w[5] == ('pergunta',)]
+        self.assertEqual(len(caixa), 1)            # so' na biblioteca
+        alvo = next(w for w in ws if w[5] and w[5][0] == 'material'
+                    and w[5][1]['chave'] == it['chave'])
+        # logo abaixo da fila do material (e dos botoes dela)
+        topo_caixa = caixa[0][1] + caixa[0][3]
+        self.assertLess(topo_caixa, alvo[1] - 24)
+        self.assertGreater(topo_caixa, alvo[1] - 40)
+        bpy.ops.object.cabinet_responder_pergunta(opcao=1)      # Nao
+        self.assertIsNotNone(self.item('MDP', 'Unicolores', 'Grafite'))
+        addon.materiais.perguntar_apagar(bpy.context, it)
+        bpy.ops.object.cabinet_responder_pergunta(opcao=0)      # Sim
+        self.assertIsNone(self.item('MDP', 'Unicolores', 'Grafite'))
+        self.assertIsNone(addon.materiais._apagar_pendente[0])
+        # direto, sem a pergunta: "Nao" cancela; material que nao existe tambem
+        preto = self.item('MDP', 'Unicolores', 'Preto TX')
+        apagar = bpy.ops.object.cabinet_apagar_material
+        self.assertEqual(apagar(chave=preto['chave'], apagar=False), {'CANCELLED'})
+        self.assertEqual(apagar(chave='MDP/Unicolores//Fantasma'), {'CANCELLED'})
+        self.assertEqual(apagar(chave=preto['chave']), {'FINISHED'})
+        self.assertIsNone(self.item('MDP', 'Unicolores', 'Preto TX'))
+
+    def test_esfera_sombreada_com_fundo_transparente(self):
+        lado = 32
+        px = addon.materiais.esfera_rgba((0.2, 0.4, 0.8), lado)
+        self.assertEqual(len(px), lado * lado * 4)
+
+        def pixel(linha, coluna):
+            i = (linha * lado + coluna) * 4
+            return px[i:i + 4]
+        self.assertEqual(pixel(0, 0)[3], 0.0)                     # canto: fundo
+        self.assertEqual(pixel(lado // 2, lado // 2)[3], 1.0)     # meio: esfera
+        # a luz vem de cima a' esquerda (linha 0 embaixo): ali e' mais claro
+        claro = pixel(lado * 3 // 4, lado // 4)
+        escuro = pixel(lado // 4, lado * 3 // 4)
+        self.assertGreater(claro[2], escuro[2])
+
+    def test_gaveta_mostra_cascata_e_esferas_dos_materiais(self):
+        s = bpy.context.scene
+        self.selecionar(self.chapa())
+        it = self.item('MDF', 'Madeirados', 'Nogueira')
+        bpy.ops.object.cabinet_aplicar_material(chave=it['chave'])
+        s.cabinet_mat_n1, s.cabinet_mat_n2 = 'MDF', 'Madeirados'
+        madeirados = sum(1 for m in addon.materiais.MATERIAIS_PADRAO
+                         if m[:2] == ('MDF', 'Madeirados'))
+        for largura in (190, 320, 480, 564):
+            ws = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
+            limite = min(largura - 12, 552)
+            self.assertFalse([w[4] for w in ws if w[0] + w[2] > limite + 0.01])
+            modos = [w for w in ws if w[5] and w[5][0] == 'biblioteca']
+            titulo = next(w for w in ws if w[4] == 'Biblioteca' and w[5] is None)
+            self.assertEqual([m[5][1] for m in modos], ['MODULOS', 'MATERIAIS'])
+            self.assertEqual([m[5][2] for m in modos], [False, True])  # aceso
+            # ao lado do titulo quando cabe; senao, na linha de baixo
+            self.assertEqual(abs(modos[0][1] - titulo[1]) < 1, largura >= 320,
+                             largura)
+            esferas = [w for w in ws if w[5] and w[5][0] == 'material']
+            self.assertEqual(len(esferas), madeirados)
+            self.assertEqual([e[4] for e in esferas if e[5][2]], ['Nogueira'])
+            botoes = [w for w in ws if w[5] and w[5][0] == 'material_item']
+            self.assertEqual(len(botoes), 2 * len(esferas))
+            self.assertEqual([addon.gaveta_eventos._icone_acao_gaveta(b[5])
+                              for b in botoes[:2]], ['GREASEPENCIL', 'TRASH'])
+            self.assertIn('object.cabinet_novo_material',
+                          [w[5][1] for w in ws if w[5] and w[5][0] == 'operador'])
+        # Modulos: a cascata dos presets volta, com o "Salvar +"
+        s.cabinet_bib_modo = 'MODULOS'
+        ws = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
+        self.assertFalse([w for w in ws if w[5] and w[5][0] == 'material'])
+        self.assertIn('object.cabinet_salvar_biblioteca',
+                      [w[5][1] for w in ws if w[5] and w[5][0] == 'operador'])
+
+
 # ====================================================== execucao
 addon.register()
 CASOS = (TestIndice, TestCatalogos, TestGravacao, TestOperadores,
-         TestInsercao, TestPresetsDeFabrica, TestOperadoresDeLote)
+         TestInsercao, TestPresetsDeFabrica, TestOperadoresDeLote,
+         TestMateriais)
 suite = unittest.TestSuite(
     unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in CASOS)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)

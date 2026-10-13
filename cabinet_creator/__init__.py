@@ -397,6 +397,8 @@ def register():
     S.chapa_n1 = StringProperty(default="")
     S.chapa_n2 = StringProperty(default="")
     S.chapa_n3 = StringProperty(default="")
+    # niveis da cascata ALEM do 3o (a biblioteca nao tem limite), com /
+    S.chapa_n_mais = StringProperty(default="")
     # a biblioteca mostra os presets (Modulos) ou os Materiais, cada um
     # com a sua cascata (os botoes ao lado do titulo)
     S.cabinet_bib_modo = EnumProperty(
@@ -528,8 +530,12 @@ def unregister():
         bpy.app.timers.unregister(_gaveta._reconectar_gavetas)
     if hasattr(bpy.types.Scene, 'cabinet_aba'):
         del bpy.types.Scene.cabinet_aba
-    if hasattr(bpy.types.Scene, 'cabinet_puxador_modelo'):
-        del bpy.types.Scene.cabinet_puxador_modelo
+    for nome in ('cabinet_puxador_modelo', 'cabinet_puxador_arquivo',
+                 'cabinet_tam_retrato', 'cabinet_bib_modo', 'cabinet_mat_n1',
+                 'cabinet_mat_n2', 'cabinet_mat_n3', 'chapa_n_mais'):
+        if hasattr(bpy.types.Scene, nome):
+            delattr(bpy.types.Scene, nome)
+    _puxadores._contornos_modelo.clear()
     _puxadores._posicionador_puxador[0] = None
     if _puxadores._handler_posicionador[0] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_puxadores._handler_posicionador[0], 'WINDOW')

@@ -581,10 +581,12 @@ def _medidas_gaveta(context):
 
 
 def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
-                         indice, pai=None):
+                         indice=None, pai=None, prefixo='cabinet_carrossel'):
+    """`prefixo`: cada biblioteca (presets, materiais) rola a sua. Sem a
+    quantidade de itens no botao (pedido do usuario: ocupava espaco)."""
     if not valores:
         return y
-    chave = 'cabinet_carrossel_%d_%s' % (nivel, str(pai))
+    chave = '%s_%d_%s' % (prefixo, nivel, str(pai))
     colunas = min(len(valores), max(1, int((largura - 48) // 110)))
     limite = len(valores) - colunas
     inicio = max(0, min(limite, int(bpy.context.screen.get(chave, 0))))
@@ -607,14 +609,8 @@ def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
         if not 0 <= posicao < len(ordenados):
             continue
         valor = ordenados[posicao]
-        if nivel == 1:
-            conta = _biblioteca._conta(indice, valor)
-        elif nivel == 2:
-            conta = _biblioteca._conta(indice, pai, valor)
-        else:
-            conta = _biblioteca._conta(indice, pai[0], pai[1], valor)
         itens.append((x + 24 + (posicao - primeiro - sobra) * (bw + 4), y,
-                      bw, 25, '%s (%d)' % (_abreviar(valor, 13), conta),
+                      bw, 25, _abreviar(valor, 16),
                       ('navegar', nivel, valor, chave, limite, selecionado == valor)))
     return y - 39
 
