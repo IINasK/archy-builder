@@ -386,6 +386,18 @@ def _desenhar_gaveta(tela=False):
         if acao and acao[0] == 'wireframe':
             _gaveta._desenhar_wireframe_gaveta(x, y, *acao[1:], escala=w / 160.0)
             continue
+        if acao and acao[0] == 'slider' and acao[1] == 'retratos':
+            # o pequeno, ao lado do titulo: a caixa dele (a do titulo),
+            # trilho e bolinha
+            _gaveta._botao_gaveta(x, y, w, h, secao=True)
+            tx, ty, tw = _gaveta._trilho_slider_gaveta(acao, x, y, w, h)
+            menor, maior = _gaveta.LARGURA_RETRATO_MIN, _gaveta.LARGURA_RETRATO_MAX
+            valor = min(1.0, max(0.0, (getattr(context.scene, 'cabinet_tam_retrato', 64)
+                                       - menor) / (maior - menor)))
+            _gaveta._retangulo_gaveta(tx, ty - 1.5, tw, 3, tuple(cores.inner))
+            _gaveta._retangulo_arredondado_gaveta(
+                tx + tw * valor - 5, ty - 5, 10, 10, 5, (*cores.text, 1))
+            continue
         if acao and acao[0] == 'slider':
             tx, ty, tw = _gaveta._trilho_miniaturas_gaveta(x, y, w, h)
             largura_rotulo = tx - x - 12

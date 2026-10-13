@@ -2026,6 +2026,64 @@ def test_criar_puxador_no_topo_da_aba(janela, m):
     assert addon.puxadores._posicionador_puxador[0] is None, 'Esc devia encerrar'
 
 
+def test_usar_como_puxador_pela_gaveta(janela, m):
+    # Objeto de fora solto: "Usar como puxador" (no SOLTAR) pede o clique
+    # na face que encosta na porta; o modelo vai para a biblioteca (aqui
+    # uma pasta temporaria) com a foto de verdade e o criador abre com
+    # ele aceso no carrossel de retratos.
+    import shutil
+    import tempfile
+    import bmesh
+    from mathutils import Matrix
+    pasta = tempfile.mkdtemp()
+    original = addon.biblioteca.pasta_biblioteca
+    addon.biblioteca.pasta_biblioteca = lambda: pasta
+    try:
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Diagonal(
+            (0.4, 0.06, 0.08, 1.0)))
+        malha = bpy.data.meshes.new('Barra')
+        bm.to_mesh(malha)
+        bm.free()
+        obj = bpy.data.objects.new('Barra', malha)
+        bpy.context.collection.objects.link(obj)
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.context.scene.cabinet_aba = 'PUXADORES'
+        yield
+        yield
+        m.mover(*widget(janela, lambda v: v[5][:2] == (
+            'operador', 'object.cabinet_usar_como_puxador')))
+        yield
+        m.clicar()
+        yield
+        assert addon.puxadores._usando_como_puxador[0] is not None,             'o clique na face nao foi pedido'
+        widget_texto = [v for v in addon.gaveta._widgets_gaveta(
+            bpy.context, 320, 1400) if v[4].startswith('Clique na face')]
+        assert widget_texto, 'a gaveta devia dizer o que fazer'
+        area, regiao, rv3d = viewport(janela)
+        m.mover(*na_tela(regiao, rv3d, Vector((0.0, 0.0, 0.04))))
+        yield
+        m.clicar()
+        for _ in range(4):
+            yield
+        assert addon.puxadores._usando_como_puxador[0] is None
+        (it,) = addon.puxadores.modelos_do_usuario()
+        assert os.path.isfile(os.path.join(pasta, 'Barra.png')), 'sem foto'
+        estado = addon.puxadores._posicionador_puxador[0]
+        assert estado is not None and (estado['tipo'], estado['arquivo']) == (
+            'MODELO', it['arquivo']), estado
+        widget(janela, lambda v: v[5][0] == 'escolha' and len(v[5]) > 6
+               and v[5][2] == 'MODELO:' + it['arquivo'] and v[5][3])
+    finally:
+        m.tecla('ESC')
+        yield
+        addon.biblioteca.pasta_biblioteca = original
+        addon.puxadores.escolher_modelo(bpy.context.scene, 'PERFIL')   # o padrao
+        shutil.rmtree(pasta, True)
+
+
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_clique_na_aba_troca_a_aba,
        test_arrastar_a_divisoria,
@@ -2039,6 +2097,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_o_campo_muda_o_valor,
        test_comodo_e_gerar_orcamento_pelas_opcoes,
        test_criar_puxador_no_topo_da_aba,
+       test_usar_como_puxador_pela_gaveta,
        test_digitar_com_operador_e_cursor_no_meio,
        test_wizard_quatro_cliques_meia_chapa_vira_curva,
        test_wizard_correr_metade_metade_pergunta_moldura,

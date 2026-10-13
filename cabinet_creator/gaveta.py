@@ -645,6 +645,73 @@ def _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
     return y
 
 
+# Carrossel de RETRATOS (pedido do usuario): no lugar dos nomes (Perfil,
+# Alca, Borda; Giro, Basculante, Correr) a foto de cada opcao, como na
+# biblioteca. Cada retrato e' uma 'escolha' comum -- o clique segue o
+# mesmo caminho -- com a foto no 7o campo. Nao cabendo todos, setas nas
+# pontas rolam de um em um (como a cascata da biblioteca).
+LARGURA_RETRATO_MIN = 40        # limites do slider dos retratos
+LARGURA_RETRATO_MAX = 128
+ALTURA_ROTULO_RETRATO = 18
+LARGURA_SLIDER_RETRATO = 72     # o slider pequeno ao lado do titulo
+
+
+def _lado_retrato(w):
+    """Lado de TODO retrato (puxador, abertura, dobradica): o mesmo
+    quadrado em toda a gaveta (pedido do usuario), no tamanho do slider.
+    So' encolhe quando tres nao cabem lado a lado -- as tres aberturas
+    nunca viram carrossel de um so'."""
+    lado = getattr(bpy.context.scene, 'cabinet_tam_retrato', 64)
+    return max(1.0, min(float(lado), (w - 8) / 3))
+
+
+def _titulo_com_slider(itens, x, y, w, rotulo, altura=20):
+    """O titulo de uma fila de retratos e, na ponta direita dele, o
+    slider que aumenta ou diminui TODOS os retratos. `altura` 23 = o
+    titulo de categoria da aba da porta (`_titulo_secao`)."""
+    # o slider na SUA caixa, da altura do titulo (auditoria visual: solto,
+    # ele boiava ao lado de uma caixa encurtada); widget nenhum se sobrepoe
+    lado = min(LARGURA_SLIDER_RETRATO, w / 2)
+    itens.append((x, y, w - lado - 6, altura, rotulo, None))
+    itens.append((x + w - lado, y, lado, altura, '', ('slider', 'retratos')))
+
+
+def _carrossel_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
+                      ativo=True, alvo='', chave=''):
+    """`opcoes` = (valor, texto, foto); foto = dict de `_desenhar_foto_gaveta`.
+    Mesmo contrato de `_linha_escolha_gaveta`: `y` e' o do rotulo e volta
+    o y da linha seguinte."""
+    if rotulo:
+        _titulo_com_slider(itens, x, y, w, rotulo)
+        y -= 26
+    n = len(opcoes)
+    if not n:
+        return y
+    bw = _lado_retrato(w)
+    cabe = n * bw + 4 * (n - 1) <= w + 0.01     # (w - 8) / 3 x 3 nao erra
+    if cabe:
+        colunas, inicio, x0 = n, 0, x
+    else:
+        bw = min(bw, w - 48)
+        colunas = max(1, int((w - 48 + 4) // (bw + 4)))
+        chave = chave or 'cabinet_carrossel_%s' % prop
+        limite = n - colunas
+        inicio = max(0, min(limite, int(bpy.context.screen.get(chave, 0))))
+        x0 = x + 24
+    altura = bw + ALTURA_ROTULO_RETRATO
+    # o topo fica onde estaria o de uma fila de segmentos (25 px)
+    base = y + 25 - altura
+    if not cabe:
+        for lado, dx in ((-1, x), (1, x + w - 20)):
+            itens.append((dx, base, 20, altura, '',
+                          ('rolar_nivel', chave, lado, limite)))
+    for i, (valor, texto, foto) in enumerate(opcoes[inicio:inicio + colunas]):
+        itens.append((x0 + i * (bw + 4), base, bw, altura, texto,
+                      ('escolha', prop, valor, valor == atual, ativo, alvo,
+                       foto)))
+    return base - 29        # como depois de uma fila que terminasse em `base`
+
+
 def _colunas_medidas(context, largura, n):
     """Colunas dos campos de medida pela largura LOGICA da gaveta:
     todos numa linha (>= 480), dois (>= 240) ou um. Vale para o bloco
@@ -712,19 +779,38 @@ def _botoes_gaveta(itens, x, y, w, botoes):
     return y - math.ceil(len(botoes) / colunas) * 34
 
 
+def _modelos_puxador_gaveta():
+    """Retratos do carrossel: os de fabrica (protegidos) e os do usuario,
+    que moram na categoria Puxadores da biblioteca."""
+    opcoes = [(t, _puxadores.MODELOS_PUXADOR[t][0],
+               _biblioteca.foto_padrao('puxador_' + t))
+              for t in _puxadores.MODELOS_PADRAO]
+    for it in _puxadores.modelos_do_usuario():
+        opcoes.append((_puxadores.valor_do_modelo('MODELO', it['arquivo']),
+                       _abreviar(it.get('nome', ''), 14), it))
+    return tuple(opcoes)
+
+
 def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
     """Como as outras abas (pedido do usuario): nada selecionado = so' o
-    "Criar Puxador" (no topo, fora daqui). Criando, aparece o MODELO
-    (clicavel: o posicionador troca na hora). Puxador selecionado: as
-    medidas dele (e os cadeados do importado) e, no do add-on, o modelo
-    -- trocar refaz AQUELE puxador. Objeto de fora: Converter em puxador.
-    Como na aba Portas, o nome do item nao aparece."""
-    modelos = tuple((k, v[0]) for k, v in _puxadores.MODELOS_PUXADOR.items())
+    "Criar Puxador" (no topo, fora daqui). Criando, aparece o MODELO num
+    carrossel de retratos (clicavel: o posicionador troca na hora).
+    Puxador selecionado: as medidas dele (e os cadeados do importado) e,
+    no do add-on, o carrossel -- trocar refaz AQUELE puxador. Objeto de
+    fora: "Usar como puxador" (vira modelo na biblioteca). Como na aba
+    Portas, o nome do item nao aparece."""
+    usando = _puxadores._usando_como_puxador[0]
+    if usando is not None:
+        itens.append((x, y + 26, w, 26,
+                      'Clique na face do puxador que encosta na porta', None))
+        return itens
     posicionando = _puxadores._posicionador_puxador[0]
     if posicionando is not None:
-        _linha_escolha_gaveta(itens, x, y + 26, w, 'Modelo do puxador',
-                              'cabinet_puxador_modelo', modelos,
-                              posicionando['tipo'], alvo=_portas.ALVO_ASSISTENTE)
+        _carrossel_gaveta(itens, x, y + 26, w, 'Modelo do puxador',
+                          'cabinet_puxador_modelo', _modelos_puxador_gaveta(),
+                          _puxadores.valor_do_modelo(
+                              posicionando['tipo'], posicionando.get('arquivo', '')),
+                          alvo=_portas.ALVO_ASSISTENTE)
         return itens
     obj = _selecionado(context)
     if obj is not None and _chapas.MARCA_PUXADOR in obj:
@@ -732,9 +818,11 @@ def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
                                   modos=False)
         itens.append((x, y + 31, w, 1, '', ('separador',)))
         if _puxadores._eh_puxador_parametrico(obj):
-            _linha_escolha_gaveta(itens, x, y, w, 'Modelo do puxador',
-                                  'cabinet_puxador_modelo', modelos,
-                                  obj['puxador_tipo'], alvo=ALVO_PUXADOR)
+            _carrossel_gaveta(itens, x, y, w, 'Modelo do puxador',
+                              'cabinet_puxador_modelo', _modelos_puxador_gaveta(),
+                              _puxadores.valor_do_modelo(
+                                  obj['puxador_tipo'], obj.get('puxador_modelo', '')),
+                              alvo=ALVO_PUXADOR)
         else:
             ligado = obj.parent is not None and _chapas.MARCA_CHAPA in obj.parent
             itens.append((x, y, w, 26, 'Ligado a uma porta' if ligado
@@ -744,7 +832,7 @@ def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
             m in obj for m in (_chapas.MARCA_CHAPA, _chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
                                _chapas.MARCA_FOLHA, _chapas.MARCA_ACESSORIO, _ferragens.CHAVE_FERRAGEM)):
         _botoes_gaveta(itens, x, y + 26, w, (
-            ('Converter em puxador', 'object.cabinet_converter_puxador'),))
+            ('Usar como puxador', 'object.cabinet_usar_como_puxador'),))
     return itens
 
 
@@ -888,6 +976,9 @@ def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
     return y
 
 
+def _retratos_abertura(opcoes):
+    return tuple((v, t, _biblioteca.foto_padrao('abertura_' + v))
+                 for v, t in opcoes)
 
 
 def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
@@ -1901,6 +1992,14 @@ def _trilho_miniaturas_gaveta(x, y, w, h):
     # Desenho e arraste usam os mesmos limites, sem incluir o rotulo.
     rotulo = min(145, w * 0.52)
     return x + rotulo + 8, y + h / 2, max(1, w - rotulo - 14)
+
+
+def _trilho_slider_gaveta(acao, x, y, w, h):
+    """(inicio, y, largura) do trilho de qualquer slider: o dos retratos
+    (sem rotulo, o widget inteiro) ou o das miniaturas da biblioteca."""
+    if acao[1] == 'retratos':
+        return x + 10, y + h / 2, max(1, w - 20)
+    return _trilho_miniaturas_gaveta(x, y, w, h)
 
 
 def _animar_realces():

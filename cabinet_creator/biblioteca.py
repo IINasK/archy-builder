@@ -6,7 +6,7 @@ Asset Browser e prateleira. Mora aqui tambem o wireframe das medidas
 import bpy, math, os, uuid, json, gpu, time
 import bpy.utils.previews
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
+from mathutils import Euler, Matrix, Vector
 from mathutils.geometry import intersect_line_plane
 from bpy_extras import view3d_utils
 from bpy.types import Operator
@@ -14,6 +14,7 @@ from bpy.types import Operator
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _selecao = _gaveta = None
+_portas = _puxadores = _ferragens = None
 
 # ================================================== BIBLIOTECA / ASSETS
 # Salva chapas e modulos na biblioteca de assets do Blender, para
@@ -510,7 +511,7 @@ ARVORE = {
     },
     "Chapas":     {"Avulsas": []},
     "Portas":     {"Abrir": [], "Correr": [], "Basculante": []},
-    "Puxadores":  {"Perfil": [], "Alca": [], "Cava": []},
+    "Puxadores":  {"Perfil": [], "Alca": [], "Borda": [], "Cava": []},
     "Dobradicas": {"Comuns": [], "Amortecidas": [], "Especiais": []},
 }
 
@@ -623,6 +624,26 @@ def registrar_no_indice(pasta, nome, arquivo, n1, n2, n3, tipo):
     itens.append({"nome": nome, "arquivo": os.path.basename(arquivo),
                   "n1": n1, "n2": n2, "n3": n3, "tipo": tipo})
     _gravar_indice(pasta, itens)
+def itens_de_fabrica():
+    """Os modelos de FABRICA do criador de puxadores e das dobradicas, na
+    cascata da biblioteca (pedido do usuario): TRAVADOS -- moram no add-on,
+    fora do indice, entao nem o "Edit." nem o cadeado os alcancam. O
+    usuario edita os DELE (categoria Puxadores) e o criador acompanha."""
+    itens = []
+    for tipo in _puxadores.MODELOS_PADRAO:
+        nome = _puxadores.MODELOS_PUXADOR[tipo][0]
+        it = foto_padrao('puxador_' + tipo)
+        it.update(nome=nome, n1=_puxadores.CATEGORIA_PUXADORES, n2=nome,
+                  n3='', tipo='objeto', bloqueado=True,
+                  fabrica='puxador', valor=tipo)
+        itens.append(it)
+    for tipo, nome in _portas.NOME_DOBRADICA.items():
+        it = foto_padrao('dobradica_' + tipo)
+        it.update(nome=nome, n1='Dobradicas', n2='Comuns', n3='',
+                  tipo='objeto', bloqueado=True, fabrica='dobradica',
+                  valor=tipo)
+        itens.append(it)
+    return itens
 
 
 def _itens_de(categoria, subcategoria):
@@ -1803,7 +1824,221 @@ def _ocupacao_alpha_png(caminho):
                 pass
 
 
-def capturar_viewport(destino_png, camera=None, isolar=None):
+# Fotos dos modelos de FABRICA (puxadores, aberturas, dobradicas): PNGs
+# que viajam com o add-on, feitos por `gerar_fotos_padrao.py` na mesma
+# vista das fotos da biblioteca. Ficam fora dela: sao protegidos.
+PASTA_FOTOS_PADRAO = os.path.join(os.path.dirname(__file__), 'fotos')
+
+
+# Modelos ainda sem peca propria mostram a foto de outro (pedido do
+# usuario): tire daqui quando o modelo da Curva/Super Curva existir.
+FOTOS_PENDENTES = {'dobradica_CURVA': 'dobradica_RETA',
+                   'dobradica_SUPER_CURVA': 'dobradica_RETA'}
+
+
+def foto_padrao(nome):
+    """Retrato de fabrica (`puxador_ALCA`, `abertura_GIRO`...) no formato
+    de item que o desenho da gaveta le."""
+    nome = FOTOS_PENDENTES.get(nome, nome)
+    return {'pasta': PASTA_FOTOS_PADRAO, 'arquivo': nome + '.png',
+            'foto': nome + '.png'}
+
+
+# Foto "a 45 graus" (pedido do usuario): de frente-direita, um pouco de
+# cima -- a mesma vista para todo modelo de puxador, porta e dobradica.
+VISTA_FOTO = Euler((math.radians(60.0), 0.0, math.radians(45.0)),
+                   'XYZ').to_quaternion()
+
+
+def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
+    """Foto do preset SEM janela: camera ortografica na vista da foto,
+    render Workbench solido com fundo transparente (a viewport de
+    `capturar_viewport` nao existe em --background; o gerador dos armarios
+    nativos roda assim). So' `objetos` aparecem; o resto volta como era."""
+    cena = bpy.context.scene
+    sombreamento = cena.display.shading
+    antes = (cena.render.engine, cena.render.filepath,
+             cena.render.image_settings.file_format,
+             cena.render.image_settings.color_mode, cena.render.resolution_x,
+             cena.render.resolution_y, cena.render.resolution_percentage,
+             cena.render.film_transparent, cena.camera, sombreamento.light,
+             sombreamento.color_type, tuple(sombreamento.single_color),
+             sombreamento.show_object_outline)
+    manter = {o.name for o in objetos}
+    escondidos = [o for o in cena.objects
+                  if o.name not in manter and not o.hide_render]
+    dados = bpy.data.cameras.new('Foto Preset')
+    camera = bpy.data.objects.new('Foto Preset', dados)
+    cena.collection.objects.link(camera)
+    try:
+        for o in escondidos:
+            o.hide_render = True
+        bpy.context.view_layer.update()
+        pontos = [o.matrix_world @ Vector(c) for o in objetos
+                  if o.type == 'MESH' for c in o.bound_box]
+        if not pontos:
+            return False, 'nada para fotografar'
+        centro = sum(pontos, Vector()) / len(pontos)
+        rot = rotacao.to_matrix()
+        # enquadra pela caixa VISTA da camera (eixos x/y dela)
+        locais = [rot.transposed() @ (p - centro) for p in pontos]
+        largura = max(p.x for p in locais) - min(p.x for p in locais)
+        altura = max(p.y for p in locais) - min(p.y for p in locais)
+        meio = Vector(((max(p.x for p in locais) + min(p.x for p in locais)) / 2,
+                       (max(p.y for p in locais) + min(p.y for p in locais)) / 2,
+                       0.0))
+        profundidade = max(p.z for p in locais) + 1.0
+        dados.type = 'ORTHO'
+        dados.ortho_scale = max(largura, altura) * 1.12
+        dados.clip_end = profundidade * 4 + 10.0
+        camera.matrix_world = (Matrix.Translation(
+            centro + rot @ (meio + Vector((0, 0, profundidade))))
+            @ rotacao.to_matrix().to_4x4())
+        cena.camera = camera
+        cena.render.engine = 'BLENDER_WORKBENCH'
+        cena.render.filepath = destino_png
+        cena.render.image_settings.file_format = 'PNG'
+        cena.render.image_settings.color_mode = 'RGBA'
+        cena.render.resolution_x = cena.render.resolution_y = lado
+        cena.render.resolution_percentage = 100
+        cena.render.film_transparent = True
+        sombreamento.light = 'STUDIO'
+        sombreamento.color_type = 'SINGLE'
+        sombreamento.single_color = (0.55, 0.55, 0.55)  # o cinza das fotos
+        sombreamento.show_object_outline = True
+        bpy.ops.render.render(write_still=True)
+        return os.path.isfile(destino_png), destino_png
+    except Exception as e:
+        return False, str(e)
+    finally:
+        for o in escondidos:
+            try:
+                o.hide_render = False
+            except ReferenceError:
+                pass
+        (cena.render.engine, cena.render.filepath,
+         cena.render.image_settings.file_format,
+         cena.render.image_settings.color_mode, cena.render.resolution_x,
+         cena.render.resolution_y, cena.render.resolution_percentage,
+         cena.render.film_transparent, cena.camera, sombreamento.light,
+         sombreamento.color_type, sombreamento.single_color,
+         sombreamento.show_object_outline) = antes
+        bpy.data.objects.remove(camera, do_unlink=True)
+        bpy.data.cameras.remove(dados)
+
+
+# Armarios NATIVOS de fabrica (pedido do usuario): so' chapas do add-on,
+# caixa + fundo de 5 mm em canal, chapa de 18 mm, COM PORTA (Reta,
+# cobrindo a frente). Medidas EXTERNAS da caixa (mm), as de mercado:
+# balcao 720 de caixa (bancada a ~900 com rodape), aereo 330 de fundo,
+# torre e roupeiro de altura inteira. Porta de giro: 1 folha ate' 500 mm
+# de largura, 2 acima; o aereo tem tambem a versao basculante.
+LARGURA_MAX_UMA_FOLHA_MM = 500
+ABERTURA_FOTO = 0.3            # fracao do slider de abertura na foto
+# Puxador padrao dos nativos = PERFIL (pedido do usuario), na borda da
+# pratica de cozinha planejada: balcao/gabinete em cima, aereo embaixo,
+# torre/roupeiro na vertical do lado da abertura
+# Modulo de bancada (pedido do usuario): topo ABERTO, duas travessas
+TOPO_POR_TIPO = {'Balcao': 'TRAVESSAS', 'Gabinete': 'TRAVESSAS'}
+PERFIL_POR_TIPO = {'Balcao': 'CIMA', 'Gabinete': 'CIMA', 'Aereo': 'BAIXO',
+                   'Torre': 'LADO', 'Roupeiro': 'LADO'}
+
+
+def _giro(L):
+    return ('GIRO', 1 if L <= LARGURA_MAX_UMA_FOLHA_MM else 2)
+
+
+ARMARIOS_NATIVOS = (
+    [("Balcao", L, 720, 550, ("Armarios", "Cozinha", "Inferiores"), _giro(L))
+     for L in (300, 400, 450, 500, 600, 800, 900, 1000, 1200)]
+    + [("Aereo", L, 700, 330, ("Armarios", "Cozinha", "Superiores"), _giro(L))
+       for L in (300, 400, 450, 500, 600, 800, 900, 1000, 1200)]
+    + [("Aereo", L, 700, 330, ("Armarios", "Cozinha", "Superiores"),
+        ('BASCULANTE', 1)) for L in (400, 450, 500, 600, 800, 900, 1000, 1200)]
+    + [("Torre", L, 2200, 550, ("Armarios", "Cozinha", "Torres"), _giro(L))
+       for L in (600, 700)]
+    + [("Roupeiro", L, 2400, 550, ("Armarios", "Quarto", "Closets"), _giro(L))
+       for L in (450, 500, 600, 800, 900, 1000)]
+    + [("Gabinete", L, 600, 450, ("Armarios", "Banheiro", "Gabinetes"), _giro(L))
+       for L in (400, 500, 600, 800, 1000)]
+)
+
+
+def nome_armario_nativo(tipo, L, A, P, portas=None):
+    """"Balcao 2 Portas 800x720x550", "Aereo Basculante 600x700x330"."""
+    if portas is None:
+        variante = ""
+    elif portas[0] == 'BASCULANTE':
+        variante = " Basculante"
+    else:
+        variante = " %d Porta%s" % (portas[1], "s" if portas[1] > 1 else "")
+    return "%s%s %dx%dx%d" % (tipo, variante, L, A, P)
+
+
+def gerar_armario_nativo(context, tipo, L, A, P, niveis, portas=None, E=18.0):
+    """Monta o armario (com a porta de `portas`: ('GIRO', folhas) ou
+    ('BASCULANTE', 1)), grava o .blend na biblioteca (`pasta_biblioteca`),
+    tira a foto sem janela, poe a preview no asset e registra no indice.
+    A cena volta a ficar sem ele. Devolve o caminho do .blend."""
+    nome = nome_armario_nativo(tipo, L, A, P, portas)
+    conj = _modulos.criar_armario(context, nome, L, A, P, E,
+                                  topo=TOPO_POR_TIPO.get(tipo, 'TAMPO'))
+    if portas is not None:
+        grupo = _portas.porta_no_modulo(conj, folhas=portas[1], abertura=portas[0])
+        _puxadores.perfis_na_porta(context, grupo, PERFIL_POR_TIPO.get(tipo, 'CIMA'))
+    return gravar_modulo_na_biblioteca(context, conj, nome, niveis)
+
+
+def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
+    """Grava o modulo da cena como preset (`pasta_biblioteca`): .blend,
+    foto sem janela (porta entreaberta), preview do asset e indice. O
+    modulo SAI da cena. Devolve o caminho do .blend."""
+    pecas = [conj] + list(conj.children_recursive)
+    colecao = _modulos._colecao_do_modulo(conj)
+    if colecao is not None:
+        # a Collection do ASSET leva o nome: a da montagem sai do caminho
+        # (senao o asset gravado viraria "<nome>.001")
+        colecao.name = nome + " (montagem)"
+    removido = [False]
+
+    def remover_da_cena():
+        if removido[0]:
+            return
+        removido[0] = True
+        for o in pecas:
+            malha = o.data if o.type == 'MESH' else None
+            bpy.data.objects.remove(o, do_unlink=True)
+            if malha is not None and malha.users == 0:
+                bpy.data.meshes.remove(malha)
+        if colecao is not None and colecao.name in bpy.data.collections:
+            bpy.data.collections.remove(colecao)
+    try:
+        arq = salvar_na_biblioteca(pecas, nome, True, niveis=niveis)
+        png = os.path.join(pasta_biblioteca(),
+                           os.path.splitext(os.path.basename(arq))[0] + ".png")
+        # na FOTO a porta fica entreaberta: fechadas, giro de 1 folha e
+        # basculante saiam iguais na grade (o .blend ja' foi gravado fechado)
+        for grupo in _portas._portas_do_conjunto(conj):
+            for folha in _portas._folhas_portas(grupo):
+                _ferragens._definir_abertura(context, folha, ABERTURA_FOTO)
+        context.view_layer.update()
+        ok, msg = fotografar_com_camera(png, pecas)
+        if not ok:
+            raise RuntimeError("foto do preset: " + msg)
+        # `aplicar_preview_png` recarrega e REGRAVA o .blend: com as pecas
+        # ainda na cena, tudo voltava como ".001" (bug aberto da suite da
+        # biblioteca); fora dela, os nomes do arquivo ficam limpos
+        remover_da_cena()
+        ok, msg = aplicar_preview_png(arq, png)
+        if not ok:
+            raise RuntimeError("preview do preset: " + msg)
+        registrar_no_indice(pasta_biblioteca(), nome, arq, *niveis, "modulo")
+        return arq
+    finally:
+        remover_da_cena()
+
+
+def capturar_viewport(destino_png, camera=None, isolar=None, rotacao=None):
     """Foto do modelo a partir da viewport.
 
     NAO renderiza: usa render OpenGL, ou seja, as cores da propria
@@ -1818,13 +2053,17 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
                e' ocultado durante a captura e restaurado depois, para
                que um modulo dentro de uma composicao maior saia sozinho
                na foto.
+    rotacao -- vista fixa (quaternion, ex.: `VISTA_FOTO`) no lugar da
+               orientacao atual da viewport.
     """
     cena = bpy.context.scene
     ant = (cena.render.filepath, cena.render.image_settings.file_format,
            cena.render.image_settings.color_mode,
            cena.render.resolution_x, cena.render.resolution_y,
            cena.render.resolution_percentage, cena.render.film_transparent)
-    area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'), None)
+    # a gaveta tambem e' VIEW_3D: a foto sai da viewport de verdade
+    area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'
+                 and not _gaveta._eh_area_gaveta_bruto(a)), None)
     if area is None:
         return False, "Nenhuma viewport 3D visivel"
 
@@ -1867,6 +2106,8 @@ def capturar_viewport(destino_png, camera=None, isolar=None):
         if camera is not None:
             cena.camera = camera
             r3d.view_perspective = 'CAMERA'
+        elif rotacao is not None:
+            r3d.view_rotation = rotacao
         # Sem camera preserva a orientacao escolhida pelo usuario, mas
         # ajusta centro e distancia para o alvo ocupar a miniatura.
 

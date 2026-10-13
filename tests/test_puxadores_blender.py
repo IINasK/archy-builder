@@ -263,7 +263,11 @@ class TestPuxadores(unittest.TestCase):
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
             escolhas = modelos(widgets)
-            self.assertEqual([e[2] for e in escolhas], list(addon.puxadores.MODELOS_PUXADOR))
+            # carrossel de RETRATOS (pedido do usuario): os de fabrica, com
+            # a foto que viaja no add-on, no lugar dos nomes
+            self.assertEqual([e[2] for e in escolhas], list(addon.puxadores.MODELOS_PADRAO))
+            self.assertEqual([e[6]['arquivo'] for e in escolhas],
+                             ['puxador_%s.png' % t for t in addon.puxadores.MODELOS_PADRAO])
             self.assertEqual([e[2] for e in escolhas if e[3]], ['ALCA'])
             self.assertTrue(all(e[5] == addon.portas.ALVO_ASSISTENTE for e in escolhas))
             # no TOPO da aba, laranja, como o "Criar Portas" (aceso: criando)
@@ -315,7 +319,7 @@ class TestPuxadores(unittest.TestCase):
         corte, vao = addon.puxadores._corte_do_perfil(modelo)
         self.assertGreater(vao, 0.002)          # o trecho reto da secao
         for largura, espessura in ((600.0, 18.0), (250.0, 25.0),
-                                   (900.0, 15.0)):
+                                   (900.0, 15.0), (260.0, 18.0)):
             chapa = addon.chapas.nova_chapa('Chapa', largura, 400.0, espessura,
                                      (0, 0, 0), (0, 0, 0), bpy.context)
             pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'PERFIL', 'Y-', 1)
@@ -324,10 +328,15 @@ class TestPuxadores(unittest.TestCase):
             estica = (largura - dados['comprimento_mm']) / 2000.0
             for v, m in zip(pux.data.vertices, modelo.vertices):
                 d = v.co - m.co
-                self.assertAlmostEqual(abs(d.x), abs(estica), places=6)
+                # a ponta anda PARA DENTRO na porta mais curta que o modelo
+                # (abs() aqui escondia o perfil de 532 mm numa de 260)
+                self.assertAlmostEqual(d.x, estica if m.co.x > 0 else -estica,
+                                       places=6)
                 self.assertAlmostEqual(d.y, 0.0, places=6)
                 self.assertAlmostEqual(d.z, recua if m.co.z < corte else 0.0,
                                        places=6)
+            xs = [v.co.x for v in pux.data.vertices]
+            self.assertAlmostEqual(max(xs) - min(xs), largura / 1000.0, places=5)
             # as costas do perfil continuam rentes as da porta
             self.assertAlmostEqual(min(v.co.z for v in pux.data.vertices),
                                    min(v.co.z for v in modelo.vertices) + recua,
@@ -392,8 +401,190 @@ class TestPuxadores(unittest.TestCase):
         self.assertEqual(malha_na_chapa(f1)[1][1], round(inteira - corte, 3))
 
 
+def barra(nome, tamanho_mm, matriz):
+    """Malha de fora (caixa) no lugar de `matriz` (mundo)."""
+    import bmesh
+    from mathutils import Matrix
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Diagonal(
+        [t / 1000.0 for t in tamanho_mm] + [1.0]))
+    malha = bpy.data.meshes.new(nome)
+    bm.to_mesh(malha)
+    bm.free()
+    obj = bpy.data.objects.new(nome, malha)
+    bpy.context.collection.objects.link(obj)
+    obj.matrix_world = matriz
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.context.view_layer.update()
+    return obj
+
+
+def caixa_mundo(obj):
+    bpy.context.view_layer.update()
+    pontos = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    return ([min(p[i] for p in pontos) for i in range(3)],
+            [max(p[i] for p in pontos) for i in range(3)])
+
+
+class TestModeloDoUsuario(unittest.TestCase):
+    """"Usar como puxador" (pedido do usuario): o objeto de fora vira
+    MODELO na biblioteca (categoria Puxadores) e o criador usa dali. A
+    biblioteca e' uma pasta temporaria e a foto, um PNG de mentira: em
+    --background nao ha' viewport para fotografar."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for obj in list(bpy.data.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        self.pasta = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.pasta, True)
+        bib = addon.biblioteca
+        for nome, troca in (('pasta_biblioteca', lambda: self.pasta),
+                            ('capturar_viewport', self.foto)):
+            self.addCleanup(setattr, bib, nome, getattr(bib, nome))
+            setattr(bib, nome, troca)
+        self.fotos = []
+        cena = bpy.context.scene
+        self.addCleanup(addon.puxadores.escolher_modelo, cena, 'ALCA')
+
+    def foto(self, destino, camera=None, isolar=None, rotacao=None):
+        self.fotos.append((isolar, rotacao))
+        img = bpy.data.images.new('foto_teste', 4, 4, alpha=True)
+        img.filepath_raw = destino
+        img.file_format = 'PNG'
+        img.save()
+        bpy.data.images.remove(img)
+        return True, destino
+
+    def chapa(self):
+        bpy.ops.object.cabinet_criar()          # 600 x 400 x 18
+        return bpy.context.object
+
+    def test_encostado_na_porta_vira_o_puxador_dela_no_mesmo_lugar(self):
+        from mathutils import Matrix
+        chapa = self.chapa()
+        # barra 148 x 10 x 20 deitada na face +Z, a 40 mm da borda Y+ e
+        # 50 mm a' direita do meio
+        local = Matrix.Translation((0.05, 0.16, 0.009 + 0.010))
+        obj = barra('Barra Inox', (148, 10, 20), chapa.matrix_world @ local)
+        antes = caixa_mundo(obj)
+        self.assertEqual(bpy.ops.object.cabinet_usar_como_puxador(), {'FINISHED'})
+        self.assertNotIn('Barra Inox', bpy.data.objects)
+        (pux,) = [o for o in chapa.children if addon.chapas.MARCA_PUXADOR in o]
+        self.assertEqual(pux['puxador_tipo'], 'MODELO')
+        self.assertEqual((pux['puxador_borda'], pux['puxador_face']), ('Y+', 1))
+        self.assertAlmostEqual(pux['puxador_recuo_mm'], 40.0, places=2)
+        self.assertAlmostEqual(pux['puxador_comprimento_mm'], 148.0, places=2)
+        for a, b in zip(caixa_mundo(pux), antes):
+            for i in range(3):
+                self.assertAlmostEqual(a[i], b[i], places=5)
+        self.assertIs(bpy.context.object, pux)
+        # gravado na biblioteca, categoria Puxadores, com a foto a 45 graus
+        (it,) = addon.puxadores.modelos_do_usuario()
+        self.assertEqual((it['nome'], it['arquivo'], pux['puxador_modelo']),
+                         ('Barra Inox', 'Barra_Inox.blend', 'Barra_Inox.blend'))
+        self.assertTrue(os.path.isfile(os.path.join(self.pasta, 'Barra_Inox.png')))
+        self.assertEqual(self.fotos[0][1], addon.biblioteca.VISTA_FOTO)
+        # e o criador ja' vem com ele escolhido
+        self.assertEqual(addon.puxadores.modelo_escolhido(bpy.context.scene),
+                         ('MODELO', 'Barra_Inox.blend'))
+
+    def test_solto_usa_a_face_clicada_e_o_lado_mais_comprido(self):
+        from mathutils import Matrix
+        # a barra em pe', longe de tudo; a face de baixo (-Z) e' a que
+        # encosta: o comprimento (148) fica ao longo da borda
+        obj = barra('Alca Torta', (10, 148, 20),
+                    Matrix.Translation((3.0, 0.0, 0.0)))
+        self.assertEqual(bpy.ops.object.cabinet_usar_como_puxador(
+            normal=(0.0, 0.0, -1.0)), {'FINISHED'})
+        self.assertIn('Alca Torta', bpy.data.objects)     # o original fica
+        tipo, arquivo = addon.puxadores.modelo_escolhido(bpy.context.scene)
+        self.assertEqual(tipo, 'MODELO')
+        chapa = self.chapa()
+        pux = addon.puxadores.criar_puxador(bpy.context, chapa, tipo, 'Y-', 1,
+                                            0.5, arquivo)
+        lo, hi = caixa_na_chapa(pux, chapa)
+        self.assertAlmostEqual(hi[0] - lo[0], 148.0, places=2)   # ao longo
+        self.assertAlmostEqual(hi[2] - lo[2], 20.0, places=2)    # para fora
+        self.assertAlmostEqual(lo[2], 9.0, places=2)             # na face
+        self.assertEqual(pux.name, 'Puxador Alca Torta')
+        # sem a face e sem chapa encostada: nada a fazer
+        barra('Outra', (10, 10, 10), Matrix.Translation((5.0, 0.0, 0.0)))
+        self.assertEqual(bpy.ops.object.cabinet_usar_como_puxador(),
+                         {'CANCELLED'})
+
+    def test_editar_o_modelo_na_biblioteca_muda_o_criador(self):
+        from mathutils import Matrix
+        barra('Puxador X', (100, 10, 20), Matrix.Translation((3.0, 0.0, 0.0)))
+        bpy.ops.object.cabinet_usar_como_puxador(normal=(0.0, 0.0, -1.0))
+        _tipo, arquivo = addon.puxadores.modelo_escolhido(bpy.context.scene)
+        chapa = self.chapa()
+        pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'MODELO', 'Y-',
+                                            1, 0.5, arquivo)
+        self.assertAlmostEqual(pux['puxador_comprimento_mm'], 100.0, places=2)
+        # o usuario abre o .blend da biblioteca e alonga a peca
+        caminho = os.path.join(self.pasta, arquivo)
+        with bpy.data.libraries.load(caminho) as (de, para):
+            para.meshes = list(de.meshes)
+        malha = para.meshes[0]
+        malha.transform(Matrix.Diagonal((2.0, 1.0, 1.0, 1.0)))
+        bpy.data.libraries.write(caminho, {malha}, fake_user=True)
+        os.utime(caminho, (os.path.getatime(caminho),
+                           os.path.getmtime(caminho) + 5))
+        bpy.data.meshes.remove(malha)
+        outro = addon.puxadores.criar_puxador(bpy.context, chapa, 'MODELO',
+                                              'Y+', 1, 0.5, arquivo)
+        self.assertAlmostEqual(outro['puxador_comprimento_mm'], 200.0, places=2)
+        # a previa (arame) e' o contorno da peca nova
+        pontos = addon.arame._arame_puxador(chapa, 'MODELO', 'X+', 1, 0.5,
+                                            arquivo=arquivo)
+        self.assertEqual(len(pontos), 24)          # 12 arestas da caixa
+
+    def test_modelos_de_fabrica_ficam_protegidos_na_biblioteca(self):
+        fabrica = addon.biblioteca.itens_de_fabrica()
+        self.assertEqual(
+            [(it['n1'], it['valor']) for it in fabrica],
+            [('Puxadores', t) for t in addon.puxadores.MODELOS_PADRAO]
+            + [('Dobradicas', t) for t in addon.portas.NOME_DOBRADICA])
+        self.assertTrue(all(addon.biblioteca.item_bloqueado(it) for it in fabrica))
+        alca = next(it for it in fabrica if it['valor'] == 'ALCA')
+        # fora do indice: nem o cadeado nem o "Edit." chegam nele
+        self.assertEqual(bpy.ops.object.cabinet_bloqueio(
+            pasta=alca['pasta'], arquivo=alca['arquivo']), {'CANCELLED'})
+        op = SimpleNamespace(report=lambda *a: None)
+        for indice in (1, 2):
+            self.assertIsNone(addon.gaveta_eventos._modelo_do_criador(
+                op, bpy.context, alca, indice))
+        # na cascata da gaveta, em Puxadores > Alca, com a foto de fabrica
+        cena = bpy.context.scene
+        antes = (cena.chapa_n1, cena.chapa_n2, cena.chapa_n3)
+        self.addCleanup(setattr, cena, 'chapa_n3', antes[2])
+        self.addCleanup(setattr, cena, 'chapa_n2', antes[1])
+        self.addCleanup(setattr, cena, 'chapa_n1', antes[0])
+        cena.chapa_n1, cena.chapa_n2, cena.chapa_n3 = 'Puxadores', 'Alca', ''
+        presets = [v[5][1] for v in addon.gaveta._widgets_gaveta(
+            bpy.context, 320, 1400) if v[5] and v[5][0] == 'preset']
+        self.assertEqual([it['nome'] for it in presets], ['Alca'])
+        self.assertTrue(os.path.isfile(os.path.join(
+            presets[0]['pasta'], presets[0]['foto'])))
+        # clicar nele (foto ou "Ins.") abre o criador com ele
+        self.assertEqual(addon.gaveta_eventos._modelo_do_criador(
+            op, bpy.context, alca, 0), 'CRIAR')
+        self.assertEqual(addon.puxadores.modelo_escolhido(cena), ('ALCA', ''))
+        reta = next(it for it in fabrica if it['valor'] == 'RETA')
+        self.assertIsNone(addon.gaveta_eventos._modelo_do_criador(
+            op, bpy.context, reta, 0))
+
+
 addon.register()
-suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPuxadores)
+suite = unittest.TestSuite(
+    unittest.defaultTestLoader.loadTestsFromTestCase(caso)
+    for caso in (TestPuxadores, TestModeloDoUsuario))
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():

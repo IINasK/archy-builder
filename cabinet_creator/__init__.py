@@ -138,6 +138,7 @@ CLASSES = (
     _portas_viewport.OBJECT_OT_arrastar_canto_porta,
     _ferragens.OBJECT_OT_arrastar_ferragem,
     _puxadores.OBJECT_OT_arrastar_puxador,
+    _puxadores.OBJECT_OT_usar_como_puxador,
     _portas_viewport.OBJECT_OT_cantos_porta,
     _portas_viewport.OBJECT_OT_abrir_porta,
     _solda.OBJECT_OT_nomear_grupo,
@@ -356,9 +357,12 @@ def register():
                ('PORTAS', "Portas", "Criacao e configuracao de portas"),
                ('PUXADORES', "Puxadores", "Puxadores ligados as portas")])
     # modelo que a ferramenta de posicionar vai criar
+    # padrao = PERFIL (pedido do usuario)
     S.cabinet_puxador_modelo = EnumProperty(
-        name="Modelo", default='ALCA',
+        name="Modelo", default='PERFIL',
         items=[(k, v[0], "") for k, v in _puxadores.MODELOS_PUXADOR.items()])
+    # o .blend do modelo do usuario quando o Modelo e' 'MODELO'
+    S.cabinet_puxador_arquivo = StringProperty(default="")
     S.chapa_bib_aberta = BoolProperty(name="Biblioteca", default=False)
     S.chapa_n1 = StringProperty(default="")
     S.chapa_n2 = StringProperty(default="")
@@ -369,6 +373,11 @@ def register():
     S.chapa_tam_bloco = IntProperty(
         name="Tamanho", default=5, min=2, max=8,
         description="Tamanho das miniaturas na grade")
+    # Lado (px) de TODO retrato da gaveta -- puxador, abertura, dobradica
+    # --, o mesmo quadrado em todos; o slider ao lado do titulo muda
+    S.cabinet_tam_retrato = IntProperty(
+        name="Tamanho dos retratos", default=64,
+        min=_gaveta.LARGURA_RETRATO_MIN, max=_gaveta.LARGURA_RETRATO_MAX)
     S.grupo_largura_mm = FloatProperty(name="Largura (mm)", default=600.0, min=20.0, update=_modulos._upd_grupo_dim)
     S.grupo_altura_mm = FloatProperty(name="Altura (mm)", default=400.0, min=20.0, update=_modulos._upd_grupo_dim)
     S.grupo_profundidade_mm = FloatProperty(name="Profundidade (mm)", default=300.0, min=20.0, update=_modulos._upd_grupo_dim)
@@ -417,6 +426,7 @@ def unregister():
     _ferragens._dobradica_reta[0] = None
     _puxadores._puxador_perfil[0] = None
     _puxadores._arraste_puxador[0] = None
+    _puxadores._usando_como_puxador[0] = None
     _arame._arame_rig[0] = None
     _arame._arame_perfil[0] = None
     _puxadores._corte_perfil[0] = None

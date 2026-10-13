@@ -258,7 +258,7 @@ class TestCaracterizacao(unittest.TestCase):
 
     def test_puxadores_parametricos(self):
         dados = {}
-        for tipo in sorted(addon.puxadores.MODELOS_PUXADOR):
+        for tipo in sorted(addon.puxadores.MODELOS_PADRAO):
             for borda in ('X-', 'X+', 'Y-', 'Y+'):
                 for o in list(bpy.data.objects):
                     bpy.data.objects.remove(o, do_unlink=True)

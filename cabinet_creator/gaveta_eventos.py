@@ -285,6 +285,39 @@ def _aplicar_contador(context, acao, valor):
     return erro
 
 
+def _eh_modelo_do_criador(it):
+    return bool(it.get('fabrica')) or (
+        _biblioteca._niveis_de(it)[0] == _puxadores.CATEGORIA_PUXADORES)
+
+
+def _modelo_do_criador(op, context, it, indice):
+    """Clique num modelo do criador na biblioteca (foto ou icone). O de
+    PUXADOR, na foto ou no "Ins.", abre o "Criar Puxador" com ele --
+    funcional, nao so' o 3D (o arrasto nativo do Asset Browser traz so' o
+    3D): devolve 'CRIAR' e quem chama abre no SOLTAR. O de fabrica e'
+    protegido: "Edit." e cadeado so' avisam. O do usuario edita e trava
+    como qualquer item."""
+    fabrica = it.get('fabrica')
+    if indice != 0:
+        if fabrica:
+            op.report({'INFO'}, "Modelo de fabrica: protegido")
+        elif indice == 1:
+            if not _biblioteca.item_bloqueado(it):
+                bpy.ops.object.cabinet_editar_modelo(
+                    'INVOKE_DEFAULT', pasta=it['pasta'], arquivo=it['arquivo'])
+        else:
+            bpy.ops.object.cabinet_bloqueio(pasta=it['pasta'],
+                                            arquivo=it['arquivo'])
+        return None
+    if fabrica == 'dobradica':
+        op.report({'INFO'}, "A dobradica entra com a porta: Criar Portas")
+        return None
+    if fabrica:
+        _puxadores.escolher_modelo(context.scene, it['valor'])
+    else:
+        _puxadores.escolher_modelo(context.scene, 'MODELO', it['arquivo'])
+    context.scene.cabinet_aba = 'PUXADORES'
+    return 'CRIAR'
 
 
 class OBJECT_OT_interagir_gaveta(Operator):
@@ -332,7 +365,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 continue
             dentro = wx <= x <= wx + w and wy <= y <= wy + h
             if acao and acao[0] == 'slider':
-                tx, ty, tw = _gaveta._trilho_miniaturas_gaveta(wx, wy, w, h)
+                tx, ty, tw = _gaveta._trilho_slider_gaveta(acao, wx, wy, w, h)
                 dentro = tx - 6 <= x <= tx + tw + 6 and abs(y - ty) <= h / 2
             if not dentro:
                 continue
@@ -457,6 +490,41 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     pass
                 else:
                     bpy.ops.object.cabinet_apanhar_vao('INVOKE_DEFAULT')
+            elif acao[0] in {'preset', 'item'} and _eh_modelo_do_criador(acao[1]):
+                if _modelo_do_criador(self, context, acao[1],
+                                      acao[2] if acao[0] == 'item' else 0):
+                    # abre modal: no SOLTAR, como `_solda.OPERADORES_NO_SOLTAR`
+                    self._no_soltar = 'object.cabinet_posicionar_puxador'
+                    context.window_manager.modal_handler_add(self)
+                    return {'RUNNING_MODAL'}
+            elif acao[0] == 'biblioteca':
+                # Modulos | Materiais: a outra biblioteca comeca do topo
+                context.scene.cabinet_bib_modo = acao[1]
+                context.screen[_gaveta._CHAVE_ROLAGEM_BIB] = 0
+            elif acao[0] == 'material':
+                # um clique NAO pinta (pedido do usuario: evita o clique
+                # errado); duplo = a selecao, arrastar = onde soltar
+                chave = acao[1]['chave']
+                if _materiais.duplo_clique_na_esfera(
+                        chave, event.mouse_x, event.mouse_y,
+                        _limite_duplo_clique(context)):
+                    bpy.ops.object.cabinet_aplicar_material(chave=chave)
+                else:
+                    self._material = {'chave': chave,
+                                      'nome': _materiais.nome_do_material(acao[1]),
+                                      'x0': event.mouse_x, 'y0': event.mouse_y,
+                                      'arrastou': False}
+                    context.window_manager.modal_handler_add(self)
+                    return {'RUNNING_MODAL'}
+            elif acao[0] == 'material_item' and acao[2] == 0:
+                # o dialogo abre no SOLTAR: no PRESS o release do mesmo
+                # clique cairia nele
+                self._no_soltar = 'object.cabinet_editar_material'
+                self._props_no_soltar = {'chave': acao[1]['chave']}
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
+            elif acao[0] == 'material_item':
+                _materiais.perguntar_apagar(context, acao[1])
             elif acao[0] == 'preset':
                 it = acao[1]
                 bpy.ops.object.cabinet_arrastar_preset(
@@ -477,8 +545,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     bpy.ops.object.cabinet_bloqueio(
                         pasta=it['pasta'], arquivo=it['arquivo'])
             elif acao[0] == 'slider':
-                self._inicio, _, self._largura = _gaveta._trilho_miniaturas_gaveta(
-                    wx, wy, w, h)
+                self._inicio, _, self._largura = _gaveta._trilho_slider_gaveta(
+                    acao, wx, wy, w, h)
+                self._slider = acao[1]
                 self._atualizar(context, x)
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
@@ -510,7 +579,12 @@ class OBJECT_OT_interagir_gaveta(Operator):
 
     def _atualizar(self, context, x):
         fracao = min(1.0, max(0.0, (x - self._inicio) / self._largura))
-        context.scene.chapa_tam_bloco = 2 + round(fracao * 6)
+        if getattr(self, '_slider', None) == 'retratos':
+            # tamanho de TODOS os retratos (puxador, abertura, dobradica)
+            menor, maior = _gaveta.LARGURA_RETRATO_MIN, _gaveta.LARGURA_RETRATO_MAX
+            context.scene.cabinet_tam_retrato = menor + round(fracao * (maior - menor))
+        else:
+            context.scene.chapa_tam_bloco = 2 + round(fracao * 6)
         context.area.tag_redraw()
 
     def _arrastar_cor(self, context, x, y):
@@ -520,6 +594,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             acao[1], acao[2], _hud._cor_opcao(acao[1]),
             (x - rx) / rw, (y - ry) / rh))
         context.area.tag_redraw()
+
     def _modal_campo(self, context, event):
         """Arraste de um campo de valor ('medida') ou do contador."""
         campo = self._campo

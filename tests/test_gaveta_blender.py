@@ -1229,6 +1229,44 @@ class TestGaveta(unittest.TestCase):
                 addon.gaveta_eventos.OBJECT_OT_interagir_gaveta._atualizar(op, ctx, posicao)
                 self.assertEqual(self.cena.chapa_tam_bloco, esperado)
 
+    def test_retratos_tem_o_mesmo_quadrado_e_slider_no_titulo(self):
+        # Pedido do usuario: puxador, abertura e dobradica no MESMO
+        # tamanho de quadrado, e um slider ao lado do titulo que muda todos.
+        g = addon.gaveta
+        antes = self.cena.cabinet_tam_retrato
+        self.addCleanup(setattr, self.cena, 'cabinet_tam_retrato', antes)
+        opcoes = lambda n: tuple(('V%d' % i, 'T%d' % i, {}) for i in range(n))
+        for tamanho in (g.LARGURA_RETRATO_MIN, 64, g.LARGURA_RETRATO_MAX):
+            self.cena.cabinet_tam_retrato = tamanho
+            for w in (166, 296, 540):
+                itens = []
+                g._carrossel_gaveta(itens, 12, 500, w, 'Abertura', 'p3', opcoes(3), 'V0')
+                g._carrossel_gaveta(itens, 12, 300, w, 'Modelo do puxador',
+                                    'p9', opcoes(9), 'V0')
+                g._secao_ferragens_gaveta(
+                    itens, 12, 100, w, {'DOBRADICA': {'qtd': 2, 'modelo': 'RETA'}},
+                    g.ALVO_FERRAGENS, 'ferragens', separar=False)
+                retratos = [v for v in itens if v[5] and v[5][0] == 'escolha'
+                            and len(v[5]) > 6]
+                self.assertEqual({v[2] for v in retratos}, {g._lado_retrato(w)}, w)
+                self.assertEqual(g._lado_retrato(w), min(tamanho, (w - 8) / 3))
+                sliders = [v for v in itens if v[5] == ('slider', 'retratos')]
+                self.assertEqual(len(sliders), 3, w)
+                for s in sliders:
+                    titulo = next(v for v in itens if v[5] is None and v[1] == s[1])
+                    self.assertLessEqual(titulo[0] + titulo[2], s[0])
+                for v in itens:
+                    self.assertLessEqual(v[0] + v[2], 12 + w + 0.01, (w, v))
+        # o arraste vai do menor ao maior
+        x, y, w, h = 400, 0, g.LARGURA_SLIDER_RETRATO, 20
+        inicio, _, trilho = g._trilho_slider_gaveta(('slider', 'retratos'), x, y, w, h)
+        op = SimpleNamespace(_inicio=inicio, _largura=trilho, _slider='retratos')
+        ctx = SimpleNamespace(scene=self.cena,
+                              area=SimpleNamespace(tag_redraw=lambda: None))
+        for posicao, esperado in ((inicio, g.LARGURA_RETRATO_MIN),
+                                  (inicio + trilho, g.LARGURA_RETRATO_MAX)):
+            addon.gaveta_eventos.OBJECT_OT_interagir_gaveta._atualizar(op, ctx, posicao)
+            self.assertEqual(self.cena.cabinet_tam_retrato, esperado)
 
     def paineis(self, largura=478, altura=900):
         _cab, conteudo, _rod = addon.gaveta._partes_gaveta(

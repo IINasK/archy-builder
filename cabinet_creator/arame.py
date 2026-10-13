@@ -160,14 +160,48 @@ def _contorno_perfil():
     return _arame_perfil[0]
 
 
+def _contorno_malha(malha):
+    """Arestas de contorno (pontos aos pares, espaco da malha)."""
+    bm = bmesh.new()
+    bm.from_mesh(malha)
+    pares = []
+    for e in bm.edges:
+        if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
+                > math.radians(ANGULO_VINCO_ARAME)):
+            pares += [v.co.copy() for v in e.verts]
+    bm.free()
+    return pares
+
+
+def _contorno_modelo(arquivo):
+    """Contorno do modelo do usuario, se a malha ja' foi carregada (o
+    posicionador carrega; no desenho nao se abre .blend)."""
+    if arquivo not in _puxadores._contornos_modelo:
+        malha = _puxadores._malha_modelo_usuario(arquivo, carregar=False)
+        if malha is None:
+            return None
+        _puxadores._contornos_modelo[arquivo] = _contorno_malha(malha)
+    return _puxadores._contornos_modelo[arquivo]
+
+
 def _arame_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
-                   recuo=None):
+                   recuo=None, arquivo=''):
     """Pontos (MUNDO, aos pares) do puxador como ele fica naquela linha:
     a previa do posicionador e do arraste com Alt."""
+    if tipo == 'MODELO' and comprimento is None:
+        malha = _puxadores._malha_modelo_usuario(arquivo, carregar=False)
+        comprimento = _puxadores._comprimento_do_modelo(malha)
+        if recuo is None and malha is not None and 'puxador_recuo_mm' in malha:
+            recuo = float(malha['puxador_recuo_mm'])
     matriz, comprimento = _puxadores._lugar_do_puxador(chapa, tipo, borda, face, fracao,
                                             comprimento, recuo)
     mundo = chapa.matrix_world @ matriz
     espessura = chapa.chapa_espessura_mm
+    if tipo == 'MODELO':
+        contorno = _contorno_modelo(arquivo)
+        if contorno is not None:
+            return [mundo @ p for p in contorno]
+        tipo = 'ALCA'
     contorno = _contorno_perfil() if tipo == 'PERFIL' else None
     if contorno is not None:
         # a mesma deformacao da malha (`_malha_perfil_do_modelo`)
@@ -190,7 +224,8 @@ def _arame_do_objeto_puxador(pux):
                           int(pux.get('puxador_face', 1)),
                           float(pux.get('puxador_fracao', 0.5)),
                           pux.get('puxador_comprimento_mm'),
-                          pux.get('puxador_recuo_mm'))
+                          pux.get('puxador_recuo_mm'),
+                          pux.get('puxador_modelo', ''))
 
 
 def _lote_arame(shader, malha):
@@ -247,7 +282,8 @@ def _arame_do_posicionador():
     if chapa is None or estado.get('borda') is None:
         return []
     return _arame_puxador(chapa, estado['tipo'], estado['borda'],
-                          estado['face'], estado.get('fracao', 0.5))
+                          estado['face'], estado.get('fracao', 0.5),
+                          arquivo=estado.get('arquivo', ''))
 
 
 def _desenhar_aramados(context):

@@ -3,7 +3,7 @@ posicionador e o arraste com Alt para outra borda."""
 
 import bpy, bmesh, math, os, json, gpu
 from gpu_extras.batch import batch_for_shader
-from bpy.props import StringProperty
+from bpy.props import FloatVectorProperty, StringProperty
 from mathutils import Matrix, Vector
 from bpy_extras import view3d_utils
 from bpy.types import Operator
@@ -12,6 +12,7 @@ from bpy.types import Operator
 from . import ferragens as _ferragens
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
+_biblioteca = None
 _chapas = None
 _modulos = None
 _eventos = None
@@ -33,7 +34,12 @@ MODELOS_PUXADOR = {
     'PERFIL': ('Perfil', 0.0, 0.0),
     'ALCA': ('Alca', 148.0, 40.0),
     'BORDA': ('Borda', 60.0, 0.0),
+    # do USUARIO: a malha e o comprimento vem do .blend dele (abaixo)
+    'MODELO': ('Modelo', 0.0, 40.0),
 }
+# Os de fabrica, na ordem do carrossel: PROTEGIDOS (pedido do usuario),
+# moram no add-on e nao na biblioteca, entao ninguem os edita por la'.
+MODELOS_PADRAO = ('PERFIL', 'ALCA', 'BORDA')
 ALTURA_PERFIL_MM = 30.0     # faixa do perfil J de caixas (sem o asset)
 BORDAS_CHAPA = ('X-', 'X+', 'Y-', 'Y+')
 MATERIAL_PUXADOR = "Puxador"
@@ -141,7 +147,9 @@ def _deformar_perfil(co, estica, corte, recua, fator):
         z = z * fator if z < 0.0 else z
     elif z < corte:
         z += recua
-    return Vector((x + math.copysign(estica, x), y, z))
+    # copysign(estica, x) perdia o SINAL de estica: borda mais curta que o
+    # modelo (encolher) esticava as pontas para fora
+    return Vector((x + estica * math.copysign(1.0, x), y, z))
 
 
 def _ajuste_do_perfil(modelo, espessura, comprimento):
@@ -172,6 +180,124 @@ def _malha_perfil_do_modelo(pux, modelo, espessura, comprimento):
         pux.data.materials.append(material)
 
 
+# ---- Puxador do USUARIO ("Usar como puxador"): um objeto qualquer vira
+# MODELO, gravado na categoria Puxadores da biblioteca. A biblioteca e' a
+# FONTE (pedido do usuario): editar e salvar o .blend la' muda o que o
+# criador usa dali em diante. A malha do .blend ja' esta' no referencial
+# da linha (X ao longo da borda, Y da borda para dentro da face, Z para
+# fora; origem = a ancora), entao o puxador e' so' COPIADO e posicionado
+# -- nunca esticado: e' a peca do fornecedor, com a medida dela.
+CATEGORIA_PUXADORES = 'Puxadores'
+SUBCATEGORIA_MODELO = 'Alca'     # onde o modelo novo cai (o "Edit." muda)
+PREFIXO_MODELO = 'MODELO:'       # valor do carrossel: 'MODELO:<arquivo>'
+CHAVE_MALHA_MODELO = 'cabinet_modelo_puxador'   # malha carregada: o arquivo
+
+
+def valor_do_modelo(tipo, arquivo=''):
+    return PREFIXO_MODELO + arquivo if tipo == 'MODELO' else tipo
+
+
+def modelo_do_valor(valor):
+    """'MODELO:<arquivo>' -> ('MODELO', arquivo); 'ALCA' -> ('ALCA', '')."""
+    valor = str(valor)
+    if valor.startswith(PREFIXO_MODELO):
+        return 'MODELO', valor[len(PREFIXO_MODELO):]
+    return valor, ''
+
+
+def modelos_do_usuario():
+    """Itens da biblioteca na categoria Puxadores, com o .blend no lugar."""
+    return sorted((it for it in _biblioteca.indice_completo()
+                   if _biblioteca._niveis_de(it)[0] == CATEGORIA_PUXADORES
+                   and os.path.isfile(os.path.join(it['pasta'], it['arquivo']))),
+                  key=lambda it: it.get('nome', '').casefold())
+
+
+def _item_do_modelo(arquivo):
+    return next((it for it in modelos_do_usuario()
+                 if it['arquivo'] == arquivo), None)
+
+
+def nome_do_modelo(tipo, arquivo=''):
+    if tipo == 'MODELO':
+        it = _item_do_modelo(arquivo)
+        return it.get('nome', '') if it else os.path.splitext(arquivo)[0]
+    return MODELOS_PUXADOR.get(tipo, ('',))[0]
+
+
+def modelo_escolhido(cena):
+    """(tipo, arquivo) da proxima criacao; modelo que saiu da biblioteca
+    volta a' Alca."""
+    tipo = cena.cabinet_puxador_modelo
+    arquivo = cena.cabinet_puxador_arquivo if tipo == 'MODELO' else ''
+    if tipo == 'MODELO' and _item_do_modelo(arquivo) is None:
+        return 'ALCA', ''
+    return tipo, arquivo
+
+
+def escolher_modelo(cena, tipo, arquivo=''):
+    cena.cabinet_puxador_modelo = tipo
+    cena.cabinet_puxador_arquivo = arquivo if tipo == 'MODELO' else ''
+
+
+def _malha_modelo_usuario(arquivo, carregar=True):
+    """A malha do modelo, lida do .blend da biblioteca e RELIDA quando o
+    arquivo muda (o usuario editou la'). `carregar=False` (desenho, malha
+    da chapa): so' a que ja' esta' no arquivo aberto -- abrir .blend ali
+    travaria a tela."""
+    atual = next((m for m in bpy.data.meshes if not m.library
+                  and m.get(CHAVE_MALHA_MODELO) == arquivo), None)
+    if not carregar:
+        return atual
+    caminho = os.path.join(_biblioteca.pasta_biblioteca(), arquivo or '')
+    try:
+        data = os.path.getmtime(caminho) if arquivo else None
+    except OSError:
+        data = None
+    if data is None or (
+            atual is not None and atual.get('cabinet_data') == data):
+        return atual
+    antes = set(bpy.data.meshes)
+    try:
+        with bpy.data.libraries.load(caminho) as (de, para):
+            para.meshes = list(de.meshes)
+    except (OSError, RuntimeError) as e:
+        print('[Cabinet Creator] modelo de puxador:', e)
+        return atual
+    novas = [m for m in bpy.data.meshes if m not in antes]
+    if not novas:
+        return atual
+    malha = max(novas, key=lambda m: len(m.vertices))
+    for m in novas:
+        if m is not malha:
+            bpy.data.meshes.remove(m)
+    if atual is not None and atual.users == 0:
+        bpy.data.meshes.remove(atual)
+    malha[CHAVE_MALHA_MODELO] = arquivo
+    malha['cabinet_data'] = data
+    _contornos_modelo.clear()
+    return malha
+
+
+_contornos_modelo = {}      # arquivo -> pontos do contorno (previa)
+
+
+def _comprimento_do_modelo(malha):
+    xs = [v.co.x for v in malha.vertices] if malha is not None else []
+    return (max(xs) - min(xs)) * 1000.0 if xs else 0.0
+
+
+def _copiar_malha_modelo(pux, modelo):
+    bm = bmesh.new()
+    bm.from_mesh(modelo)
+    bm.to_mesh(pux.data)
+    bm.free()
+    pux.data.update()
+    pux.data.materials.clear()
+    for material in modelo.materials:
+        pux.data.materials.append(material)
+
+
 def gerar_malha_puxador(pux, espessura, comprimento):
     """Malha real por bmesh, como a da chapa (nada de escala)."""
     if pux['puxador_tipo'] == 'PERFIL':
@@ -179,9 +305,18 @@ def gerar_malha_puxador(pux, espessura, comprimento):
         if modelo is not None:
             _malha_perfil_do_modelo(pux, modelo, espessura, comprimento)
             return
+    if pux['puxador_tipo'] == 'MODELO':
+        modelo = _malha_modelo_usuario(pux.get('puxador_modelo', ''),
+                                       carregar=False)
+        if modelo is not None:
+            _copiar_malha_modelo(pux, modelo)
+            return
+        if len(pux.data.vertices):
+            return      # sem a biblioteca (outro PC): fica a copia que tem
     bm = bmesh.new()
+    tipo = pux['puxador_tipo'] if pux['puxador_tipo'] != 'MODELO' else 'ALCA'
     for x0, x1, y0, y1, z0, z1 in _caixas_puxador(
-            pux['puxador_tipo'], espessura, comprimento):
+            tipo, espessura, comprimento or MODELOS_PUXADOR['ALCA'][1]):
         cubo = bmesh.ops.create_cube(bm, size=1.0)
         for v in cubo['verts']:
             v.co = Vector(((x0 + x1) / 2 + v.co.x * (x1 - x0),
@@ -233,7 +368,8 @@ def posicionar_puxador(pux):
         chapa, tipo, pux.get('puxador_borda', 'Y+'),
         int(pux.get('puxador_face', 1)), float(pux.get('puxador_fracao', 0.5)),
         pux.get('puxador_comprimento_mm'), pux.get('puxador_recuo_mm'))
-    _ferragens._padronizar_nome(pux, "Puxador " + MODELOS_PUXADOR[tipo][0])
+    _ferragens._padronizar_nome(pux, "Puxador " + (
+        pux.get('puxador_nome') or MODELOS_PUXADOR[tipo][0]))
     gerar_malha_puxador(pux, chapa.chapa_espessura_mm, comprimento)
     pux.matrix_parent_inverse = Matrix.Identity(4)
     pux.matrix_basis = matriz
@@ -280,19 +416,36 @@ def _conferir_rebaixos():
             _chapas.gerar_malha_chapa(obj)
 
 
-def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5):
-    """Puxador novo pendurado na chapa (folha ou avulsa), ja' no lugar."""
-    nome = "Puxador " + MODELOS_PUXADOR[tipo][0]
+def _dados_do_tipo(pux, tipo, arquivo=''):
+    """Grava no puxador o que vem do modelo: comprimento, recuo e, no do
+    usuario, o arquivo e o nome dele."""
+    pux['puxador_tipo'] = tipo
+    pux['puxador_comprimento_mm'] = MODELOS_PUXADOR[tipo][1]
+    pux['puxador_recuo_mm'] = MODELOS_PUXADOR[tipo][2]
+    for chave in ('puxador_modelo', 'puxador_nome'):
+        if chave in pux:
+            del pux[chave]
+    if tipo == 'MODELO':
+        modelo = _malha_modelo_usuario(arquivo)
+        pux['puxador_modelo'] = arquivo
+        pux['puxador_nome'] = nome_do_modelo(tipo, arquivo)
+        pux['puxador_comprimento_mm'] = _comprimento_do_modelo(modelo)
+        if modelo is not None and 'puxador_recuo_mm' in modelo:
+            pux['puxador_recuo_mm'] = float(modelo['puxador_recuo_mm'])
+
+
+def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
+    """Puxador novo pendurado na chapa (folha ou avulsa), ja' no lugar.
+    `arquivo`: o .blend do modelo do usuario (tipo 'MODELO')."""
+    nome = "Puxador " + (nome_do_modelo(tipo, arquivo) or 'Modelo')
     pux = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
     (chapa.users_collection[0] if chapa.users_collection
      else context.collection).objects.link(pux)
     pux[_chapas.MARCA_PUXADOR] = 1
-    pux['puxador_tipo'] = tipo
+    _dados_do_tipo(pux, tipo, arquivo)
     pux['puxador_borda'] = borda
     pux['puxador_face'] = 1 if face >= 0 else -1
     pux['puxador_fracao'] = max(0.0, min(1.0, float(fracao)))
-    pux['puxador_comprimento_mm'] = MODELOS_PUXADOR[tipo][1]
-    pux['puxador_recuo_mm'] = MODELOS_PUXADOR[tipo][2]
     pux.parent = chapa
     if tipo == 'PERFIL':
         # um perfil por borda: o novo substitui o velho
@@ -307,6 +460,40 @@ def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5):
     return pux
 
 
+def _borda_na_direcao(folha, direcao):
+    """A borda (X-/X+/Y-/Y+) da folha que aponta para `direcao` (mundo)."""
+    rot = folha.matrix_world.to_3x3()
+    eixos = {'X+': rot.col[0], 'X-': -rot.col[0],
+             'Y+': rot.col[1], 'Y-': -rot.col[1]}
+    return max(eixos, key=lambda b: eixos[b].normalized().dot(direcao))
+
+
+def perfis_na_porta(context, grupo, posicao):
+    """Um perfil por folha, na face da FRENTE: 'CIMA' (balcao), 'BAIXO'
+    (aereo) ou 'LADO' (vertical, do lado oposto as dobradicas -- torre,
+    roupeiro). Porta FECHADA (a borda sai da matriz da folha)."""
+    modulo = (bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
+              or grupo.parent or grupo)
+    eixos = modulo.matrix_world.to_3x3()
+    direita, frente, cima = (eixos.col[0].normalized(), -eixos.col[1].normalized(),
+                             eixos.col[2].normalized())
+    p = dict(grupo.get('porta_parametros') or {})
+    folhas = _portas._folhas_portas(grupo)
+    perfis = []
+    for i, folha in enumerate(folhas):
+        if posicao == 'CIMA':
+            direcao = cima
+        elif posicao == 'BAIXO':
+            direcao = -cima
+        else:
+            lado = _ferragens._lado_da_folha(p, i, len(folhas))
+            direcao = direita if lado == 'ESQUERDA' else -direita
+        face = 1 if folha.matrix_world.to_3x3().col[2].dot(frente) >= 0 else -1
+        perfis.append(criar_puxador(context, folha, 'PERFIL',
+                                    _borda_na_direcao(folha, direcao), face))
+    return perfis
+
+
 def _medidas_puxador_parametrico(pux):
     """Campos do bloco de medidas: comprimento e recuo, sem cadeado.
 
@@ -316,6 +503,11 @@ def _medidas_puxador_parametrico(pux):
     tipo = pux['puxador_tipo']
     if tipo == 'PERFIL':
         return [('Altura do perfil', _altura_perfil_mm(), '')]
+    if tipo == 'MODELO':
+        # a peca do fornecedor tem a medida dela: so' o recuo se ajusta
+        return [('Comprimento', float(pux.get('puxador_comprimento_mm', 0.0)), ''),
+                ('Recuo', float(pux.get('puxador_recuo_mm',
+                                        MODELOS_PUXADOR[tipo][2])), 'puxp_recuo')]
     campos = [('Comprimento', float(pux.get('puxador_comprimento_mm',
                                             MODELOS_PUXADOR[tipo][1])),
                'puxp_comprimento')]
@@ -472,8 +664,11 @@ class OBJECT_OT_posicionar_puxador(Operator):
         # desenho nao se carrega nada)
         _malha_modelo_perfil()
         _ferragens._ferragens_selecionadas[0] = None    # criar encerra aquela selecao
+        tipo, arquivo = modelo_escolhido(context.scene)
+        if tipo == 'MODELO':
+            _malha_modelo_usuario(arquivo)      # a previa e' o arame dele
         self._estado = {'regiao': self._regiao.as_pointer(), 'fase': 'LINHA',
-                        'tipo': context.scene.cabinet_puxador_modelo,
+                        'tipo': tipo, 'arquivo': arquivo,
                         'chapa': None, 'face': 1, 'borda': None,
                         'segmentos': {}, 'n': 0, 'fracao': 0.5, 'pux': None}
         _posicionador_puxador[0] = self._estado
@@ -488,7 +683,8 @@ class OBJECT_OT_posicionar_puxador(Operator):
     def _dica(self, context):
         if self._estado['fase'] == 'LINHA':
             texto = ("Puxador %s: clique na BORDA onde ele vai | Esc cancela"
-                     % MODELOS_PUXADOR[self._estado['tipo']][0])
+                     % nome_do_modelo(self._estado['tipo'],
+                                      self._estado['arquivo']))
         else:
             texto = ("Escolha o ponto | Scroll: snaps (%d) | Clique confirma"
                      " | Botao direito: outra borda" % self._estado['n'])
@@ -572,20 +768,24 @@ class OBJECT_OT_posicionar_puxador(Operator):
         self._encerrar()
         return {'FINISHED'}
 
-    def _trocar_modelo(self, context, tipo):
+    def _trocar_modelo(self, context, valor):
         """Modelo escolhido na gaveta durante o posicionamento: o puxador
         de previa (se ja' ha') e' refeito no mesmo ponto; perfil e' a
         borda inteira, entao fica pronto na hora."""
         estado = self._estado
-        if tipo not in MODELOS_PUXADOR or tipo == estado['tipo']:
+        tipo, arquivo = modelo_do_valor(valor)
+        if (tipo not in MODELOS_PUXADOR
+                or (tipo, arquivo) == (estado['tipo'], estado['arquivo'])):
             return None
-        estado['tipo'] = tipo
-        context.scene.cabinet_puxador_modelo = tipo   # a proxima vem igual
+        estado['tipo'], estado['arquivo'] = tipo, arquivo
+        escolher_modelo(context.scene, tipo, arquivo)   # a proxima vem igual
+        if tipo == 'MODELO':
+            _malha_modelo_usuario(arquivo)
         chapa = bpy.data.objects.get(estado['chapa'] or '')
         if estado['fase'] == 'POSICAO' and chapa is not None:
             self._apagar_previa()
             pux = criar_puxador(context, chapa, tipo, estado['borda'],
-                                estado['face'], estado['fracao'])
+                                estado['face'], estado['fracao'], arquivo)
             if tipo == 'PERFIL':
                 return self._confirmar(context, pux)
             estado['pux'] = pux.name
@@ -653,7 +853,7 @@ class OBJECT_OT_posicionar_puxador(Operator):
         a, b = self._projetados()[estado['borda']]
         estado['fracao'] = _fracao_na_linha(a, b, mouse, estado['n'])
         pux = criar_puxador(context, chapa, estado['tipo'], estado['borda'],
-                            estado['face'], estado['fracao'])
+                            estado['face'], estado['fracao'], estado['arquivo'])
         if estado['tipo'] == 'PERFIL':
             return self._confirmar(context, pux)    # borda inteira: pronto
         estado['pux'] = pux.name
@@ -662,19 +862,19 @@ class OBJECT_OT_posicionar_puxador(Operator):
         return {'RUNNING_MODAL'}
 
 
-def _trocar_modelo_puxador(pux, tipo):
+def _trocar_modelo_puxador(pux, valor):
     """O modelo do puxador SELECIONADO trocado na gaveta: refaz ele na
     mesma borda e ponto. Perfil corta a madeira (a chapa refaz) e e' um
     por borda, como no `criar_puxador`."""
+    tipo, arquivo = modelo_do_valor(valor)
     if not _eh_puxador_parametrico(pux) or tipo not in MODELOS_PUXADOR:
         return
     antes = pux['puxador_tipo']
     chapa = pux.parent
-    if antes == tipo or chapa is None or _chapas.MARCA_CHAPA not in chapa:
+    if ((antes, pux.get('puxador_modelo', '')) == (tipo, arquivo)
+            or chapa is None or _chapas.MARCA_CHAPA not in chapa):
         return
-    pux['puxador_tipo'] = tipo
-    pux['puxador_comprimento_mm'] = MODELOS_PUXADOR[tipo][1]
-    pux['puxador_recuo_mm'] = MODELOS_PUXADOR[tipo][2]
+    _dados_do_tipo(pux, tipo, arquivo)
     # o material do perfil (aluminio do usuario) nao fica no de caixas
     pux.data.materials.clear()
     if tipo == 'PERFIL':
@@ -900,3 +1100,246 @@ class OBJECT_OT_arrastar_puxador(Operator):
             self._encerrar()
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
+
+
+# ---- "Usar como puxador" (pedido do usuario): o objeto de fora vira um
+# MODELO na biblioteca (categoria Puxadores, foto a 45 graus) e entra no
+# carrossel do criador. Encostado numa chapa do add-on ele ja' vira o
+# puxador dela, na borda e no ponto onde estava; solto, o usuario clica
+# na face que encosta na porta e o criador abre com o modelo.
+DISTANCIA_ENCOSTADO_MM = 5.0
+RECUO_MINIMO_MODELO_MM = 40.0
+MARCA_MODELO_PUXADOR = 'eh_modelo_puxador'
+_usando_como_puxador = [None]     # {'objeto': nome} esperando o clique
+
+
+def _eh_objeto_de_fora(obj):
+    return (obj is not None and obj.type == 'MESH' and not any(
+        m in obj for m in (_chapas.MARCA_CHAPA, _chapas.MARCA_CONJUNTO,
+                           _chapas.MARCA_PORTAS, _chapas.MARCA_FOLHA,
+                           _chapas.MARCA_PUXADOR, _chapas.MARCA_ACESSORIO,
+                           _ferragens.CHAVE_FERRAGEM)))
+
+
+def _pontos_mundo(obj, depsgraph):
+    avaliado = obj.evaluated_get(depsgraph)
+    malha = avaliado.to_mesh()
+    try:
+        return [obj.matrix_world @ v.co for v in malha.vertices]
+    finally:
+        avaliado.to_mesh_clear()
+
+
+def _quadro_do_modelo(pontos, fora, ao_longo=None):
+    """Referencial do modelo (matriz MUNDO): Z = `fora` (da porta para o
+    puxador), X ao longo da borda, origem = a ancora, no meio da face que
+    encosta. Sem `ao_longo`, X e' a direcao em que a peca e' mais comprida
+    (barra e alca correm ao longo da borda)."""
+    fora = fora.normalized()
+    if ao_longo is None:
+        u = fora.orthogonal().normalized()
+        v = fora.cross(u)
+
+        def extensao(d):
+            valores = [p.dot(d) for p in pontos]
+            return max(valores) - min(valores)
+        ao_longo = max((u * math.cos(math.radians(a)) + v * math.sin(math.radians(a))
+                        for a in range(0, 180, 15)), key=extensao)
+    x = (ao_longo - fora * ao_longo.dot(fora)).normalized()
+    y = fora.cross(x)
+    meio = [(min(vs) + max(vs)) / 2.0 for vs in
+            ([p.dot(x) for p in pontos], [p.dot(y) for p in pontos])]
+    quadro = Matrix((x, y, fora)).transposed().to_4x4()
+    quadro.translation = (x * meio[0] + y * meio[1]
+                          + fora * min(p.dot(fora) for p in pontos))
+    return quadro
+
+
+def _chapa_encostada(context, pontos):
+    """(chapa, face, borda) da chapa do add-on em que a peca encosta -- a
+    face a ate' DISTANCIA_ENCOSTADO_MM dela, com o meio da peca dentro da
+    chapa; a borda e' a mais perto --, ou None se ela esta' solta."""
+    centro = sum(pontos, Vector()) / len(pontos)
+    tolerancia = DISTANCIA_ENCOSTADO_MM / 1000.0
+    melhor = None
+    for chapa in context.scene.objects:
+        if _chapas.MARCA_CHAPA not in chapa:
+            continue
+        inversa = chapa.matrix_world.inverted_safe()
+        hx, hy, hz = _chapas._meias(chapa)
+        c = inversa @ centro
+        if abs(c.x) > hx or abs(c.y) > hy:
+            continue
+        zs = [(inversa @ p).z for p in pontos]
+        for face, folga in ((1, min(zs) - hz), (-1, -hz - max(zs))):
+            if -tolerancia <= folga <= tolerancia and (
+                    melhor is None or abs(folga) < melhor[0]):
+                bordas = {'X+': hx - c.x, 'X-': hx + c.x,
+                          'Y+': hy - c.y, 'Y-': hy + c.y}
+                melhor = (abs(folga), chapa, face, min(bordas, key=bordas.get))
+    return melhor[1:] if melhor else None
+
+
+def _nome_livre_modelo(nome):
+    """Nome sem `.001` e que nao sobrescreve outro modelo da biblioteca."""
+    pasta = _biblioteca.pasta_biblioteca()
+    base = _portas._sem_sufixo(nome).strip() or 'Puxador'
+    nome, n = base, 2
+    while os.path.exists(os.path.join(
+            pasta, _biblioteca._nome_arquivo_seguro(nome) + '.blend')):
+        nome, n = '%s %d' % (base, n), n + 1
+    return nome
+
+
+def salvar_modelo_puxador(context, obj, quadro, recuo_mm):
+    """Grava a peca na biblioteca (Puxadores), no referencial do modelo e
+    com a foto a 45 graus; devolve o arquivo. Sem foto nao ha' cadastro,
+    como na biblioteca (RuntimeError com o motivo)."""
+    nome = _nome_livre_modelo(obj.name)
+    malha = bpy.data.meshes.new_from_object(
+        obj.evaluated_get(context.evaluated_depsgraph_get()))
+    malha.transform(quadro.inverted() @ obj.matrix_world)
+    malha.name = nome
+    malha['puxador_recuo_mm'] = round(float(recuo_mm), 3)
+    temporario = bpy.data.objects.new(nome, malha)
+    temporario[MARCA_MODELO_PUXADOR] = 1
+    context.scene.collection.objects.link(temporario)
+    pasta = _biblioteca.pasta_biblioteca()
+    niveis = (CATEGORIA_PUXADORES, SUBCATEGORIA_MODELO, '')
+    try:
+        arquivo = _biblioteca.salvar_na_biblioteca([temporario], nome, False,
+                                                   niveis=niveis)
+        png = os.path.splitext(arquivo)[0] + '.png'
+        ok, msg = _biblioteca.capturar_viewport(
+            png, None, isolar=[temporario], rotacao=_biblioteca.VISTA_FOTO)
+        if not ok:
+            os.remove(arquivo)
+            raise RuntimeError("Foto obrigatoria falhou: " + msg)
+        _biblioteca.aplicar_preview_png(arquivo, png)
+        _biblioteca.registrar_no_indice(pasta, nome, arquivo, *niveis, 'objeto')
+    finally:
+        bpy.data.objects.remove(temporario, do_unlink=True)
+        bpy.data.meshes.remove(malha)
+    return os.path.basename(arquivo)
+
+
+class OBJECT_OT_usar_como_puxador(Operator):
+    """Transforma o objeto num modelo de puxador (biblioteca, categoria Puxadores); encostado numa porta, ele ja' vira o puxador dela"""
+    bl_idname = 'object.cabinet_usar_como_puxador'
+    bl_label = 'Usar como Puxador'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # a face que encosta na porta ja' sabida (normal dela, MUNDO): F3/testes
+    normal: FloatVectorProperty(size=3, options={'SKIP_SAVE', 'HIDDEN'})
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return (context.mode == 'OBJECT' and _eh_objeto_de_fora(obj)
+                and obj.select_get())
+
+    def invoke(self, context, event):
+        obj = context.object
+        pontos = _pontos_mundo(obj, context.evaluated_depsgraph_get())
+        if not pontos:
+            self.report({'WARNING'}, "O objeto nao tem vertices")
+            return {'CANCELLED'}
+        if (_chapa_encostada(context, pontos) is not None
+                or Vector(self.normal).length > 1e-6):
+            return self.execute(context)
+        alvo = _importacao._viewport_alvo(context)
+        if alvo is None:
+            self.report({'ERROR'}, "Sem viewport 3D")
+            return {'CANCELLED'}
+        self._area, self._regiao, self._rv3d = alvo
+        self._objeto = obj.name
+        _usando_como_puxador[0] = {'objeto': obj.name}
+        self._area.header_text_set(
+            "Clique na face do puxador que encosta na porta | Esc cancela")
+        _eventos._redesenhar_viewports(context)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def _encerrar(self, context):
+        _usando_como_puxador[0] = None
+        self._area.header_text_set(None)
+        _eventos._redesenhar_viewports(context)
+
+    def cancel(self, context):
+        self._encerrar(context)
+
+    def modal(self, context, event):
+        if event.type == 'ESC' or (event.type == 'RIGHTMOUSE'
+                                   and event.value == 'PRESS'):
+            self._encerrar(context)
+            return {'CANCELLED'}
+        if (event.type != 'LEFTMOUSE' or event.value != 'PRESS'
+                or _gaveta_eventos._gaveta_sob_evento(context, event) is not None):
+            return {'PASS_THROUGH'}        # orbitar, zoom e a gaveta seguem
+        regiao = self._regiao
+        mouse = Vector((event.mouse_x - regiao.x, event.mouse_y - regiao.y))
+        if not (0 <= mouse.x < regiao.width and 0 <= mouse.y < regiao.height):
+            return {'PASS_THROUGH'}
+        acertou, _p, normal, _f, alvo, _m = context.scene.ray_cast(
+            context.evaluated_depsgraph_get(),
+            view3d_utils.region_2d_to_origin_3d(regiao, self._rv3d, mouse),
+            view3d_utils.region_2d_to_vector_3d(regiao, self._rv3d, mouse))
+        if not acertou or alvo is None or alvo.original.name != self._objeto:
+            self.report({'INFO'}, "Clique numa face do proprio puxador")
+            return {'RUNNING_MODAL'}
+        self.normal = normal
+        self._encerrar(context)
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(getattr(self, '_objeto', '')) or context.object
+        if not _eh_objeto_de_fora(obj):
+            return {'CANCELLED'}
+        pontos = _pontos_mundo(obj, context.evaluated_depsgraph_get())
+        encostado = _chapa_encostada(context, pontos) if pontos else None
+        if encostado is not None:
+            chapa, face, borda = encostado
+            ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
+                chapa, borda, face)
+            giro = chapa.matrix_world.to_3x3().normalized()
+            quadro = _quadro_do_modelo(pontos, giro @ fora, giro @ ao_longo)
+            desloc = chapa.matrix_world.inverted_safe() @ quadro.translation - ponto
+            recuo = desloc.dot(dentro) * 1000.0
+        elif Vector(self.normal).length > 1e-6:
+            quadro = _quadro_do_modelo(pontos, -Vector(self.normal))
+            local = [quadro.inverted() @ p for p in pontos]
+            recuo = max(RECUO_MINIMO_MODELO_MM,
+                        (max(p.y for p in local) - min(p.y for p in local))
+                        * 500.0 + 10.0)
+        else:
+            self.report({'WARNING'}, "Clique na face que encosta na porta")
+            return {'CANCELLED'}
+        try:
+            arquivo = salvar_modelo_puxador(context, obj, quadro, recuo)
+        except (RuntimeError, OSError) as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        escolher_modelo(context.scene, 'MODELO', arquivo)
+        nome = nome_do_modelo('MODELO', arquivo)
+        if encostado is None:
+            self.report({'INFO'}, "Modelo '%s' na biblioteca: clique na "
+                        "borda da porta" % nome)
+            if hasattr(self, '_area'):
+                # direto para o criador, com o modelo novo escolhido
+                bpy.ops.object.cabinet_posicionar_puxador('INVOKE_DEFAULT')
+            return {'FINISHED'}
+        pux = criar_puxador(context, chapa, 'MODELO', borda, face,
+                            0.5 + desloc.dot(ao_longo) / tamanho, arquivo)
+        pux['puxador_recuo_mm'] = round(recuo, 3)
+        posicionar_puxador(pux)
+        malha = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if malha is not None and malha.users == 0:
+            bpy.data.meshes.remove(malha)
+        for o in context.selected_objects:
+            o.select_set(False)
+        pux.select_set(True)
+        context.view_layer.objects.active = pux
+        self.report({'INFO'}, "Puxador '%s' na biblioteca e ligado a' "
+                    "porta" % nome)
+        return {'FINISHED'}
