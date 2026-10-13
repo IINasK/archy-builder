@@ -23,6 +23,7 @@ _solda = None
 _perguntas = None
 _gaveta_desenho = None
 _materiais = None
+_formas = None
 
 def _gaveta_sob_evento(context, event):
     """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
@@ -220,6 +221,14 @@ def aplicar_medida(context, dono, objeto, propriedade, valor):
     if dono == 'ferragens':
         return _ferragens._editar_ferragens_selecionadas(
             context, propriedade, round(valor * 1000.0, 3)) or None
+    if dono == 'forma':
+        # modulo em L/diagonal/curvo: 'P1:2' -> ('P1', 2)
+        conj = bpy.data.objects.get(objeto)
+        letra, canto = propriedade.split(':')
+        if conj is None or _formas.forma_do_modulo(conj) is None:
+            return 'O modulo nao tem mais esse formato'
+        _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
+        return None
     if dono == 'porta':
         # Porta colocada: a medida e' um parametro do GRUPO, nao uma
         # propriedade de objeto ou da cena.
@@ -271,6 +280,11 @@ def _aplicar_contador(context, acao, valor):
              else None)
     if alvo == _portas.ALVO_ASSISTENTE:
         _assistente._editar_assistente(prop, valor)
+        erro = None
+    elif prop.startswith('forma_angulo_') and grupo is not None:
+        # angulo da diagonal: a frente do canto (P2) fica, P1 anda
+        _formas.aplicar(context, grupo, ('ANG', int(prop.rsplit('_', 1)[1])),
+                        float(valor))
         erro = None
     elif grupo is not None:
         # digitado pode vir qualquer numero: o limite e' o da abertura

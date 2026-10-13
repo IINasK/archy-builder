@@ -23,6 +23,7 @@ _solda = None
 _portas_viewport = None
 _paredes = None
 _gaveta_desenho = None
+_formas = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -68,6 +69,7 @@ _edicao_hud = [None]
 RAIO_ARESTA_HUD = 7.0
 RAIO_CANTO_HUD = 10.0
 LIMIAR_ARRASTE_HUD_PX = 4.0  # abaixo disto o gesto e' clique, nao arraste
+GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
 COR_REALCE_HUD = (1.0, 0.35, 0.05, 1.0)   # padrao; a cor vem das opcoes
 
 
@@ -395,17 +397,22 @@ def _geometria_do_item(obj, modo, chapas):
     """A geometria da HUD de UM item -- o ativo ou, na edicao de varios
     itens, cada modulo/chapa que entra na conta."""
     matriz = obj.matrix_world if modo == 'INDIVIDUAL' else None
-    cantos = _caixa_hud_objetos(chapas, matriz)
-    if cantos is None:
-        return None
-    letras = ('L', 'A', 'E') if modo == 'INDIVIDUAL' else ('L', 'P', 'A')
-    linhas = []
-    for eixo, arestas in enumerate(ARESTAS_EIXO):
-        for i, j in arestas:
-            linhas.append({'tipo': 'medida', 'objeto': obj, 'modo': modo,
-                           'eixo': eixo, 'letra': letras[eixo],
-                           'cantos': (i, j), 'chapas': chapas,
-                           'pontos': [cantos[i], cantos[j]]})
+    forma = (_formas.forma_do_modulo(obj)
+             if modo == 'GRUPO' and _chapas.MARCA_CONJUNTO in obj else None)
+    if forma is not None:
+        cantos, linhas = _linhas_da_forma(obj, chapas, forma)
+    else:
+        cantos = _caixa_hud_objetos(chapas, matriz)
+        if cantos is None:
+            return None
+        letras = ('L', 'A', 'E') if modo == 'INDIVIDUAL' else ('L', 'P', 'A')
+        linhas = []
+        for eixo, arestas in enumerate(ARESTAS_EIXO):
+            for i, j in arestas:
+                linhas.append({'tipo': 'medida', 'objeto': obj, 'modo': modo,
+                               'eixo': eixo, 'letra': letras[eixo],
+                               'cantos': (i, j), 'chapas': chapas,
+                               'pontos': [cantos[i], cantos[j]]})
     grupos = _gaveta._grupos_de_porta(obj) if modo == 'GRUPO' else []
     for grupo in grupos:
         if any(float(f.get(_ferragens.CHAVE_ABERTURA, 0.0)) > 0.0
@@ -426,6 +433,164 @@ def _geometria_do_item(obj, modo, chapas):
                            'letra': '', 'pontos': gap})
     return {'objeto': obj, 'modo': modo, 'chapas': chapas,
             'cantos': cantos, 'linhas': linhas}
+
+
+def _linhas_da_forma(obj, chapas, forma):
+    """Modulo em L, diagonal ou curvo (`_formas`): a linha branca segue a
+    PLANTA, em baixo e em cima. L/P totais nos lados inteiros (esticam
+    sem deformar o canto), P1/P2 nos lados que chegam no canto (a
+    profundidade de cada braco), R na diagonal/curva e A nas quinas."""
+    matriz = _formas.matriz_do_modulo(obj)
+    lo, hi = forma['lo'], forma['hi']
+
+    def mundo(x, y, z):
+        return matriz @ (Vector((x, y, z)) / 1000.0)
+    cantos = [mundo(lo.x if i == 0 else hi.x, lo.y if j == 0 else hi.y,
+                    lo.z if k == 0 else hi.z)
+              for k in (0, 1) for j in (0, 1) for i in (0, 1)]
+    giro = matriz.to_3x3()
+    linhas = []
+    for seg in _formas.segmentos(forma):
+        for k, z in enumerate((lo.z, hi.z)):
+            pontos = [mundo(*seg['a'], z), mundo(*seg['b'], z)]
+            if seg['chave'] is None:
+                linhas.append({'tipo': 'contorno_forma', 'objeto': obj,
+                               'pontos': pontos})
+                continue
+            linha = {'tipo': 'forma', 'objeto': obj, 'modo': 'GRUPO',
+                     'chapas': chapas, 'letra': seg['letra'],
+                     'face': seg['chave'], 'pontos': pontos}
+            if seg['direcao'] is not None:
+                linha['direcao'] = (giro @ Vector((*seg['direcao'], 0.0))).normalized()
+            if seg['cantos'] is not None:
+                linha['cantos'] = tuple(c + 4 * k for c in seg['cantos'])
+            linhas.append(linha)
+    linhas += _arcos_da_diagonal(obj, chapas, forma, mundo)
+    for x, y, sobe in _formas.contorno(forma):
+        if not sobe:
+            continue
+        pontos = [mundo(x, y, lo.z), mundo(x, y, hi.z)]
+        quina = next((i + 2 * j for i in (0, 1) for j in (0, 1)
+                      if abs(x - (lo.x, hi.x)[i]) < 1e-6
+                      and abs(y - (lo.y, hi.y)[j]) < 1e-6), None)
+        if quina is None:
+            linhas.append({'tipo': 'contorno_forma', 'objeto': obj,
+                           'pontos': pontos})
+        else:
+            linhas.append({'tipo': 'medida', 'objeto': obj, 'modo': 'GRUPO',
+                           'eixo': 2, 'letra': 'A', 'cantos': (quina, quina + 4),
+                           'chapas': chapas, 'pontos': pontos})
+    return cantos, linhas
+
+
+# Arco do ANGULO nas pontas da diagonal (esboco do usuario): pequeno e
+# colado na quina, como o do gizmo de angulo -- raio fixo NA TELA (a 70 mm
+# ele atravessava a peca de perto), nunca mais que uma fracao do lado mais
+# curto da quina; sem viewport (testes), em mm
+RAIO_ARCO_ANGULO_PX = 26.0
+FRACAO_ARCO_ANGULO = 0.25
+RAIO_ARCO_ANGULO_MM = 30.0
+PASSOS_ARCO_ANGULO = 12
+
+
+def _mm_por_pixel(ponto):
+    """Quantos mm vale 1 px de tela em `ponto` (mundo), ou None sem
+    viewport."""
+    contexto = bpy.context
+    regiao, rv3d = getattr(contexto, 'region', None), getattr(contexto, 'region_data', None)
+    if regiao is None or rv3d is None or getattr(regiao, 'type', '') != 'WINDOW':
+        return None
+    direita = rv3d.view_matrix.to_3x3().transposed().col[0].normalized() * 0.1
+    a = view3d_utils.location_3d_to_region_2d(regiao, rv3d, ponto)
+    b = view3d_utils.location_3d_to_region_2d(regiao, rv3d, ponto + direita)
+    if a is None or b is None or (b - a).length < 1e-6:
+        return None
+    return 100.0 / (b - a).length
+
+
+def _arcos_da_diagonal(obj, chapas, forma, mundo):
+    """Linhas da HUD com o arco do angulo nas DUAS pontas de cada diagonal,
+    em cima: o angulo de DENTRO da planta ali (135 numa diagonal a 45).
+    Cada arco e' uma linha 'forma' de face ('ANG', canto, ponta): passar o
+    mouse acende, clicar digita o angulo, arrastar de lado gira."""
+    linhas = []
+    z = forma['hi'].z
+    # o contorno da planta, sem pontos repetidos: o lado VIZINHO de cada
+    # ponta sai dele (a diagonal do lado inteiro chega na quina de tras, e
+    # o vizinho ali e' a costa, nao a lateral)
+    contorno = []
+    for x, y, _sobe in _formas.contorno(forma):
+        p = Vector((x, y))
+        if not contorno or (p - contorno[-1]).length > 1.0:
+            contorno.append(p)
+    if len(contorno) > 1 and (contorno[0] - contorno[-1]).length <= 1.0:
+        contorno.pop()
+
+    def vizinho(vertice, outra):
+        n = len(contorno)
+        i = min(range(n), key=lambda j: (contorno[j] - vertice).length)
+        for passo in (-1, 1):
+            p = contorno[(i + passo) % n]
+            if (p - outra).length <= 1.0:
+                continue
+            if (p - vertice).length <= _formas.ESPESSURA_PONTA_MM:
+                # a ponta acaba na ESPESSURA de uma chapa (cantoneira): o
+                # angulo e' com o lado que vem DEPOIS dela (a lateral)
+                seguinte = contorno[(i + 2 * passo) % n]
+                return (seguinte - p).normalized(), (seguinte - p).length
+            return (p - vertice).normalized(), (p - vertice).length
+        return None, 0.0
+    escala = max(1.0, getattr(bpy.context.preferences.system, 'ui_scale', 1.0))
+    for k, f in enumerate(forma['cantos']):
+        if f is None or f['tipo'] != 'CHANFRO':
+            continue
+        sx, sy = _formas.QUINAS[k]
+        xc, yc = _formas._quina(forma, k)
+        pa = Vector((xc - sx * f['a'], yc))         # no lado de cima/baixo
+        pb = Vector((xc, yc - sy * f['b']))         # no lado da esquerda/direita
+        diagonal = (pb - pa)
+        for ponta, vertice, outra in (('A', pa, pb), ('B', pb, pa)):
+            lado, comprimento = vizinho(vertice, outra)
+            if lado is None:
+                continue
+            mm_px = _mm_por_pixel(mundo(vertice.x, vertice.y, z))
+            raio = (RAIO_ARCO_ANGULO_PX * escala * mm_px if mm_px is not None
+                    else RAIO_ARCO_ANGULO_MM)
+            raio = min(raio, FRACAO_ARCO_ANGULO * min(diagonal.length, comprimento))
+            ate = (outra - vertice).normalized()
+            inicio = math.atan2(lado.y, lado.x)
+            giro = math.atan2(lado.x * ate.y - lado.y * ate.x, lado.dot(ate))
+            pontos = []
+            anterior = None
+            for i in range(PASSOS_ARCO_ANGULO + 1):
+                t = inicio + giro * i / PASSOS_ARCO_ANGULO
+                p = mundo(vertice.x + raio * math.cos(t), vertice.y + raio * math.sin(t), z)
+                if anterior is not None:
+                    pontos += [anterior, p]
+                anterior = p
+            # o angulo de DENTRO ali e' base + sinal * t (t = o da diagonal
+            # com a frente, o que `_formas` edita): 180 - t na frente, 90 + t
+            # no lado, t na quina de tras quando a diagonal toma o lado todo
+            visto = math.degrees(abs(giro))
+            t = math.degrees(math.atan2(f['b'], f['a']))
+            base, sinal = min(((b, s_) for b in (0.0, 90.0, 180.0) for s_ in (1.0, -1.0)),
+                              key=lambda c: abs(c[0] + c[1] * t - visto))
+            linhas.append({'tipo': 'forma', 'objeto': obj, 'modo': 'GRUPO',
+                           'chapas': chapas, 'letra': None, 'angulo': True,
+                           'vertice': mundo(vertice.x, vertice.y, z),
+                           'base': base, 'sinal': sinal,
+                           'face': ('ANG', k, ponta), 'pontos': pontos})
+    return linhas
+
+
+def _angulo_da_ponta(alvo):
+    """O angulo de DENTRO da planta na ponta do arco `alvo`."""
+    t = _formas.valor(alvo['objeto'], ('ANG', alvo['face'][1]))
+    return alvo['base'] + alvo['sinal'] * t
+
+
+def _eh_angulo(alvo):
+    return bool(alvo) and alvo.get('tipo') == 'forma' and alvo.get('face', ('',))[0] == 'ANG'
 
 
 def _distancia_segmento_hud(mouse, a, b):
@@ -465,18 +630,23 @@ def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True):
                     'pontos': [geometria['cantos'][i]]}
     candidatos = []
     for linha in geometria['linhas']:
-        if linha['tipo'] == 'contorno_porta':
+        if linha['tipo'] in ('contorno_porta', 'contorno_forma'):
             continue
-        a, b = (projetar(p) for p in linha['pontos'])
-        if a is None or b is None:
-            continue
-        distancia = _distancia_segmento_hud(mouse, a, b)
-        if distancia <= RAIO_ARESTA_HUD * escala:
-            candidatos.append((distancia, linha, a, b))
+        # linha de varios trechos (o arco do angulo): pares de pontos
+        melhor = None
+        for p, q in zip(linha['pontos'][0::2], linha['pontos'][1::2]):
+            a, b = projetar(p), projetar(q)
+            if a is None or b is None:
+                continue
+            distancia = _distancia_segmento_hud(mouse, a, b)
+            if melhor is None or distancia < melhor[0]:
+                melhor = (distancia, a, b)
+        if melhor is not None and melhor[0] <= RAIO_ARESTA_HUD * escala:
+            candidatos.append((melhor[0], linha, melhor[1], melhor[2]))
     if not candidatos:
         return None
     _d, linha, a, b = min(candidatos, key=lambda item: item[0])
-    if linha['tipo'] == 'medida':
+    if linha['tipo'] == 'medida' or linha.get('cantos'):
         # A quina mais perto do mouse fica PARADA e o movel cresce para
         # o outro lado -- modulo (L/A/P) e chapa individual (L/A/E: a
         # Espessura tambem tem seta nas quinas, pedido do usuario). Em
@@ -804,7 +974,7 @@ def _rotulos_hud(context, geometria, alvo):
     # longe demais: so' a letra acesa (hover/digitacao) continua
     cabem = _rotulos_cabem(context, geometria)
     rotulos = []
-    for letra in ('L', 'A', 'P', 'E'):
+    for letra in ('L', 'A', 'P', 'E', 'P1', 'P2', 'R'):
         candidatos = []
         for linha in geometria['linhas']:
             if linha.get('letra') != letra:
@@ -819,6 +989,25 @@ def _rotulos_hud(context, geometria, alvo):
             if cabem or aceso:
                 rotulos.append([letra, _para_fora(ponto, centro, afastar),
                                 aceso])
+    # arco do angulo da diagonal: o valor em graus, do lado de fora do arco
+    for linha in geometria['linhas']:
+        if not linha.get('angulo'):
+            continue
+        meio = _projetar_hud(context, linha['pontos'][len(linha['pontos']) // 2])
+        vertice = _projetar_hud(context, linha['vertice'])
+        if meio is None or vertice is None:
+            continue
+        # o numero logo FORA do arco, na bissetriz (no meio dele tampava a
+        # linha; no centro da forma ficava longe da quina)
+        fora = meio - vertice
+        ponto = meio + (fora.normalized() * tamanho if fora.length > 1e-6 else Vector())
+        aceso = _identidade_hud(linha) == _identidade_hud(alvo)
+        try:
+            graus = _angulo_da_ponta(linha)
+        except ValueError:
+            continue
+        if cabem or aceso:
+            rotulos.append(['%d\u00b0' % round(graus), ponto, aceso])
     if alvo and alvo['tipo'] == 'espessura':
         rotulos = [r for r in rotulos if r[0] != 'E']
         ponto = _projetar_hud(context, sum(alvo['pontos'][:-1], Vector()) /
@@ -1157,6 +1346,10 @@ def _propriedade_hud(alvo):
 
 
 def _valor_hud(alvo, context=None):
+    if _eh_angulo(alvo):
+        return _angulo_da_ponta(alvo)
+    if alvo['tipo'] == 'forma':
+        return _formas.valor(alvo['objeto'], alvo['face'])
     if alvo['tipo'] == 'gap':
         return float(alvo['objeto']['porta_parametros']['entre_folhas_mm'])
     propriedade = _propriedade_hud(alvo)
@@ -1191,6 +1384,14 @@ def _redimensionar_chapa_ancorada(chapa, eixo, valor_mm, lado):
 
 def _aplicar_valor_hud(context, alvo, valor):
     obj = alvo['objeto']
+    if _eh_angulo(alvo):
+        # graus de dentro da planta naquela ponta -> o da diagonal
+        t = (valor - alvo['base']) / alvo['sinal']
+        _formas.aplicar(context, obj, ('ANG', alvo['face'][1]), t)
+        return
+    if alvo['tipo'] == 'forma':
+        _formas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
+        return
     if alvo['tipo'] == 'gap':
         parametros = dict(obj['porta_parametros'])
         parametros['entre_folhas_mm'] = max(0, valor)
@@ -1395,6 +1596,8 @@ class OBJECT_OT_arrastar_hud(Operator):
                 eixo = self._matriz.to_3x3().col[0].normalized()
             elif alvo['tipo'] == 'espessura':
                 eixo = self._matriz.to_3x3().col[2].normalized()
+            elif alvo.get('direcao') is not None:
+                eixo = alvo['direcao']      # raio: cresce para dentro
             else:
                 eixo = (alvo['pontos'][1] - alvo['pontos'][0]).normalized()
             # Escala de tela medida no proprio ponto: nao depende de
@@ -1408,6 +1611,10 @@ class OBJECT_OT_arrastar_hud(Operator):
                 vetor = Vector((0, 100))
             self._por_pixel = 100 / vetor.length
             self._direcao = vetor.normalized()
+            if _eh_angulo(alvo):
+                # angulo: graus, de lado na tela (o mm por pixel nao serve)
+                self._por_pixel = GRAUS_POR_PIXEL_HUD
+                self._direcao = Vector((1.0, 0.0))
         _edicao_hud[0] = {'regiao': context.region.as_pointer(), 'alvo': alvo}
         self._backups = [self._backup]
         if alvo['tipo'] == 'medida' and alvo.get('lado'):
@@ -1525,7 +1732,10 @@ class OBJECT_OT_arrastar_hud(Operator):
             return {'RUNNING_MODAL'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
             try:
-                valor = _gaveta_desenho._ler_medida_digitada(estado['texto']) * 1000.0
+                if _eh_angulo(self._alvo):
+                    valor = float(estado['texto'].replace(',', '.').strip(' \u00b0'))
+                else:
+                    valor = _gaveta_desenho._ler_medida_digitada(estado['texto']) * 1000.0
                 # Varios itens: cada um fica com o MESMO valor, cada um
                 # ancorado na quina escolhida nele.
                 for alvo in estado.get('itens') or [self._alvo]:
@@ -1578,7 +1788,9 @@ class OBJECT_OT_arrastar_hud(Operator):
                     and self._alvo.get('lado')):
                 # Clique sem arrastar numa linha do modulo: a seta fica e
                 # o valor passa a ser digitado (Enter confirma, Esc volta).
-                texto = _opcoes._numero_na_unidade(self._valor)
+                texto = (('%.1f' % self._valor).rstrip('0').rstrip('.')
+                         if _eh_angulo(self._alvo)
+                         else _opcoes._numero_na_unidade(self._valor))
                 _edicao_hud[0].update(texto=texto, cursor=len(texto),
                                       selecionado=True)
                 self._area.tag_redraw()

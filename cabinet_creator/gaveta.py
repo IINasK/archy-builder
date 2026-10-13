@@ -26,6 +26,7 @@ _hud = None
 _solda = None
 _perguntas = None
 _gaveta_desenho = None
+_formas = None
 
 class OBJECT_OT_modo_medidas(Operator):
     """Alterna a edicao entre uma chapa e o conjunto"""
@@ -1249,6 +1250,37 @@ def _botao_criar_portas(context):
         rotulo = 'Criar Portas'
     return rotulo, ('portas', bool(grupo), _portas._apanhando_vao[0], motivo,
                     grupo is not None)
+def _secao_forma_gaveta(context, itens, x, y, w):
+    """Modulo em L, diagonal ou curvo (pedido do usuario: as medidas
+    novas no menu): P1/P2 de cada braco, o raio e o ANGULO da diagonal.
+    `y` = onde iria o titulo seguinte; devolve o novo."""
+    obj = _selecionado(context)
+    if obj is None or _chapas.MARCA_CONJUNTO not in obj:
+        return y
+    forma = _formas.forma_do_modulo(obj)
+    if forma is None:
+        return y
+    campos, vistas = [], set()
+    nomes = {'P1': 'P1', 'P2': 'P2', 'R': 'Raio'}
+    for seg in _formas.segmentos(forma):
+        chave = seg['chave']
+        if not chave or chave[0] not in nomes or chave in vistas:
+            continue
+        vistas.add(chave)
+        valor = _formas.valor(obj, chave)
+        campos.append(('%s: %s' % (nomes[chave[0]], _opcoes._texto_medida(valor)),
+                       ('medida', 'forma', '%s:%d' % chave, nomes[chave[0]], valor)))
+    compacto = None
+    for k, f in enumerate(forma['cantos']):
+        if f is not None and f['tipo'] == 'CHANFRO':
+            angulo = int(round(_formas.valor(obj, ('ANG', k))))
+            compacto = ('%d%s' % (angulo, chr(0xB0)),
+                        ('contador', 'forma_angulo_%d' % k, angulo, 5, 85,
+                         obj.name, 'Angulo'))
+            break
+    topo = _titulo_secao(itens, x, y + 23, w, 'Formato')
+    topo = _campos_em_linhas(context, itens, x, topo, w, campos, compacto=compacto)
+    return topo - 23 - 4
 
 
 def _botao_criar_puxador():
@@ -1743,8 +1775,7 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
                 and not pergunta.get('comodo') and not pergunta.get('biblioteca'))
     if nosso or de_fora:
         y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade)
-    elif not pendente:
-        y += 23             # o titulo sobe para onde estariam as medidas
+        y = _secao_forma_gaveta(context, itens, x, y, w)
     if not (nosso or pendente):
         return _secao_orcamento_gaveta(context, itens, x, y, w)
     itens.append((x, y, w, 23, 'Montagem', None))

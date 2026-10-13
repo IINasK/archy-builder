@@ -51,12 +51,13 @@ from . import perguntas as _perguntas
 from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
+from . import formas as _formas
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
-            _portas_viewport, _gaveta_desenho, _paredes, _painel_legado)
+            _portas_viewport, _gaveta_desenho, _paredes, _formas, _painel_legado)
 
 
 def _ligar_modulos():
@@ -472,6 +473,7 @@ def unregister():
     _hud._clique_chapa_hud.clear()
     _hud._clique_pendente.clear()
     _paredes.esquecer()
+    _formas.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)
