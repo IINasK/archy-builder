@@ -16,6 +16,7 @@ from . import portas as _portas
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _eventos = _ferragens = _gaveta_eventos = _arame = _gaveta = _hud = None
 _modulos = None
+_geometria = None
 
 PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
 MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
@@ -74,6 +75,14 @@ def _desenhar_assistente_2d(estado):
             _hud._bolinha_2d(shader, estado['snap_tela'], 9 * escala, realce)
             _hud._bolinha_2d(shader, estado['snap_tela'], 6 * escala,
                         (1.0, 1.0, 1.0, 1.0))
+        # o que o ima pegou: "Quina reta", "Angulo 135", "Fim da curva"
+        if estado.get('rotulo_snap') and estado.get('ponto_rotulo') is not None:
+            tela = view3d_utils.location_3d_to_region_2d(
+                regiao, bpy.context.region_data, estado['ponto_rotulo'])
+            if tela is not None:
+                blf.size(0, 11 * escala)
+                _hud._caixa_texto_hud(tela.x + 12 * escala, tela.y + 10 * escala,
+                                      estado['rotulo_snap'], 11 * escala, escala)
         blf.size(0, 12 * escala)
         for (x, y, w, h), chave, texto in estado.get('botoes', ()):
             borda = (realce if chave == estado.get('hover_botao')
@@ -146,6 +155,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                     melhor, melhor_obj, melhor_d = co, obj, d
         self._imantado = melhor
         self._objeto_imantado = melhor_obj
+        w = getattr(self, '_w', None)
+        if w is not None:
+            _geometria.marcar_rotulo(w, melhor)
 
     # ------------------------------------------------ previa
     def _referencia(self, obj_a, obj_b):

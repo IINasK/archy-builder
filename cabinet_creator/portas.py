@@ -1580,12 +1580,23 @@ def _alvos_do_ima(context):
         try:
             if 0 < len(malha.vertices) <= TETO_VERTICES_IMA:
                 m = obj.matrix_world
-                pontos = [m @ v.co.copy() for v in malha.vertices]
+                # o detector de geometria (`_geometria`): o meio de um arco
+                # sai (eram dezenas de pontos colados na borda redonda); o
+                # centro dele entra; quina/extremidade ganham rotulo na tela
+                notaveis = _geometria.pontos_notaveis(malha)
+                ruido = notaveis['ruido']
+                pontos = [m @ v.co.copy() for v in malha.vertices
+                          if v.index not in ruido]
+                pontos += [m @ p['co'] for p in notaveis['pontos']
+                           if p['tipo'] == 'CENTRO']
+                _geometria.lembrar_rotulos(obj, malha)
                 if _chapas.MARCA_CHAPA in obj:
                     # Porta que cobre METADE de uma chapa (pedido do
                     # usuario): o meio de cada aresta da espessura (Z
                     # local) tambem pega, ja' na diagonal.
                     for aresta in malha.edges:
+                        if all(i in ruido for i in aresta.vertices):
+                            continue            # o meio do arco, de novo
                         p, q = (malha.vertices[i].co for i in aresta.vertices)
                         d = q - p
                         if d.length > 1e-6 and abs(d.normalized().z) > 0.99:

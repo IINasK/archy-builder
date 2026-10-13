@@ -25,6 +25,7 @@ _paredes = None
 _gaveta_desenho = None
 _formas = None
 _gavetas = None
+_geometria = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -1561,6 +1562,14 @@ def _quinas_de_snap(modulo):
                 quinas += _caixa_hud_objetos(chapas) or []
         elif _chapas.MARCA_CHAPA in o and o.type == 'MESH' and o.visible_get():
             quinas += _chapas._cantos(o)
+        # peca MODELADA (recorte, chanfro) ou curva (frente em arco, peca
+        # do Promob): as quinas, os angulos e as pontas das curvas que o
+        # detector acha (`_geometria`), nao so' a caixa dela
+        if (o.type == 'MESH' and o.visible_get()
+                and (_chapas.MARCA_ACESSORIO in o or _chapas.MARCA_CHAPA in o)
+                and not _chapas._malha_e_caixa(o.data)):
+            quinas += [co for co, tipo, _a in _geometria.pontos_no_mundo(o)
+                       if tipo != 'CENTRO']
     return quinas
 
 

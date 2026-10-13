@@ -54,13 +54,14 @@ from . import paredes as _paredes
 from . import formas as _formas
 from . import gavetas as _gavetas
 from . import promob as _promob
+from . import geometria as _geometria
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _promob,
-            _painel_legado)
+            _geometria, _painel_legado)
 
 
 def _ligar_modulos():
@@ -83,6 +84,7 @@ CLASSES = (
     _modulos.OBJECT_OT_sincronizar_conjunto,
     _modulos.OBJECT_OT_fundo_modulo,
     _importacao.OBJECT_OT_importar_promob,
+    _geometria.OBJECT_OT_calcular_areas,
     _biblioteca.OBJECT_OT_registrar_bibliotecas,
     _biblioteca.OBJECT_OT_refiliar_catalogos,
     _biblioteca.OBJECT_OT_regerar_previews,
@@ -488,6 +490,7 @@ def unregister():
     _paredes.esquecer()
     _formas.esquecer()
     _gavetas.esquecer()
+    _geometria.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)

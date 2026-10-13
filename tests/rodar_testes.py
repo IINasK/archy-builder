@@ -30,10 +30,11 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # Piso de testes por suite: cair abaixo disto = teste apagado/pulado sem
 # querer. Subir o numero quando a suite crescer (nunca baixar calado).
 PISO = {
-    'estrutura': 51, 'gaveta': 63, 'portas': 84, 'hud': 67,
-    'importacao': 20, 'puxadores': 13, 'snapshot': 7, 'operadores': 24,
-    'biblioteca': 62, 'cobertura': 4, 'gui_interacao': 37,
-    'orcamento': 9,
+    'estrutura': 51, 'gaveta': 64, 'portas': 97, 'hud': 67,
+    'importacao': 30, 'puxadores': 17, 'snapshot': 7, 'operadores': 26,
+    'biblioteca': 79, 'cobertura': 4, 'gui_interacao': 45,
+    'orcamento': 10, 'paredes': 12, 'armarios': 10, 'formas': 12, 'gavetas': 11,
+    'geometria': 9,
 }
 LIMITE_SEGUNDOS = 300
 
