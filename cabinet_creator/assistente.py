@@ -506,8 +506,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                                              w['tipo'])
         elif etapa == 'QUANTIDADE':
             comprimento = (w['aresta']['b'] - w['aresta']['a']).length
-            w['qtd'] = _portas._qtd_dobradicas_padrao(comprimento)
-            w['margem'] = _portas.MARGEM_DOBRADICAS_PADRAO
+            _ajustar_dobradicas_wizard(w, _portas._qtd_dobradicas_padrao(comprimento),
+                                       _portas.MARGEM_DOBRADICAS_PADRAO)
         elif etapa in {'MARGEM', 'PISTOES_OFFSET'}:
             w['y0'] = ancora.y
             w['valor0'] = w['margem'] if etapa == 'MARGEM' else w['poffset']
@@ -629,8 +629,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 'QUANTIDADE', 'PISTOES_QTD'}:
             passo = 1 if event.type == 'WHEELUPMOUSE' else -1
             if etapa == 'QUANTIDADE':
-                w['qtd'] = max(_portas.LIMITES_DOBRADICAS[0],
-                               min(_portas.LIMITES_DOBRADICAS[1], w['qtd'] + passo))
+                _ajustar_dobradicas_wizard(w, w['qtd'] + passo, w['margem'])
                 w['recado'] = '%d dobradicas (scroll) | clique confirma' % w['qtd']
             else:
                 w['pqtd'] = max(_portas.LIMITES_PISTOES[0],
@@ -656,6 +655,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                             fracao, w['embutida'])])
                 else:
                     w['recado'] = self.RECADOS['EIXO']
+                # a gaveta mostra o tipo da borda sob o mouse
+                _eventos._redesenhar_viewports(context)
             elif etapa in {'MARGEM', 'PISTOES_OFFSET'}:
                 if w.pop('rebase', False):
                     # valor digitado na gaveta: o mouse parte dele
@@ -664,9 +665,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                                    else w['poffset'])
                 delta = (mouse.y - w['y0']) * w['mm_por_px']
                 if etapa == 'MARGEM':
-                    comprimento = (w['aresta']['b'] - w['aresta']['a']).length
-                    w['margem'] = max(0.0, min(comprimento / 2.0,
-                                               w['valor0'] + delta))
+                    _ajustar_dobradicas_wizard(w, w['qtd'], w['valor0'] + delta)
                     w['recado'] = 'Margem %.0f mm | clique confirma' % w['margem']
                 else:
                     # de cima para baixo: descer o mouse aumenta o offset,
@@ -1277,6 +1276,13 @@ class OBJECT_OT_portas_parametricas(Operator):
         return {'FINISHED'}
 
 
+def _ajustar_dobradicas_wizard(w, qtd, margem):
+    """Grava quantidade e margem do wizard ja' cabendo na borda escolhida
+    (`_portas._ajustar_dobradicas`: nenhuma sobre a outra)."""
+    comprimento = (w['aresta']['b'] - w['aresta']['a']).length
+    w['qtd'], w['margem'] = _portas._ajustar_dobradicas(comprimento, qtd, margem)
+
+
 def _editar_assistente(nome, valor):
     """Como `_ferragens._editar_ferragens_selecionadas` (valor digitado na
     gaveta), mas criando a porta: grava no estado do wizard. Na etapa do
@@ -1284,14 +1290,15 @@ def _editar_assistente(nome, valor):
     w = _portas._assistente_porta[0]
     if w is None:
         return
-    if nome == 'dobradicas_qtd':
+    if nome == 'dobradicas_qtd' and w.get('aresta') is not None:
+        _ajustar_dobradicas_wizard(w, int(valor), w['margem'])
+    elif nome == 'dobradicas_qtd':
         w['qtd'] = max(_portas.LIMITES_DOBRADICAS[0],
                        min(_portas.LIMITES_DOBRADICAS[1], int(valor)))
     elif nome == 'pistoes_qtd':
         w['pqtd'] = max(_portas.LIMITES_PISTOES[0], min(_portas.LIMITES_PISTOES[1], int(valor)))
     elif nome == 'dobradicas_margem_mm' and w.get('aresta') is not None:
-        comprimento = (w['aresta']['b'] - w['aresta']['a']).length
-        w['margem'] = max(0.0, min(comprimento / 2.0, float(valor)))
+        _ajustar_dobradicas_wizard(w, w['qtd'], float(valor))
         w['rebase'] = True
     elif nome == 'pistoes_offset_mm' and w.get('folha'):
         w['poffset'] = _portas._pistao_do_vao(

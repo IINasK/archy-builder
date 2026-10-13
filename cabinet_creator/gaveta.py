@@ -815,35 +815,71 @@ def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
             itens.append((x, y + 30, w, 1, '', ('separador',)))
         separar = True
         if tipo == 'DOBRADICA':
-            rotulo = 'Dobradicas'
-            opcoes = tuple((n, str(n)) for n in range(
-                _portas.LIMITES_DOBRADICAS[0], _portas.LIMITES_DOBRADICAS[1] + 1))
+            rotulo, limites = 'Dobradicas', _portas.LIMITES_DOBRADICAS
             prop_qtd, prop_mm = 'dobradicas_qtd', 'dobradicas_margem_mm'
             nome_mm = 'Afastamento das quinas'
         else:
-            rotulo = 'Pistoes'
-            opcoes = tuple((n, str(n)) for n in range(
-                _portas.LIMITES_PISTOES[0], _portas.LIMITES_PISTOES[1] + 1))
+            rotulo, limites = 'Pistoes', _portas.LIMITES_PISTOES
             prop_qtd, prop_mm = 'pistoes_qtd', 'pistoes_offset_mm'
             nome_mm = 'Distancia do topo'
         if d.get('info'):
             rotulo = '%s: %s' % (rotulo, d['info'])
-        if d.get('qtd') is None:
-            itens.append((x, y, w, 20, rotulo, None))
-            y -= 36
-            continue
-        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, prop_qtd, opcoes,
-                                  d['qtd'], alvo=alvo)
+        # retratos: a abertura escolhida (clicar volta a' escolha) e o
+        # tipo da dobradica, AUTOMATICO -- para ver, sem clique
+        retratos = []
+        if tipo == 'DOBRADICA' and abertura is not None:
+            valor, texto, foto = abertura
+            retratos.append((texto, ('escolha', 'porta_abertura', valor, True,
+                                     True, _portas.ALVO_ASSISTENTE, foto)))
+            _titulo_com_slider(itens, x, y, w, 'Abertura')
+            y -= 26
+        modelo = d.get('modelo')
+        if tipo == 'DOBRADICA' and modelo in _portas.NOME_DOBRADICA:
+            retratos.append((_portas.NOME_DOBRADICA[modelo],
+                             ('escolha', 'dobradica', modelo, True, False, '',
+                              _biblioteca.foto_padrao('dobradica_' + modelo))))
+        topo = y + 20
+        # o MESMO quadrado dos outros retratos (`_lado_retrato`)
+        lado = _lado_retrato(w)
+        altura = lado + ALTURA_ROTULO_RETRATO
+        for i, (texto, acao) in enumerate(retratos):
+            itens.append((x + i * (lado + 6), topo - altura, lado, altura,
+                          texto, acao))
+        ao_lado = bool(retratos) and (
+            w - len(retratos) * (lado + 6) >= LARGURA_MIN_COLUNA_FERRAGENS)
+        if ao_lado:
+            cx = x + len(retratos) * (lado + 6)
+            topo_coluna, fundo = topo, topo - altura
+        else:
+            cx = x
+            topo_coluna = topo - altura - 6 if retratos else topo
+            fundo = topo_coluna
+        cw = x + w - cx
+        if retratos and abertura is None:
+            # sem o titulo "Abertura" (ferragens selecionadas), o slider
+            # dos retratos vai na linha do rotulo
+            _titulo_com_slider(itens, cx, topo_coluna - 20, cw, rotulo)
+        else:
+            itens.append((cx, topo_coluna - 20, cw, 20, rotulo, None))
+        fundo = min(fundo, topo_coluna - 20)
+        if d.get('qtd') is not None:
+            cy = topo_coluna - 26 - 30
+            campo_com_aceite(cx, cy, cw, 30, (
+                30, str(d['qtd']), ('contador', prop_qtd, int(d['qtd']),
+                                    limites[0], limites[1], alvo)), 'qtd')
+            fundo = min(fundo, cy)
         if d.get('mm') is None:
-            y -= 10
+            y = fundo - 34
             continue
-        # campo (37) logo abaixo dos segmentos (25, passo 29) sem cobri-los
-        campo = y - 12
-        itens.append((x, campo, w, 37,
-                      '%s: %s' % (nome_mm, _opcoes._texto_medida(d['mm'])),
-                      ('medida', dono, prop_mm, nome_mm, d['mm'])))
+        itens.append((x, fundo - 6, w, 1, '', ('separador',)))
+        campo = fundo - 12 - 37
+        campo_com_aceite(x, campo, w, 37, (
+            37, '%s: %s' % (nome_mm, _opcoes._texto_medida(d['mm'])),
+            ('medida', dono, prop_mm, nome_mm, d['mm'])), 'mm')
         y = campo - 42
     return y
+
+
 
 
 def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
@@ -895,12 +931,23 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
         :ETAPAS_FERRAGENS_ASSISTENTE.index(etapa) + 1]
     aresta = a.get('aresta')
     if etapa == 'EIXO' or aresta is None:
-        dobradicas = {'info': 'clique na borda delas', 'qtd': None}
+        # o tipo sai da borda: o da borda sob o mouse (pedido do usuario,
+        # "o tipo nao aparece"); a embutida e' Super Curva em qualquer uma
+        snap = a.get('snap')
+        modelo = 'SUPER_CURVA' if a.get('embutida') else None
+        if snap:
+            lado = _portas.COBERTURAS_LADOS[_portas.INDICE_LADO[snap[0]['lado']]]
+            modelo = _portas._dobradica_da_cobertura(
+                float(a.get('coberturas', {}).get(lado, 1.0)), a.get('embutida'))
+        dobradicas = {'info': 'clique na borda delas', 'qtd': None,
+                      'modelo': modelo}
     else:
-        dobradicas = {'info': '%s, borda %s' % (
-            _portas.NOME_DOBRADICA.get(escolhas.get('dobradica'), ''),
-            aresta['lado'].lower()),
-            'qtd': a.get('qtd'), 'mm': a.get('margem')}
+        dobradicas = {'info': 'borda %s' % aresta['lado'].lower(),
+                      'modelo': escolhas.get('dobradica'),
+                      'qtd': a.get('qtd'), 'mm': a.get('margem')}
+    # o "aceitar" (verde) fica no campo que a etapa edita
+    confirmar = {'QUANTIDADE': ('DOBRADICA', 'qtd'), 'MARGEM': ('DOBRADICA', 'mm'),
+                 'PISTOES_QTD': ('PISTAO', 'qtd'), 'PISTOES_OFFSET': ('PISTAO', 'mm')}
     dados = {'DOBRADICA': dobradicas}
     if 'PISTOES_QTD' in feitas and 'pqtd' in a:
         dados['PISTAO'] = {'qtd': a['pqtd'], 'mm': a.get('poffset')}

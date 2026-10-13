@@ -673,6 +673,9 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
             o.select_set(True)
         except Exception:
             pass
+    # o "olho" das pecas auxiliares do rig e' da camada de visualizacao,
+    # nao do objeto: no .blend do preset ele nao vem
+    _ferragens.ocultar_pecas_do_rig(novos)
     return novos, raizes, ""
 
 

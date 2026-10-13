@@ -67,13 +67,35 @@ def _lado_da_folha(p, indice, n):
 # A raiz vai pela FOLHA, como no modelo: `borda_porta_mm` para dentro da
 # borda dela e `costas_mm` atras das costas (o copo e' furado a uma
 # distancia fixa da borda). Assim a folha abre como a do usuario. O
-# modelo cobre 12,75 mm da lateral; numa Reta de 18 mm a base entra uns
-# 5 mm na chapa (na vida real e' o calco) -- presa na face, o canto da
-# folha aberta e' que entrava no modulo.
+# modelo cobre 12,75 mm da lateral; a Reta de 18 mm cobre 16, e a placa
+# base entrava ~3 mm na chapa (print do usuario). Levar o rig INTEIRO a'
+# face fazia o canto da folha aberta entrar no modulo; entao, como o
+# parafuso de cobertura da dobradica de verdade, so' a PLACA (e o suporte,
+# se passar da face) anda ate' a face interna -- copo e porta ficam.
 PASTA_FERRAGENS = os.path.join(os.path.dirname(__file__), 'ferragens')
 ARQUIVO_DOBRADICA_RETA = os.path.join(PASTA_FERRAGENS, 'dobradica_reta.blend')
 PREFIXO_FURO = 'Cabinet Copo '        # Boolean do copo na folha
 PECAS_REALCE_RIG = ('base', 'suporte', 'cabeca')
+# x mais externo (mm, raiz do asset, +X = para dentro da chapa) das pecas
+# que o ajuste de cobertura leva a' face interna; medido no asset (v2)
+FACE_PECAS_CALCO = {'base': 0.0, 'suporte': -2.71}
+# as malhas do arame da previa que vao junto (filhas delas no asset)
+MALHAS_CALCO = {'Dobradica Base': 'base', 'Dobradica Parafuso.001': 'base',
+                'Dobradica Parafuso.002': 'base', 'Dobradica Suporte': 'suporte',
+                'Dobradica Parafuso': 'suporte', 'Dobradica Pino.002': 'suporte'}
+
+
+def _calco_rig(cobertura):
+    """{peca: mm para DENTRO do movel} que a placa e o suporte andam para
+    nao entrar na chapa: a raiz fica `cobertura - borda_porta_mm` para
+    fora da face interna (a folha cobre mais que o modelo)."""
+    fora = float(cobertura) - _dados_dobradica_reta()['borda_porta_mm']
+    return {peca: max(0.0, fora + x) for peca, x in FACE_PECAS_CALCO.items()}
+
+
+def _matriz_calco(mm):
+    """Translacao (m) na raiz do asset: -X = para dentro do movel."""
+    return Matrix.Translation((-mm / 1000.0, 0.0, 0.0))
 _dobradica_reta = [None]              # o .json do asset, lido uma vez
 
 
@@ -269,7 +291,9 @@ def _dobradicas_da_porta(p, largura, altura, folhas):
         comprimento = (aresta['b'] - aresta['a']).length
         qtd = (int(p.get('dobradicas_qtd', 0) or 0)
                or _portas._qtd_dobradicas_padrao(comprimento))
-        saida.append((aresta, _portas._posicoes_ferragens(comprimento, qtd, margem), i))
+        # vale tambem para a porta gravada antes do limite
+        qtd, ajustada = _portas._ajustar_dobradicas(comprimento, qtd, margem)
+        saida.append((aresta, _portas._posicoes_ferragens(comprimento, qtd, ajustada), i))
     return saida
 
 
@@ -366,6 +390,7 @@ def _ferragens_da_porta(p, largura, altura, folhas):
                 saida.append({'id': 'RIG_%s_%d' % (aresta['lado'], k),
                               'tipo': 'DOBRADICA_RIG', 'folha': None,
                               'forma': 'RIG', 'indice_folha': i,
+                              'calco': _calco_rig(aresta['cobertura']),
                               'matriz': _referencial_rig(
                                   aresta['dentro'], (ponto.x, ponto.y, fundo))})
             continue
@@ -479,6 +504,28 @@ TIPO_DA_PECA_RIG = {'raiz': 'DOBRADICA_RIG', 'base': 'DOBRADICA',
                     'cabeca': 'CANECO', 'furo': 'DOBRADICA_FURO'}
 # o que so' faz o rig funcionar nao aparece (o Blender ainda os avalia)
 PECAS_OCULTAS_RIG = ('furo', 'controle', 'armacao', 'armacao_ik')
+def ocultar_pecas_do_rig(objetos=None):
+    """Esconde de novo o que so' faz o rig funcionar (controlador, furo do
+    copo, armacoes). Relato do usuario: o arco do controlador aparecia na
+    porta -- e ela e' aberta pelo SLIDER do add-on, nunca por ele. O
+    `hide_set` e' da camada de visualizacao, nao do objeto: preset
+    inserido, objeto anexado ou camada nova o traziam de volta. Devolve
+    quantas reapareceram."""
+    camada = bpy.context.view_layer
+    escondidas = 0
+    for o in objetos if objetos is not None else bpy.data.objects:
+        if o.get('cabinet_peca') not in PECAS_OCULTAS_RIG:
+            continue
+        try:
+            if not o.hide_render:
+                o.hide_render = True
+            if o.name in camada.objects and not o.hide_get():
+                o.select_set(False)
+                o.hide_set(True)
+                escondidas += 1
+        except (ReferenceError, RuntimeError):
+            pass
+    return escondidas
 
 
 def _anexar_sem_repetir(caminho, tipo, nomes=None):
@@ -601,6 +648,20 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             matriz = item['matriz'].copy()
             matriz.translation = matriz.translation / 1000.0
             obj.matrix_basis = matriz
+            for parte in obj.children_recursive:
+                peca = parte.get('cabinet_peca')
+                if peca not in item.get('calco', {}):
+                    continue
+                # a pose do asset, guardada na 1a vez: o calco nao acumula
+                if 'cabinet_pose_asset' not in parte:
+                    parte['cabinet_pose_asset'] = [
+                        v for linha in parte.matrix_basis for v in linha]
+                pose = parte['cabinet_pose_asset']
+                pose = Matrix([pose[i * 4:i * 4 + 4] for i in range(4)])
+                inversa = parte.matrix_parent_inverse
+                parte.matrix_basis = (inversa.inverted_safe()
+                                      @ _matriz_calco(item['calco'][peca])
+                                      @ inversa @ pose)
             for parte in [obj, *obj.children_recursive]:
                 parte.hide_select = False
                 existentes.pop(parte.get(CHAVE_ID_FERRAGEM), None)
@@ -612,7 +673,8 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         if obj is not None and ponto != (obj.type == 'EMPTY'):
             _remover_ferragem(obj)
             obj = None
-        nome = NOMES_FERRAGEM.get(item['tipo'], item['tipo'].title())
+        nome = item.get('nome') or NOMES_FERRAGEM.get(item['tipo'],
+                                                      item['tipo'].title())
         if obj is None:
             obj = bpy.data.objects.new(
                 nome, None if ponto else bpy.data.meshes.new(nome))
@@ -725,11 +787,14 @@ def _dados_ferragens_selecionadas(context):
     if 'DOBRADICA' in tipos:
         dobradicas = _dobradicas_da_porta(p, _largura, altura, folhas)
         if dobradicas:
+            aresta, distancias, _i = dobradicas[0]
             dados['DOBRADICA'] = {
-                'qtd': len(dobradicas[0][1]),
-                'mm': float(p.get('dobradicas_margem_mm',
-                                  _portas.MARGEM_DOBRADICAS_PADRAO)),
-                'info': _portas.NOME_DOBRADICA.get(p.get('dobradica'), '')}
+                'qtd': len(distancias),
+                # a margem que VALE (a gravada antes do limite pode passar)
+                'mm': distancias[0] if len(distancias) > 1 else float(
+                    p.get('dobradicas_margem_mm', _portas.MARGEM_DOBRADICAS_PADRAO)),
+                'info': _portas.NOME_DOBRADICA.get(p.get('dobradica'), ''),
+                'modelo': p.get('dobradica')}
     if 'PISTAO' in tipos and p.get('abertura') == 'BASCULANTE' and folhas:
         offset = float(p.get('pistoes_offset_mm', 0.0) or 0.0)
         dados['PISTAO'] = {
@@ -741,12 +806,25 @@ def _dados_ferragens_selecionadas(context):
 
 def _valor_ferragem(grupo, nome, valor):
     """O valor que se grava: o offset do pistao trava no curso (e volta
-    a 0, o automatico, quando cai nele); a margem nunca e' negativa."""
-    if nome == 'dobradicas_margem_mm':
-        return max(0.0, float(valor))
+    a 0, o automatico, quando cai nele); quantidade e margem das
+    dobradicas, so' o que cabe na borda (`_portas._ajustar_dobradicas`)."""
+    medidas = _porta_calculada(grupo)
+    if nome in {'dobradicas_margem_mm', 'dobradicas_qtd'}:
+        dobradicas = (_dobradicas_da_porta(*medidas) if medidas is not None
+                      else None)
+        if not dobradicas:
+            return (max(0.0, float(valor)) if nome == 'dobradicas_margem_mm'
+                    else int(valor))
+        aresta, distancias, _i = dobradicas[0]
+        comprimento = (aresta['b'] - aresta['a']).length
+        margem = float(medidas[0].get('dobradicas_margem_mm',
+                                      _portas.MARGEM_DOBRADICAS_PADRAO))
+        if nome == 'dobradicas_qtd':
+            return _portas._ajustar_dobradicas(comprimento, int(valor), margem)[0]
+        return _portas._ajustar_dobradicas(comprimento, len(distancias),
+                                           float(valor))[1]
     if nome != 'pistoes_offset_mm':
         return int(valor)
-    medidas = _porta_calculada(grupo)
     if medidas is None:
         return float(valor)
     p, _l, altura, folhas = medidas
@@ -956,7 +1034,9 @@ def _valor_do_controle(grupo, tipo, fracao):
         aresta = dobradicas[0][0]
         comprimento = (aresta['b'] - aresta['a']).length
         distancia = fracao * comprimento
-        return 'dobradicas_margem_mm', min(distancia, comprimento - distancia)
+        return 'dobradicas_margem_mm', _portas._ajustar_dobradicas(
+            comprimento, len(dobradicas[0][1]),
+            min(distancia, comprimento - distancia))[1]
     g = _portas._pistao_do_vao(A, folhas[0], max(1e-3, fracao * A), p)
     automatico = _portas._pistao_do_vao(A, folhas[0], p=p)['offset']
     return ('pistoes_offset_mm',

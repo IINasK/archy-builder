@@ -1345,6 +1345,26 @@ CANECO_FUNDO_MM = 12.0         # furo na folha (~11,5-13 mm)
 # dentro do furo ele sumia na malha da porta (print do usuario)
 CANECO_ABA_MM = 4.0
 CANECO_BORDA_MM = 5.0          # da borda da folha ao furo (centro ~22,5)
+# Duas dobradicas nunca se sobrepoem (relato do usuario: a margem ia ate'
+# o meio da borda e empilhava todas): de centro a centro, o corpo e mais
+# esta folga; e a da ponta fica inteira na folha.
+FOLGA_ENTRE_DOBRADICAS_MM = 10.0
+PASSO_MIN_DOBRADICAS_MM = DOBRADICA_ALTURA_MM + FOLGA_ENTRE_DOBRADICAS_MM
+MARGEM_MIN_DOBRADICAS_MM = DOBRADICA_ALTURA_MM / 2.0
+
+
+def _ajustar_dobradicas(comprimento, qtd, margem):
+    """(qtd, margem) que cabem numa borda de `comprimento` mm: a margem
+    entre a dobradica inteira na folha e o maximo que ainda deixa
+    `PASSO_MIN_DOBRADICAS_MM` entre vizinhas; a quantidade, ate' onde
+    cabe (nunca abaixo do minimo de LIMITES_DOBRADICAS)."""
+    util = comprimento - 2.0 * MARGEM_MIN_DOBRADICAS_MM
+    cabem = int(max(0.0, util) // PASSO_MIN_DOBRADICAS_MM) + 1
+    qtd = max(LIMITES_DOBRADICAS[0], min(LIMITES_DOBRADICAS[1], cabem, int(qtd)))
+    maximo = (comprimento - (qtd - 1) * PASSO_MIN_DOBRADICAS_MM) / 2.0
+    # porta pequena demais para `qtd`: a ponta ainda manda (nada fora da folha)
+    margem = max(MARGEM_MIN_DOBRADICAS_MM, min(float(margem), maximo))
+    return qtd, min(margem, comprimento / 2.0)
 
 
 def _caixa_da_ferragem(centro, eixo, dentro, faixa_u, faixa_v, faixa_z):

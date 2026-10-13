@@ -749,16 +749,20 @@ class TestGaveta(unittest.TestCase):
             pqtd=2, poffset=120.0, escolhas={
                 'folhas': 1, 'abertura': 'BASCULANTE', 'dobradica': 'RETA'})
         ws = self.portas()
-        acesas = {v[5][1]: v[5][2] for v in ws if v[5]
-                  and v[5][0] == 'escolha' and v[5][3]}
-        self.assertEqual((acesas['dobradicas_qtd'], acesas['pistoes_qtd']),
-                         (3, 2))
+        contadores = {v[5][1]: v[5][2] for v in ws if v[5]
+                      and v[5][0] == 'contador'}
+        self.assertEqual(contadores, {'dobradicas_qtd': 3, 'pistoes_qtd': 2})
         campos = {v[5][2]: (v[5][1], v[5][4]) for v in ws if v[5]
                   and v[5][0] == 'medida'}
         self.assertEqual(campos['dobradicas_margem_mm'], ('assistente', 100.0))
         self.assertEqual(campos['pistoes_offset_mm'], ('assistente', 120.0))
         rotulos = [v[4] for v in ws if v[5] is None]
-        self.assertIn('Dobradicas: Reta, borda cima', rotulos)
+        self.assertIn('Dobradicas: borda cima', rotulos)
+        # o tipo (automatico) e' o retrato aceso; abertura tambem em retratos
+        acesos = {v[5][1]: v[5][2] for v in ws if v[5] and v[5][0] == 'escolha'
+                  and v[5][3] and len(v[5]) > 6}
+        self.assertEqual(acesos, {'dobradica': 'RETA',
+                                  'porta_abertura': 'BASCULANTE'})
         self.assertIn('Pistoes', rotulos)
         # o retrato da dobradica e' so' para ver: sem alvo, sem clique
         self.assertTrue(all(v[5][5] == addon.portas.ALVO_ASSISTENTE for v in ws

@@ -881,6 +881,53 @@ class TestPortas(unittest.TestCase):
         addon.ferragens._conferir_ferragens()
         self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o for o in bpy.data.objects))
 
+    def test_placa_da_reta_fica_na_face_interna(self):
+        # print do usuario: a placa base da Reta entrava ~3 mm na lateral
+        # (o modelo cobre 12,75 mm, a Reta de 18 cobre 16). Como o
+        # parafuso de cobertura de verdade, placa e suporte andam ate' a
+        # face; o copo continua na folha (nada muda na abertura)
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        L = grupo['porta_vao_largura_mm']
+        inversa = grupo.matrix_world.inverted()
+        grafo = bpy.context.evaluated_depsgraph_get()
+
+        def lado(o):
+            while o.get('cabinet_peca') != 'raiz':
+                o = o.parent
+            return o[addon.ferragens.CHAVE_ID_FERRAGEM].split('_')[1]
+
+        def passou(x, ld):
+            # mm para DENTRO da chapa (face interna: x = 0 ou x = L)
+            return -x if ld == 'ESQUERDA' else x - L
+        vistas = 0
+        for o in addon.ferragens._ferragens_portas(grupo):
+            if o.get('cabinet_peca') not in ('base', 'suporte'):
+                continue
+            avaliado = o.evaluated_get(grafo)
+            malha = avaliado.to_mesh()
+            pior = max(passou((inversa @ (o.matrix_world @ v.co)).x * 1000.0,
+                              lado(o)) for v in malha.vertices)
+            avaliado.to_mesh_clear()
+            self.assertLessEqual(pior, 1e-3, (o.name, lado(o)))
+            vistas += 1
+        self.assertGreaterEqual(vistas, 4)
+        # a previa do wizard (arame) tambem
+        medidas = addon.ferragens._porta_calculada(grupo)
+        itens = [i for i in addon.ferragens._ferragens_da_porta(*medidas)
+                 if i['forma'] == 'RIG']
+        rig = addon.arame._dados_arame_rig()
+        for item in itens:
+            pecas, _pontos = addon.arame._arame_dos_itens([item])
+            ld = item['id'].split('_')[1]
+            for matriz, chave in pecas:
+                if addon.ferragens.MALHAS_CALCO.get(chave) is None \
+                        or 'Parafuso' in chave:
+                    continue
+                pior = max(passou((matriz @ v).x * 1000.0, ld)
+                           for v in rig['malhas'][chave])
+                self.assertLessEqual(pior, 1e-3, (chave, ld))
+
     def test_dobradica_reta_e_o_rig_do_usuario(self):
         # Pedido do usuario: a Reta IMPORTA o modelo e o rig dele (asset
         # de extrair_dobradica.py), sem recriar malha nem rig; a folha faz
@@ -1198,7 +1245,9 @@ class TestPortas(unittest.TestCase):
         (qtd,) = [a for a in acoes if a[0] == 'contador']
         n = len(addon.ferragens._dobradicas_da_porta(
             *addon.ferragens._porta_calculada(grupo))[0][1])
-        self.assertEqual([a[2] for a in qtd if a[3]], [n])
+        self.assertEqual(qtd, ('contador', 'dobradicas_qtd', n,
+                               *addon.portas.LIMITES_DOBRADICAS,
+                               addon.gaveta.ALVO_FERRAGENS))
         # editar: a porta muda e as ferragens continuam selecionadas
         self.assertEqual(addon.ferragens._editar_ferragens_selecionadas(
             bpy.context, 'dobradicas_qtd', 4), '')
@@ -2026,6 +2075,53 @@ class TestPortas(unittest.TestCase):
         self.assertEqual(addon.portas._qtd_pistoes_padrao(560), 1)
         self.assertEqual(addon.portas._qtd_pistoes_padrao(800), 2)
         self.assertEqual(addon.portas.MARGEM_DOBRADICAS_PADRAO, 100.0)
+
+    def test_dobradicas_nunca_se_sobrepoem(self):
+        # relato do usuario: no posicionamento (mouse Y) a margem ia ate' o
+        # meio da borda e as dobradicas ficavam umas sobre as outras
+        ajustar = addon.portas._ajustar_dobradicas
+        passo = addon.portas.PASSO_MIN_DOBRADICAS_MM
+        meia = addon.portas.DOBRADICA_ALTURA_MM / 2.0
+        self.assertEqual(ajustar(700.0, 3, 100.0), (3, 100.0))     # padrao intacto
+        self.assertEqual(ajustar(700.0, 3, 350.0), (3, (700.0 - 2 * passo) / 2))
+        self.assertEqual(ajustar(700.0, 3, 0.0), (3, meia))        # inteira na folha
+        self.assertEqual(ajustar(200.0, 6, 100.0)[0], 3)           # so' as que cabem
+        # no wizard: o valor digitado (e o mouse Y, pela mesma funcao)
+        w = {'aresta': {'a': Vector((0.0, 0.0)), 'b': Vector((0.0, 700.0))},
+             'qtd': 3, 'margem': 100.0}
+        addon.portas._assistente_porta[0] = w
+        try:
+            addon.assistente._editar_assistente('dobradicas_margem_mm', 5000.0)
+            self.assertEqual((w['qtd'], w['margem']), (3, 290.0))
+            # mais dobradicas: a margem encolhe para caberem
+            addon.assistente._editar_assistente('dobradicas_qtd', 6)
+            self.assertEqual((w['qtd'], w['margem']), (6, 200.0))
+        finally:
+            addon.portas._assistente_porta[0] = None
+        for comprimento in (120.0, 200.0, 333.0, 700.0, 1500.0, 2400.0):
+            for qtd in range(2, 7):
+                for margem in (0.0, 50.0, 100.0, 400.0, comprimento):
+                    n, m = ajustar(comprimento, qtd, margem)
+                    pos = addon.portas._posicoes_ferragens(comprimento, n, m)
+                    self.assertGreaterEqual(pos[0], meia - 1e-6)
+                    self.assertLessEqual(pos[-1], comprimento - meia + 1e-6)
+                    for a, b in zip(pos, pos[1:]):
+                        self.assertGreaterEqual(b - a, passo - 1e-6,
+                                                (comprimento, qtd, margem))
+        # porta ja' criada: a margem gravada passa pelo mesmo limite, e a
+        # gravada antes dele nao empilha as dobradicas
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        margem = addon.ferragens._valor_ferragem(grupo, 'dobradicas_margem_mm', 5000.0)
+        p, largura, altura, folhas = addon.ferragens._porta_calculada(grupo)
+        aresta, pos, _i = addon.ferragens._dobradicas_da_porta(
+            p, largura, altura, folhas)[0]
+        comprimento = (aresta['b'] - aresta['a']).length
+        self.assertAlmostEqual(margem, (comprimento - (len(pos) - 1) * passo) / 2)
+        p['dobradicas_margem_mm'] = 5000.0
+        _a, pos, _i = addon.ferragens._dobradicas_da_porta(
+            p, largura, altura, folhas)[0]
+        self.assertTrue(all(b - a >= passo - 1e-6 for a, b in zip(pos, pos[1:])), pos)
 
     def test_pistao_automatico_dobra_do_fechado_ao_aberto(self):
         # Regra do usuario: aberta 90 graus = pistao no DOBRO do fechado.

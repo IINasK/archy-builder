@@ -80,9 +80,25 @@ def _arame_dos_itens(itens):
                 continue
             raiz = item['matriz'].copy()
             raiz.translation = raiz.translation / 1000.0
-            pecas += [(raiz @ pose, malha) for malha, pose in rig['pecas']]
-        elif forma == 'CAIXA':
-            pontos += [p / 1000.0 for p in _arame_caixa(item['cantos'])]
+            # a placa e o suporte no calco (`_calco_rig`), como na peca
+            calco = item.get('calco', {})
+            pecas += [(raiz @ _ferragens._matriz_calco(calco.get(
+                _ferragens.MALHAS_CALCO.get(malha), 0.0)) @ pose, malha)
+                for malha, pose in rig['pecas']]
+        elif forma in {'CAIXA', 'CAIXAS'}:
+            for cantos in item.get('caixas') or [item['cantos']]:
+                pontos += [p / 1000.0 for p in _arame_caixa(cantos)]
+        elif forma == 'PERFIL':         # trilho da moldura: a secao nas pontas
+            x0, x1 = item['x']
+            fecho = [] if item.get('aberto') else None
+            for poligono in item['poligonos']:
+                volta = poligono[1:] + (poligono[:1] if fecho is None else [])
+                for (za, ya), (zb, yb) in zip(poligono, volta):
+                    for x in (x0, x1):
+                        pontos += [Vector((x, ya, za)) / 1000.0,
+                                   Vector((x, yb, zb)) / 1000.0]
+                    pontos += [Vector((x0, ya, za)) / 1000.0,
+                               Vector((x1, ya, za)) / 1000.0]
         elif forma == 'CILINDRO':          # caneco: em Z, centrado
             meio = Vector((0.0, 0.0, item['comprimento'] / 2.0))
             pontos += [p / 1000.0 for p in _arame_cilindro(
