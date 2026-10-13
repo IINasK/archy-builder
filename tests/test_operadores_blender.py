@@ -228,6 +228,45 @@ class TestOperadores(unittest.TestCase):
         self.assertAlmostEqual(self.peca(conj, 'Base').chapa_largura_mm, 564.0,
                                places=2)
 
+    def test_copia_de_chapa_no_mesmo_modulo_sai_sem_as_soldas(self):
+        # Ctrl+D numa chapa (pedido do usuario): a copia levava o UID e as
+        # soldas da original e esticava atras dos vizinhos dela
+        conj = self.modulo()
+        lat, base = self.peca(conj, 'Lateral_Dir'), self.peca(conj, 'Base')
+        selecionar(lat)
+        self.assertEqual(bpy.ops.object.duplicate(), {'FINISHED'})
+        copia = bpy.context.selected_objects[0]
+        self.assertEqual(copia['chapa_uid'], lat['chapa_uid'])     # o rastro
+        # o handler agenda o timer (em background ele nao roda sozinho)
+        addon.chapas._separar_copias_no_timer()
+        self.assertNotEqual(copia['chapa_uid'], lat['chapa_uid'])
+        self.assertFalse(any(copia.get('adj_' + k) for k in addon.chapas.PONTAS))
+        self.assertIs(addon.solda._vizinho_da_ponta(base, 'x_pos'), lat)
+        self.assertFalse(addon.chapas._copias_com_mesmo_uid())
+
+    def test_recalcular_ancoragem_refaz_as_soldas_pelo_lugar(self):
+        conj = self.modulo()
+        lat, base = self.peca(conj, 'Lateral_Dir'), self.peca(conj, 'Base')
+        selecionar(lat)
+        bpy.ops.object.duplicate()
+        copia = bpy.context.selected_objects[0]
+        # levada para fora, como o revestimento do exemplo do usuario
+        copia.location.x += 0.018
+        bpy.context.view_layer.update()
+        selecionar(copia)
+        self.assertEqual(bpy.ops.object.cabinet_recalcular_ancoragem(), {'FINISHED'})
+        self.assertNotEqual(copia['chapa_uid'], lat['chapa_uid'])
+        # so' quem encosta de verdade (ate' 5 mm) fica soldado
+        for k in addon.chapas.PONTAS:
+            vizinho = addon.solda._vizinho_da_ponta(copia, k)
+            if vizinho is not None:
+                self.assertLessEqual(abs(copia['adj_%s_folga' % k]),
+                                     addon.chapas.ALCANCE_CONEXAO_AUTOMATICA + 1e-9)
+                self.assertIsNot(vizinho, base)
+        self.assertIs(addon.solda._vizinho_da_ponta(base, 'x_pos'), lat)
+        selecionar()
+        self.assertFalse(addon.solda.OBJECT_OT_recalcular_ancoragem.poll(bpy.context))
+
     # ============================== 2. OPERADOR DETECTAR ADJACENCIA
     def test_operador_detectar_adjacencia(self):
         C = bpy.context

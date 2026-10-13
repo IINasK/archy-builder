@@ -130,6 +130,7 @@ CLASSES = (
     _solda.OBJECT_OT_desagregar_selecao,
     _perguntas.OBJECT_OT_responder_pergunta,
     _solda.OBJECT_OT_conectar_distancia,
+    _solda.OBJECT_OT_recalcular_ancoragem,
     _solda.OBJECT_OT_conectar_vertices,
     _solda.OBJECT_OT_confirmar_conexao,
     _solda.OBJECT_OT_resetar_distancia,
@@ -427,6 +428,7 @@ def unregister():
     _solda._bolinha_hover[0] = None
     for timer in (_selecao._log_keymaps, _registrar_bibliotecas_adiado,
                   _hud._animar_piscada, _ferragens._conferir_ferragens,
+                  _chapas._separar_copias_no_timer,
                   _orcamento._apagar_orcamento_copiado):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)

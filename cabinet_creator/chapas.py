@@ -346,9 +346,14 @@ def ao_atualizar_depsgraph(scene, depsgraph):
     # apagou/duplicou algo: as ferragens das portas se conferem depois
     # (num timer: remover objeto dentro do handler do depsgraph nao)
     if len(bpy.data.objects) != _ferragens._contagem_objetos[0]:
+        surgiu = len(bpy.data.objects) > _ferragens._contagem_objetos[0] >= 0
         _ferragens._contagem_objetos[0] = len(bpy.data.objects)
         if not bpy.app.timers.is_registered(_ferragens._conferir_ferragens):
             bpy.app.timers.register(_ferragens._conferir_ferragens, first_interval=0.0)
+        # Ctrl+D numa chapa: a copia sai com identidade propria e sem as
+        # soldas da original (pedido do usuario)
+        if surgiu and not bpy.app.timers.is_registered(_separar_copias_no_timer):
+            bpy.app.timers.register(_separar_copias_no_timer, first_interval=0.0)
 
     modal_ativo = False
     try:
@@ -552,6 +557,124 @@ def associar_por_distancia(C, vizinhos, alcance=None):
                 if achado is not None:
                     _gravar_ligacao(V, eixo, lado, *achado)
                     n += 1
+    return n
+
+
+def _limpar_ponta(C, ponta):
+    """Tira a solda de UMA ponta (ela deixa de puxar vizinho)."""
+    C[f"adj_{ponta}"] = ""
+    C[f"adj_{ponta}_folga"] = 0.0
+    for sufixo in ("_uid", "_face", "_ancoras"):
+        if f"adj_{ponta}{sufixo}" in C:
+            del C[f"adj_{ponta}{sufixo}"]
+
+
+def _limpar_pontas(C):
+    for k in PONTAS:
+        _limpar_ponta(C, k)
+
+
+def _copias_com_mesmo_uid(objs=None):
+    """{(pai, uid): [chapas]} dos IRMAOS que dividem a identidade -- o
+    rastro do Ctrl+D numa chapa (a copia leva o `chapa_uid` e as soldas
+    da original). Modulo duplicado inteiro nao entra: o pai e' outro."""
+    grupos = {}
+    for o in (bpy.data.objects if objs is None else objs):
+        uid = o.get("chapa_uid")
+        if uid and o.type == 'MESH' and MARCA_CHAPA in o:
+            grupos.setdefault((o.parent, uid), []).append(o)
+    return {k: v for k, v in grupos.items() if len(v) > 1}
+
+
+def _original_entre(copias):
+    """A que fica com a identidade: a que NAO esta' selecionada (o Ctrl+D
+    seleciona so' as copias) ou, empatando, o nome sem sufixo maior."""
+    def chave(o):
+        try:
+            selecionada = o.select_get()
+        except Exception:
+            selecionada = False
+        return (selecionada, o.name.rpartition('.')[2].isdigit(), o.name)
+    return min(copias, key=chave)
+
+
+def separar_copias(objs=None):
+    """Cada copia ganha identidade propria e sai SEM as soldas da original
+    (pedido do usuario: as ligacoes ficavam apontando para os vizinhos da
+    outra e a chapa esticava errado). Quem soldava na original continua
+    soldado nela. Devolve as copias separadas."""
+    separadas = []
+    for copias in _copias_com_mesmo_uid(objs).values():
+        original = _original_entre(copias)
+        for C in copias:
+            if C is original:
+                continue
+            C["chapa_uid"] = uuid.uuid4().hex[:12]
+            _limpar_pontas(C)
+            separadas.append(C)
+    return separadas
+
+
+def _separar_copias_no_timer():
+    """Timer do Ctrl+D (registrado pelo handler quando surge objeto):
+    mexer em ID prop dentro do handler do depsgraph nao."""
+    try:
+        if not _eventos._desfazendo[0]:
+            separar_copias()
+    except Exception as erro:
+        print("[Cabinet Creator] separar copias:", erro)
+    return None
+
+
+def recalcular_ancoragem(chapas):
+    """Refaz as soldas das `chapas` pelo lugar onde estao AGORA (comando
+    "Recalcular ancoragem", pedido do usuario): copia separada da
+    original, pontas zeradas e religadas a quem encosta (ate'
+    ALCANCE_CONEXAO_AUTOMATICA) entre as irmas e as outras escolhidas.
+    Nos vizinhos que ficam de fora, so' pontas vazias ou que apontavam
+    para uma das refeitas ganham ligacao. Devolve quantas pontas ligou."""
+    chapas = [c for c in chapas if c.type == 'MESH' and MARCA_CHAPA in c
+              and MARCA_FOLHA not in c and MARCA_MOLDURA not in c]
+    if not chapas:
+        return 0
+    separar_copias(chapas + [o for o in bpy.data.objects
+                             if o.parent in {c.parent for c in chapas}])
+    refeitas = set(chapas)
+    for C in chapas:
+        _garantir_uid(C)
+        _limpar_pontas(C)
+    candidatos = set(chapas)
+    for C in chapas:
+        candidatos.update(o for o in bpy.data.objects if o.parent == C.parent
+                          and o.type == 'MESH' and MARCA_CHAPA in o
+                          and MARCA_FOLHA not in o and MARCA_MOLDURA not in o)
+    candidatos = list(candidatos)
+    n = 0
+    for C in chapas:
+        for eixo in ("x", "y"):
+            for lado in ("pos", "neg"):
+                achado = _melhor_vizinho(C, eixo, lado, candidatos,
+                                         ALCANCE_CONEXAO_AUTOMATICA)
+                if achado is not None:
+                    _gravar_ligacao(C, eixo, lado, *achado)
+                    n += 1
+    for V in candidatos:
+        if V in refeitas:
+            continue
+        for eixo in ("x", "y"):
+            for lado in ("pos", "neg"):
+                ponta = "%s_%s" % (eixo, lado)
+                atual = _solda._vizinho_da_ponta(V, ponta)
+                if atual is not None and atual not in refeitas:
+                    continue
+                achado = _melhor_vizinho(V, eixo, lado, chapas,
+                                         ALCANCE_CONEXAO_AUTOMATICA)
+                if achado is not None:
+                    _gravar_ligacao(V, eixo, lado, *achado)
+                    n += 1
+                elif atual is not None:
+                    # apontava para uma refeita que nao encosta mais
+                    _limpar_ponta(V, ponta)
     return n
 
 

@@ -846,6 +846,27 @@ class OBJECT_OT_conectar_distancia(Operator):
         return {'FINISHED'}
 
 
+class OBJECT_OT_recalcular_ancoragem(Operator):
+    """Refaz as soldas das chapas selecionadas pelo lugar onde estao agora
+(copias do Ctrl+D ganham identidade propria)"""
+    bl_idname = 'object.cabinet_recalcular_ancoragem'
+    bl_label = 'Recalcular Ancoragem'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and bool(_chapas_selecionadas(context))
+
+    def execute(self, context):
+        chapas = _chapas_selecionadas(context)
+        context.view_layer.update()         # posicoes de agora (invariante 6)
+        n = _chapas.recalcular_ancoragem(chapas)
+        _eventos._redesenhar_viewports(context)
+        self.report({'INFO'}, "%d solda(s) refeita(s) em %d chapa(s)"
+                    % (n, len(chapas)))
+        return {'FINISHED'}
+
+
 class OBJECT_OT_juntar_modulo(Operator):
     """Resposta do "Juntar ao modulo?": puxa a peca ate' o alvo (que fica parado)"""
     bl_idname = 'object.cabinet_juntar_modulo'
