@@ -1,6 +1,9 @@
 """Importacao: converter objetos de fora em chapa/modulo/puxador/
 porta, vincular porta e modulo, definir a frente."""
 
+import os
+import unicodedata
+
 import bpy, bmesh
 from mathutils import Matrix, Vector
 from bpy_extras import view3d_utils
@@ -8,7 +11,8 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _portas = _ferragens = _gaveta = None
+_chapas = _modulos = _portas = _ferragens = _gaveta = _biblioteca = _formas = None
+_promob = None
 
 # ========================================================== IMPORTACAO
 # Objetos de fora -- um armario baixado, uma porta modelada, puxadores --
@@ -18,6 +22,9 @@ _chapas = _modulos = _portas = _ferragens = _gaveta = None
 ESPESSURA_MAXIMA_CHAPA_MM = 40.0   # mais grosso que isto nao e' chapa
 PROPORCAO_MINIMA_CHAPA = 3.0       # lados >= 3x a espessura
 ENCHIMENTO_MINIMO_CHAPA = 0.85     # area em faces alinhadas a caixa
+# ...ou as duas faces grandes: placa com contorno curvo (prateleira de
+# cantoneira, travessa em arco), em que a borda redonda tem muita area
+FACES_PRINCIPAIS_MINIMO = 0.6
 GRUPOS_MAXIMOS_NORMAIS = 64        # peca curva: para de agrupar normais
 # Modificadores que nao mudam a forma; os outros (solidify, array...)
 # ja' entraram na medida da peca e dobrariam se ficassem.
@@ -112,9 +119,11 @@ def _analisar_peca(obj):
     total = sum(area for _n, area in faces) or 1.0
     alinhada = sum(area for n, area in faces
                    if any(abs(n.dot(e)) > 0.995 for e in eixos))
+    principais = grupos[0][1] / total if grupos and iz == 0 else 0.0
     chapa = (0.05 < E <= ESPESSURA_MAXIMA_CHAPA_MM
              and min(L, C) >= PROPORCAO_MINIMA_CHAPA * E
-             and alinhada / total >= ENCHIMENTO_MINIMO_CHAPA)
+             and (alinhada / total >= ENCHIMENTO_MINIMO_CHAPA
+                  or principais >= FACES_PRINCIPAIS_MINIMO))
     return {'chapa': chapa, 'base': Matrix((x, y, z)).transposed(),
             'dims': (L, C, E), 'centro': centro}
 
@@ -146,9 +155,14 @@ def converter_em_chapa(obj, analise=None):
         obj.shape_key_clear()
     if obj.data.users > 1:
         obj.data = obj.data.copy()
-    obj.matrix_world = Matrix.LocRotScale(
-        analise['centro'], analise['base'].to_quaternion(),
-        Vector((1.0, 1.0, 1.0)))
+    nova = Matrix.LocRotScale(analise['centro'], analise['base'].to_quaternion(),
+                              Vector((1.0, 1.0, 1.0)))
+    # Os VERTICES vao junto para o referencial novo: a forma fica no mesmo
+    # lugar do mundo. Sem isto, a peca recortada (malha preservada) ia para
+    # outro lugar, e a caixa girada (porta a 45 graus) nao era reconhecida
+    # como caixa.
+    obj.data.transform(nova.inverted() @ obj.matrix_world)
+    obj.matrix_world = nova
     obj[_chapas.MARCA_CHAPA] = 1
     _chapas._ocupado[0] = True
     try:
@@ -875,4 +889,436 @@ class OBJECT_OT_definir_frente(Operator):
             self.report({'WARNING'}, str(erro))
             return {'RUNNING_MODAL'}
         self._encerrar(context)
+        return {'FINISHED'}
+
+
+# ============================================== MODULOS DO PROMOB (DXF)
+# Pedido do usuario: trazer os modulos prontos do Promob. Os arquivos da
+# biblioteca dele sao RECEITAS (formulas do motor do Promob, sem as pecas);
+# o caminho e' o Promob calcular e exportar a cena em DXF. Nesse DXF cada
+# PECA e' uma camada (LAYER<n>) de 3DFACE ou polyface, em mm, Z para cima,
+# frente em -Y. Vem so' o que e' CHAPA (pela forma, `_analisar_peca`):
+# dobradica, puxador, decoracao e o piso ficam de fora (pedido do usuario).
+FOLGA_MODULO_PROMOB_MM = 3.0     # pecas a ate' 3 mm uma da outra: mesmo modulo
+# Chapa do Promob: >= 3 mm (o fundo tem 6) e lados >= 50 mm. As placas de
+# 2 mm das dobradicas passavam como "chapa fina".
+ESPESSURA_MINIMA_PROMOB_MM = 3.0
+LADO_MINIMO_PROMOB_MM = 50.0
+# O PISO da cena: chapa DEITADA de mais de 1,5 m2 por baixo de quase
+# tudo (cobre o centro de >= 80% das outras pecas) -- uma base de modulo
+# nunca cobre as laterais, que ficam fora dela
+AREA_MINIMA_PISO_M2 = 1.5
+COBERTURA_MINIMA_PISO = 0.8
+# ...ou FINA assim (o piso do Promob tem 5 mm; base de modulo, 15+): os
+# modulos podem passar da borda dele (Especiais: so' 72% em cima)
+ESPESSURA_MAXIMA_PISO_MM = 6.0
+# PECA CURVA (porta/painel em arco): o perfil curvo puxado na vertical --
+# so' faces deitadas (tampas) e em pe' (laterais) --, fina e comprida.
+# Cesto aramado, pe' e puxador nao passam.
+FACES_EXTRUSAO_MINIMO = 0.98
+COMPRIMENTO_MINIMO_CURVA_MM = 150.0
+# ...e CURVA de verdade: parte das laterais fora das duas direcoes
+# principais (o micro-ondas da torre e' caixa com moldura e passava)
+LATERAL_CURVA_MINIMO = 0.3
+
+
+def _eh_peca_curva(obj):
+    return _espessura_da_curva(obj) is not None
+
+
+def _espessura_da_curva(obj):
+    """A espessura (mm) da peca curva, ou None se ela nao e' curva."""
+    faces, vertices = _faces_em_mundo(obj)
+    total = sum(area for _n, area in faces)
+    if total <= 0 or not vertices:
+        return None
+    tampas = sum(area for n, area in faces if abs(n.z) > 0.98)
+    lados = sum(area for n, area in faces if abs(n.z) < 0.02)
+    altura = (max(v.z for v in vertices) - min(v.z for v in vertices)) * 1000.0
+    if (tampas + lados) / total < FACES_EXTRUSAO_MINIMO or lados <= 0 or altura < 50.0:
+        return None
+    espessura = tampas * altura / lados                 # mm
+    comprimento = tampas * 1e6 / 2.0 / max(espessura, 1e-6)
+    em_pe = [(n, area) for n, area in faces if abs(n.z) < 0.02]
+    principal = max(em_pe, key=lambda f: f[1])[0]
+    outra = principal.cross(Vector((0.0, 0.0, 1.0))).normalized()
+    retas = sum(area for n, area in em_pe
+                if abs(n.dot(principal)) > 0.995 or abs(n.dot(outra)) > 0.995)
+    if (ESPESSURA_MINIMA_PROMOB_MM <= espessura <= ESPESSURA_MAXIMA_CHAPA_MM
+            and comprimento >= COMPRIMENTO_MINIMO_CURVA_MM
+            and (lados - retas) / lados >= LATERAL_CURVA_MINIMO):
+        return espessura
+    return None
+
+
+def cores_dxf_promob(caminho):
+    """{camada: cor} da tabela de camadas do DXF (sem tabela: {})."""
+    with open(caminho, encoding='latin1') as f:
+        linhas = f.read().splitlines()
+    pares = [(linhas[i].strip(), linhas[i + 1].strip())
+             for i in range(0, len(linhas) - 1, 2)]
+    cores, secao, nome = {}, None, None
+    for i, (codigo, valor) in enumerate(pares):
+        if codigo == '0' and valor == 'SECTION' and i + 1 < len(pares):
+            secao = pares[i + 1][1]
+        elif secao == 'ENTITIES':
+            break
+        elif secao == 'TABLES':
+            if codigo == '0':
+                nome = None
+            elif codigo == '2':
+                nome = valor
+            elif codigo == '62' and nome is not None:
+                try:
+                    cores[nome] = abs(int(valor))
+                except ValueError:
+                    pass
+    return cores
+
+
+def ler_dxf_promob(caminho):
+    """{camada: (vertices, faces)} em mm: 3DFACE e polyface (POLYLINE 64)."""
+    with open(caminho, encoding='latin1') as f:
+        linhas = f.read().splitlines()
+    pares = [(linhas[i].strip(), linhas[i + 1].strip())
+             for i in range(0, len(linhas) - 1, 2)]
+    pecas = {}
+
+    def peca(camada):
+        return pecas.setdefault(camada, ([], []))
+    secao, i, poli = None, 0, None
+    while i < len(pares):
+        codigo, valor = pares[i]
+        if codigo == '0' and valor == 'SECTION' and i + 1 < len(pares):
+            secao = pares[i + 1][1]
+        if secao != 'ENTITIES' or codigo != '0':
+            i += 1
+            continue
+        j, dados = i + 1, {}
+        while j < len(pares) and pares[j][0] != '0':
+            dados.setdefault(pares[j][0], pares[j][1])
+            j += 1
+        camada = dados.get('8', '0')
+
+        def ponto(n, d=dados):
+            return tuple(float(d.get('%d%d' % (k, n), 0.0)) for k in (1, 2, 3))
+        if valor == '3DFACE':
+            vs, fs = peca(camada)
+            pts = [ponto(n) for n in range(4)]
+            if pts[3] == pts[2]:
+                pts = pts[:3]
+            fs.append([len(vs) + k for k in range(len(pts))])
+            vs.extend(pts)
+        elif valor == 'POLYLINE':
+            poli = (camada, int(dados.get('70', 0)) & 64, len(peca(camada)[0]))
+        elif valor == 'VERTEX' and poli is not None and poli[1]:
+            vs, fs = peca(poli[0])
+            bandeira = int(dados.get('70', 0))
+            if bandeira & 64:                    # vertice da polyface
+                vs.append(ponto(0))
+            elif bandeira & 128:                 # face: indices de 1 em diante
+                indices = [abs(int(dados[k])) for k in ('71', '72', '73', '74')
+                           if k in dados and int(dados[k]) != 0]
+                if len(indices) >= 3:
+                    fs.append([poli[2] + n - 1 for n in indices])
+        elif valor == 'SEQEND':
+            poli = None
+        i = j
+    return {k: v for k, v in pecas.items() if v[1]}
+
+
+def _objeto_da_peca(context, nome, vertices, faces, colecao):
+    """Malha em metros, vertices repetidos fundidos, objeto na origem."""
+    bm = bmesh.new()
+    try:
+        vs = [bm.verts.new(Vector(v) / 1000.0) for v in vertices]
+        for face in faces:
+            try:
+                bm.faces.new([vs[k] for k in face])
+            except ValueError:
+                pass                              # face repetida
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+        # triangulos do DXF de volta a quadrados: a caixa vira 8 vertices
+        bmesh.ops.dissolve_limit(bm, angle_limit=0.0175, verts=bm.verts,
+                                 edges=bm.edges)
+        malha = bpy.data.meshes.new(nome)
+        bm.to_mesh(malha)
+    finally:
+        bm.free()
+    obj = bpy.data.objects.new(nome, malha)
+    colecao.objects.link(obj)
+    return obj
+
+
+def _caixa_mundo_mm(obj):
+    pts = [obj.matrix_world @ v.co * 1000.0 for v in obj.data.vertices]
+    return ([min(p[k] for p in pts) for k in range(3)],
+            [max(p[k] for p in pts) for k in range(3)])
+
+
+def _modulos_por_contato(objs, folga=FOLGA_MODULO_PROMOB_MM):
+    """Grupos de pecas que se encostam (caixas a ate' `folga` mm)."""
+    caixas = [_caixa_mundo_mm(o) for o in objs]
+    pai = list(range(len(objs)))
+
+    def raiz(a):
+        while pai[a] != a:
+            pai[a] = pai[pai[a]]
+            a = pai[a]
+        return a
+    for a in range(len(objs)):
+        for b in range(a + 1, len(objs)):
+            (la, ha), (lb, hb) = caixas[a], caixas[b]
+            if all(la[k] - folga <= hb[k] and lb[k] - folga <= ha[k] for k in range(3)):
+                pai[raiz(a)] = raiz(b)
+    grupos = {}
+    for k, o in enumerate(objs):
+        grupos.setdefault(raiz(k), []).append(o)
+    return sorted(grupos.values(), key=lambda g: (round(min(_caixa_mundo_mm(o)[0][1] for o in g)),
+                                                   round(min(_caixa_mundo_mm(o)[0][0] for o in g))))
+
+
+def _eh_piso(obj, analise, caixas, centros):
+    lo, hi = caixas[obj.name]
+    deitada = abs(analise['base'].col[2].z) > 0.99
+    area = (hi[0] - lo[0]) * (hi[1] - lo[1]) / 1e6
+    if not deitada or area < AREA_MINIMA_PISO_M2:
+        return False
+    if analise['dims'][2] <= ESPESSURA_MAXIMA_PISO_MM:
+        return True
+    outros = [c for n, c in centros.items() if n != obj.name]
+    dentro = sum(1 for c in outros
+                 if lo[0] <= c[0] <= hi[0] and lo[1] <= c[1] <= hi[1])
+    return bool(outros) and dentro >= COBERTURA_MINIMA_PISO * len(outros)
+
+
+def _remover_objeto(obj):
+    malha = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if malha is not None and malha.users == 0:
+        bpy.data.meshes.remove(malha)
+
+
+def _eixo_da_espessura(analise):
+    normal = analise['base'].col[2]
+    return max(range(3), key=lambda k: abs(normal[k]))
+
+
+def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
+    """Os modulos do DXF do Promob como modulos NATIVOS, nomeados
+    `<prefixo> NN LxAxP` (com `na_origem`, cada um vai para a origem, como
+    os presets). So' a COR de chapa (`_promob.CORES_CHAPA`) vira chapa; a
+    ferragem do Promob so' informa (a dobradica diz que a frente e' porta,
+    o quadro de aluminio que e' correr) e sai. Frentes viram portas e
+    gavetas NATIVAS, fundo e travessas as dependentes (`_promob`).
+    Devolve ([modulos], {'pecas', 'chapas', 'curvas', 'descartadas',
+    'piso', 'portas', 'gavetas', 'correr'})."""
+    pecas = ler_dxf_promob(caminho)
+    cores = cores_dxf_promob(caminho)
+    colecao = context.scene.collection
+    objs, cor_de = [], {}
+    for camada, (vs, fs) in pecas.items():
+        obj = _objeto_da_peca(context, 'Peca ' + camada, vs, fs, colecao)
+        objs.append(obj)
+        cor_de[obj.name] = cores.get(camada)
+    context.view_layer.update()
+    caixas = {o.name: _caixa_mundo_mm(o) for o in objs}
+    centros = {n: [(lo[k] + hi[k]) / 2.0 for k in range(3)]
+               for n, (lo, hi) in caixas.items()}
+    chapas, curvas, ferragens, descartadas, piso = [], {}, [], 0, 0
+    for obj in objs:
+        cor = cor_de[obj.name]
+        if cor not in _promob.CORES_CHAPA:
+            # ferragem/aluminio/puxador/eletro: so' a caixa fica, para o plano
+            ferragens.append(_promob.peca(None, *caixas[obj.name], cor=cor))
+            _remover_objeto(obj)
+            descartadas += 1
+            continue
+        analise = _analisar_peca(obj)
+        if analise is not None and analise['chapa'] and _eh_piso(obj, analise, caixas, centros):
+            piso += 1
+            analise = None
+        if analise is not None and analise['chapa']:
+            L, C, E = analise['dims']
+            if E < ESPESSURA_MINIMA_PROMOB_MM or min(L, C) < LADO_MINIMO_PROMOB_MM:
+                analise = None                    # ferragem fina
+        if analise is not None and not analise['chapa']:
+            espessura = _espessura_da_curva(obj)
+            if espessura is not None:
+                curvas[obj] = espessura
+                continue
+        if analise is None or not analise['chapa']:
+            _remover_objeto(obj)
+            descartadas += 1
+            continue
+        chapas.append((obj, analise))
+    modulos = []
+    analises = dict(chapas)
+    grupos = [g for g in _modulos_por_contato([o for o, _a in chapas] + list(curvas))
+              if any(o in analises for o in g)]
+    soltas = [o for o in curvas if not any(o in g for g in grupos)]
+    for o in soltas:                                  # curva sem modulo: sai
+        del curvas[o]
+        _remover_objeto(o)
+        descartadas += 1
+    feitos = {'portas': 0, 'gavetas': 0, 'correr': 0}
+    for n, grupo in enumerate(grupos, 1):
+        dados = []
+        for obj in grupo:
+            lo, hi = caixas[obj.name]
+            if obj in analises:
+                a = analises[obj]
+                dados.append(_promob.peca(obj, lo, hi, _eixo_da_espessura(a),
+                                          espessura=a['dims'][2]))
+            else:
+                dados.append(_promob.peca(obj, lo, hi, curva=True,
+                                          espessura=curvas[obj]))
+        caixa = _promob._uniao(dados)
+        perto = [f for f in ferragens
+                 if all(f['lo'][k] < caixa['hi'][k] + 100.0
+                        and f['hi'][k] > caixa['lo'][k] - 100.0 for k in range(3))]
+        plano = _promob.planejar(dados, perto)
+        fora = {id(p['obj']) for p in plano['remover']}
+        for p in plano['remover']:
+            # tira das listas ANTES: objeto removido nao se compara mais
+            curvas.pop(p['obj'], None)
+            analises.pop(p['obj'], None)
+            _remover_objeto(p['obj'])
+        grupo = [o for o in grupo if id(o) not in fora]
+        placas = [o for o in grupo if o in analises]
+        if not placas:
+            continue
+        for obj in placas:
+            converter_em_chapa(obj, analises[obj])
+        context.view_layer.update()
+        conj = _modulos.agrupar_chapas(context, placas, '%s %02d' % (prefixo, n))
+        for obj in grupo:
+            if obj in analises:
+                continue
+            # porta/painel curvo: entra no modulo como acessorio que
+            # deforma junto com a forma (o raio da HUD refaz o arco)
+            mundo = obj.matrix_world.copy()
+            obj.parent = conj
+            obj.matrix_parent_inverse = conj.matrix_world.inverted()
+            obj.matrix_world = mundo
+            obj[_chapas.MARCA_ACESSORIO] = 1
+            obj[_formas.MARCA_CURVA] = 1
+            colecao = _modulos._colecao_do_modulo(conj)
+            if colecao is not None:
+                _modulos._mover_para_colecao(obj, colecao)
+        _promob.marcar_dependentes(conj, plano)
+        context.view_layer.update()
+        for chave, valor in _promob.aplicar(context, conj, plano).items():
+            feitos[chave] += valor
+        if na_origem:
+            # como os nativos: a biblioteca insere no cursor
+            conj.location = (0.0, 0.0, 0.0)
+            context.view_layer.update()
+        _modulos.sincronizar_medidas_conjunto(conj)
+        nome = '%s %02d %dx%dx%d' % (prefixo, n, round(conj.conj_largura_mm),
+                                     round(conj.conj_altura_mm),
+                                     round(conj.conj_profundidade_mm))
+        _modulos.nomear_grupo(conj, nome)
+        modulos.append(conj)
+    return modulos, dict({'pecas': len(pecas), 'chapas': len(chapas),
+                          'curvas': len(curvas),
+                          'descartadas': descartadas - piso, 'piso': piso}, **feitos)
+
+
+def importar_promob_para_biblioteca(context, caminho, niveis, prefixo):
+    """Cada modulo do DXF vira um preset da biblioteca em `niveis`
+    (quantos forem). Devolve ([arquivos .blend], info)."""
+    modulos, info = importar_dxf_promob(context, caminho, prefixo, na_origem=True)
+    arquivos = []
+    for conj in modulos:
+        arquivos.append(_biblioteca.gravar_modulo_na_biblioteca(
+            context, conj, conj.name, niveis))
+    return arquivos, info
+
+
+def prefixo_da_categoria(categoria):
+    """"Cantos" -> "Canto", "Inferiores" -> "Inferior": nome de UM modulo."""
+    nome = categoria.strip()
+    if nome.lower().endswith('ores'):
+        return nome[:-2]
+    if nome.lower().endswith('oes'):
+        return nome[:-3] + 'ao'
+    if nome.lower().endswith('ais'):
+        return nome[:-3] + 'al'
+    return nome[:-1] if nome.lower().endswith('s') else nome
+
+
+# As abas do Promob (Cozinha > Inferiores > Cantos...): cada .dxf exportado
+# e' UMA categoria, pelo nome do arquivo. A aba e a categoria sao DOIS niveis
+# da biblioteca (Armarios > Cozinha > Inferiores > Cantos: pedido do usuario,
+# a cascata nao tem limite). Chave: o nome do arquivo sem acento, so' letras.
+CATEGORIAS_PROMOB = {
+    'cantos': ('Inferiores', 'Cantos', 'Canto'),
+    'bifond': ('Inferiores', 'Cantos Bifold', 'Bifold'),
+    'bifold': ('Inferiores', 'Cantos Bifold', 'Bifold'),
+    'cantosbifold': ('Inferiores', 'Cantos Bifold', 'Bifold'),
+    'balcoes': ('Inferiores', 'Balcoes', 'Balcao'),
+    'especiais': ('Inferiores', 'Especiais', 'Especial'),
+    'gaveteiros': ('Inferiores', 'Gaveteiros', 'Gaveteiro'),
+    'peletros': ('Inferiores', 'Para Eletros', 'Eletro'),
+    'paraeletros': ('Inferiores', 'Para Eletros', 'Eletro'),
+    'pias': ('Inferiores', 'Pias', 'Pia'),
+    'diagonais': ('Inferiores', 'Diagonais', 'Diagonal'),
+    'cantoneiras': ('Inferiores', 'Cantoneiras', 'Cantoneira'),
+    'fechamentos': ('Inferiores', 'Fechamentos', 'Fechamento'),
+    'despenseiros': ('Altos', 'Despenseiros', 'Despenseiro'),
+}
+ABAS_PROMOB = ('Inferiores', 'Altos', 'Ilhas', 'Sup Baixos', 'Sup Medios',
+               'Sup Altos', 'Tampos', 'Componentes')
+
+
+def _ascii(texto):
+    return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode()
+
+
+def categoria_promob(caminho):
+    """(aba, categoria, prefixo) de um .dxf exportado: a PASTA e' a aba
+    (Altos, Ilhas, Sup Baixos...) e o ARQUIVO a categoria. Pasta que nao
+    e' aba (as primeiras exportacoes: Cantos/, Bifond/) fica com a aba da
+    tabela, ou Inferiores. Fora de Inferiores o nome leva a aba ("Canto
+    Sup Baixo 01"): sem isto o "Canto 01" de uma aba gravava por cima do
+    da outra."""
+    nome = _ascii(os.path.splitext(os.path.basename(caminho))[0]).strip()
+    chave = ''.join(c for c in nome.lower() if c.isalpha())
+    pasta = _ascii(os.path.basename(os.path.dirname(caminho))).strip()
+    aba_pasta = next((a for a in ABAS_PROMOB if a.lower() == pasta.lower()), None)
+    aba, categoria, prefixo = CATEGORIAS_PROMOB.get(
+        chave, ('Inferiores', nome, prefixo_da_categoria(nome)))
+    aba = aba_pasta or aba
+    if aba != 'Inferiores':
+        prefixo = '%s %s' % (prefixo, prefixo_da_categoria(aba))
+    return aba, categoria, prefixo
+
+
+class OBJECT_OT_importar_promob(Operator):
+    """Importa os modulos de um DXF exportado do Promob: so' as chapas
+    (ferragens, puxadores e decoracao ficam de fora)"""
+    bl_idname = "object.cabinet_importar_promob"
+    bl_label = "Importar Modulos do Promob (DXF)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH', options={'SKIP_SAVE'})
+    filter_glob: bpy.props.StringProperty(default='*.dxf', options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if not self.filepath.lower().endswith('.dxf'):
+            self.report({'WARNING'}, "Escolha um arquivo .dxf")
+            return {'CANCELLED'}
+        modulos, info = importar_dxf_promob(context, self.filepath,
+                                            categoria_promob(self.filepath)[2])
+        if not modulos:
+            self.report({'WARNING'}, "Nenhuma chapa no arquivo")
+            return {'CANCELLED'}
+        self.report({'INFO'}, "%d modulo(s), %d chapa(s); %d peca(s) que nao sao "
+                    "chapa ficaram de fora" % (len(modulos), info['chapas'],
+                                               info['descartadas']))
         return {'FINISHED'}

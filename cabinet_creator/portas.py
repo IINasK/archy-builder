@@ -94,6 +94,11 @@ def _parametros_portas_da_cena(s, numerico=False):
         'recuo_embutida_mm': s.porta_recuo_embutida_mm,
         'recuo_correr_mm': s.porta_recuo_correr_mm,
         'entre_planos_mm': s.porta_entre_planos_mm,
+        'moldura_mm': s.porta_moldura_mm,
+        'rodape_mm': s.porta_rodape_mm,
+        'testeira_mm': s.porta_testeira_mm,
+        'trilho': s.porta_trilho,
+        'folha': s.porta_folha,
         # Ferragens (wizard de criacao): 0 = automatico pela medida da
         # folha (`_qtd_dobradicas_padrao`, `_qtd_pistoes_padrao`,
         # `_pistao_do_vao`); o wizard grava os escolhidos.
@@ -1410,6 +1415,7 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             folha.chapa_comprimento_mm = a
             folha.chapa_espessura_mm = e
             folha.chapa_auto = True
+            _vestir_folha(folha, parametros)
             if antigo is not None:
                 _ajustar_puxadores(folha, antigo, (l, a, e))
         # Apenas folhas geradas que deixaram de existir na nova tipologia.
@@ -1860,4 +1866,5 @@ def _caixas_dobradicas(aresta, distancias, costas_mm):
 # HUD guarda e devolve todas no Esc)
 _PROPS_PORTAS_CENA = (
     "porta_abertura", "porta_dobradica", "porta_folhas", "porta_associar",
+    "porta_trilho", "porta_folha",
 ) + tuple(m[1] for m in MEDIDAS_PORTAS)

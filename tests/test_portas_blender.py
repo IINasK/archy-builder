@@ -2311,17 +2311,21 @@ class TestPortas(unittest.TestCase):
                   if v[5] and v[5][0] == 'escolha' and v[5][3]}
         # a dobradica e' automatica: nem aparece na aba (pedido do usuario)
         self.assertNotIn('Dobradica', [v[4] for v in widgets])
-        self.assertEqual(acesos['porta_folhas'][2], 2)
-        self.assertEqual(acesos['porta_folhas'][5], grupo.name)
-        folga = next(v[5] for v in widgets if v[5] and v[5][0] == 'medida'
-                     and v[5][2] == 'ui_porta_folga')
-        self.assertEqual((folga[1], folga[4]), ('porta', 0.0))
+        folhas = next(v[5] for v in widgets
+                      if v[5] and v[5][:2] == ('contador', 'porta_folhas'))
+        self.assertEqual(folhas[2], 2)
+        self.assertEqual(folhas[5], grupo.name)
+        self.assertNotIn('porta_folhas', acesos)       # nada de segmentos
+        # "Folga no perimetro" nao existe (pedido do usuario)
+        self.assertFalse([v for v in widgets if v[5] and v[5][0] == 'medida'
+                          and v[5][2] == 'ui_porta_folga'])
         rotulos = [v[4] for v in widgets]
         # sem cabecalho "Porta N de M - vao L x A" (nome/medida repetidos)
         self.assertFalse(any(r.startswith('Porta ') and 'vao' in r
                              for r in rotulos))
         botao = next(v[5] for v in widgets if v[5] and v[5][0] == 'portas')
         self.assertTrue(botao[4])
+
     def test_aba_da_porta_com_moldura_em_categorias(self):
         # Auditoria do usuario: campos compactos, organizados por categoria
         # (Porta, Folhas, Moldura, Abertura), que nao cortam texto e nao se
@@ -2371,6 +2375,49 @@ class TestPortas(unittest.TestCase):
                          {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA',
                           'TESTEIRA', 'BASE_BAIXO'})
 
+    def test_folhas_e_campo_compacto_e_botoes_com_icone_em_cima(self):
+        # Pedido do usuario: Folhas deixa de ser 1 2 3 4 e vira um campo
+        # compacto AO LADO do ultimo campo da porta (Entre folhas/planos),
+        # que arrasta e digita; Reposicionar e Frente vao para CIMA das
+        # medidas, com icone.
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)       # reta, 2 folhas
+        addon.hud._selecionar_porta_hud(
+            bpy.context, addon.portas._folhas_portas(grupo)[0], 'PORTA')
+        bpy.context.scene.cabinet_aba = 'PORTAS'
+        ops = ('object.cabinet_apanhar_vao', 'object.cabinet_definir_frente')
+        for largura in (190, 320, 564):
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
+            campo = next(v for v in widgets
+                         if v[5] and v[5][:2] == ('contador', 'porta_folhas'))
+            self.assertEqual(campo[2], addon.gaveta.LARGURA_CAMPO_FOLHAS)
+            self.assertTrue(addon.gaveta_desenho._eh_campo_contador(campo[5]))
+            vizinho = next(v for v in widgets if v[5] and v[5][0] == 'medida'
+                           and v[5][2] == 'ui_porta_entre_folhas')
+            self.assertEqual(vizinho[1], campo[1], largura)    # mesma linha
+            self.assertLessEqual(vizinho[0] + vizinho[2], campo[0])
+            self.assertLessEqual(campo[0] + campo[2], min(largura - 12, 552) + 0.01)
+            botoes = [v for v in widgets if v[5] and v[5][0] == 'operador'
+                      and v[5][1] in ops]
+            self.assertEqual(len(botoes), 2)
+            medidas = [v for v in widgets if v[5] and v[5][0] == 'medida']
+            self.assertGreater(min(b[1] for b in botoes),
+                               max(m[1] + m[3] for m in medidas), largura)
+            for b in botoes:
+                self.assertTrue(addon.gaveta_eventos._icone_ao_lado(b[5]))
+                self.assertTrue(addon.gaveta_eventos._icone_acao_gaveta(b[5]))
+                cx, _cy = addon.gaveta_eventos._centro_icone(*b[:4], b[5])
+                self.assertLess(cx, b[0] + b[3])       # na ponta esquerda
+        # digitar qualquer numero: o que a abertura aceita grava; o resto
+        # avisa e nao mexe na porta
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(
+            bpy.context, 'contador', grupo.name, 'porta_folhas', 1.0))
+        self.assertEqual(int(grupo['porta_parametros']['folhas']), 1)
+        self.assertEqual(len(addon.portas._folhas_portas(grupo)), 1)
+        erro = addon.gaveta_eventos.aplicar_medida(
+            bpy.context, 'contador', grupo.name, 'porta_folhas', 7.0)
+        self.assertTrue(erro)
+        self.assertEqual(int(grupo['porta_parametros']['folhas']), 1)
 
     def test_editar_parametro_muda_so_aquela_porta(self):
         conj = self.nicho()
@@ -2414,8 +2461,8 @@ class TestPortas(unittest.TestCase):
                                     'FOLHA')
         self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
             'EXEC_DEFAULT', dono='porta', objeto=bpy.context.object.name,
-            propriedade='ui_porta_folga', valor=0.003), {'FINISHED'})
-        self.assertAlmostEqual(grupo['porta_parametros']['folga_mm'], 3.0)
+            propriedade='ui_porta_afastamento', valor=0.003), {'FINISHED'})
+        self.assertAlmostEqual(grupo['porta_parametros']['afastamento_mm'], 3.0)
         modo, campos, dono = addon.gaveta._medidas_gaveta(bpy.context)
         self.assertEqual((modo, dono), ('PORTA', 'porta'))
         self.assertEqual([c[2] for c in campos], ['', '', 'ui_porta_espessura'])
@@ -2699,6 +2746,41 @@ class TestPortas(unittest.TestCase):
         for p in reais:
             self.assertLess(min((p - q).length for q in esperados), 1e-5)
 
+
+    def test_folha_quadro_de_aluminio_na_porta_de_correr(self):
+        # pedido do usuario: a correr "diferenciada" do Promob vira estilo
+        # NOSSO -- perfil de aluminio (23 de fundo, 10 de face) em volta de
+        # um painel de 5; o trilho continua o do add-on
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj, folhas=2, abertura='CORRER')
+        self.assertEqual(addon.portas._editar_parametro_porta(
+            bpy.context, grupo, 'folha', 'QUADRO'), '')
+        grupo = addon.portas._portas_do_conjunto(conj)[-1]
+        for folha in addon.portas._folhas_portas(grupo):
+            self.assertAlmostEqual(folha.chapa_espessura_mm, 23.0, places=3)
+            # 4 barras do perfil + o painel = 5 caixas de 8 vertices
+            self.assertEqual(len(folha.data.vertices), 40)
+            self.assertEqual([m.name for m in folha.data.materials],
+                             [addon.portas.NOME_MATERIAL_QUADRO,
+                              addon.portas.NOME_MATERIAL_PAINEL])
+            # o painel (material 1) fica a 6 mm da face de fora
+            painel = [folha.data.vertices[i].co.z * 1000.0
+                      for p in folha.data.polygons if p.material_index == 1
+                      for i in p.vertices]
+            self.assertAlmostEqual(max(painel), 23.0 / 2 - 6.0, places=3)
+        # a aba mostra a escolha da folha so' na porta de correr
+        addon.hud._selecionar_porta_hud(
+            bpy.context, addon.portas._folhas_portas(grupo)[0], 'PORTA')
+        bpy.context.scene.cabinet_aba = 'PORTAS'
+        acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1600) if v[5]]
+        self.assertTrue(any(a[0] == 'escolha' and a[1] == 'porta_folha' for a in acoes))
+        # de volta a' chapa: a caixa de 18 e um material so'
+        self.assertEqual(addon.portas._editar_parametro_porta(
+            bpy.context, grupo, 'folha', 'CHAPA'), '')
+        for folha in addon.portas._folhas_portas(addon.portas._portas_do_conjunto(conj)[-1]):
+            self.assertAlmostEqual(folha.chapa_espessura_mm, 18.0, places=3)
+            self.assertEqual(len(folha.data.vertices), 8)
+            self.assertNotIn('chapa_quadro_mm', folha)
 
 addon.register()
 suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPortas)

@@ -53,12 +53,13 @@ from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
 from . import formas as _formas
 from . import gavetas as _gavetas
+from . import promob as _promob
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
-            _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas,
+            _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _promob,
             _painel_legado)
 
 
@@ -81,6 +82,7 @@ CLASSES = (
     _modulos.OBJECT_OT_sincronizar_grupo,
     _modulos.OBJECT_OT_sincronizar_conjunto,
     _modulos.OBJECT_OT_fundo_modulo,
+    _importacao.OBJECT_OT_importar_promob,
     _biblioteca.OBJECT_OT_registrar_bibliotecas,
     _biblioteca.OBJECT_OT_refiliar_catalogos,
     _biblioteca.OBJECT_OT_regerar_previews,
@@ -324,6 +326,9 @@ def register():
     # trilho da porta de correr com moldura (perguntado ao criar)
     S.porta_trilho = EnumProperty(name="Trilho", items=_portas.ITENS_TRILHO,
                                   default='PESADO')
+    # folha da porta de correr: chapa ou quadro de aluminio
+    S.porta_folha = EnumProperty(name="Folha", items=_portas.ITENS_FOLHA_CORRER,
+                                 default='CHAPA')
     # Dupla e' o padrao de armario; uma folha so' e' a excecao.
     S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=4)
     for prop_ui, prop_mm, rotulo, minimo in _portas.MEDIDAS_PORTAS:

@@ -49,6 +49,15 @@ def impressao_digital(pasta):
 
 DIGITAL_REAL = impressao_digital(PASTA_REAL)
 
+# AMOSTRA da biblioteca real para os testes que gravam: ate' N presets por
+# categoria (a biblioteca do Promob tem ~190 .blend e ~90 MB -- copiar
+# tudo a cada teste e regerar todas as fotos estourava o limite da suite).
+# A integridade de TODOS os presets reais e' conferida, so' lendo, em
+# `TestPresetsDeFabrica` (a impressao digital no fim garante que nada mudou).
+AMOSTRA_POR_CATEGORIA = 2
+
+
+
 # Presets gerados pelo proprio teste (ver criar_presets_de_teste)
 NOME_CHAPA_T = "Chapa Teste"
 CHAPA_T = "Chapa_Teste.blend"

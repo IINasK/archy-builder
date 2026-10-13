@@ -33,6 +33,14 @@ def _estruturais(chapas):
     return [c for c in chapas if not _chapas.eh_dependente(c)]
 
 
+def _espessura_de(chapas):
+    """O E do modulo/grupo: o de uma peca da caixa, nunca o do fundo
+    (por nome, "Fundo" vem antes de "Lateral" e o modulo virava E 5)."""
+    caixa = _estruturais(chapas) or chapas
+    # a MAIS COMUM (empate: a 1a): no modulo importado do Promob a 1a pode
+    # ser o fundo de 6 ou uma prateleira fina
+    valores = [round(c.chapa_espessura_mm, 2) for c in caixa]
+    return max(valores, key=lambda v: (valores.count(v), -valores.index(v)))
 
 
 def _caixa_de(chapas):

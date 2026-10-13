@@ -162,6 +162,81 @@ def _malha_com_canais(obj, L, C, E):
     obj.data.update()
 
 
+def _caixa_bm(bm, x0, x1, y0, y1, z0, z1, material=0):
+    vs = [bm.verts.new((x, y, z)) for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
+    for indices in ((0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3),
+                    (0, 4, 6, 2), (1, 3, 7, 5)):
+        bm.faces.new([vs[i] for i in indices]).material_index = material
+
+
+def _malha_quadro(obj, L, C, E):
+    """Folha de correr QUADRO DE ALUMINIO (a do despenseiro do Promob):
+    perfil de `chapa_quadro_mm` de face em volta (material 0) e o painel
+    fino (vidro/espelho/MDF, material 1) a `chapa_painel_frente_mm` da
+    face de fora (Z+), entrando `chapa_painel_entra_mm` no perfil. Refeita
+    a cada medida, como a dos canais: nao e' caixa, nem foi modelada."""
+    hx, hy, hz = L / 2.0, C / 2.0, E / 2.0
+    q = min(float(obj['chapa_quadro_mm']) / 1000.0, hx * 0.45, hy * 0.45)
+    p = min(float(obj.get('chapa_painel_mm', 5.0)) / 1000.0, E)
+    frente = min(float(obj.get('chapa_painel_frente_mm', 6.0)) / 1000.0, E - p)
+    entra = min(float(obj.get('chapa_painel_entra_mm', 5.0)) / 1000.0, q)
+    bm = bmesh.new()
+    try:
+        # o perfil em 4 barras: as de pe' inteiras, as deitadas entre elas
+        for x0, x1, y0, y1 in ((-hx, -hx + q, -hy, hy), (hx - q, hx, -hy, hy),
+                               (-hx + q, hx - q, -hy, -hy + q),
+                               (-hx + q, hx - q, hy - q, hy)):
+            _caixa_bm(bm, x0, x1, y0, y1, -hz, hz, 0)
+        _caixa_bm(bm, -hx + q - entra, hx - q + entra, -hy + q - entra,
+                  hy - q + entra, hz - frente - p, hz - frente, 1)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(obj.data)
+    finally:
+        bm.free()
+    obj.data.update()
+
+
+SEGMENTOS_ARCO_CHAPA = 16
+
+
+def _malha_arco(obj, L, C, E):
+    """Chapa CURVADA em arco (frente de gaveta de canto do Promob): a
+    corda e' a largura, a flecha `chapa_arco_mm` vai para Z+ (fora) e as
+    pontas ficam onde a chapa reta estaria. Espessura concentrica; secao
+    no plano X/Z puxada em Y (comprimento)."""
+    f = float(obj['chapa_arco_mm']) / 1000.0
+    meia = L / 2.0
+    f = min(f, meia)                          # no maximo meio circulo
+    raio = (meia * meia + f * f) / (2.0 * f)
+    alfa = math.asin(min(1.0, meia / raio))
+    centro_z = E / 2.0 + f - raio
+    n = SEGMENTOS_ARCO_CHAPA
+    angulos = [-alfa + 2.0 * alfa * k / n for k in range(n + 1)]
+    fora = [(raio * math.sin(a), centro_z + raio * math.cos(a)) for a in angulos]
+    dentro = [((raio - E) * math.sin(a), centro_z + (raio - E) * math.cos(a))
+              for a in angulos]
+    secao = fora + dentro[::-1]
+    bm = bmesh.new()
+    try:
+        pontas = [[bm.verts.new((x, y, z)) for x, z in secao] for y in (-C / 2.0, C / 2.0)]
+        m = len(secao)
+        for i in range(m):
+            j = (i + 1) % m
+            face = bm.faces.new((pontas[0][i], pontas[0][j], pontas[1][j], pontas[1][i]))
+            # os dois arcos lisos; as pontas (i = n e i = m-1) retas
+            face.smooth = i != n and i != m - 1
+        # tampas em quadrados (a secao em arco nao e' convexa)
+        for lado in pontas:
+            for k in range(n):
+                quad = (lado[k], lado[k + 1], lado[m - 2 - k], lado[m - 1 - k])
+                bm.faces.new(quad)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(obj.data)
+    finally:
+        bm.free()
+    obj.data.update()
+
+
 def gerar_malha_chapa(obj):
     """Malha REAL via bmesh -> editavel em Edit Mode.
     X local = largura | Y local = comprimento | Z local = ESPESSURA.
@@ -178,6 +253,12 @@ def gerar_malha_chapa(obj):
         # base do trilho leve: refeita COM os canais (nao e' caixa, mas
         # tambem nao foi modelada -- esticar levaria os canais junto)
         _malha_com_canais(obj, L, C, E)
+        return
+    if obj.get('chapa_quadro_mm'):
+        _malha_quadro(obj, L, C, E)
+        return
+    if obj.get('chapa_arco_mm'):
+        _malha_arco(obj, L, C, E)
         return
     if not _malha_e_caixa(obj.data):
         _esticar_malha(obj, (L, C, E))
