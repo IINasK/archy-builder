@@ -1,16 +1,23 @@
-"""Orcamento do ERP do usuario e comodos (pastas no Outliner)."""
+"""Orcamento em .txt (botao nas Opcoes) e comodos (pastas no Outliner)."""
 
-import bpy, re
+import os
+import re
+
+import bpy
 from bpy.props import BoolProperty, StringProperty
 from bpy.types import Operator
+from bpy_extras.io_utils import ExportHelper
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _eventos = _portas = _solda = _perguntas = None
 
-# ============================================== ORCAMENTO (ERP do usuario)
-# O ERP da empresa le o orcamento em Markdown no padrao de um prompt de
-# ditado: um bloco ```markdown e, fora dele, as Pendencias. Daqui sai SO'
+# ======================================================== ORCAMENTO
+# O add-on e' vendido: nada de "ERP" na tela. O botao "Gerar orcamento"
+# (painel da engrenagem) pede onde salvar e grava um .txt -- o conteudo
+# segue o padrao da empresa do usuario, que o ERP dela ja' le: Markdown
+# no padrao de um prompt de ditado, um bloco ```markdown e, fora dele,
+# as Pendencias. Daqui sai SO'
 # a marcenaria; o resto do documento fica como o prompt manda quando nada
 # foi dito (Limpeza geral, Valores e Pagamento vazios, perfil investidor).
 # Nada se inventa: a linha do modulo e' o NOME do grupo e os detalhes
@@ -34,10 +41,11 @@ COMODOS = (
     '\u00c1rea de servi\u00e7o', 'Sacada', 'Escrit\u00f3rio', 'Closet',
 )
 SINONIMOS_COMODO = {'varanda': 'Sacada'}
-# depois de copiar: o botao mostra o que fez e as pendencias ficam a'
-# vista ate' a proxima copia, uma troca de comodo ou este tempo
-SEGUNDOS_ORCAMENTO_COPIADO = 30.0
-_orcamento_copiado = [None]      # {'modulos': n, 'pendencias': [...]}
+# depois de salvar: o botao mostra o que fez e as pendencias ficam a'
+# vista ate' o proximo, uma troca de comodo ou este tempo
+SEGUNDOS_ORCAMENTO_GERADO = 30.0
+_orcamento_gerado = [None]       # {'modulos': n, 'pendencias': [...], 'arquivo'}
+ARQUIVO_ORCAMENTO = 'Orçamento'     # nome sugerido no "Salvar como"
 # Nome que o add-on deu sozinho: o usuario nao disse que modulo e'.
 NOME_AUTOMATICO_MODULO = re.compile(r'^(Armario \d+x\d+x\d+|Conjunto)$')
 # (singular, plural) por modelo de porta e de puxador
@@ -172,7 +180,7 @@ def definir_comodo(cena, modulos, nome):
                 pai.children.unlink(colecao)
         feitos += 1
     _limpar_comodos_vazios()
-    _orcamento_copiado[0] = None
+    _orcamento_gerado[0] = None
     return feitos
 
 
@@ -297,7 +305,7 @@ def _puxadores_por_modulo(objetos):
 
 
 def orcamento_da_cena(cena):
-    """(texto, modulos exportados, pendencias) no padrao do ERP."""
+    """(texto, modulos exportados, pendencias) no padrao da empresa."""
     objetos = list(cena.objects)
     puxadores = _puxadores_por_modulo(objetos)
     por_comodo = {}
@@ -360,8 +368,8 @@ def orcamento_da_cena(cena):
     return texto, exportados, pendencias
 
 
-def _apagar_orcamento_copiado():
-    _orcamento_copiado[0] = None
+def _apagar_orcamento_gerado():
+    _orcamento_gerado[0] = None
     for janela in bpy.context.window_manager.windows:
         for area in janela.screen.areas:
             if area.type == 'VIEW_3D':
@@ -369,25 +377,53 @@ def _apagar_orcamento_copiado():
     return None
 
 
-class OBJECT_OT_exportar_orcamento(Operator):
-    """Copia os moveis da cena no padrao de orcamento do ERP (Markdown)"""
+def _arquivo_sugerido():
+    """Ao lado do .blend, com o nome dele; sem .blend salvo, na pasta do
+    usuario (o "Salvar como" do Blender abriria na pasta do executavel)."""
+    if bpy.data.filepath:
+        pasta, nome = os.path.split(bpy.data.filepath)
+        return os.path.join(pasta, '%s - %s.txt' % (
+            ARQUIVO_ORCAMENTO, os.path.splitext(nome)[0]))
+    return os.path.join(os.path.expanduser('~'), ARQUIVO_ORCAMENTO + '.txt')
+
+
+class OBJECT_OT_exportar_orcamento(Operator, ExportHelper):
+    """Salva o orcamento dos moveis da cena num arquivo de texto (.txt)"""
     bl_idname = OP_EXPORTAR_ORCAMENTO
-    bl_label = "Copiar orcamento (ERP)"
+    bl_label = "Gerar orcamento"
+
+    filename_ext = '.txt'
+    filter_glob: StringProperty(default='*.txt', options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        if not self.filepath:
+            self.filepath = _arquivo_sugerido()
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
     def execute(self, context):
         texto, exportados, pendencias = orcamento_da_cena(context.scene)
-        context.window_manager.clipboard = texto
+        caminho = bpy.path.ensure_ext(bpy.path.abspath(self.filepath), '.txt')
+        try:
+            # UTF-8 (acentos dos comodos) e quebra de linha do sistema: o
+            # Bloco de Notas abre direto
+            with open(caminho, 'w', encoding='utf-8') as arquivo:
+                arquivo.write(texto)
+        except OSError as e:
+            self.report({'ERROR'}, "Nao deu para salvar o orcamento: %s" % e)
+            return {'CANCELLED'}
         # a gaveta mostra o que aconteceu (so' o relatorio na barra de
         # status passava despercebido: "copiar e nada acontece")
-        _orcamento_copiado[0] = {'modulos': exportados,
-                                 'pendencias': list(pendencias)}
-        if bpy.app.timers.is_registered(_apagar_orcamento_copiado):
-            bpy.app.timers.unregister(_apagar_orcamento_copiado)
-        bpy.app.timers.register(_apagar_orcamento_copiado,
-                                first_interval=SEGUNDOS_ORCAMENTO_COPIADO)
+        _orcamento_gerado[0] = {'modulos': exportados,
+                                'pendencias': list(pendencias),
+                                'arquivo': os.path.basename(caminho)}
+        if bpy.app.timers.is_registered(_apagar_orcamento_gerado):
+            bpy.app.timers.unregister(_apagar_orcamento_gerado)
+        bpy.app.timers.register(_apagar_orcamento_gerado,
+                                first_interval=SEGUNDOS_ORCAMENTO_GERADO)
         _eventos._redesenhar_viewports(context)
         self.report({'WARNING'} if pendencias else {'INFO'},
-                    "Orcamento copiado: %d modulo(s)%s" % (
-                        exportados, ", %d pendencia(s)" % len(pendencias)
-                        if pendencias else ""))
+                    "Orcamento salvo em %s: %d modulo(s)%s" % (
+                        caminho, exportados, ", %d pendencia(s)"
+                        % len(pendencias) if pendencias else ""))
         return {'FINISHED'}

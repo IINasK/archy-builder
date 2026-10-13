@@ -1976,8 +1976,6 @@ def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
     bpy.context.scene.cabinet_aba = 'MODULOS'
     yield
     yield
-    wm = bpy.context.window_manager
-    antes = wm.clipboard
     try:
         m.mover(*widget(janela, lambda v: v[5][:2] == (
             'suspenso', addon.orcamento.SUSPENSO_COMODO)))
@@ -1994,20 +1992,28 @@ def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
         assert comodo is not None and comodo.name == 'Cozinha', comodo
         assert bpy.context.screen.get(addon.gaveta._CHAVE_SUSPENSO, '') == '', \
             'a lista devia fechar depois da escolha'
+        m.mover(*widget(janela, lambda v: v[5] == (
+            'operador', addon.gaveta.OP_OPCOES)))
+        yield
+        m.clicar()
+        yield
+        yield
+        assert not janelas_do_salvar_como()
         m.mover(*widget(janela, lambda v: v[5][:2] == (
             'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)))
         yield
         m.clicar()
-        yield
-        copiado = wm.clipboard
-        assert copiado == addon.orcamento.orcamento_da_cena(bpy.context.scene)[0]
-        assert '### Cozinha\n- %s\n' % conj.name in copiado, copiado
-        widget(janela, lambda v: v[5][:2] == (
-            'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO) and v[5][2]
-            and v[4].startswith('Copiado: 1 modulo(s)'))
+        for _ in range(6):
+            yield
+            if janelas_do_salvar_como():
+                break
+        assert janelas_do_salvar_como(), 'o "Salvar como" nao abriu'
     finally:
-        wm.clipboard = antes
-        addon.orcamento._apagar_orcamento_copiado()
+        for j, a in janelas_do_salvar_como():
+            with bpy.context.temp_override(window=j, area=a):
+                bpy.ops.file.cancel()
+        addon.gaveta._fechar_opcoes(janela.screen)
+        addon.orcamento._apagar_orcamento_gerado()
 
 
 def test_criar_puxador_no_topo_da_aba(janela, m):

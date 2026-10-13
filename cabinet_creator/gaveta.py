@@ -1560,6 +1560,7 @@ def _rodape_gaveta(context, x, w):
                 y = _seletor_cor_gaveta(painel, x, y - 29, w, nome, rgb,
                                         especial)
         y -= 29
+    _botao_orcamento_opcoes(painel, x, y, w)
     # Montado de cima para baixo a partir de 0; sobe para encostar logo
     # acima da engrenagem -- o painel abre de baixo para cima.
     deslocar = ALTURA_RODAPE_GAVETA + 8 - min(v[1] for v in painel)
@@ -1727,9 +1728,9 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
 
 def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
     """Modulo ou chapa selecionado: medidas (Individual | Grupo) e
-    Montagem; objeto de fora: as medidas dele. Nada selecionado: so' o
-    Orcamento, que e' da cena inteira (a biblioteca, embaixo, e' a
-    criacao desta aba)."""
+    Montagem e o comodo; objeto de fora: as medidas dele. Nada
+    selecionado: nada (a biblioteca, embaixo, e' a criacao desta aba; o
+    orcamento, da cena inteira, mora nas Opcoes)."""
     obj = _selecionado(context)
     nosso = (obj is not None and _chapas.MARCA_FOLHA not in obj
              and (_chapas.MARCA_CHAPA in obj or _chapas.MARCA_CONJUNTO in obj))
@@ -1739,7 +1740,7 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
                            _ferragens.CHAVE_FERRAGEM))
     pergunta = _perguntas._pergunta_atual[0]
     pendente = (pergunta is not None and pergunta['na_gaveta']
-                and not pergunta.get('comodo'))
+                and not pergunta.get('comodo') and not pergunta.get('biblioteca'))
     if nosso or de_fora:
         y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade)
     elif not pendente:
@@ -1771,54 +1772,63 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
     y -= (linhas - 1) * 34
     pergunta = _perguntas._pergunta_atual[0]
     if (pergunta is not None and pergunta['na_gaveta']
-            and not pergunta.get('comodo')):
+            and not pergunta.get('comodo') and not pergunta.get('biblioteca')):
         y = _pergunta_na_gaveta(itens, x, y - 6, w, pergunta)
     return _secao_orcamento_gaveta(context, itens, x, y - 40, w)
 
 
 def _secao_orcamento_gaveta(context, itens, x, y, w):
-    """Orcamento para o ERP: o COMODO do modulo selecionado (UMA linha que
-    expande; pedido do usuario: a grade fixa ocupava a aba) e o botao que
-    copia o documento. O que o botao fez aparece nele e, havendo, as
-    pendencias numa caixa preta logo abaixo."""
+    """O COMODO do modulo selecionado, que agrupa o orcamento (UMA linha
+    que expande; pedido do usuario: a grade fixa ocupava a aba). O botao
+    que gera o orcamento e' da cena inteira: mora nas Opcoes."""
+    modulos = _orcamento._modulos_da_selecao(context)
+    if not modulos:
+        return itens
     # titulo como o de Montagem, sem separador (os da aba sao da cascata)
     itens.append((x, y, w, 23, 'Orcamento', None))
     y -= 31
-    modulos = _orcamento._modulos_da_selecao(context)
-    if modulos:
-        ativo = _orcamento._modulo_do_objeto(context.object) or modulos[0]
-        atual = _orcamento._nome_comodo(_orcamento._comodo_do_modulo(ativo))
-        aberto = context.screen.get(_CHAVE_SUSPENSO, '') == _orcamento.SUSPENSO_COMODO
-        itens.append((x, y, w, 25, 'Comodo: %s' % (atual or '(nenhum)'),
-                      ('suspenso', _orcamento.SUSPENSO_COMODO, aberto)))
-        y -= 29
-        if aberto:
-            # a lista abre DENTRO da aba, empurrando o resto para baixo
-            opcoes = [(n, n) for n in _orcamento._comodos_da_lista(context.scene)]
-            if atual:
-                opcoes.append((_orcamento.COMODO_NENHUM, 'Sem comodo'))
-            opcoes.append((_orcamento.COMODO_OUTRO, 'Outro nome...'))
-            y = _linha_escolha_gaveta(
-                itens, x, y, w, '', _orcamento.ALVO_COMODO, tuple(opcoes), atual,
-                alvo=_orcamento.ALVO_COMODO, por_linha=3 if w >= 300 else 2)
-        pergunta = _perguntas._pergunta_atual[0]
-        if pergunta is not None and pergunta.get('comodo'):
-            y = _pergunta_na_gaveta(itens, x, y + 23, w, pergunta) - 33
-        y -= 4
-    copiado = _orcamento._orcamento_copiado[0]
-    rotulo = 'Copiar orcamento (ERP)'
-    if copiado is not None:
-        rotulo = 'Copiado: %d modulo(s) - copiar de novo' % copiado['modulos']
-    itens.append((x, y, w, 28, rotulo,
-                  ('operador', _orcamento.OP_EXPORTAR_ORCAMENTO, copiado is not None)))
-    if copiado is not None and copiado['pendencias']:
+    ativo = _orcamento._modulo_do_objeto(context.object) or modulos[0]
+    atual = _orcamento._nome_comodo(_orcamento._comodo_do_modulo(ativo))
+    aberto = context.screen.get(_CHAVE_SUSPENSO, '') == _orcamento.SUSPENSO_COMODO
+    itens.append((x, y, w, 25, 'Comodo: %s' % (atual or '(nenhum)'),
+                  ('suspenso', _orcamento.SUSPENSO_COMODO, aberto)))
+    y -= 29
+    if aberto:
+        # a lista abre DENTRO da aba, empurrando o resto para baixo
+        opcoes = [(n, n) for n in _orcamento._comodos_da_lista(context.scene)]
+        if atual:
+            opcoes.append((_orcamento.COMODO_NENHUM, 'Sem comodo'))
+        opcoes.append((_orcamento.COMODO_OUTRO, 'Outro nome...'))
+        y = _linha_escolha_gaveta(
+            itens, x, y, w, '', _orcamento.ALVO_COMODO, tuple(opcoes), atual,
+            alvo=_orcamento.ALVO_COMODO, por_linha=3 if w >= 300 else 2)
+    pergunta = _perguntas._pergunta_atual[0]
+    if pergunta is not None and pergunta.get('comodo'):
+        _pergunta_na_gaveta(itens, x, y + 23, w, pergunta)
+    return itens
+
+
+def _botao_orcamento_opcoes(painel, x, y, w):
+    """"Gerar orcamento" no fim das Opcoes (pedido do usuario: o add-on e'
+    vendido, nao e' coisa de um ERP so'). Abre o "Salvar como" e grava o
+    .txt; o que fez aparece no botao e, havendo, as pendencias numa caixa
+    preta logo abaixo. Devolve o y de baixo."""
+    gerado = _orcamento._orcamento_gerado[0]
+    rotulo = 'Gerar orcamento (.txt)'
+    if gerado is not None:
+        rotulo = 'Salvo: %d modulo(s) - gerar de novo' % gerado['modulos']
+    y -= 6
+    painel.append((x, y, w, 28, rotulo,
+                   ('operador', _orcamento.OP_EXPORTAR_ORCAMENTO, gerado is not None)))
+    if gerado is not None and gerado['pendencias']:
         texto = 'Pendencias:\n' + '\n'.join(
             '\n'.join(_quebrar_texto(p, w - 20))
-            for p in copiado['pendencias'])
+            for p in gerado['pendencias'])
         linhas = texto.count('\n') + 1
         altura = 12 + 15 * linhas + 4
-        itens.append((x, y - 6 - altura, w, altura, texto, ('pergunta',)))
-    return itens
+        y -= 6 + altura
+        painel.append((x, y, w, altura, texto, ('pergunta',)))
+    return y
 
 
 PX_CARACTERE_PERGUNTA = 6.4      # estimativa da largura de um caractere (11 px)
@@ -1851,13 +1861,18 @@ def _pergunta_na_gaveta(itens, x, topo, w, pergunta):
         # o nome que se digita (Enter confirma), com o cursor
         texto += ': ' + _gaveta_desenho._com_cursor(estado['texto'], estado['cursor'])
     linhas = _quebrar_texto(texto, w - 20)
-    altura = 12 + 15 * len(linhas) + 8 + 26 + 10
+    n = len(pergunta['opcoes'])
+    # muitas respostas (os comodos da pintura rapida) quebram em filas
+    por_fila = max(1, min(n, int((w - 20 + 6) // (LARGURA_MIN_RESPOSTA + 6))))
+    filas = -(-n // por_fila)
+    altura = 12 + 15 * len(linhas) + 8 + 26 * filas + 6 * (filas - 1) + 10
     baixo = topo - altura
     itens.append((x, baixo, w, altura, '\n'.join(linhas), ('pergunta',)))
-    n = len(pergunta['opcoes'])
-    bw = (w - 20 - 6 * (n - 1)) / max(1, n)
+    bw = (w - 20 - 6 * (por_fila - 1)) / por_fila
     for i, (rotulo, _icone, _op, _props) in enumerate(pergunta['opcoes']):
-        itens.append((x + 10 + i * (bw + 6), baixo + 10, bw, 26, rotulo,
+        fila, coluna = divmod(i, por_fila)
+        itens.append((x + 10 + coluna * (bw + 6),
+                      baixo + 10 + (filas - 1 - fila) * 32, bw, 26, rotulo,
                       ('resposta', i)))
     return baixo
 

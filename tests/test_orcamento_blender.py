@@ -5,7 +5,9 @@ padrao do prompt de ditado dele (bloco ```markdown + Pendencias), so'
 com a marcenaria preenchida.
 """
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 import bpy
@@ -213,8 +215,6 @@ class TestOrcamento(unittest.TestCase):
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = None
         self.assertEqual(campo(), [])               # sem modulo, sem comodo
-        self.assertEqual(len([v for v in widgets() if v[5][:2] == (
-            'operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)]), 1)
         # chapa de A + folha da porta de B: os dois modulos
         chapa = addon.modulos._chapas_do_conjunto(a)[0]
         folha = addon.portas._folhas_portas(self.porta(b))[0]
@@ -308,41 +308,70 @@ class TestOrcamento(unittest.TestCase):
         self.assertIn(colecao.name,
                       bpy.context.scene.collection.children['Copa'].children)
 
-    def test_copiar_mostra_o_resultado_na_gaveta(self):
+    def arquivo(self, nome='Orcamento.txt'):
+        pasta = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, pasta, True)
+        return os.path.join(pasta, nome)
+
+    def test_gerar_mostra_o_resultado_nas_opcoes(self):
         # "Copiar e nada acontece": o relatorio so' ia para a barra de
-        # status. Agora o botao acende e diz o que fez; as pendencias
-        # ficam a' vista numa caixa preta logo abaixo.
+        # status. O botao (no fim das Opcoes) acende e diz o que fez; as
+        # pendencias ficam a' vista numa caixa preta logo abaixo.
         self.nicho()
-        bpy.context.scene.cabinet_aba = 'MODULOS'
-        self.addCleanup(addon.orcamento._orcamento_copiado.__setitem__, 0, None)
-        self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(),
-                         {'FINISHED'})
-        widgets = [v for v in addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
-                   if v[5]]
-        (botao,) = [v for v in widgets
+        tela = bpy.context.screen
+        bpy.ops.object.cabinet_opcoes_gaveta()
+        self.addCleanup(addon.gaveta._fechar_opcoes, tela)
+        self.addCleanup(addon.orcamento._orcamento_gerado.__setitem__, 0, None)
+        self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(
+            filepath=self.arquivo()), {'FINISHED'})
+        _cab, _conteudo, rodape = addon.gaveta._partes_gaveta(
+            addon.gaveta._widgets_gaveta(bpy.context, 320, 1400))
+        rodape = [v for v in rodape if v[5]]
+        (botao,) = [v for v in rodape
                     if v[5][:2] == ('operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)]
         self.assertTrue(botao[5][2])
-        self.assertTrue(botao[4].startswith('Copiado: 0 modulo(s)'))
-        caixa = [v for v in widgets if v[5][0] == 'pergunta']
+        self.assertTrue(botao[4].startswith('Salvo: 0 modulo(s)'))
+        caixa = [v for v in rodape if v[5][0] == 'pergunta']
         self.assertEqual(len(caixa), 1)
         self.assertTrue(caixa[0][4].startswith('Pendencias:\n'))
         self.assertLess(caixa[0][1], botao[1])
+        # tudo dentro do painel, que sobe a partir da engrenagem
+        painel = addon.gaveta._retangulo_painel_opcoes(rodape)
+        self.assertGreaterEqual(caixa[0][1], painel[1])
         self.assertTrue(bpy.app.timers.is_registered(
-            addon.orcamento._apagar_orcamento_copiado))
-        addon.orcamento._apagar_orcamento_copiado()
-        self.assertIsNone(addon.orcamento._orcamento_copiado[0])
+            addon.orcamento._apagar_orcamento_gerado))
+        addon.orcamento._apagar_orcamento_gerado()
+        self.assertIsNone(addon.orcamento._orcamento_gerado[0])
 
-    def test_operador_copia_o_texto(self):
+    def test_operador_salva_o_txt(self):
+        # Pedido do usuario: "Salvar como" e um .txt que o Bloco de Notas
+        # abre, com o mesmo texto do padrao da empresa (acentos em UTF-8)
         conj = self.nicho('Gabinete')
         self.comodo(conj, 'Banheiro')
-        self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(),
-                         {'FINISHED'})
-        texto = addon.orcamento.orcamento_da_cena(bpy.context.scene)[0]
-        copiado = bpy.context.window_manager.clipboard
-        # --background pode nao ter area de transferencia: so' confere
-        # quando ela existe
-        if copiado:
-            self.assertEqual(copiado, texto)
+        self.addCleanup(addon.orcamento._orcamento_gerado.__setitem__, 0, None)
+        caminho = self.arquivo('Obra da Ana')       # sem extensao: ganha .txt
+        self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(
+            filepath=caminho), {'FINISHED'})
+        with open(caminho + '.txt', encoding='utf-8') as f:
+            salvo = f.read()
+        self.assertEqual(salvo, addon.orcamento.orcamento_da_cena(
+            bpy.context.scene)[0])
+        self.assertIn('### Banheiro\n- Gabinete\n', salvo)
+        self.assertEqual(addon.orcamento._orcamento_gerado[0]['arquivo'],
+                         'Obra da Ana.txt')
+        # pasta que nao existe: avisa e nao finge que salvou
+        addon.orcamento._orcamento_gerado[0] = None
+        with self.assertRaises(RuntimeError):
+            bpy.ops.object.cabinet_exportar_orcamento(
+                filepath=os.path.join(caminho, 'nao', 'existe.txt'))
+        self.assertIsNone(addon.orcamento._orcamento_gerado[0])
+
+    def test_nome_sugerido_fica_ao_lado_do_blend(self):
+        sugerido = addon.orcamento._arquivo_sugerido()
+        self.assertTrue(sugerido.endswith('.txt'))
+        if not bpy.data.filepath:
+            self.assertEqual(os.path.dirname(sugerido),
+                             os.path.expanduser('~'))
 
 
 addon.register()

@@ -307,11 +307,15 @@ class TestGaveta(unittest.TestCase):
                 or v[5][0] == 'cor' and v[5][2] == 'amostra')]
             self.assertEqual(sorted(controles), sorted(
                 set(addon.opcoes.OPCOES_PADRAO) - {'hud_linha_tema', 'hud_realce_gizmo'}))
-            # o conteudo da aba continua ali, so' o que fica sob o painel
-            # some (com o cubo de fora: medidas e o Orcamento)
-            self.assertIn(addon.orcamento.OP_EXPORTAR_ORCAMENTO,
-                          [v[5][1] for v in widgets
-                           if v[5] and v[5][0] == 'operador'])
+            # "Gerar orcamento" e' da cena inteira: mora no fim das
+            # opcoes (pedido do usuario), nao no conteudo da aba
+            self.assertEqual([v[5][1] for v in rodape
+                              if v[5] and v[5][0] == 'operador'],
+                             [addon.gaveta.OP_OPCOES,
+                              addon.orcamento.OP_EXPORTAR_ORCAMENTO])
+            self.assertNotIn(addon.orcamento.OP_EXPORTAR_ORCAMENTO,
+                             [v[5][1] for v in _conteudo
+                              if v[5] and v[5][0] == 'operador'])
             addon.opcoes._definir_opcao('hud_tamanho_rotulo', 22)
             self.assertEqual(addon.opcoes._opcao('hud_tamanho_rotulo'), 22)
         finally:
@@ -338,10 +342,11 @@ class TestGaveta(unittest.TestCase):
         for largura in (190, 320, 564):
             rodape = self.rodape(largura)
             altura = addon.gaveta._retangulo_painel_opcoes(rodape)[3]
-            # rotulo ao lado do controle; so' a gaveta estreita empilha
+            # rotulo ao lado do controle; so' a gaveta estreita empilha.
+            # No fim, o "Gerar orcamento" (34 px)
             linhas = len(addon.gaveta.LINHAS_OPCOES)
             self.assertLessEqual(altura, 20 + linhas * (55 if largura < 300
-                                                        else 29) + 30)
+                                                        else 29) + 30 + 34)
             for v in rodape:
                 self.assertLessEqual(v[0] + v[2], min(largura - 12, 552) + 0.01)
 
@@ -819,18 +824,16 @@ class TestGaveta(unittest.TestCase):
         # Conceito do usuario para TODAS as abas: nada selecionado = so'
         # o "Criar Portas"/"Criar Puxador"; o resto nasce criando ou
         # selecionando. Na Modulos (sem botao de criar: a biblioteca e' a
-        # criacao) fica so' o Orcamento, que e' da cena inteira.
+        # criacao) nao fica nada: o orcamento mora nas Opcoes.
         bpy.ops.object.select_all(action='DESELECT')
         for aba, esperado in (('PORTAS', {'portas'}),
                               ('PUXADORES', {'criar_puxador'}),
-                              ('MODULOS', {'operador'})):
+                              ('MODULOS', set())):
             self.cena.cabinet_aba = aba
             _cab, conteudo, _rod = addon.gaveta._partes_gaveta(
                 addon.gaveta._widgets_gaveta(bpy.context, 320, 1400))
             painel = addon.gaveta._paineis_gaveta(conteudo)[0]
             self.assertEqual({v[5][0] for v in painel if v[5]}, esperado, aba)
-        operadores = [v[5][1] for v in painel if v[5]]
-        self.assertEqual(operadores, [addon.orcamento.OP_EXPORTAR_ORCAMENTO])
         # ativo sem selecao tambem nao conta
         self.assertIsNone(addon.gaveta._selecionado(bpy.context))
 

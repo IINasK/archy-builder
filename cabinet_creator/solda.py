@@ -541,8 +541,12 @@ OP_CORRENTE_OBJETO = 'object.cabinet_corrente_objeto'
 # propria gaveta (interagir_gaveta). Pelo gizmo do icone, o pop-up nascia
 # sob o mouse e o RELEASE ja' respondia; e o modal aberto pelo gizmo
 # prendia os cliques da gaveta -- o "Confirmar" do pe' nao chegava.
+# O "Gerar orcamento" (opcoes) abre o "Salvar como"; o "Usar como
+# puxador", o modal do clique na face.
 OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
-                        'object.cabinet_resetar_distancia'}
+                        'object.cabinet_resetar_distancia',
+                        'object.cabinet_exportar_orcamento',
+                        'object.cabinet_usar_como_puxador'}
 _desagregar_pendente = [None]    # pecas esperando o "tem certeza?"
 _conexao_pendente = [None]       # alvos esperando o "Juntar ao modulo?"
 _conexao_manual = [None]         # estado do modo "selecionar vertice"

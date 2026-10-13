@@ -449,14 +449,14 @@ def unregister():
     _portas_viewport._arraste_slider_porta[0] = None
     _portas_viewport._slider_hover[0] = None
     _solda._nome_grupo_gaveta[0] = None
-    _orcamento._orcamento_copiado[0] = None
+    _orcamento._orcamento_gerado[0] = None
     _ferragens._contagem_objetos[0] = -1
     _ferragens._perfis_trilho_moldura[0] = None
     _solda._bolinha_hover[0] = None
     for timer in (_selecao._log_keymaps, _registrar_bibliotecas_adiado,
                   _hud._animar_piscada, _ferragens._conferir_ferragens,
                   _chapas._separar_copias_no_timer,
-                  _orcamento._apagar_orcamento_copiado):
+                  _orcamento._apagar_orcamento_gerado):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)
     _hud._edicao_hud[0] = None
