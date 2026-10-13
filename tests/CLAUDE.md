@@ -16,7 +16,8 @@ Unico requisito: o Blender (o Python dele roda o executor; o `python`
 do Windows nao existe nesta maquina). O executor acha todas as versoes
 em `C:\Program Files\Blender Foundation`, roda cada suite num Blender
 SEPARADO (`--factory-startup`, em paralelo; GUI uma por vez) e sai com
-codigo 1 se algo falhar. ~20 s com GUI, ~6 s sem.
+codigo 1 se algo falhar. Sem GUI ~1 min (versoes em paralelo; as mais lentas: biblioteca
+e portas); durante o trabalho rode so' a suite da area.
 
 **Antes de entregar: o executor inteiro, com `--gui` se a pessoa
 liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
@@ -45,9 +46,11 @@ liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
    `@unittest.expectedFailure` com `# BUG:` em cima. Consertado, tire o
    marcador e deixe um comentario "Regressao (era BUG, corrigido na N)".
 5. **Biblioteca real e' intocavel.** `test_biblioteca_blender.py` copia
-   `cabinet_creator/biblioteca` para um temporario e redireciona
-   `pasta_biblioteca`/`_pasta_addon` ANTES do register; no fim confere
-   por sha1 que nenhum byte da real mudou. Copie o padrao.
+   uma AMOSTRA (`copiar_amostra`: 2 presets por categoria) para um
+   temporario e redireciona `pasta_biblioteca`/`_pasta_addon` ANTES do
+   register; no fim confere por sha1 que nenhum byte da real mudou. A
+   integridade de TODOS os presets reais e' lida direto da pasta real (so'
+   leitura). Copiar a biblioteca inteira (~190 presets) estourava 300 s.
 6. **Blender 4.2 nao le os .blend da biblioteca** (gravados pelo 5.x).
    Teste que abre preset real: `skipTest` em `bpy.app.version < (5,)`.
    GUI: `raise Pular(motivo)`. Nunca deixe falhar "por versao".

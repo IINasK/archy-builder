@@ -109,12 +109,13 @@ eixos locais de chapa (X = largura, Y = altura, Z = espessura).
 - **Super curva:** nao expande o vao; a face externa fica alinhada a borda
   frontal, ou mais para dentro quando ha' recuo adicional.
 - **Correr:** a face externa da primeira folha fica atras da borda pelo
-  recuo configurado (padrao 30 mm, sempre positivo). Duas a quatro folhas
-  alternam entre dois planos separados pela espessura mais a folga entre
-  planos; ha' sobreposicao horizontal configuravel (padrao 20 mm).
+  recuo configurado (padrao 30 mm, sempre positivo). Cada folha corre no
+  seu trilho (plano proprio, separado pela folga entre planos) o vao
+  inteiro. A unica tem metade do vao; varias o cobrem cruzando 20 mm com a
+  vizinha. A largura da folha se edita (campo L). Trilho de cima em U, com
+  um canal fundo por folha; o de baixo, chapa com uma guia sob cada folha.
 
-A folga perimetral desconta material nas quatro bordas (padrao zero para
-cobertura exata). No giro duplo, a folga entre folhas e' 2 mm por padrao.
+No giro duplo, a folga entre folhas e' 2 mm por padrao.
 As espessuras disponiveis sao 15, 18, 20 e 30 mm. A cobertura usa a espessura
 de lateral informada, aplicada uniformemente nas quatro bordas.
 

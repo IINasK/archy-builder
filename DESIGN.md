@@ -79,7 +79,18 @@ Texto: `_texto_gaveta` para rotulo fixo, `_texto_cabivel_gaveta` para
 o que possa nao caber (reduz a fonte de 12 a 9 antes de cortar).
 
 Ao abreviar rotulo com contagem, use `_abreviar` **so' no nome**:
-`Armarios (3)` vira `arm (3)`, nunca `Armarios (`.
+`Armarios (3)` vira `arm (3)`, nunca `Armarios (`. A CASCATA da biblioteca
+nao tem contagem (pedido do usuario: ocupava espaco) nem limite de niveis:
+um carrossel por nivel do caminho escolhido; ramo sem preset nao aparece.
+
+HUD da forma: na diagonal (inclusive a que toma o lado inteiro), um ARCO
+em cada ponta com o angulo de DENTRO da planta em graus (esboco do
+usuario); hover acende, clicar digita, arrastar de lado gira. Ponta que
+acaba na ESPESSURA de uma chapa (prateleira da cantoneira na lateral): a
+linha para onde a peca para e o arco mede com a face da lateral. O arco e'
+PEQUENO e colado na quina (pedido do usuario: a 70 mm atravessava a peca):
+raio fixo na TELA (~26 px, como o gizmo de angulo), nunca mais que 1/4 do
+lado mais curto da quina; o numero fica logo fora dele, na bissetriz.
 
 ## 6. Responsividade
 
@@ -157,6 +168,57 @@ Seta com teto fixo na tela (`COMPRIMENTO_SETA_HUD`), nunca maior que a aresta; l
 item fica menor que `FATOR_ROTULO_HUD` x o rotulo (so' a acesa fica).
 Letra = aresta do eixo mais FORA na tela, empurrada para longe do centro
 da peca (nunca sobre a face); letras que se encostam afastam-se mais.
+Modulo que nao e' caixa (canto em L, diagonal, curvo -- os do Promob): a
+linha branca segue a PLANTA em baixo e em cima, nunca a caixa envolvente
+(pedido do usuario: no L a quina vazia tinha linha). L e P nos lados
+inteiros; P1/P2 nos lados que chegam no canto = profundidade de CADA braco
+(o outro nao mexe); R na diagonal e no arco (arrasta para dentro = maior);
+A nas quinas. Recorte < 100 mm (quina de tras aberta) nao muda o desenho.
+Na aba Modulos o mesmo modulo ganha a secao FORMATO (P1, P2, Raio e o
+Angulo da diagonal, que deixa a frente do canto parada).
+
+**Gavetas (aba propria, pedido do usuario).** Cabecalho com 5 abas
+(Modulos | Portas | Gavetas | Prateleiras | Puxadores; estreita: Mod. |
+Portas | Gav. | Prat. | Pux.). "Criar Gavetas" laranja no topo;
+o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
+a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
+scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
+do trilho (Telescopico | Oculto). Selecionadas (clique na frente = todas
+do vao, duplo = uma): so' elas tem linha branca; L/A/P da HUD mudam o vao
+(a quina perto do mouse fica) e a profundidade; Alt mostra 3 bolinhas --
+as quinas de cima a' esquerda e de baixo a' direita da frente e a da
+profundidade. O slider fica NA frente (um pouco a' frente dela, no meio da
+altura) e anda com ela: a gaveta aberta nunca o cobre. Na aba: Gavetas
+(L/A/P + contador), Frente (Sobreposta | Embutida, Espacamento frontal,
+Entre gavetas, Recuo, Espessura, Curva), Trilho e o carrossel do Puxador -- de
+UMA gaveta (duplo clique) ou de todas. Curva = flecha do arco da frente
+(0 = reta), a do gaveteiro de canto do Promob; as alturas desiguais que a
+importacao traz somem ao mudar a quantidade.
+
+**Prateleiras (aba propria, pedido do usuario).** O assistente das
+gavetas com SO' 2 pontos ("Criar Prateleiras": canto de cima a' esquerda e
+de baixo a' direita, scroll = quantas, e o clique cria). Sem etapa de
+profundidade nem trilho: a prateleira vai ate' o fundo do modulo e a folga
+da frente e' o Recuo da aba. Selecionadas (clique = todas do vao, duplo = uma): a HUD tem o
+L/A/P do vao e uma linha por VAO entre as prateleiras, no meio da largura,
+com o VALOR ao lado (sao varios; uma letra so' nao diria qual). Arrastar ou
+clicar e digitar um vao anda SO' a prateleira de cima dele. Na aba:
+Prateleiras (L/A/P + contador), Chapa (Espessura, Recuo, Folga lateral) e
+Espacamento: Igual | Livre, "Entre prateleiras" (o mesmo em todas) e
+Vao 1..n+1 de baixo para cima; com UMA selecionada, so' Abaixo e Acima dela
+(os dois andam so' ela).
+
+**Porta de correr: a folha.** Na porta de correr selecionada, uma fila
+Chapa | Quadro de aluminio (depois do trilho, com ou sem moldura). Quadro =
+o perfil de aluminio do despenseiro do Promob em volta de um painel fino,
+que tem material proprio (o vidro/espelho); o trilho continua o nosso.
+
+**Snap que diz o que pegou (pedido do usuario: detector de angulo).** O
+ima dos assistentes (porta, gaveta) mostra, ao lado da bolinha, o que o
+ponto e': "Quina reta", "Angulo 135", "Fim da curva", "Centro do arco". O
+meio de uma borda redonda nao e' mais oferecido (eram dezenas de pontos
+colados); as pontas e o centro sim. Com Ctrl, o modulo arrastado gruda
+tambem nas quinas e pontas de curva de pecas modeladas/curvas.
 Posicionar puxador (`OBJECT_OT_posicionar_puxador`): 1o a linha (borda da
 face sob o mouse), depois o ponto; scroll = n snaps (k/(n+1)); botao
 direito volta a linha. Linhas grossas em triangulos (`_quad_2d`).
@@ -268,8 +330,8 @@ segmento tem 25 px e passo 29, campo de medida tem 37; emendar sem
 respiro faz o campo cobrir a fila de cima (ha' teste par a par).
 **Gaveta por CONTEXTO** (conceito do usuario, TODAS as abas): sem nada
 selecionado a aba mostra SO' o botao laranja de criar ("Criar Portas" /
-"Criar Puxador"; a Modulos, cuja criacao e' a biblioteca, mostra so' o
-Orcamento, que e' da cena inteira). Criando, os campos nascem etapa a
+"Criar Puxador"; a Modulos, cuja criacao e' a biblioteca, nao mostra
+nada -- o orcamento, da cena inteira, mora nas Opcoes). Criando, os campos nascem etapa a
 etapa. Selecionado, so' o que vale para AQUELE item (`_selecionado`:
 ativo sem selecao nao conta): o bloco de medidas e' da aba dona do item
 (modulo/chapa/objeto de fora = Modulos, porta = Portas, puxador =
@@ -319,9 +381,33 @@ Dobradicas e Pistoes EDITAVEIS (`_secao_ferragens_gaveta`): quantidade em
 segmentos e afastamento/distancia do topo em campo; digitado na etapa do
 mouse em Y, o 1o movimento parte do valor. A mesma secao, com as
 ferragens SELECIONADAS, edita todas as portas do modulo (o clique numa
-ferragem leva a gaveta a' aba Portas). Porta pronta selecionada: medidas,
-folhas, abertura e folgas, editaveis. Dobradica (automatica) e Converter
+ferragem leva a gaveta a' aba Portas). Porta pronta selecionada: em cima,
+Reposicionar no vao e Definir como frente (icone a' esquerda do texto,
+`_icone_ao_lado`); depois CATEGORIAS com o titulo de Montagem
+(`_titulo_secao`, auditoria do usuario: campos compactos, claros, rotulo
+inteiro): **Porta** (L/A/E), **Folhas** (Entre folhas/planos e o campo
+COMPACTO das folhas na ponta -- contador com rotulo: arrasta e digita; os
+segmentos 1 2 3 4 sairam), **Posicao** (Afastamento ou Recuo), **Trilhos**
+(Recuo, correr embutido) ou **Moldura** (Espessura, Rodape, Testeira) e
+**Abertura** (slider dos retratos no titulo). Rotulo curto dentro da
+categoria ("Recuo", nao "Recuo para trilhos"): o titulo ja' diz de que e'.
+Dobradica (automatica) e Converter
 em porta/dupla sairam da aba (pedido do usuario; F3 segue).
+Correr: 1-2 e 3-4 no mesmo canto de DENTRO = embutido; de fora para
+dentro = COM MOLDURA -- folhas de 18 na frente do modulo, cobrindo a
+frente inteira, num trilho de aluminio do usuario (dois canais, a 1a na
+frente), e a moldura de chapas de 15 refeita com a porta (revestimento das
+laterais, base do trilho + testeira em cima, base + rodape embaixo; soma
+acima e abaixo do modulo). Metade-metade (um par no mesmo ponto, o outro
+nao) PERGUNTA "Porta embutida ou com moldura?" -- moldura usa o modulo
+inteiro, embutida a medida de dentro da chapa.
+Com moldura vem mais uma caixa: "A porta tem base?" -- sem rodape a
+moldura vai direto no chao (rodape 0). A moldura passa a SER a caixa do
+armario: L/A/P do modulo e a caixa da HUD contam com ela (envelope).
+Depois da base, "Qual trilho?": PESADO (perfis de aluminio) ou LEVE
+(canais fresados nas bases + U de embutir, folha de 15, SEM testeira: a
+folha corre a' vista ate' a base de cima); na porta pronta,
+os dois segmentos ficam no fim da categoria Moldura.
 Porta pronta: o clique simples (a porta inteira) mostra, em raio-X, o
 contorno BRANCO de cada folha, as linhas internas do vao em AMARELO e
 os mesmos fios dos 4 cantos (as dobradicas nao: ver Ferragens); segurando Alt aparecem as 4 bolinhas brancas e arrastar
@@ -337,15 +423,21 @@ nao pixels (pedido do usuario): afastar o zoom encolhe tudo na mesma
 proporcao da porta; perto para no teto de 2 px/mm; o valor some abaixo
 de 7 px (ilegivel). Recuado das pontas da folha
 (40 mm ou 12% dela): numa porta dupla os dois NUNCA se encostam, sobra
-folga no meio. So' a BOLINHA pega o clique (gizmo do tamanho dela, que
+folga no meio. CORRER: o slider vai do centro da folha fechada ao da
+aberta (a bolinha anda embaixo dela), um degrau de 40 mm acima por
+trilho -- os de uma porta de varias folhas nao se sobrepoem. So' a
+BOLINHA pega o clique (gizmo do tamanho dela, que
 acende sob o mouse); o trilho nao. Pegar fora do centro nao a faz pular. Arrastar para a DIREITA abre, para a esquerda fecha, seja qual
 for o lado da dobradica (pedido do usuario). Esc/botao direito volta.
 A folha NUNCA fica rente a' borda do armario (prints do usuario), em
 nenhum cenario: toda cobertura padrao deixa 2 mm de respiro -- Reta cobre
 a espessura menos 2, Curva a metade menos 2 (duas portas na mesma chapa
 do meio nao se encostam), embutida e correr ficam 2 mm para dentro do
-vao. A "Folga no perimetro" soma por cima; cobertura fora do padrao,
-marcada e confirmada pelo usuario, vale como marcada.
+vao. Nao ha' "Folga no perimetro" (pedido do usuario: sempre zero; so'
+a porta importada guarda uma, por dentro). Cobertura fora do padrao,
+marcada e confirmada pelo usuario, vale como marcada. Correr: sem campo
+de sobreposicao -- com a largura da folha editavel ela e' consequencia
+(o usuario nao via a diferenca entre as duas).
 Dobradica RETA = o modelo e o rig do usuario (arquivo dele, extraido por
 `extrair_dobradica.py`), importados tal e qual -- nada refeito: a folha
 abre como a dele (gira E anda, 91,7 graus no fim) e o copo fura a folha
@@ -394,8 +486,8 @@ campo "Nome do grupo: ...|" (digita direto, Enter/OK confirma, Esc/Manter
 fica a sugestao). Outliner: cada armario e' uma Collection com o nome dele;
 dentro, o Empty, as chapas e a porta ("Porta Dupla", "Porta de Correr"...).
 
-Orcamento (ERP do usuario), no fim da aba Modulos: titulo como o de
-Montagem (sem separador: os da aba sao da cascata). Com armario
+Comodo do orcamento, no fim da aba Modulos (so' com armario
+selecionado): titulo "Orcamento" como o de Montagem (sem separador: os da aba sao da cascata). Com armario
 selecionado, o COMODO e' UMA linha "Comodo: Cozinha" com a seta da lista
 suspensa (a grade fixa de 14 segmentos ocupava a aba -- RECUSADA pelo
 usuario). O clique EXPANDE a lista dentro da aba, empurrando o resto
@@ -404,23 +496,101 @@ prompt, os ja' digitados na cena, "Sem comodo" (se ha' um) e "Outro
 nome...", que abre o campo da caixa preta logo abaixo (Enter/OK,
 Esc/Cancelar). Escolher fecha a lista e vale para todos os armarios
 selecionados. O comodo e' uma PASTA no Outliner (Collection na raiz com
-as dos armarios dentro). Depois, "Copiar orcamento (ERP)": copiar
-ACENDE o botao com o que fez ("Copiado: N modulo(s)") e as pendencias
-aparecem numa caixa preta logo abaixo, por 30 s -- so' o relatorio da
-barra de status passava despercebido ("copiar e nada acontece").
+as dos armarios dentro).
+
+"Gerar orcamento (.txt)": ULTIMA linha do painel de Opcoes (engrenagem),
+largura inteira -- e' da cena inteira e o add-on e' vendido, entao nada
+de "ERP" nem de copiar para a area de transferencia (RECUSADO: o
+usuario quer o arquivo). Dispara no SOLTAR e abre o "Salvar como" do
+Blender (sugere "Orcamento - <nome do .blend>.txt" ao lado do .blend).
+Salvo, o botao ACENDE com o que fez ("Salvo: N modulo(s)") e as
+pendencias aparecem numa caixa preta logo abaixo, dentro do painel, por
+30 s -- so' o relatorio da barra de status passava despercebido.
 
 "Criar Puxador": mesmo padrao do "Criar Portas" -- LARANJA, no topo da
 aba Puxadores, largura inteira, texto centralizado, mais forte enquanto
 posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
-Posicionando, aparece o MODELO (o posicionador atende o clique e troca a
-previa na hora). Reposicionar (pedido do usuario): com Alt, a ancora de
+Posicionando, aparece o MODELO num carrossel de RETRATOS (pedido do
+usuario: a foto a 45 graus, como na biblioteca, no lugar dos nomes; setas
+quando nao cabem): os de fabrica e os do usuario (categoria Puxadores da
+biblioteca). O posicionador atende o clique e troca a previa na hora. Reposicionar (pedido do usuario): com Alt, a ancora de
 cada puxador da selecao vira bolinha branca; arrastar leva-o a outra
 borda SO' das chapas do grupo dele (folhas da porta, ou chapas do
 modulo), snap de LINHA na face virada para quem olha, e ele sai virado
 conforme a borda; o perfil devolve a madeira e corta a nova (um por
 borda). Esc devolve. Puxador do add-on selecionado: medidas e o modelo
-(`_trocar_modelo_puxador` refaz AQUELE); objeto de fora: "Converter em
-puxador".
+(`_trocar_modelo_puxador` refaz AQUELE); objeto de fora: "Usar como
+puxador" -- encostado numa chapa vira o puxador dela no mesmo lugar;
+solto, a gaveta pede o clique na face que encosta na porta e o criador
+abre com o modelo novo. "Converter em puxador" (so' marcar) ficou no F3.
+
+TODO retrato (puxador, abertura, dobradica) tem o MESMO quadrado
+(`_lado_retrato`, pedido do usuario): o do slider pequeno ao lado do
+titulo da fila (`cabinet_tam_retrato`, 40-128 px); so' encolhe para
+caber tres lado a lado.
+Retratos em toda escolha de MODELO: abertura (Giro/Basculante/Correr)
+criando e com a porta selecionada; a dobradica, que e' AUTOMATICA, so'
+mostra o retrato do tipo detectado, pequeno e sem clique (tres retratos
+empurravam os campos para baixo da divisoria) -- na etapa da borda, o da
+borda sob o mouse. O retrato e' SO' a dobradica, sem o modulo (pedido do
+usuario); Curva e Super Curva usam o da Reta ate' terem modelo proprio
+(`FOTOS_PENDENTES`). Layout do usuario (mockup): na linha "Abertura" ficam o
+retrato da abertura ESCOLHIDA (clicar volta a' escolha das tres), o da
+dobradica e, ao lado, "Dobradicas:" com o CONTADOR (< 2 >: arrastar ou
+clicar na metade direita/esquerda) -- nao mais cinco segmentos; embaixo,
+o afastamento. O "aceitar" da etapa e' um quadrado VERDE com visto, colado
+a' direita do campo que ela edita (o mesmo do clique na viewport; a etapa
+seguinte parte do mouse quando ele volta). Gaveta estreita (< 260 px):
+empilha. Qualquer campo de valor ARRASTA: direita aumenta, esquerda
+diminui (1 mm/px; Shift fino, Ctrl grosso; Esc devolve; um undo so');
+clicar sem arrastar continua digitando. A cada etapa nova do
+wizard a aba rola ate' o fim, onde a etapa nasce (`_rolar_ate_o_fim`).
+Na biblioteca, Puxadores e Dobradicas mostram tambem os de fabrica,
+TRAVADOS (moram no add-on, fora do indice); clicar num puxador dela (foto
+ou "Ins.") abre o "Criar Puxador" com ele -- o arrasto nativo do Asset
+Browser traz so' o 3D.
+
+**Modulos | Materiais** (pedido do usuario): dois segmentos AO LADO do
+titulo "Biblioteca" (verbo `biblioteca`, nao `escolha`: a fila e' do
+cabecalho, nao da aba), com a contagem dentro; sem espaco (< 2 x
+`PX_MIN_NIVEL` depois dos icones) descem para a linha de baixo. Os icones
+seguem a biblioteca aberta (Materiais: pasta e "+"). Materiais usam a
+MESMA cascata e a MESMA grade (slider "Tamanho das miniaturas"); no lugar
+da foto, a esfera da cor (`esfera_rgba`: difusa + brilho, sem render); a
+esfera do material da selecao acende. UM clique na esfera NAO faz nada
+(pedido do usuario: o clique errado pintava o que nao devia); o DUPLO
+pinta a selecao e ARRASTAR (pincel no cursor) pinta, ao soltar, o que
+esta' sob o mouse -- recusado: clique simples aplicando. Botao DIREITO
+na esfera = PINTURA RAPIDA (pedido do usuario): a caixa preta abre sob o
+material (nao pop-up: regra da gaveta) com "quais modulos?" -- um botao por
+COMODO que tem armario, "Sem comodo", "Todos" e "Cancelar" -- e depois
+"pintar o que?": Tudo, So' a caixa (corpo + fundo), So' as portas
+(folhas + moldura). Muitas respostas quebram em filas
+(`LARGURA_MIN_RESPOSTA`); a 1a resposta nao gera passo de desfazer. Embaixo:
+Editar e Apagar; o
+"Apagar?" abre sob a fila e a biblioteca rola ate' ele
+(`_rolar_biblioteca_ate_pergunta`).
+
+**Paredes (como no Promob, pedido do usuario).** Botao DIREITO segurado
+num modulo o arrasta; solto numa superficie VERTICAL que nao seja movel
+do add-on, as COSTAS (+Y do modulo) encostam nela e ele fica ASSOCIADO
+A' FACE, nao ao objeto (pedido do usuario: a sala inteira e' um objeto
+so'): parede = a face sob o mouse mais as vizinhas no MESMO plano ligadas
+por aresta (`regiao_da_parede`). Durante o arraste essa face ACENDE (veu
+e contorno grosso na cor de realce); fora de parede, a barra de status
+diz por que (movel, nao vertical). Gravado: UID no objeto, indice da face,
+ponto das costas e normal no referencial dele. O raio, achado o objeto,
+e' refeito so' contra ele (`raio_ate_parede`): as costas ficam NO plano
+da parede e pular o modulo atravessava a face (o modulo piscava). O cursor fica no meio das costas; pontas, piso e teto grudam a
+`SNAP_PX`. Clique sem arrastar = o menu de contexto de sempre (no
+SOLTAR). Parede = QUALQUER superficie (escolha do usuario: nada de
+ferramenta "Criar parede" nem marcar a malha); os limites sao as faces
+da face. Associado de verdade: a parede que anda leva o modulo; G/R
+no modulo o devolvem ao plano (so' desliza) -- pelo timer de seguranca,
+nunca no handler do depsgraph. Selecionado: contorno da parede e 4 guias
+(esquerda, direita, piso, teto, esq./dir. de quem olha a parede) na cor
+de realce; o NUMERO e' gizmo (ganha da selecao): clique digita, arrastar
+ao longo da guia muda. Solta: F3 "Desassociar da Parede".
 
 ## 10. Animacao
 
