@@ -1135,6 +1135,36 @@ def _portas_do_conjunto(conj):
             if _chapas.MARCA_PORTAS in o and o.get(CHAVE_MODULO_PORTA) == conj.name]
 
 
+def porta_no_modulo(conj, folhas=1, abertura='GIRO', **extras):
+    """Porta RETA cobrindo a frente inteira do modulo, pelos mesmos 4
+    cliques do wizard (cantos de fora = porta, de dentro = vao) -- o
+    caminho que os armarios nativos da biblioteca usam. `extras` vao
+    direto ao `cabinet_portas` (ex.: dobradica_lado, pistoes_qtd).
+    Devolve o grupo da porta."""
+    L, A, P, E = _caixa_do_modulo(conj)
+    y = -P / 2.0
+    cantos = [(-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E), (L / 2, y, 0)]
+    mundo = [conj.matrix_world @ (Vector(c) / 1000.0) for c in cantos]
+    laterais = [c for c in _modulos._chapas_do_conjunto(conj)
+                if abs(_chapas._eixos(c)[2].x) > 0.9]
+    esquerda = min(laterais, key=lambda c: (conj.matrix_world.inverted()
+                                            @ c.matrix_world.translation).x)
+    opcoes = dict(dobradica='RETA', folhas=folhas, abertura=abertura)
+    if abertura == 'BASCULANTE':
+        opcoes['dobradica_lado'] = 'CIMA'
+    opcoes.update(extras)
+    resultado = bpy.ops.object.cabinet_portas(
+        'EXEC_DEFAULT', capturado=True, ponto_a=mundo[1], ponto_b=mundo[2],
+        quatro_pontos=True, porta_a=mundo[0], porta_b=mundo[3],
+        referencia=tuple(v for linha in conj.matrix_world.to_quaternion().to_matrix()
+                         for v in linha),
+        pai_nome=conj.name, modulo_nome=conj.name, objeto_a_nome=esquerda.name,
+        frente='NEG_Y', folga_mm=0, **opcoes)
+    if 'FINISHED' not in resultado:
+        raise RuntimeError("porta do modulo %s nao saiu" % conj.name)
+    return _portas_do_conjunto(conj)[-1]
+
+
 def _vao_com_ancoras(grupo, vao, parametros):
     """Atualiza limites apoiados em folhas ja' existentes, sem acumular folga."""
     largura, altura, matriz = vao

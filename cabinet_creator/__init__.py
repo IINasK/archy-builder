@@ -77,6 +77,7 @@ CLASSES = (
     _opcoes.CabinetCreatorPreferences,
     _modulos.OBJECT_OT_sincronizar_grupo,
     _modulos.OBJECT_OT_sincronizar_conjunto,
+    _modulos.OBJECT_OT_fundo_modulo,
     _biblioteca.OBJECT_OT_registrar_bibliotecas,
     _biblioteca.OBJECT_OT_refiliar_catalogos,
     _biblioteca.OBJECT_OT_regerar_previews,

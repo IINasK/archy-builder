@@ -55,6 +55,9 @@ MARCA_FUNDO = "eh_fundo_modulo"
 MARCA_TRAVESSA = "eh_travessa_modulo"
 
 
+def eh_dependente(obj):
+    """Fundo ou travessa: segue a caixa do modulo, fora da adjacencia."""
+    return MARCA_FUNDO in obj or MARCA_TRAVESSA in obj
 # Objetos de fora que entram no modulo/porta sem virar chapa (IMPORTACAO).
 MARCA_ACESSORIO = "eh_acessorio"
 MARCA_PUXADOR = "eh_puxador"
@@ -573,7 +576,8 @@ def _gravar_ligacao(C, eixo, lado, N, folga, face):
 def detectar_adjacencia(objs):
     """Para cada ponta de cada chapa, acha a peca vizinha mais proxima
     naquela direcao e memoriza a folga atual."""
-    chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o]
+    chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
+              and not eh_dependente(o)]      # fundo/travessa seguem a caixa
     for c in chapas:
         _garantir_uid(c)
     n = 0
@@ -598,7 +602,8 @@ def associar_por_distancia(C, vizinhos, alcance=None):
     perderia, por exemplo, a ligacao de um modulo com o vizinho de fora).
     As pontas de C sao refeitas; nos vizinhos, so' pontas VAZIAS ganham
     ligacao com C. Devolve quantas pontas ligou."""
-    vizinhos = [v for v in vizinhos if v is not C and MARCA_CHAPA in v]
+    vizinhos = [v for v in vizinhos if v is not C and MARCA_CHAPA in v
+                and not eh_dependente(v)]
     _garantir_uid(C)
     n = 0
     for eixo in ("x", "y"):
@@ -771,7 +776,7 @@ def aplicar_adjacencia(objs=None):
     if objs is None:
         objs = bpy.data.objects
     chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
-              and o.mode != 'EDIT']
+              and o.mode != 'EDIT' and not eh_dependente(o)]
     ajustadas = []
     _ocupado[0] = True
     try:

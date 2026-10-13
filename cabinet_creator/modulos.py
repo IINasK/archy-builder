@@ -27,6 +27,14 @@ def _chapas_do_conjunto(conj):
             if o.parent == conj and o.type == 'MESH' and _chapas.MARCA_CHAPA in o]
 
 
+def _estruturais(chapas):
+    """Sem o fundo: ele nao tem a espessura do modulo nem se mede pela
+    proporcao (ver `ajustar_fundo`)."""
+    return [c for c in chapas if not _chapas.eh_dependente(c)]
+
+
+
+
 def _caixa_de(chapas):
     """Bounding box em mundo de uma lista qualquer de chapas.
     Atualiza o depsgraph antes: matrix_world so' fica correto depois do
@@ -163,6 +171,7 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
     `ancoras` diz, por eixo de MUNDO (X, Y, Z), que lado fica parado:
     'min' (padrao, o de sempre) ou 'max'. E' o que deixa a HUD esticar
     o movel a partir da quina mais perto do mouse."""
+    chapas = _estruturais(chapas)
     cx = _caixa_de(chapas)
     if cx is None:
         return
@@ -221,6 +230,8 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
     except Exception:
         pass
     _chapas.aplicar_adjacencia(chapas)
+    if pai is not None and _chapas.MARCA_CONJUNTO in pai:
+        ajustar_dependentes(pai)
 
 
 def _acompanhar_acessorios(conj, lo_antes, hi_antes, lo, hi):
@@ -248,7 +259,9 @@ def aplicar_espessura_grupo(chapas, nova_e):
     """Troca a espessura de todas as chapas do modulo SEM mover o
     contorno externo: cada peca cresce/encolhe para DENTRO a partir do
     limite em que estava encostada. A adjacencia depois expande ou
-    contrai as pecas que ligam uma ponta a outra."""
+    contrai as pecas que ligam uma ponta a outra. O fundo fica com a
+    espessura dele e e' refeito pela caixa nova."""
+    chapas = _estruturais(chapas)
     cx = _caixa_de(chapas)
     if cx is None:
         return
@@ -282,6 +295,9 @@ def aplicar_espessura_grupo(chapas, nova_e):
     except Exception:
         pass
     _chapas.aplicar_adjacencia(chapas)
+    pai = chapas[0].parent if chapas else None
+    if pai is not None and _chapas.MARCA_CONJUNTO in pai:
+        ajustar_dependentes(pai)
 
 
 def aplicar_espessura_chapa(C, nova_e, e_velha_mm):
@@ -492,6 +508,248 @@ def medir_selecao(context):
 
 
 # ================================== CAMPOS DO MODULO, AGRUPAR E GRUPOS
+# ------------------------------------------------------------- fundo
+# Pedido do usuario: fundo de chapa de 5 mm, levemente para DENTRO do
+# modulo. Pesquisa (forum de marcenaria, Festool/Sawmill Creek; Cortecloud;
+# ClubArq): sem norma publicada; o canal fica a 12-18 mm da borda de tras
+# (15 o mais citado), uns 8 mm de fundo; o vao atras absorve a parede
+# torta e afasta a umidade (>= 10 mm). Escolha do usuario: canal a 15 mm.
+ESPESSURA_FUNDO_MM = 5.0
+RECUO_FUNDO_MM = 15.0         # da borda de tras ate' as costas do fundo
+CANAL_FUNDO_MM = 8.0          # profundidade do canal nas laterais/base/tampo
+FOLGA_CANAL_FUNDO_MM = 1.0    # o fundo nao bate no fim do canal
+CHAVE_RECUO_FUNDO = 'fundo_recuo_mm'    # no modulo (ID prop)
+
+
+def fundo_do_modulo(conj):
+    return next((o for o in conj.children if _chapas.MARCA_FUNDO in o), None)
+
+
+def medidas_do_fundo(L, A, E, recuo=RECUO_FUNDO_MM):
+    """(largura, altura) de CORTE do fundo e o recuo, em mm: o vao interno
+    mais o que entra no canal de cada lado."""
+    entra = CANAL_FUNDO_MM - FOLGA_CANAL_FUNDO_MM
+    return L - 2.0 * E + 2.0 * entra, A - 2.0 * E + 2.0 * entra, recuo
+
+
+def _caixa_local_estrutural(conj):
+    """(lo, hi) em mm, nos eixos do modulo, das pecas da CAIXA (sem fundo)."""
+    inversa = conj.matrix_world.inverted()
+    pontos = [inversa @ (o.matrix_world @ v.co) * 1000.0
+              for o in _estruturais(_chapas_do_conjunto(conj))
+              for v in o.data.vertices]
+    if not pontos:
+        return None
+    return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),
+            Vector(tuple(max(p[i] for p in pontos) for i in range(3))))
+
+
+def ajustar_fundo(conj):
+    """Refaz o fundo pela caixa ATUAL do modulo: entre as laterais, a base
+    e o tampo (entrando no canal), costas a `fundo_recuo_mm` da borda de
+    tras (+Y do modulo, ver `_portas._folgas_do_vao`). Sem fundo, nada."""
+    fundo = fundo_do_modulo(conj)
+    caixa = _caixa_local_estrutural(conj) if fundo is not None else None
+    if caixa is None:
+        return False
+    lo, hi = caixa
+    E = float(conj.conj_espessura_mm) or 18.0
+    recuo = float(conj.get(CHAVE_RECUO_FUNDO, RECUO_FUNDO_MM))
+    largura, altura, _r = medidas_do_fundo(hi.x - lo.x, hi.z - lo.z, E, recuo)
+    esp = fundo.chapa_espessura_mm
+    centro = Vector(((lo.x + hi.x) / 2.0, hi.y - recuo - esp / 2.0,
+                     (lo.z + hi.z) / 2.0)) / 1000.0
+    _chapas._ocupado[0] = True
+    try:
+        fundo.chapa_largura_mm = max(1.0, largura)
+        fundo.chapa_comprimento_mm = max(1.0, altura)
+        # chapa: X largura, Y comprimento (a ALTURA do modulo), Z espessura
+        # (a profundidade do modulo): de pe', 90 graus em X
+        fundo.matrix_world = (conj.matrix_world @ Matrix.Translation(centro)
+                              @ Matrix.Rotation(1.5707963267948966, 4, 'X'))
+    finally:
+        _chapas._ocupado[0] = False
+    _chapas.gerar_malha_chapa(fundo)
+    return True
+
+
+# Modulo de BANCADA (balcao, gabinete: pedido do usuario) e' aberto em
+# cima: duas travessas de chapa entre as laterais, uma rente a' frente e
+# outra rente ao fundo, no lugar do tampo (a bancada/pia apoia nelas).
+LARGURA_TRAVESSA_MM = 70.0
+LADOS_TRAVESSA = (('FRENTE', 'Travessa Frontal'), ('TRAS', 'Travessa Traseira'))
+CHAVE_LADO_TRAVESSA = 'travessa_lado'
+
+
+def travessas_do_modulo(conj):
+    return [o for o in conj.children if _chapas.MARCA_TRAVESSA in o]
+
+
+def ajustar_travessas(conj):
+    """Refaz as travessas pela caixa ATUAL: entre as laterais, no topo, na
+    espessura do modulo; cada uma rente ao seu lado (frente = -Y), com a
+    largura que tiver (a do usuario, se ele mudou)."""
+    travessas = travessas_do_modulo(conj)
+    caixa = _caixa_local_estrutural(conj) if travessas else None
+    if caixa is None:
+        return False
+    lo, hi = caixa
+    E = float(conj.conj_espessura_mm) or 18.0
+    _chapas._ocupado[0] = True
+    try:
+        for tr in travessas:
+            largura = tr.chapa_comprimento_mm
+            frente = tr.get(CHAVE_LADO_TRAVESSA, 'FRENTE') == 'FRENTE'
+            y = lo.y + largura / 2.0 if frente else hi.y - largura / 2.0
+            tr.chapa_largura_mm = max(1.0, (hi.x - lo.x) - 2.0 * E)
+            tr.chapa_espessura_mm = E
+            centro = Vector(((lo.x + hi.x) / 2.0, y, hi.z - E / 2.0)) / 1000.0
+            tr.matrix_world = conj.matrix_world @ Matrix.Translation(centro)
+    finally:
+        _chapas._ocupado[0] = False
+    for tr in travessas:
+        _chapas.gerar_malha_chapa(tr)
+    return True
+
+
+def adicionar_travessas(conj, context=None, largura=LARGURA_TRAVESSA_MM):
+    """As duas travessas do topo aberto (as que ja' existem ficam)."""
+    context = context or bpy.context
+    existentes = {t.get(CHAVE_LADO_TRAVESSA) for t in travessas_do_modulo(conj)}
+    colecao = _colecao_do_modulo(conj)
+    for lado, nome in LADOS_TRAVESSA:
+        if lado in existentes:
+            continue
+        tr = _chapas.nova_chapa(nome, 100.0, largura, conj.conj_espessura_mm,
+                                (0, 0, 0), (0, 0, 0), context)
+        tr[_chapas.MARCA_TRAVESSA] = 1
+        tr[CHAVE_LADO_TRAVESSA] = lado
+        tr.parent = conj
+        tr.matrix_parent_inverse = conj.matrix_world.inverted()
+        if colecao is not None:
+            _mover_para_colecao(tr, colecao)
+    context.view_layer.update()
+    ajustar_travessas(conj)
+    return travessas_do_modulo(conj)
+
+
+def ajustar_dependentes(conj):
+    """Fundo e travessas: refeitos pela caixa nova do modulo."""
+    ajustar_travessas(conj)
+    ajustar_fundo(conj)
+
+
+def adicionar_fundo(conj, context=None, recuo=RECUO_FUNDO_MM,
+                    espessura=ESPESSURA_FUNDO_MM):
+    """Poe (ou acerta) o fundo do modulo. Devolve o fundo."""
+    context = context or bpy.context
+    conj[CHAVE_RECUO_FUNDO] = float(recuo)
+    fundo = fundo_do_modulo(conj)
+    if fundo is None:
+        fundo = _chapas.nova_chapa('Fundo', 100.0, 100.0, espessura,
+                                   (0, 0, 0), (0, 0, 0), context)
+        fundo[_chapas.MARCA_FUNDO] = 1
+        fundo.parent = conj
+        fundo.matrix_parent_inverse = conj.matrix_world.inverted()
+        colecao = _colecao_do_modulo(conj)
+        if colecao is not None:
+            _mover_para_colecao(fundo, colecao)
+    else:
+        _chapas._ocupado[0] = True
+        try:
+            fundo.chapa_espessura_mm = espessura
+        finally:
+            _chapas._ocupado[0] = False
+    context.view_layer.update()
+    ajustar_fundo(conj)
+    return fundo
+
+
+def remover_fundo(conj):
+    fundo = fundo_do_modulo(conj)
+    if fundo is None:
+        return False
+    malha = fundo.data
+    bpy.data.objects.remove(fundo, do_unlink=True)
+    if malha is not None and malha.users == 0:
+        bpy.data.meshes.remove(malha)
+    if CHAVE_RECUO_FUNDO in conj:
+        del conj[CHAVE_RECUO_FUNDO]
+    return True
+
+
+class OBJECT_OT_fundo_modulo(Operator):
+    """Fundo de chapa do modulo, encaixado em canal e recuado da borda de
+    tras (acompanha as medidas do modulo)"""
+    bl_idname = 'object.cabinet_fundo_modulo'
+    bl_label = 'Fundo do Modulo'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    recuo_mm: bpy.props.FloatProperty(
+        name="Recuo (mm)", default=RECUO_FUNDO_MM, min=0.0,
+        description="Da borda de tras do modulo ate' as costas do fundo")
+    espessura_mm: bpy.props.FloatProperty(
+        name="Espessura (mm)", default=ESPESSURA_FUNDO_MM, min=1.0)
+    remover: bpy.props.BoolProperty(name="Remover o fundo", default=False,
+                                    options={'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        return any(_conj_de(o) is not None for o in context.selected_objects)
+
+    def invoke(self, context, event):
+        conj = next((_conj_de(o) for o in context.selected_objects
+                     if _conj_de(o) is not None), None)
+        fundo = fundo_do_modulo(conj) if conj is not None else None
+        if conj is not None:
+            self.recuo_mm = float(conj.get(CHAVE_RECUO_FUNDO, RECUO_FUNDO_MM))
+        if fundo is not None:
+            self.espessura_mm = fundo.chapa_espessura_mm
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        modulos = {_conj_de(o) for o in context.selected_objects} - {None}
+        for conj in modulos:
+            if self.remover:
+                remover_fundo(conj)
+            else:
+                adicionar_fundo(conj, context, self.recuo_mm, self.espessura_mm)
+        return {'FINISHED'} if modulos else {'CANCELLED'}
+
+
+def criar_armario(context, nome, L, A, P, E=18.0, fundo=True, topo='TAMPO'):
+    """Modulo NATIVO (so' chapas do add-on): laterais de altura inteira,
+    base entre elas e, em cima, o tampo (`topo`='TAMPO') ou as duas
+    travessas do modulo de bancada ('TRAVESSAS', topo aberto); com
+    `fundo`, o fundo de 5 mm em canal. Medidas EXTERNAS em mm; nasce na
+    origem, frente em -Y. Devolve o modulo (Empty), ja' ativo."""
+    li = L - 2.0 * E
+    pecas = [
+        ("Lateral Esquerda", A, P, E, (-(L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
+        ("Lateral Direita", A, P, E, ((L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
+        ("Base", li, P, E, (0, 0, E / 2), (0, 0, 0)),
+    ]
+    if topo == 'TAMPO':
+        pecas.append(("Tampo", li, P, E, (0, 0, A - E / 2), (0, 0, 0)))
+    criadas = [_chapas.nova_chapa(n, la, c, e, lo, r, context)
+               for n, la, c, e, lo, r in pecas]
+    context.view_layer.update()
+    conj = agrupar_chapas(context, criadas, nome)
+    if topo == 'TRAVESSAS':
+        adicionar_travessas(conj, context)
+    if fundo:
+        adicionar_fundo(conj, context)
+    return conj
+
+
+def _conj_de(obj):
+    while obj is not None:
+        if _chapas.MARCA_CONJUNTO in obj:
+            return obj
+        obj = obj.parent
+    return None
+
+
 def _upd_conj_dim(self, context):
     if _chapas._ocupado[0]:
         return
@@ -537,7 +795,7 @@ def sincronizar_medidas_conjunto(conj):
         conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm = m
         chapas = _chapas_do_conjunto(conj)
         if chapas:
-            conj.conj_espessura_mm = chapas[0].chapa_espessura_mm
+            conj.conj_espessura_mm = _espessura_de(chapas)
     finally:
         _chapas._ocupado[0] = False
 
@@ -763,7 +1021,7 @@ def sincronizar_grupo(context):
         s.grupo_largura_mm = (hi[0]-lo[0]) * 1000.0
         s.grupo_altura_mm = (hi[2]-lo[2]) * 1000.0
         s.grupo_profundidade_mm = (hi[1]-lo[1]) * 1000.0
-        s.grupo_espessura_mm = chapas[0].chapa_espessura_mm
+        s.grupo_espessura_mm = _espessura_de(chapas)
     finally:
         _chapas._ocupado[0] = False
 
@@ -788,7 +1046,7 @@ def _sincronizar_medidas_ativas():
                 return
             chapas = _chapas_do_conjunto(obj)
             real = tuple(medidas) + (
-                (chapas[0].chapa_espessura_mm,) if chapas else ())
+                (_espessura_de(chapas),) if chapas else ())
             campos = (obj.conj_largura_mm, obj.conj_altura_mm,
                       obj.conj_profundidade_mm, obj.conj_espessura_mm)
             if any(abs(a - b) > 0.01 for a, b in zip(real, campos)):
@@ -801,7 +1059,7 @@ def _sincronizar_medidas_ativas():
             lo, hi = caixa
             s = context.scene
             real = ((hi[0] - lo[0]) * 1000.0, (hi[2] - lo[2]) * 1000.0,
-                    (hi[1] - lo[1]) * 1000.0, chapas[0].chapa_espessura_mm)
+                    (hi[1] - lo[1]) * 1000.0, _espessura_de(chapas))
             campos = (s.grupo_largura_mm, s.grupo_altura_mm,
                       s.grupo_profundidade_mm, s.grupo_espessura_mm)
             if any(abs(a - b) > 0.01 for a, b in zip(real, campos)):
