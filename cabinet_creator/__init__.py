@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (216, 0, 0),
+    "version": (218, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -53,6 +53,7 @@ from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
 from . import formas as _formas
 from . import gavetas as _gavetas
+from . import prateleiras as _prateleiras
 from . import promob as _promob
 from . import geometria as _geometria
 from . import painel_legado as _painel_legado
@@ -60,7 +61,7 @@ from . import painel_legado as _painel_legado
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
-            _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _promob,
+            _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _painel_legado)
 
 
@@ -140,6 +141,7 @@ CLASSES = (
     _gavetas.OBJECT_OT_criar_gavetas,
     _gavetas.OBJECT_OT_abrir_gaveta,
     _gavetas.OBJECT_OT_arrastar_ponto_gaveta,
+    _prateleiras.OBJECT_OT_criar_prateleiras,
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,
@@ -385,6 +387,7 @@ def register():
         items=[('MODULOS', "Modulos", "Medidas, montagem e biblioteca"),
                ('PORTAS', "Portas", "Criacao e configuracao de portas"),
                ('GAVETAS', "Gavetas", "Criacao e configuracao de gavetas"),
+               ('PRATELEIRAS', "Prateleiras", "Prateleiras internas: quantidade, espessura e vaos"),
                ('PUXADORES', "Puxadores", "Puxadores ligados as portas")])
     # modelo que a ferramenta de posicionar vai criar
     # padrao = PERFIL (pedido do usuario)
@@ -492,6 +495,7 @@ def unregister():
     _paredes.esquecer()
     _formas.esquecer()
     _gavetas.esquecer()
+    _prateleiras.esquecer()
     _geometria.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):

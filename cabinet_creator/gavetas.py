@@ -1031,15 +1031,64 @@ def _criando():
     return _assistente_gavetas[0] is not None
 
 
-class OBJECT_OT_criar_gavetas(Operator):
-    """Cria gavetas num vao: 2 cantos na diagonal, quantidade, profundidade e trilho"""
-    bl_idname = 'object.cabinet_criar_gavetas'
-    bl_label = 'Criar Gavetas'
-    bl_options = {'REGISTER', 'UNDO'}
+class AssistenteDoVao:
+    """O assistente que marca um vao do modulo: 2 cliques na diagonal ->
+    scroll = quantas -> mouse = profundidade -> trilho. As PRATELEIRAS usam
+    o mesmo (`prateleiras.OBJECT_OT_criar_prateleiras`), parando na
+    quantidade; o que muda entre os dois sao os ganchos logo abaixo. Mixin, nao Operator: subclasse de operador
+    registrado nao se registra de novo."""
+    _estado = _assistente_gavetas
+    RECADOS = RECADOS
+    MAXIMO = MAXIMO_GAVETAS
+    ITEM = ('gaveta', 'gavetas')
+    ABA = 'GAVETAS'
+    FIM_QUANTIDADE = 'clique confirma'
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'OBJECT'
+
+    # ---------------------------------------------- ganchos
+    def _parametros_padrao(self):
+        return dict(PARAMETROS_PADRAO)
+
+    def _calcular(self, largura, altura, p):
+        return calcular(largura, altura, p)
+
+    def _caixas_da_previa(self, dados):
+        """Caixas (x0, x1, y0, y1, z0, z1) que a previa contorna."""
+        caixas = []
+        for d in dados['gavetas']:
+            caixas += [d['frente']] + [c[2] for c in d['caixa'][:1]] + d['fixos']
+        return caixas
+
+    def _comecar_no_modulo(self, conj, ponto):
+        p = self._w['p']
+        p['lateral_mm'] = float(_portas._espessura_do_vao(conj))
+        p['espessura_frente_mm'] = p['lateral_mm']
+        lo, hi = _limites(conj)
+        p['profundidade_mm'] = hi.y - lo.y
+
+    def _limitar_profundidade(self, mm):
+        return max(100.0, mm)
+
+    def _recado_profundidade(self, dados):
+        return 'Profundidade %d mm (trilho %d) | Alt gruda | clique confirma' % (
+            round(self._w['p']['profundidade_mm']), dados['trilho_mm'])
+
+    def _depois_da_quantidade(self, context):
+        self._ir('PROFUNDIDADE')
+        return {'RUNNING_MODAL'}
+
+    def _depois_da_profundidade(self, context):
+        self._ir('TRILHO')
+        return {'RUNNING_MODAL'}
+
+    def _criar_grupo(self, context, conj, margens, p):
+        return criar_gavetas(context, conj, margens, p)
+
+    def _selecionar_grupo(self, context, grupo):
+        selecionar(context, grupo, 'GRUPO')
 
     # ---------------------------------------------- tela e ima
     def _mouse(self, event):
@@ -1097,7 +1146,7 @@ class OBJECT_OT_criar_gavetas(Operator):
         altura = hi.z - margens[3] - lo.z - margens[2]
         origem = (lo.x + margens[0], lo.y + margens[4], lo.z + margens[2])
         try:
-            dados = calcular(largura, altura, w['p'])
+            dados = self._calcular(largura, altura, w['p'])
         except ValueError as erro:
             w['recado'] = str(erro)
             return None, _mundo_do_vao(conj, origem)
@@ -1125,13 +1174,12 @@ class OBJECT_OT_criar_gavetas(Operator):
         dados, matriz = (self._dados() if w['etapa'] in ('QUANTIDADE', 'PROFUNDIDADE', 'TRILHO')
                          else (None, None))
         if dados is not None:
-            for d in dados['gavetas']:
-                for caixa in [d['frente']] + [c[2] for c in d['caixa'][:1]] + d['fixos']:
-                    x0, x1, y0, y1, z0, z1 = caixa
-                    c = [matriz @ (Vector((x, y, z)) / 1000.0)
-                         for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
-                    for i, j in ARESTAS:
-                        linhas += [c[i], c[j]]
+            for caixa in self._caixas_da_previa(dados):
+                x0, x1, y0, y1, z0, z1 = caixa
+                c = [matriz @ (Vector((x, y, z)) / 1000.0)
+                     for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
+                for i, j in ARESTAS:
+                    linhas += [c[i], c[j]]
         try:
             gpu.state.blend_set('ALPHA')
             gpu.state.depth_test_set('NONE')
@@ -1153,7 +1201,7 @@ class OBJECT_OT_criar_gavetas(Operator):
                 shader.uniform_float('color', (*tema.view_3d.object_active, 1.0))
                 batch_for_shader(shader, 'POINTS', {'pos': marcas}).draw(shader)
         except Exception as e:
-            print("[Cabinet Creator] previa das gavetas:", e)
+            print("[Cabinet Creator] previa das %s:" % self.ITEM[1], e)
         finally:
             gpu.state.line_width_set(1.0)
             gpu.state.point_size_set(1.0)
@@ -1182,10 +1230,10 @@ class OBJECT_OT_criar_gavetas(Operator):
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
             return {'CANCELLED'}
         self._w = {'etapa': 'CANTO1', 'regiao': self._regiao_ptr, 'pontos': [],
-                   'cursor': None, 'modulo': '', 'p': dict(PARAMETROS_PADRAO),
+                   'cursor': None, 'modulo': '', 'p': self._parametros_padrao(),
                    'botoes': [], 'bolinhas': [], 'snap_tela': None,
-                   'mouse': None, 'recado': RECADOS['CANTO1'], 'pergunta': ''}
-        _assistente_gavetas[0] = self._w
+                   'mouse': None, 'recado': self.RECADOS['CANTO1'], 'pergunta': ''}
+        self._estado[0] = self._w
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
         self._handler_2d = bpy.types.SpaceView3D.draw_handler_add(
@@ -1197,7 +1245,7 @@ class OBJECT_OT_criar_gavetas(Operator):
         return {'RUNNING_MODAL'}
 
     def _encerrar(self, context):
-        _assistente_gavetas[0] = None
+        self._estado[0] = None
         for nome in ('_handler', '_handler_2d'):
             h = getattr(self, nome, None)
             if h is not None:
@@ -1216,7 +1264,7 @@ class OBJECT_OT_criar_gavetas(Operator):
         w = self._w
         w['etapa'] = etapa
         w['botoes'], w['hover_botao'] = [], None
-        w['recado'] = RECADOS[etapa]
+        w['recado'] = self.RECADOS[etapa]
         if etapa == 'TRILHO':
             escala = max(1.0, bpy.context.preferences.system.ui_scale)
             w['botoes'] = _assistente._botoes_assistente(
@@ -1232,7 +1280,7 @@ class OBJECT_OT_criar_gavetas(Operator):
     def _recado_quantidade(self):
         w = self._w
         n = w['p']['quantidade']
-        w['recado'] = '%d gaveta%s | scroll muda, clique confirma' % (n, 's' if n > 1 else '')
+        w['recado'] = '%d %s | scroll muda, %s' % (n, self.ITEM[n > 1], self.FIM_QUANTIDADE)
         self._dados()
 
     def _profundidade(self, context, event, mouse):
@@ -1248,7 +1296,8 @@ class OBJECT_OT_criar_gavetas(Operator):
         if event.alt:
             ponto, _nome = self._imantar(mouse)
             if ponto is not None:
-                w['p']['profundidade_mm'] = max(100.0, (ponto - base).dot(eixo) * 1000.0)
+                w['p']['profundidade_mm'] = self._limitar_profundidade(
+                    (ponto - base).dot(eixo) * 1000.0)
                 w['snap_tela'] = self._tela(ponto)
                 return
         w['snap_tela'] = None
@@ -1258,7 +1307,7 @@ class OBJECT_OT_criar_gavetas(Operator):
         d, e = eixo.dot(w0), direcao.dot(w0)
         den = a * c - b * b
         if abs(den) > 1e-9:
-            w['p']['profundidade_mm'] = max(100.0, (b * e - c * d) / den * 1000.0)
+            w['p']['profundidade_mm'] = self._limitar_profundidade((b * e - c * d) / den * 1000.0)
 
     def modal(self, context, event):
         w = self._w
@@ -1273,7 +1322,7 @@ class OBJECT_OT_criar_gavetas(Operator):
             if w['etapa'] != 'QUANTIDADE':
                 return {'PASS_THROUGH'}
             n = w['p']['quantidade'] + (1 if event.type == 'WHEELUPMOUSE' else -1)
-            w['p']['quantidade'] = max(1, min(MAXIMO_GAVETAS, n))
+            w['p']['quantidade'] = max(1, min(self.MAXIMO, n))
             self._recado_quantidade()
             self._area.header_text_set(w['recado'])
             self._area.tag_redraw()
@@ -1291,15 +1340,14 @@ class OBJECT_OT_criar_gavetas(Operator):
                 self._profundidade(context, event, mouse)
                 dados, _m = self._dados()
                 if dados is not None:
-                    w['recado'] = 'Profundidade %d mm (trilho %d) | Alt gruda | clique confirma' % (
-                        round(w['p']['profundidade_mm']), dados['trilho_mm'])
+                    w['recado'] = self._recado_profundidade(dados)
                 self._area.header_text_set(w['recado'])
             elif w['etapa'] == 'TRILHO':
                 w['hover_botao'] = _assistente._botao_sob(w['botoes'], mouse)
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS' and w['etapa'] == 'TRILHO':
-            return self._criar(context, 'TELESCOPICO')
+            return self._criar(context, trilho='TELESCOPICO')
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS' or not dentro:
             return {'RUNNING_MODAL'} if dentro else {'PASS_THROUGH'}
         if w['etapa'] in ('CANTO1', 'CANTO2'):
@@ -1315,10 +1363,7 @@ class OBJECT_OT_criar_gavetas(Operator):
                     return {'RUNNING_MODAL'}
                 w['modulo'] = conj.name
                 w['pontos'] = [ponto.copy()]
-                w['p']['lateral_mm'] = float(_portas._espessura_do_vao(conj))
-                w['p']['espessura_frente_mm'] = w['p']['lateral_mm']
-                lo, hi = _limites(conj)
-                w['p']['profundidade_mm'] = hi.y - lo.y
+                self._comecar_no_modulo(conj, ponto)
                 self._ir('CANTO2')
                 return {'RUNNING_MODAL'}
             w['pontos'].append(ponto.copy())
@@ -1335,37 +1380,42 @@ class OBJECT_OT_criar_gavetas(Operator):
             if dados is None:
                 self._area.header_text_set(w['recado'])
                 return {'RUNNING_MODAL'}
-            self._ir('PROFUNDIDADE')
-            return {'RUNNING_MODAL'}
+            return self._depois_da_quantidade(context)
         if w['etapa'] == 'PROFUNDIDADE':
             dados, _m = self._dados()
             if dados is None:
                 self._area.header_text_set(w['recado'])
                 return {'RUNNING_MODAL'}
-            self._ir('TRILHO')
-            return {'RUNNING_MODAL'}
+            return self._depois_da_profundidade(context)
         if w['etapa'] == 'TRILHO':
             chave = _assistente._botao_sob(w['botoes'], mouse)
             if chave is not None:
-                return self._criar(context, chave)
+                return self._criar(context, trilho=chave)
         return {'RUNNING_MODAL'}
 
-    def _criar(self, context, trilho):
+    def _criar(self, context, **extra):
         w = self._w
         conj = bpy.data.objects.get(w['modulo'])
-        p = dict(w['p'], trilho=trilho)
+        p = dict(w['p'], **extra)
         pontos = list(w['pontos'])
         self._encerrar(context)
         if conj is None:
             return {'CANCELLED'}
         try:
-            grupo = criar_gavetas(context, conj, margens_do_vao(conj, *pontos), p)
+            grupo = self._criar_grupo(context, conj, margens_do_vao(conj, *pontos), p)
         except ValueError as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
-        selecionar(context, grupo, 'GRUPO')
-        context.scene.cabinet_aba = 'GAVETAS'
+        self._selecionar_grupo(context, grupo)
+        context.scene.cabinet_aba = self.ABA
         return {'FINISHED'}
+
+
+class OBJECT_OT_criar_gavetas(AssistenteDoVao, Operator):
+    """Cria gavetas num vao: 2 cantos na diagonal, quantidade, profundidade e trilho"""
+    bl_idname = 'object.cabinet_criar_gavetas'
+    bl_label = 'Criar Gavetas'
+    bl_options = {'REGISTER', 'UNDO'}
 
 
 def esquecer():

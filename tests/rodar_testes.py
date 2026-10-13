@@ -32,9 +32,9 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 PISO = {
     'estrutura': 51, 'gaveta': 64, 'portas': 97, 'hud': 67,
     'importacao': 30, 'puxadores': 17, 'snapshot': 7, 'operadores': 26,
-    'biblioteca': 79, 'cobertura': 4, 'gui_interacao': 45,
+    'biblioteca': 79, 'cobertura': 4, 'gui_interacao': 47,
     'orcamento': 10, 'paredes': 12, 'armarios': 10, 'formas': 12, 'gavetas': 11,
-    'geometria': 9,
+    'geometria': 9, 'prateleiras': 8,
 }
 LIMITE_SEGUNDOS = 300
 

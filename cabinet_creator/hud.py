@@ -25,6 +25,7 @@ _paredes = None
 _gaveta_desenho = None
 _formas = None
 _gavetas = None
+_prateleiras = None
 _geometria = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
@@ -372,6 +373,13 @@ def _itens_da_selecao(context):
             itens.append((obj, modo, chapas))
 
     for o in selecionados:
+        prateleiras = _prateleiras.grupo_de(o)
+        if prateleiras is not None:
+            # prateleiras (o grupo ou uma, pelo duplo): as linhas do vao
+            if ('PR', prateleiras.name) not in chaves:
+                chaves.add(('PR', prateleiras.name))
+                itens.append((prateleiras, 'PRATELEIRAS', []))
+            continue
         grupo = _gavetas.grupo_de(o)
         if grupo is not None and (o == grupo or _gavetas.MARCA_GAVETA in o):
             # gavetas selecionadas: SO' elas tem linha (pedido do usuario)
@@ -410,8 +418,9 @@ def _itens_da_selecao(context):
 def _geometria_do_item(obj, modo, chapas):
     """A geometria da HUD de UM item -- o ativo ou, na edicao de varios
     itens, cada modulo/chapa que entra na conta."""
-    if modo == 'GAVETAS':
-        cantos, linhas = _gavetas.linhas_hud(obj, chapas)
+    if modo in ('GAVETAS', 'PRATELEIRAS'):
+        dono = _gavetas if modo == 'GAVETAS' else _prateleiras
+        cantos, linhas = dono.linhas_hud(obj, chapas)
         return {'objeto': obj, 'modo': modo, 'chapas': chapas,
                 'cantos': cantos, 'linhas': linhas}
     matriz = obj.matrix_world if modo == 'INDIVIDUAL' else None
@@ -951,7 +960,7 @@ def _tamanho_na_tela(context, geometria):
     """Maior aresta de medida do item, em pixels de tela."""
     maior = 0.0
     for linha in geometria['linhas']:
-        if linha['tipo'] not in ('medida', 'forma', 'gavetas'):
+        if linha['tipo'] not in ('medida', 'forma', 'gavetas', 'prateleiras'):
             continue
         a = _projetar_hud(context, linha['pontos'][0])
         b = _projetar_hud(context, linha['pontos'][-1])
@@ -1026,6 +1035,21 @@ def _rotulos_hud(context, geometria, alvo):
             continue
         if cabem or aceso:
             rotulos.append(['%d\u00b0' % round(graus), ponto, aceso])
+    # vao entre prateleiras: o VALOR (sao varios, uma letra so' nao diria
+    # qual), a' direita do meio da linha
+    for linha in geometria['linhas']:
+        if not linha.get('vao'):
+            continue
+        a, b = (_projetar_hud(context, p) for p in linha['pontos'][:2])
+        if a is None or b is None:
+            continue
+        aceso = _identidade_hud(linha) == _identidade_hud(alvo)
+        if cabem or aceso:
+            texto = _opcoes._texto_medida(_valor_hud(linha)).rsplit(' ', 1)[0]
+            blf.size(0, tamanho)
+            meio = (a + b) / 2.0
+            rotulos.append([texto, meio + Vector((
+                blf.dimensions(0, texto)[0] / 2.0 + 6 * escala, 0.0)), aceso])
     if alvo and alvo['tipo'] == 'espessura':
         rotulos = [r for r in rotulos if r[0] != 'E']
         ponto = _projetar_hud(context, sum(alvo['pontos'][:-1], Vector()) /
@@ -1371,6 +1395,8 @@ def _valor_hud(alvo, context=None):
         return _formas.valor(alvo['objeto'], alvo['face'])
     if alvo['tipo'] == 'gavetas':
         return _gavetas.valor(alvo['objeto'], alvo['face'])
+    if alvo['tipo'] == 'prateleiras':
+        return _prateleiras.valor(alvo['objeto'], alvo['face'])
     if alvo['tipo'] == 'gap':
         return float(alvo['objeto']['porta_parametros']['entre_folhas_mm'])
     propriedade = _propriedade_hud(alvo)
@@ -1413,8 +1439,9 @@ def _aplicar_valor_hud(context, alvo, valor):
     if alvo['tipo'] == 'forma':
         _formas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
         return
-    if alvo['tipo'] == 'gavetas':
-        erro = _gavetas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
+    if alvo['tipo'] in ('gavetas', 'prateleiras'):
+        dono = _gavetas if alvo['tipo'] == 'gavetas' else _prateleiras
+        erro = dono.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
         if erro:
             raise ValueError(erro)
         return
@@ -1482,6 +1509,9 @@ def _aplicar_valor_hud(context, alvo, valor):
 
 def _estado_arraste_hud(context, alvo):
     obj = alvo['objeto']
+    if alvo['tipo'] == 'prateleiras':
+        # o Esc devolve os PARAMETROS (as chapas se refazem por eles)
+        return 'PRATELEIRAS', _prateleiras.copia(obj)
     modulo = obj if _chapas.MARCA_CONJUNTO in obj else _portas._modulo_da_chapa(obj)
     if modulo is None and _chapas.MARCA_PORTAS in obj:
         modulo = obj.parent if obj.parent and _chapas.MARCA_CONJUNTO in obj.parent else None
@@ -1517,6 +1547,9 @@ def _estado_arraste_hud(context, alvo):
 
 def _restaurar_arraste_hud(context, estado):
     objetos, cena = estado
+    if objetos == 'PRATELEIRAS':
+        _prateleiras.restaurar(cena)
+        return
     _chapas._ocupado[0] = True
     try:
         for obj, matriz, inversa, props, porta, vertices in objetos:
@@ -1818,7 +1851,7 @@ class OBJECT_OT_arrastar_hud(Operator):
             return {'CANCELLED'}
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            if (not self._arrastou and (self._alvo['tipo'] in ('forma', 'gavetas') or (
+            if (not self._arrastou and (self._alvo['tipo'] in ('forma', 'gavetas', 'prateleiras') or (
                     self._alvo['tipo'] == 'medida' and self._alvo.get('lado')))):
                 # Clique sem arrastar numa linha do modulo: a seta fica e
                 # o valor passa a ser digitado (Enter confirma, Esc volta).

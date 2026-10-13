@@ -8,6 +8,7 @@ from mathutils import Matrix, Vector
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _ferragens = _puxadores = _gavetas = None
+_prateleiras = None
 _geometria = None
 
 # ================================================ PORTAS PARAMETRICAS
@@ -1240,8 +1241,10 @@ def atualizar_portas_do_conjunto(conj):
                             largura, altura, dict(parametros))
         except (ValueError, KeyError, TypeError) as e:
             print("[Cabinet Creator] porta vinculada:", e)
-    # as gavetas do modulo seguem o vao (margens fixas), como as portas
+    # as gavetas e as prateleiras do modulo seguem o vao (margens fixas),
+    # como as portas
     _gavetas.atualizar_gavetas_do_conjunto(conj)
+    _prateleiras.atualizar_do_conjunto(conj)
 
 
 def _reaplicar_portas(context, grupo, parametros):

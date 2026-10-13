@@ -13,6 +13,7 @@ from bpy.types import Operator
 _biblioteca = _chapas = _ferragens = _perguntas = _gaveta = _portas = None
 _orcamento = None
 _gavetas = None
+_prateleiras = None
 
 # 1o clique numa esfera: (chave, instante, mouse_x, mouse_y). Clique
 # simples NAO pinta (pedido do usuario: um clique errado mudaria o que nao
@@ -228,7 +229,8 @@ def pecas_dos_alvos(objs):
     peca solta ou folha (duplo clique) = so' ela."""
     pecas = []
     for obj in objs:
-        if _gavetas.MARCA_GRUPO in obj or _gavetas.MARCA_GAVETA in obj:
+        if (_gavetas.MARCA_GRUPO in obj or _gavetas.MARCA_GAVETA in obj
+                or _prateleiras.MARCA_GRUPO in obj):
             # gavetas: frentes e caixas (trilho tem o material dele)
             pecas += [f for f in obj.children_recursive
                       if _chapas.MARCA_CHAPA in f and _eh_peca(f)]

@@ -27,6 +27,7 @@ _solda = None
 _perguntas = None
 _gaveta_desenho = None
 _gavetas = None
+_prateleiras = None
 _formas = None
 
 class OBJECT_OT_modo_medidas(Operator):
@@ -1222,7 +1223,7 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
 
 
 # botoes LARANJA do topo das abas: Criar Portas e Criar Puxador
-BOTOES_CRIAR = ('portas', 'gavetas', 'criar_puxador')
+BOTOES_CRIAR = ('portas', 'gavetas', 'prateleiras', 'criar_puxador')
 COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # laranja
 COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 
@@ -1255,6 +1256,70 @@ def _botao_criar_gavetas():
     criando = _gavetas._criando()
     return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Gavetas'),
             ('gavetas', False, criando, '', False))
+
+
+def _botao_criar_prateleiras():
+    """(rotulo, acao) do "Criar Prateleiras" (o formato do de gavetas)."""
+    criando = _prateleiras._criando()
+    return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Prateleiras'),
+            ('prateleiras', False, criando, '', False))
+
+
+def _aba_prateleiras_gaveta(context, itens, x, y, w):
+    """Como a aba Gavetas (pedido do usuario): nada selecionado = so' o
+    "Criar Prateleiras"; criando = o recado da etapa; selecionadas
+    (clique = todas do vao, duplo = uma) = o vao, a chapa e os VAOS --
+    todos de baixo para cima, ou so' os dois da prateleira escolhida."""
+    assistente = _prateleiras._assistente_prateleiras[0]
+    if assistente is not None:
+        itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
+        return itens
+    obj = _selecionado(context)
+    grupo = _prateleiras.grupo_de(obj) if obj is not None else None
+    if grupo is None:
+        return itens
+    p = _prateleiras.parametros(grupo)
+    largura_vao, altura_vao, profundidade = _prateleiras.medidas(grupo)
+
+    def campo(nome, rotulo, valor):
+        return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
+                ('medida', 'prateleiras', nome, rotulo, valor))
+
+    topo = _titulo_secao(itens, x, y + 26, w, 'Prateleiras')
+    topo = _campos_em_linhas(context, itens, x, topo, w, [
+        campo('largura', 'Largura', largura_vao),
+        campo('altura', 'Altura', altura_vao),
+        campo('profundidade_mm', 'Profundidade', profundidade)],
+        compacto=(str(p['quantidade']),
+                  ('contador', 'prateleiras_quantidade', int(p['quantidade']), 1,
+                   _prateleiras.MAXIMO_PRATELEIRAS, grupo.name, 'Prateleiras')))
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
+    topo = _campos_em_linhas(context, itens, x, topo, w, [
+        campo('espessura_mm', 'Espessura', p['espessura_mm']),
+        campo('recuo_mm', 'Recuo', p['recuo_mm']),
+        campo('folga_lateral_mm', 'Folga lateral', p['folga_lateral_mm'])])
+    try:
+        vaos = _prateleiras.vaos(altura_vao, p)
+    except ValueError as erro:
+        itens.append((x, topo - 23 - ESPACO_SECOES, w, 22, str(erro), None))
+        return itens
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Espacamento')
+    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'prateleiras_espacamento',
+                                 _prateleiras.OPCOES_ESPACAMENTO, p['espacamento'],
+                                 alvo=grupo.name) + 23
+    prateleira = obj if _prateleiras.MARCA_PRATELEIRA in obj else None
+    if prateleira is not None:
+        # duplo clique: so' os vaos DELA (mexer neles anda so' ela)
+        k = int(prateleira.get(_prateleiras.CHAVE_INDICE, 0))
+        campos = [campo('vao_%d' % k, 'Abaixo', vaos[k]),
+                  campo('acima_%d' % k, 'Acima', vaos[k + 1])]
+    else:
+        # o mesmo entre todas e, embaixo, o de cada uma (1 = o de baixo;
+        # o ultimo e' o de cima da mais alta)
+        campos = [campo('entre_mm', 'Entre prateleiras', _prateleiras.entre(grupo))]
+        campos += [campo('vao_%d' % k, 'Vao %d' % (k + 1), v) for k, v in enumerate(vaos)]
+    _campos_em_linhas(context, itens, x, topo, w, campos)
+    return itens
 
 
 # alvo da 'escolha' do modelo do puxador das GAVETAS selecionadas
@@ -1462,7 +1527,8 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
-               ('Gavetas', 'Gav.', 'GAVETAS'), ('Puxadores', 'Pux.', 'PUXADORES'))
+               ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras', 'Prat.', 'PRATELEIRAS'),
+               ('Puxadores', 'Pux.', 'PUXADORES'))
 # As correntes entre as abas (porta no modulo, puxador na folha) foram
 # DESCONTINUADAS a pedido do usuario: o cabecalho e' so' as tres abas.
 # Os operadores seguem existindo (F3) -- so' sairam da gaveta.
@@ -1800,7 +1866,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     x, w = 12, max(24, min(540, largura - 24))
     itens = []
     metade = (w - 6) / 2
-    # Cabecalho: Modulos | Portas | Puxadores, na largura toda (as
+    # Cabecalho: as abas, na largura toda (as
     # correntes entre elas foram descontinuadas)
     aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
     cx = x
@@ -1809,7 +1875,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                       rotulo if aba_w >= 74 else curto, ('aba', acao)))
         cx += aba_w + 4
     y = altura - 105 + _rolagem
-    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PUXADORES'}:
+    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PRATELEIRAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
         # antes morava no pe' fixo ao lado da engrenagem. O "Criar
@@ -1817,6 +1883,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
         rotulo, acao = (_botao_criar_portas(context)
                         if s.cabinet_aba == 'PORTAS'
                         else _botao_criar_gavetas() if s.cabinet_aba == 'GAVETAS'
+                        else _botao_criar_prateleiras() if s.cabinet_aba == 'PRATELEIRAS'
                         else _botao_criar_puxador())
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
@@ -1829,6 +1896,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                                      metade)
     if s.cabinet_aba == 'GAVETAS':
         return _aba_gavetas_gaveta(context, itens, x, y, w)
+    if s.cabinet_aba == 'PRATELEIRAS':
+        return _aba_prateleiras_gaveta(context, itens, x, y, w)
     return _aba_modulos_gaveta(context, itens, x, y, w, largura, metade)
 
 

@@ -11,6 +11,7 @@ from bpy_extras.io_utils import ExportHelper
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _eventos = _portas = _solda = _perguntas = None
+_prateleiras = None
 
 # ======================================================== ORCAMENTO
 # O add-on e' vendido: nada de "ERP" na tela. O botao "Gerar orcamento"
@@ -259,7 +260,9 @@ def _pecas_internas(conj):
         baixo, alto = min(valores), max(valores)
         return sum(1 for v in valores
                    if baixo + _modulos.TOL_BORDA < v < alto - _modulos.TOL_BORDA)
-    return entre(posicoes[2]), entre(posicoes[0])
+    # mais as da aba Prateleiras (filhas do grupo delas, nao do modulo)
+    return (entre(posicoes[2]) + _prateleiras.quantas_no_modulo(conj),
+            entre(posicoes[0]))
 
 
 def _detalhes_do_modulo(conj, puxadores):

@@ -17,6 +17,7 @@ _hud = None
 _solda = None
 _portas_viewport = None
 _gavetas = None
+_prateleiras = None
 
 # ====================================================== SELECAO
 # 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
@@ -36,6 +37,8 @@ def _aba_da_selecao(obj):
         return 'PUXADORES'
     if _gavetas.grupo_de(obj) is not None:
         return 'GAVETAS'
+    if _prateleiras.grupo_de(obj) is not None:
+        return 'PRATELEIRAS'
     if _chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj:
         return 'PORTAS'
     if _chapas.MARCA_CONJUNTO in obj or _chapas.MARCA_CHAPA in obj:
@@ -166,6 +169,13 @@ class OBJECT_OT_selecionar(Operator):
             _gavetas.selecionar(context, atingido[0],
                                 'GAVETA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
                                 somar=self.toggle or self.extend)
+            return {'FINISHED'}
+        if atingido is not None and _prateleiras.grupo_de(atingido[0]) is not None:
+            # PRATELEIRAS, como as gavetas: clique = todas do vao, duplo =
+            # so' aquela (a aba mostra os vaos dela); Shift soma
+            _prateleiras.selecionar(context, atingido[0],
+                                    'PRATELEIRA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
+                                    somar=self.toggle or self.extend)
             return {'FINISHED'}
         if atingido is not None and _chapas.MARCA_CHAPA in atingido[0]:
             obj = atingido[0]

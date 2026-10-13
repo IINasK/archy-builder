@@ -135,6 +135,7 @@ def limpar(janela):
     addon.portas_viewport._arraste_canto_porta[0] = None
     addon.portas_viewport._arraste_slider_porta[0] = None
     addon.gavetas.esquecer()
+    addon.prateleiras.esquecer()
     addon.hud._edicao_hud[0] = None
     addon.solda._tecla_corrente_segurada[0] = False
     addon.solda._conexao_pendente[0] = None
@@ -2348,6 +2349,75 @@ def test_criar_gavetas_pelo_assistente(janela, m):
     assert abs(largura - (L - 2 * E)) < 1 and abs(altura - (A - 2 * E)) < 1, (largura, altura)
     assert bpy.context.scene.cabinet_aba == 'GAVETAS'
     assert bpy.context.view_layer.objects.active == grupo
+
+
+def test_criar_prateleiras_pelo_assistente(janela, m):
+    # Pedido do usuario: "Criar Prateleiras" -> SO' 2 cliques na diagonal
+    # do vao -> scroll = quantas -> o clique cria (sem profundidade: vai
+    # ate' o fundo; a folga da frente e' o Recuo). O assistente e' o das
+    # gavetas (`gavetas.AssistenteDoVao`), com os ganchos das prateleiras.
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
+    bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
+    yield
+    yield
+    m.mover(*widget(janela, lambda v: v[5][0] == 'prateleiras'))
+    yield
+    m.clicar()
+    yield
+    w = addon.prateleiras._assistente_prateleiras[0]
+    assert w is not None, 'Criar Prateleiras nao abriu'
+    assert addon.gavetas._assistente_gavetas[0] is None
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    y = -P / 2
+    for ponto in ((-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
+        yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
+    assert w['etapa'] == 'QUANTIDADE', w['etapa']
+    for _ in range(2):
+        m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
+        yield
+    assert w['p']['quantidade'] == 3, w['p']['quantidade']
+    m.clicar()
+    yield
+    yield
+    assert addon.prateleiras._assistente_prateleiras[0] is None
+    grupo = next(o for o in bpy.data.objects if addon.prateleiras.MARCA_GRUPO in o)
+    assert len(addon.prateleiras.prateleiras_do_grupo(grupo)) == 3
+    largura, altura, prof = addon.prateleiras.medidas(grupo)
+    assert abs(largura - (L - 2 * E)) < 1 and abs(altura - (A - 2 * E)) < 1, (largura, altura)
+    assert prof <= P + 0.5, prof
+    assert bpy.context.scene.cabinet_aba == 'PRATELEIRAS'
+    assert bpy.context.view_layer.objects.active == grupo
+
+
+def test_clique_nas_prateleiras_todas_duplo_uma(janela, m):
+    # como as gavetas: clique numa prateleira = todas do vao (a aba
+    # Prateleiras); duplo = so' ela (a aba mostra Abaixo/Acima dela)
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
+    with contexto(janela, area, regiao):
+        E = conj.conj_espessura_mm
+        grupo = addon.prateleiras.criar_prateleiras(
+            bpy.context, conj, (E, E, E, E, 0),
+            dict(quantidade=2, espessura_mm=E, profundidade_mm=conj.conj_profundidade_mm - 20))
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.ed.undo_push(message='Prateleiras criadas')
+    bpy.context.scene.cabinet_aba = 'MODULOS'
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    alvo = addon.prateleiras.prateleiras_do_grupo(grupo)[1]
+    yield from _clicar_no_mundo(m, regiao, rv3d, alvo.matrix_world.translation)
+    yield esperar(0.4)
+    assert bpy.context.view_layer.objects.active == grupo, bpy.context.object
+    assert bpy.context.scene.cabinet_aba == 'PRATELEIRAS'
+    assert not conj.select_get()
+    m.clicar()
+    yield
+    _duplo_clique_do_keymap(janela)
+    yield
+    assert set(bpy.context.selected_objects) == {alvo}, bpy.context.selected_objects
+    rotulos = [v[4] for v in addon.gaveta._widgets_gaveta(
+        bpy.context, 480, 1400) if v[5] and v[5][0] == 'medida']
+    assert any(r.startswith('Abaixo') for r in rotulos), rotulos
 
 
 def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
