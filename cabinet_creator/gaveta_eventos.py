@@ -38,6 +38,32 @@ def _gaveta_sob_evento(context, event):
     return None
 
 
+def _limite_duplo_clique(context):
+    try:
+        return context.preferences.inputs.mouse_double_click_time
+    except Exception:
+        return 350
+
+
+def _objeto_sob_mouse(context, event):
+    """NOME do objeto sob o mouse numa viewport que nao e' a gaveta (o
+    mesmo raio do clique da HUD), ou ''. Nome, nunca o objeto: quem chama
+    e' modal (ver `_larga_dados_ao_terminar`)."""
+    gaveta = _gaveta._area_gaveta(context.screen)
+    for area in context.screen.areas:
+        if area.type != 'VIEW_3D' or area == gaveta:
+            continue
+        regiao = next((r for r in area.regions if r.type == 'WINDOW'), None)
+        if regiao is None:
+            continue
+        x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
+        if 0 <= x < regiao.width and 0 <= y < regiao.height:
+            with context.temp_override(area=area, region=regiao):
+                atingido = _hud._raio_hud(context, (x, y))
+            return atingido[0].name if atingido is not None else ''
+    return ''
+
+
 def _acao_da_gaveta(context, event, area, regiao):
     """A acao do widget da gaveta sob o mouse (o mesmo hit-test dela)."""
     x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
@@ -65,6 +91,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
             return {'CANCELLED'}
         self._area = context.area
         texto = (_gaveta._texto_faixa(self.valor)[:-3] if self.dono == 'opcao'
+                 else str(int(round(self.valor))) if self.dono == 'contador'
                  else _opcoes._numero_na_unidade(self.valor * 1000.0))
         self._estado = {'area': context.area.as_pointer(),
                         'propriedade': self.propriedade, 'texto': texto,
@@ -95,7 +122,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE', 'TAB'}:
             try:
                 self.valor = (_gaveta_desenho._ler_numero_digitado(self._estado['texto'])
-                              if self.dono == 'opcao' else
+                              if self.dono in {'opcao', 'contador'} else
                               _gaveta_desenho._ler_medida_digitada(self._estado['texto']))
             except (ValueError, TypeError) as e:
                 self.report({'WARNING'}, str(e))
@@ -122,16 +149,19 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         for x, y, w, h, _r, acao in widgets:
             if not acao or not (x <= mx <= x + w and y <= my <= y + h):
                 continue
+            # o campo de contador (Folhas) se desenha como o de medida
+            campo = acao[0] == 'medida' or _gaveta_desenho._eh_campo_contador(acao)
             if not (acao[0] == 'medida' and acao[2] == estado['propriedade']
-                    or acao[0] == 'faixa' and acao[1] == estado['propriedade']):
+                    or acao[0] in {'faixa', 'contador'}
+                    and acao[1] == estado['propriedade']):
                 continue
             texto, cursor = estado['texto'], estado['cursor']
             mostrado = _gaveta_desenho._com_cursor(texto, cursor)
-            disponivel = w - (14 if acao[0] == 'medida' else 12)
+            disponivel = w - (14 if campo else 12)
             tamanho = next((t for t in range(12, 8, -1)
                             if _gaveta_desenho._medidor_blf(t)(mostrado) <= disponivel), 9)
             largura = _gaveta_desenho._medidor_blf(tamanho)
-            x_texto = (x + 7 if acao[0] == 'medida'
+            x_texto = (x + 7 if campo
                        else x + (w - min(largura(mostrado), disponivel)) / 2)
             estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x_texto, mx, largura)
             estado['selecionado'] = False
@@ -139,75 +169,122 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         return False
 
     def execute(self, context):
-        if self.dono == 'opcao':
-            # Faixa da engrenagem: numero puro, preso ao minimo e maximo
-            minimo, maximo, _passo = _opcoes.FAIXAS_OPCOES[self.propriedade]
-            valor = max(minimo, min(maximo, self.valor))
-            _opcoes._definir_opcao(self.propriedade, int(round(valor))
-                           if isinstance(minimo, int) else round(valor, 2))
-            return {'FINISHED'}
-        if self.dono == 'puxador' and self.propriedade.startswith('puxp_'):
-            # parametrico: grava o estado e deixa a chapa reposicionar
-            pux = bpy.data.objects.get(self.objeto)
-            if not _puxadores._eh_puxador_parametrico(pux):
-                self.report({'WARNING'}, 'Puxador nao encontrado')
-                return {'CANCELLED'}
-            pux['puxador_%s_mm' % self.propriedade[len('puxp_'):]] = (
-                self.valor * 1000.0)
-            _puxadores.posicionar_puxador(pux)
-            return {'FINISHED'}
-        if self.dono == 'puxador':
-            pux = bpy.data.objects.get(self.objeto)
-            try:
-                _importacao._redimensionar_puxador(pux, int(self.propriedade[-1]),
-                                       self.valor * 1000.0)
-            except (ValueError, TypeError, AttributeError) as erro:
-                self.report({'WARNING'}, str(erro))
-                return {'CANCELLED'}
-            return {'FINISHED'}
-        if self.dono == 'assistente':
-            # criando a porta: vai para o estado do wizard
-            # FloatProperty e' float de 32 bits: 0.08 m voltava 79.9999982
-            _assistente._editar_assistente(self.propriedade,
-                               round(self.valor * 1000.0, 3))
-            _eventos._redesenhar_viewports(context)
-            return {'FINISHED'}
-        if self.dono == 'ferragens':
-            erro = _ferragens._editar_ferragens_selecionadas(
-                context, self.propriedade, round(self.valor * 1000.0, 3))
-            if erro:
-                self.report({'WARNING'}, erro)
-                return {'CANCELLED'}
-            return {'FINISHED'}
-        if self.dono == 'porta':
-            # Porta colocada: a medida e' um parametro do GRUPO, nao uma
-            # propriedade de objeto ou da cena.
-            grupo = _portas._grupo_portas(bpy.data.objects.get(self.objeto))
-            nome = _portas._PARAMETRO_DA_MEDIDA_PORTA.get(self.propriedade)
-            erro = (_portas._editar_parametro_porta(context, grupo, nome,
-                                            self.valor * 1000.0)
-                    if grupo is not None and nome else
-                    'Porta da medida nao encontrada')
-            if erro:
-                self.report({'WARNING'}, erro)
-                return {'CANCELLED'}
-            return {'FINISHED'}
-        alvo = (context.scene if self.dono == 'cena'
-                else bpy.data.objects.get(self.objeto))
-        if alvo is None:
-            self.report({'WARNING'}, 'Alvo da medida nao encontrado')
+        erro = aplicar_medida(context, self.dono, self.objeto,
+                              self.propriedade, self.valor)
+        if erro:
+            self.report({'WARNING'}, erro)
             return {'CANCELLED'}
-        if self.dono == 'livre' and self.propriedade.startswith('dimensions_'):
-            indice = int(self.propriedade[-1])
-            dimensoes = list(alvo.dimensions)
-            dimensoes[indice] = self.valor
-            alvo.dimensions = dimensoes
-            return {'FINISHED'}
-        if not hasattr(alvo, self.propriedade):
-            self.report({'WARNING'}, 'Propriedade da medida nao encontrada')
-            return {'CANCELLED'}
-        setattr(alvo, self.propriedade, self.valor)
         return {'FINISHED'}
+
+
+def aplicar_medida(context, dono, objeto, propriedade, valor):
+    """Grava `valor` (METROS) no dono da medida; devolve o erro ou None.
+    Serve a' digitacao e ao ARRASTE do campo (pedido do usuario: arrastar
+    de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
+    if dono == 'opcao':
+        # Faixa da engrenagem: numero puro, preso ao minimo e maximo
+        minimo, maximo, _passo = _opcoes.FAIXAS_OPCOES[propriedade]
+        valor = max(minimo, min(maximo, valor))
+        _opcoes._definir_opcao(propriedade, int(round(valor))
+                               if isinstance(minimo, int) else round(valor, 2))
+        return None
+    if dono == 'contador':
+        # campo de contador digitado (Folhas da porta): numero inteiro;
+        # `objeto` = o alvo do contador
+        return _aplicar_contador(context, ('contador', propriedade, None,
+                                           None, None, objeto),
+                                 int(round(valor)))
+    if dono == 'puxador' and propriedade.startswith('puxp_'):
+        # parametrico: grava o estado e deixa a chapa reposicionar
+        pux = bpy.data.objects.get(objeto)
+        if not _puxadores._eh_puxador_parametrico(pux):
+            return 'Puxador nao encontrado'
+        pux['puxador_%s_mm' % propriedade[len('puxp_'):]] = valor * 1000.0
+        _puxadores.posicionar_puxador(pux)
+        return None
+    if dono == 'puxador':
+        pux = bpy.data.objects.get(objeto)
+        try:
+            _importacao._redimensionar_puxador(pux, int(propriedade[-1]),
+                                               valor * 1000.0)
+        except (ValueError, TypeError, AttributeError) as erro:
+            return str(erro)
+        return None
+    if dono == 'assistente':
+        # criando a porta: vai para o estado do wizard
+        # FloatProperty e' float de 32 bits: 0.08 m voltava 79.9999982
+        _assistente._editar_assistente(propriedade, round(valor * 1000.0, 3))
+        _eventos._redesenhar_viewports(context)
+        return None
+    if dono == 'ferragens':
+        return _ferragens._editar_ferragens_selecionadas(
+            context, propriedade, round(valor * 1000.0, 3)) or None
+    if dono == 'porta':
+        # Porta colocada: a medida e' um parametro do GRUPO, nao uma
+        # propriedade de objeto ou da cena.
+        grupo = _portas._grupo_portas(bpy.data.objects.get(objeto))
+        nome = _portas._PARAMETRO_DA_MEDIDA_PORTA.get(propriedade)
+        if grupo is None or not nome:
+            return 'Porta da medida nao encontrada'
+        return _portas._editar_parametro_porta(context, grupo, nome,
+                                               valor * 1000.0) or None
+    alvo = (context.scene if dono == 'cena'
+            else bpy.data.objects.get(objeto))
+    if alvo is None:
+        return 'Alvo da medida nao encontrado'
+    if dono == 'livre' and propriedade.startswith('dimensions_'):
+        dimensoes = list(alvo.dimensions)
+        dimensoes[int(propriedade[-1])] = valor
+        alvo.dimensions = dimensoes
+        return None
+    if not hasattr(alvo, propriedade):
+        return 'Propriedade da medida nao encontrada'
+    setattr(alvo, propriedade, valor)
+    return None
+
+
+# ---- ARRASTAR um campo de valor (pedido do usuario): clicar e arrastar
+# de lado muda o numero -- direita aumenta, esquerda diminui -- como os
+# campos do Blender. Sem arrastar, o clique abre a digitacao como antes.
+# Shift = fino, Ctrl = grosso. Um undo so', no fim; Esc devolve.
+METROS_POR_PX = 0.001            # 1 mm por pixel
+FATOR_FINO, FATOR_GROSSO = 0.1, 10.0
+PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
+# medidas que podem chegar a zero (afastamentos, folgas); o resto
+# (largura, espessura...) para em 1 mm
+DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao'}
+
+
+def _passo_do_arraste(event):
+    return METROS_POR_PX * (FATOR_FINO if event.shift else
+                            FATOR_GROSSO if event.ctrl else 1.0)
+
+
+def _aplicar_contador(context, acao, valor):
+    """Contador da gaveta (quantidade de dobradicas/pistoes): o wizard ou
+    as ferragens selecionadas; com o NOME de um grupo de portas no alvo,
+    as folhas daquela porta. Devolve o erro ou None."""
+    prop, alvo = acao[1], acao[5]
+    grupo = (bpy.data.objects.get(alvo)
+             if alvo not in {_portas.ALVO_ASSISTENTE, _gaveta.ALVO_FERRAGENS}
+             else None)
+    if alvo == _portas.ALVO_ASSISTENTE:
+        _assistente._editar_assistente(prop, valor)
+        erro = None
+    elif grupo is not None:
+        # digitado pode vir qualquer numero: o limite e' o da abertura
+        parametros = dict(grupo.get('porta_parametros') or {})
+        limite = _portas.LIMITES_FOLHAS.get(parametros.get('abertura'), 1)
+        if prop == 'porta_folhas' and not 1 <= valor <= limite:
+            return 'Esta abertura aceita de 1 a %d folha(s)' % limite
+        erro = _portas._editar_parametro_porta(
+            context, grupo, prop[len('porta_'):], valor) or None
+    else:
+        erro = _ferragens._editar_ferragens_selecionadas(context, prop, valor)
+    _eventos._redesenhar_viewports(context)
+    return erro
+
+
 
 
 class OBJECT_OT_interagir_gaveta(Operator):
@@ -315,10 +392,17 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 pass        # indicador: um objeto = individual, mais = grupo
             elif acao[0] == 'medida':
                 if acao[2]:
-                    bpy.ops.object.cabinet_editar_medida_gaveta(
-                        'INVOKE_DEFAULT', dono=acao[1],
-                        objeto=context.object.name if context.object else '',
-                        propriedade=acao[2], valor=acao[4] / 1000.0)
+                    # arrastar muda o valor; soltar sem arrastar digita
+                    self._campo = {
+                        'acao': acao, 'x0': x, 'arrastou': False,
+                        'objeto': context.object.name if context.object else ''}
+                    context.window_manager.modal_handler_add(self)
+                    return {'RUNNING_MODAL'}
+            elif acao[0] == 'contador':
+                self._campo = {'acao': acao, 'x0': x, 'arrastou': False,
+                               'meio': wx + w / 2, 'valor': acao[2]}
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
             elif acao[0] == 'escolha':
                 grupo = (bpy.data.objects.get(acao[5])
                          if len(acao) > 5 and acao[5] else None)
@@ -436,6 +520,80 @@ class OBJECT_OT_interagir_gaveta(Operator):
             acao[1], acao[2], _hud._cor_opcao(acao[1]),
             (x - rx) / rw, (y - ry) / rh))
         context.area.tag_redraw()
+    def _modal_campo(self, context, event):
+        """Arraste de um campo de valor ('medida') ou do contador."""
+        campo = self._campo
+        acao = campo['acao']
+        contador = acao[0] == 'contador'
+        if event.type == 'MOUSEMOVE':
+            dx = event.mouse_region_x - campo['x0']
+            if abs(dx) > _hud.LIMIAR_ARRASTE_HUD_PX:
+                campo['arrastou'] = True
+            if not campo['arrastou']:
+                return {'RUNNING_MODAL'}
+            if contador:
+                valor = max(acao[3], min(acao[4], acao[2] + round(
+                    dx / PX_POR_UNIDADE_CONTADOR)))
+                if valor != campo['valor']:
+                    campo['valor'] = valor
+                    _aplicar_contador(context, acao, valor)
+            else:
+                # conta desde o CLIQUE (o limiar nao come pixels); trocar
+                # Shift/Ctrl no meio rebaseia ali, sem pular
+                if 'passo' not in campo:
+                    campo.update(base=acao[4] / 1000.0, x_base=campo['x0'],
+                                 passo=_passo_do_arraste(event))
+                elif campo['passo'] != _passo_do_arraste(event):
+                    campo.update(base=campo['atual'],
+                                 x_base=event.mouse_region_x,
+                                 passo=_passo_do_arraste(event))
+                minimo = 0.0 if acao[1] in DONOS_DE_PARAMETRO else 0.001
+                valor = max(minimo, campo['base'] + campo['passo']
+                            * (event.mouse_region_x - campo['x_base']))
+                campo['atual'] = valor
+                aplicar_medida(context, acao[1], campo['objeto'], acao[2],
+                               valor)
+            context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            # o wizard nao vai para o undo: so' o que ja' esta' na cena
+            no_wizard = acao[0] == 'medida' and acao[1] == 'assistente' or (
+                contador and acao[5] == _portas.ALVO_ASSISTENTE)
+            if campo['arrastou']:
+                if not no_wizard:
+                    bpy.ops.ed.undo_push(message='Arrastar medida')
+            elif _gaveta_desenho._eh_campo_contador(acao):
+                # campo de contador (Folhas): o clique digita, como as
+                # medidas -- qualquer numero; quem limita e' quem grava
+                bpy.ops.object.cabinet_editar_medida_gaveta(
+                    'INVOKE_DEFAULT', dono='contador', objeto=acao[5],
+                    propriedade=acao[1], valor=float(acao[2]))
+            elif contador:
+                # clique: a metade direita soma um, a esquerda tira
+                passo = 1 if event.mouse_region_x >= campo['meio'] else -1
+                valor = max(acao[3], min(acao[4], acao[2] + passo))
+                if valor != acao[2]:
+                    erro = _aplicar_contador(context, acao, valor)
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    elif not no_wizard:
+                        bpy.ops.ed.undo_push(message='Editar ferragens')
+            else:
+                bpy.ops.object.cabinet_editar_medida_gaveta(
+                    'INVOKE_DEFAULT', dono=acao[1], objeto=campo['objeto'],
+                    propriedade=acao[2], valor=acao[4] / 1000.0)
+            context.area.tag_redraw()
+            return {'FINISHED'}
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            if campo['arrastou']:       # devolve o valor de antes
+                if contador:
+                    _aplicar_contador(context, acao, acao[2])
+                else:
+                    aplicar_medida(context, acao[1], campo['objeto'], acao[2],
+                                   acao[4] / 1000.0)
+            context.area.tag_redraw()
+            return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
 
     def _modal_opcao(self, context, event):
         """Arraste da faixa ou do seletor de cor do painel de opcoes."""
@@ -514,6 +672,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
             if event.type in {'ESC', 'RIGHTMOUSE'}:
                 return {'CANCELLED'}
             return {'RUNNING_MODAL'}
+        if hasattr(self, '_campo'):
+            return self._modal_campo(context, event)
         if hasattr(self, '_divisa'):
             return self._modal_divisa(context, event)
         if hasattr(self, '_faixa') or hasattr(self, '_cor'):
@@ -624,13 +784,36 @@ def _operador_apagado(acao):
     """Botao de TEXTO cujo operador recusa a selecao atual: sai cinza,
     sem brilho e sem clique. (Botao de icone ja' esmaece pelo gizmo.)"""
     return bool(acao and acao[0] == 'operador'
-                and not _icone_acao_gaveta(acao)
+                and (not _icone_acao_gaveta(acao) or _icone_ao_lado(acao))
                 and not _poll_operador(acao[1]))
+
+
+# Botoes de TEXTO com icone a' esquerda (pedido do usuario, os da porta
+# selecionada). O icone e' do gizmo, como os outros, mas o texto
+# continua e o clique e' o da gaveta (o operador abre modal).
+ICONES_AO_LADO = {'object.cabinet_apanhar_vao': 'PIVOT_BOUNDBOX',
+                  'object.cabinet_definir_frente': 'AXIS_FRONT'}
+
+
+def _icone_ao_lado(acao):
+    return bool(acao and acao[0] == 'operador' and acao[1] in ICONES_AO_LADO)
+
+
+def _centro_icone(x, y, w, h, acao):
+    """Onde o gizmo do icone fica: no meio do botao, ou na ponta
+    esquerda do botao de texto com icone."""
+    return (x + h / 2 + 2 if _icone_ao_lado(acao) else x + w / 2), y + h / 2
 
 
 def _icone_acao_gaveta(acao):
     if not acao:
         return None
+    if _icone_ao_lado(acao):
+        return ICONES_AO_LADO[acao[1]]
+    if acao[0] == 'escolha' and acao[1] == _portas.CONFIRMAR_ETAPA:
+        # o "aceitar" verde: o visto PRONTO do Blender (o desenhado a' mao
+        # saia serrilhado, pedido do usuario)
+        return 'CHECKMARK'
     if acao[0] == 'operador':
         return {'object.cabinet_agrupar': 'GROUP',
                 'object.cabinet_detectar_adjacencia': 'SNAP_ON',
@@ -715,8 +898,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
             campo.hide = False
             icone = None
             if _icone_acao_gaveta(acao):
-                cx = x + w / 2
-                icone = (cx, y + h / 2, 13.0 * escala)
+                icone = _centro_icone(x, y, w, h, acao) + (13.0 * escala,)
             _hud._campos_gaveta[campo.as_pointer()] = (x, y, w, h, icone)
             if campo.is_highlight:
                 acesos.add(_gaveta_desenho._chave_widget(acao))
@@ -729,11 +911,14 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
              and _gaveta_desenho._chave_widget(v[5]) in acesos), None)
         edicao = _gaveta._edicao_gaveta[0]
         if edicao is not None:
-            em_foco = next((v[5][3] for v in alvos if v[5][0] == 'medida'
+            em_foco = next((v[5] for v in alvos if v[5][0] == 'medida'
                             and v[5][2] == edicao['propriedade']), None)
             if em_foco is not None:
-                medida_ativa = em_foco
-                acesos.add('medida:' + em_foco)
+                medida_ativa = em_foco[3]
+                acesos.add(_gaveta_desenho._chave_widget(em_foco))
+            elif any(_gaveta_desenho._eh_campo_contador(v[5])
+                     and v[5][1] == edicao['propriedade'] for v in alvos):
+                acesos.add('cont:' + edicao['propriedade'])
 
         for _x, _y, _w, _h, _rotulo, acao in alvos:
             chave = _gaveta_desenho._chave_widget(acao)
@@ -785,17 +970,26 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 # Resetar sem solda fora da origem fica apagado
                 apagado = (acao[0] == 'operador' and (
                     _gaveta._no_cabecalho(acao) and not _poll_operador(acao[1])
-                    or acao[1] == _solda.OP_RESETAR_DISTANCIA and not acao[2]))
+                    or acao[1] == _solda.OP_RESETAR_DISTANCIA and not acao[2])
+                    or _operador_apagado(acao))
                 botao.alpha = 0.3 if apagado else 1
                 botao.color_highlight = cores.text_sel
                 botao.alpha_highlight = 0.3 if apagado else 1
                 botao.hide_select = False
                 botao.icon = _icone_acao_gaveta(acao)
                 botao.scale_basis = 11
-                botao.matrix_basis[0][3] = x + w / 2
-                botao.matrix_basis[1][3] = y + h / 2
-                if acao[0] == 'operador' and acao[1] in _solda.OPERADORES_NO_SOLTAR:
-                    # o gizmo dispara no PRESS; a gaveta espera o soltar
+                ao_lado = _icone_ao_lado(acao)
+                # o texto ao lado ja' diz o que e': sem o tooltip do
+                # operador da gaveta, que nao diria nada
+                botao.use_tooltip = not ao_lado
+                cx, cy = _centro_icone(x, y, w, h, acao)
+                botao.matrix_basis[0][3] = cx
+                botao.matrix_basis[1][3] = cy
+                if ao_lado or (acao[0] == 'operador'
+                               and acao[1] in _solda.OPERADORES_NO_SOLTAR):
+                    # o gizmo dispara no PRESS; a gaveta espera o soltar.
+                    # Com texto ao lado, o clique no icone e' o do botao
+                    # inteiro (o wizard e' modal: pelo gizmo prendia a gaveta)
                     botao.target_set_operator('object.cabinet_interagir_gaveta')
                 elif acao[0] == 'operador':
                     botao.target_set_operator(acao[1])

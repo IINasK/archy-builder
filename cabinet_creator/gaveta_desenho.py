@@ -15,6 +15,12 @@ _gaveta = None
 _orcamento = None
 _hud = None
 _solda = None
+def _eh_campo_contador(acao):
+    """Contador com rotulo (7o campo): o "Folhas" da porta, desenhado
+    como campo de medida -- arrastar muda, clicar digita -- em vez do
+    `< 2 >` das ferragens, que soma/tira pela metade clicada."""
+    return bool(acao and acao[0] == 'contador' and len(acao) > 6)
+
 
 def _chave_widget(acao):
     """Identidade estavel do widget, usada para guardar o realce dele.
@@ -55,6 +61,8 @@ def _chave_widget(acao):
         return None if _gaveta_eventos._operador_apagado(acao) else 'op:' + acao[1]
     if verbo == 'navegar':
         return 'nav:%s:%s' % (acao[1], acao[2])
+    if verbo == 'contador':
+        return 'cont:%s' % acao[1]
     if verbo == 'rolar_nivel':
         return 'rol:%s:%s' % (acao[1], acao[2])
     if verbo == 'preset':
@@ -411,8 +419,12 @@ def _desenhar_gaveta(tela=False):
             gpu.state.scissor_test_set(True)
             gpu.state.scissor_set(*(int(round(c)) for c in trilho))
 
-        ativo = bool(acao and (acao[0] in {'navegar', 'modo'} and acao[-1]
+        aceitar = bool(acao and acao[0] == 'escolha'
+                       and acao[1] == _portas.CONFIRMAR_ETAPA)
+        ativo = bool(acao and (acao[0] in {'navegar', 'modo', 'biblioteca'} and acao[-1]
                                or acao[0] == 'escolha' and acao[3]
+                               or acao[0] == 'contador'
+                               and not _eh_campo_contador(acao)
                                or acao[0] in _gaveta.BOTOES_CRIAR and acao[2]
                                # comparar, nunca hashear: a acao de preset
                                # e item da biblioteca leva um dict (v140:
@@ -435,21 +447,26 @@ def _desenhar_gaveta(tela=False):
         cor = None
         if acao and acao[0] in _gaveta.BOTOES_CRIAR and not apagado:
             cor = _gaveta.COR_CRIAR_PORTAS_ATIVO if acao[2] else _gaveta.COR_CRIAR_PORTAS
+        elif aceitar:
+            cor = COR_ACEITAR       # o "aceitar" da etapa (mockup do usuario)
         if not acao or acao[0] != 'cadeado':
             _gaveta._botao_gaveta(x, y, w, h, ativo=ativo,
                           secao=acao is None or apagado, cor=cor)
-        if acao and acao[0] == 'medida':
+        campo_contador = _eh_campo_contador(acao)
+        if acao and (acao[0] == 'medida' or campo_contador):
             edicao = _gaveta._edicao_gaveta[0]
             editando = (edicao is not None and edicao['area'] == context.area.as_pointer()
-                        and edicao['propriedade'] == acao[2])
+                        and edicao['propriedade'] == acao[1 if campo_contador else 2])
             if editando:
                 _gaveta._botao_gaveta(x, y, w, h, ativo=True)
             # Espessura fora do convencional (> 60 mm): nome e valor em
             # vermelho. Alerta, nao trava -- o valor e' o que foi pedido.
-            alerta = _cor_alerta_gaveta() if _medida_em_alerta(acao) else None
+            alerta = (_cor_alerta_gaveta() if not campo_contador
+                      and _medida_em_alerta(acao) else None)
             _gaveta._texto_cabivel_gaveta(x + 7, y + h - 14,
-                                   acao[3], w - 14, 11, cor=alerta)
-            valor = _opcoes._texto_medida(acao[4])
+                                   acao[6 if campo_contador else 3], w - 14, 11,
+                                   cor=alerta)
+            valor = rotulo if campo_contador else _opcoes._texto_medida(acao[4])
             if editando:
                 texto, cursor = edicao['texto'], edicao['cursor']
                 valor = texto[:cursor] + '|' + texto[cursor:]
@@ -462,6 +479,28 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_cabivel_gaveta(
                 x + (w - largura_texto) / 2, y + (h - 12) / 2, rotulo, w - 18,
                 cor=(*cores.text[:3], 0.4) if apagado else (1.0, 1.0, 1.0, 1.0))
+        elif acao and acao[0] == 'contador':
+            # o valor no meio e as setas que dizem "arraste ou clique"
+            blf.size(0, 13)
+            largura_texto = blf.dimensions(0, rotulo)[0]
+            _gaveta._texto_gaveta(x + (w - largura_texto) / 2, y + (h - 12) / 2,
+                                  rotulo, 13)
+            setas = (*cores.text[:3], 0.55)
+            _gaveta._texto_gaveta(x + 7, y + (h - 12) / 2, '<', 12, setas)
+            _gaveta._texto_gaveta(x + w - 14, y + (h - 12) / 2, '>', 12, setas)
+        elif acao and acao[0] == 'escolha' and len(acao) > 6 and acao[6]:
+            # retrato do carrossel: a foto em cima, o nome centrado embaixo
+            gpu.state.blend_set('ALPHA')
+            _gaveta._desenhar_foto_gaveta(acao[6], x + 4, y + 18, w - 8, h - 22)
+            blf.size(0, 11)
+            largura_texto = min(blf.dimensions(0, rotulo)[0], w - 8)
+            _gaveta._texto_cabivel_gaveta(x + (w - largura_texto) / 2, y + 5,
+                                          rotulo, w - 8, 11)
+        elif _gaveta_eventos._icone_ao_lado(acao):
+            # o icone (gizmo) na ponta esquerda, o texto depois dele
+            _gaveta._texto_cabivel_gaveta(
+                x + h + 4, y + (h - 12) / 2, rotulo, w - h - 13,
+                cor=(*cores.text[:3], 0.4) if apagado else None)
         elif not _gaveta_eventos._icone_acao_gaveta(acao):
             _gaveta._texto_cabivel_gaveta(
                 x + 9, y + (h - 12) / 2, rotulo, w - 18,
@@ -480,6 +519,9 @@ def _desenhar_gaveta(tela=False):
                        ativo=context.scene.cabinet_aba == acao[1])
         _gaveta._texto_cabivel_gaveta(x + 9, y + 8, rotulo, w - 18)
     gpu.state.blend_set('NONE')
+
+
+COR_ACEITAR = (0.13, 0.66, 0.30, 1.0)    # o visto e' o icone CHECKMARK
 
 
 def _unidade_nos_numeros_soltos(texto, sufixo):

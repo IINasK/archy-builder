@@ -698,20 +698,26 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._fixar_borda(achado[0])
             self._ir('QUANTIDADE', mouse)
             return {'RUNNING_MODAL'}
-        if etapa == 'QUANTIDADE':
-            self._ir('MARGEM', mouse)
-            return {'RUNNING_MODAL'}
-        if etapa == 'MARGEM':
-            if w['tipo'] == 'BASCULANTE':
-                self._ir('PISTOES_QTD', mouse)
-                return {'RUNNING_MODAL'}
+        return self._confirmar_etapa(context, mouse) or {'RUNNING_MODAL'}
+
+    def _confirmar_etapa(self, context, mouse=None):
+        """Clique na viewport OU "Confirmar" da gaveta (pedido do usuario:
+        quantidade e afastamento tambem se confirmam la'). Sem `mouse`
+        (veio da gaveta), a etapa seguinte parte do mouse na viewport
+        quando ele voltar (`rebase`), nao de onde ele estava."""
+        w = self._w
+        etapa = w['etapa']
+        seguinte = {'QUANTIDADE': 'MARGEM', 'PISTOES_QTD': 'PISTOES_OFFSET'}
+        if etapa == 'MARGEM' and w['tipo'] == 'BASCULANTE':
+            seguinte['MARGEM'] = 'PISTOES_QTD'
+        if etapa in seguinte:
+            self._ir(seguinte[etapa], mouse)
+            if mouse is None:
+                w['rebase'] = True
+            return None
+        if etapa in {'MARGEM', 'PISTOES_OFFSET'}:
             return self._criar(context)
-        if etapa == 'PISTOES_QTD':
-            self._ir('PISTOES_OFFSET', mouse)
-            return {'RUNNING_MODAL'}
-        if etapa == 'PISTOES_OFFSET':
-            return self._criar(context)
-        return {'RUNNING_MODAL'}
+        return None
 
     def _voltar(self):
         """Botao direito: uma etapa para tras."""
@@ -763,6 +769,10 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if pergunta in {'dobradicas_qtd', 'pistoes_qtd'}:
             _editar_assistente(pergunta, chave)    # so' o valor; nao avanca
             return None
+        if pergunta == _portas.CONFIRMAR_ETAPA:
+            # o botao de uma etapa que ja' passou nao vale
+            return (self._confirmar_etapa(context) if chave == w['etapa']
+                    else None)
         if pergunta == 'porta_confirmar':
             if w['etapa'] != 'CONFIRMAR':
                 return None
@@ -776,10 +786,21 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return self._escolher(context, str(chave))
         if folhas is None:
             return None
+        if (pergunta == 'porta_abertura' and w['etapa'] != 'TIPO'
+                and chave == w['escolhas'].get('abertura')):
+            # o retrato da abertura ja' escolhida (linha das dobradicas):
+            # volta a' escolha, com as tres a' vista
+            w['escolhas'] = {'folhas': folhas}
+            self._ir('TIPO')
+            return None
         w.update(escolhas={'folhas': folhas}, etapa='TIPO')
         return self._escolher_abertura(context, chave)
 
     def modal(self, context, event):
+        if self._w.get('etapa') != getattr(self, '_etapa_vista', None):
+            # etapa nova: a aba Portas rola ate' ela (nasce no fim)
+            self._etapa_vista = self._w.get('etapa')
+            _gaveta._rolar_ate_o_fim(context)
         if (event.type == 'LEFTMOUSE' and event.value == 'RELEASE'
                 and self._engolir_soltar):
             # o soltar do clique que respondeu pela gaveta: a fila ja'

@@ -589,6 +589,23 @@ def _clicar_botao_do_wizard(m, regiao, chave):
     yield
 
 
+def _contador_ate(janela, m, prop, valor):
+    """Clica nas metades do contador (dir. soma, esq. tira) ate' `valor`."""
+    for _ in range(8):
+        area, regiao = gaveta(janela)
+        with contexto(janela, area, regiao):
+            v = next(v for v in addon.gaveta._widgets_interativos(bpy.context)
+                     if v[5] and v[5][0] == 'contador' and v[5][1] == prop)
+        if v[5][2] == valor:
+            return
+        x = v[0] + v[2] * (0.85 if valor > v[5][2] else 0.15)
+        m.mover(regiao.x + x, regiao.y + v[1] + v[3] / 2)
+        yield
+        m.clicar()
+        yield
+    raise AssertionError('o contador nao chegou a %s' % valor)
+
+
 def _clicar_na_fila(janela, m, prop, valor):
     m.mover(*widget(janela, lambda v: v[5][0] == 'escolha'
                     and v[5][1] == prop and v[5][2] == valor))
@@ -706,12 +723,16 @@ def test_wizard_basculante_com_pistoes(janela, m):
     assert w['etapa'] == 'TIPO', w['etapa']
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'GIRO')
     assert w['etapa'] == 'EIXO', w['etapa']
+    # escolhida, a abertura vira um retrato so' na linha das dobradicas;
+    # clicar nele volta a' escolha, com as tres
+    yield from _clicar_na_fila(janela, m, 'porta_abertura', 'GIRO')
+    assert w['etapa'] == 'TIPO', w['etapa']
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'BASCULANTE')
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
     assert w['escolhas']['abertura'] == 'BASCULANTE', w['escolhas']
     # dobradicas EDITAVEIS na gaveta (pedido do usuario): a quantidade
     # pelos segmentos (sem avancar a etapa) e o afastamento digitado
-    yield from _clicar_na_fila(janela, m, 'dobradicas_qtd', 3)
+    yield from _contador_ate(janela, m, 'dobradicas_qtd', 3)
     assert (w['qtd'], w['etapa']) == (3, 'QUANTIDADE'), (w['qtd'], w['etapa'])
     m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
                     and v[5][2] == 'dobradicas_margem_mm'))
@@ -727,11 +748,14 @@ def test_wizard_basculante_com_pistoes(janela, m):
     assert w['aresta']['lado'] == 'CIMA'
     assert w['escolhas']['dobradica_lado'] == 'CIMA', w['escolhas']
     assert w['escolhas']['dobradica'] == 'RETA', w['escolhas']
-    m.clicar()                                   # quantidade (3)
-    yield
-    m.clicar()                                   # margem (a digitada)
-    yield
+    # quantidade e afastamento confirmados pela GAVETA (pedido do usuario)
+    yield from _clicar_na_fila(janela, m, 'confirmar_etapa', 'QUANTIDADE')
+    assert w['etapa'] == 'MARGEM', w['etapa']
+    yield from _clicar_na_fila(janela, m, 'confirmar_etapa', 'MARGEM')
     assert w['etapa'] == 'PISTOES_QTD', w['etapa']
+    m.mover(regiao.x + regiao.width / 2, regiao.y + regiao.height / 2)
+    yield
+    assert abs(w['margem'] - 80.0) < 1e-6, w['margem']     # nao pulou
     assert w['pqtd'] == addon.portas._qtd_pistoes_padrao(w['largura'])
     m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
     yield
@@ -1053,6 +1077,8 @@ def test_selecao_da_porta_e_da_folha(janela, m):
     m.clicar()
     yield
     assert set(bpy.context.selected_objects) == portas
+
+
 
 
 def _modulo_em(janela, x):
@@ -1797,11 +1823,47 @@ def test_digitar_no_campo_da_gaveta(janela, m):
     assert abs(chapa.dimensions.x - 0.75) < 1e-5
 
 
-def test_comodo_e_copiar_orcamento_pela_gaveta(janela, m):
-    # Orcamento do ERP: a linha do comodo expande, o clique na opcao poe
-    # o armario na PASTA do comodo (Outliner) e fecha a lista; o botao
-    # copia e diz na propria gaveta o que fez ("copiar e nada acontece").
-    # A area de transferencia do usuario volta como estava no fim.
+def test_arrastar_o_campo_muda_o_valor(janela, m):
+    # Pedido do usuario: clicar e ARRASTAR de lado em qualquer campo de
+    # valor -- direita aumenta, esquerda diminui (1 mm por pixel); soltar
+    # sem arrastar continua abrindo a digitacao. Um Ctrl+Z desfaz tudo.
+    chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
+                                    (0, 0, 0), bpy.context)
+    selecionar(janela, chapa, individual=True)
+    yield
+    m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
+                    and v[5][3] == 'Largura'))
+    yield
+    m.apertar()
+    yield
+    x0 = m.x
+    for passo in range(1, 6):
+        m.mover(x0 + 10 * passo, m.y)
+        yield
+    m.soltar()
+    yield
+    assert abs(chapa.chapa_largura_mm - 650.0) < 1e-3, chapa.chapa_largura_mm
+    assert addon.gaveta._edicao_gaveta[0] is None, 'arrastar nao abre a digitacao'
+    m.apertar()
+    yield
+    for passo in range(1, 4):
+        m.mover(m.x - 10, m.y)
+        yield
+    m.soltar()
+    yield
+    assert abs(chapa.chapa_largura_mm - 620.0) < 1e-3, chapa.chapa_largura_mm
+
+
+def janelas_do_salvar_como():
+    return [(j, a) for j in bpy.context.window_manager.windows
+            for a in j.screen.areas if a.type == 'FILE_BROWSER']
+
+
+def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
+    # A linha do comodo expande, o clique na opcao poe o armario na PASTA
+    # do comodo (Outliner) e fecha a lista. "Gerar orcamento" mora no fim
+    # das Opcoes (engrenagem) e abre o "Salvar como" do Blender -- no
+    # SOLTAR do clique, como os outros botoes que abrem janela.
     conj = criar_modulo(janela)
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     bpy.context.scene.cabinet_aba = 'MODULOS'
@@ -1870,7 +1932,8 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_a_seta_da_hud_estica_com_a_quina_parada,
        test_clicar_na_seta_e_digitar_a_medida,
        test_digitar_no_campo_da_gaveta,
-       test_comodo_e_copiar_orcamento_pela_gaveta,
+       test_arrastar_o_campo_muda_o_valor,
+       test_comodo_e_gerar_orcamento_pelas_opcoes,
        test_criar_puxador_no_topo_da_aba,
        test_digitar_com_operador_e_cursor_no_meio,
        test_wizard_quatro_cliques_meia_chapa_vira_curva,

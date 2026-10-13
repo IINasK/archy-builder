@@ -760,8 +760,56 @@ class TestGaveta(unittest.TestCase):
         rotulos = [v[4] for v in ws if v[5] is None]
         self.assertIn('Dobradicas: Reta, borda cima', rotulos)
         self.assertIn('Pistoes', rotulos)
+        # o retrato da dobradica e' so' para ver: sem alvo, sem clique
         self.assertTrue(all(v[5][5] == addon.portas.ALVO_ASSISTENTE for v in ws
-                            if v[5] and v[5][0] == 'escolha'))
+                            if v[5] and v[5][0] == 'escolha'
+                            and v[5][1] != 'dobradica'))
+        # mockup do usuario: [abertura][dobradica][Dobradicas: contador]
+        # numa linha; o "aceitar" da etapa e' o quadrado verde COLADO a'
+        # direita do campo que ela edita
+        def aceite(ws):
+            return [v for v in ws if v[5] and v[5][0] == 'escolha'
+                    and v[5][1] == addon.portas.CONFIRMAR_ETAPA]
+
+        def campo(ws, prop):
+            (v,) = [v for v in ws if v[5] and v[5][0] in {'contador', 'medida'}
+                    and v[5][1 if v[5][0] == 'contador' else 2] == prop]
+            return v
+        for etapa, prop in (('QUANTIDADE', 'dobradicas_qtd'),
+                            ('MARGEM', 'dobradicas_margem_mm'),
+                            ('PISTOES_QTD', 'pistoes_qtd'),
+                            ('PISTOES_OFFSET', 'pistoes_offset_mm')):
+            addon.portas._assistente_porta[0] = dict(
+                etapa=etapa, aresta=aresta, qtd=3, margem=100.0, pqtd=2,
+                poffset=120.0, escolhas={'folhas': 1, 'abertura': 'BASCULANTE',
+                                         'dobradica': 'RETA'})
+            for largura in (190, 320):
+                ws = self.portas(largura)
+                (botao,) = aceite(ws)
+                editado = campo(ws, prop)
+                self.assertEqual(botao[5][2], etapa)
+                self.assertEqual((botao[1], botao[3]), (editado[1], editado[3]))
+                self.assertAlmostEqual(botao[0], editado[0] + editado[2] + 4)
+            ws = self.portas(320)
+            if etapa == 'QUANTIDADE':
+                # a abertura escolhida e a dobradica na MESMA linha do contador
+                abertura, dobradica = sorted(
+                    (v for v in ws if v[5] and v[5][0] == 'escolha'
+                     and v[5][1] in {'porta_abertura', 'dobradica'}),
+                    key=lambda v: v[0])
+                self.assertEqual((abertura[5][2], dobradica[5][2]),
+                                 ('BASCULANTE', 'RETA'))
+                cont = campo(ws, prop)
+                self.assertGreater(cont[0], dobradica[0] + dobradica[2])
+                self.assertTrue(abertura[1] <= cont[1] <= abertura[1] + abertura[3])
+        # na borda, o tipo e' o da borda sob o mouse (sai da cobertura dela)
+        addon.portas._assistente_porta[0] = dict(
+            etapa='EIXO', escolhas={'folhas': 1, 'abertura': 'GIRO'},
+            coberturas={'cobertura_esq_e': 0.5}, embutida=False,
+            snap=({'lado': 'ESQUERDA'}, None))
+        acesos = [v[5][2] for v in self.portas() if v[5]
+                  and v[5][0] == 'escolha' and v[5][1] == 'dobradica']
+        self.assertEqual(acesos, ['CURVA'])
 
     def test_sem_selecao_cada_aba_so_tem_o_botao_de_criar(self):
         # Conceito do usuario para TODAS as abas: nada selecionado = so'

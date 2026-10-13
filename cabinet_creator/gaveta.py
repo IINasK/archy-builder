@@ -777,14 +777,36 @@ def _selecionado(context):
     return obj if obj is not None and obj.select_get() else None
 
 
+LARGURA_CONFIRMAR = 30           # o quadrado verde do "aceitar"
+LARGURA_CAMPO_FOLHAS = 76        # o campo compacto "Folhas" da porta
+# coluna do contador ao lado dos retratos; mais estreita, a secao
+# empilha (com os retratos de 64 px, era o corte antigo de 260)
+LARGURA_MIN_COLUNA_FERRAGENS = 120
+
+
 def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
-                            separar=True):
-    """Dobradicas e pistoes EDITAVEIS (pedido do usuario): quantidade em
-    segmentos e o afastamento (ou a distancia do topo) num campo. A
-    mesma secao serve ao wizard (alvo do modal) e as ferragens
-    selecionadas (todas as portas do modulo). `dados[tipo]`: 'qtd' e
-    'mm' (None = ainda nao chegou la') e 'info' (texto do tipo/borda).
-    Devolve o y do rotulo seguinte."""
+                            separar=True, abertura=None):
+    """Dobradicas e pistoes EDITAVEIS, no layout do usuario (mockup):
+    [abertura][dobradica][Dobradicas: < 2 >] numa linha e o afastamento
+    embaixo; o "aceitar" da etapa e' o quadrado VERDE a' direita do campo
+    que ela edita (`CONFIRMAR_ETAPA`, o mesmo do clique na viewport).
+    Quantidade = contador (arrastar ou clicar nas metades), nao mais
+    cinco segmentos. Serve ao wizard (alvo do modal, `abertura` = o
+    retrato da escolhida) e as ferragens selecionadas (todas as portas
+    do modulo). `dados[tipo]`: 'qtd' e 'mm' (None = ainda nao chegou
+    la'), 'info', 'modelo' (retrato da dobradica) e 'confirmar' =
+    (etapa, 'qtd' ou 'mm'). Devolve o y do rotulo seguinte."""
+
+    def campo_com_aceite(cx, cy, cw, h, widget, parte):
+        """O campo e, se a etapa e' dele, o quadrado verde colado."""
+        conf = d.get('confirmar')
+        if conf and conf[1] == parte:
+            cw -= LARGURA_CONFIRMAR + 4
+            itens.append((cx + cw + 4, cy, LARGURA_CONFIRMAR, h, '',
+                          ('escolha', _portas.CONFIRMAR_ETAPA, conf[0], False,
+                           True, alvo)))
+        itens.append((cx, cy, cw) + widget)
+
     for tipo in ('DOBRADICA', 'PISTAO'):
         d = dados.get(tipo)
         if d is None:
@@ -851,15 +873,22 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
                       'porta_folhas',
                       tuple((int(k), t) for k, t in _portas.OPCOES_FOLHAS),
                       escolhas.get('folhas')))
-    if etapa == 'TIPO' or 'abertura' in escolhas:
+    # escolhida, a abertura vira o 1o retrato da linha das dobradicas
+    # (mockup do usuario); so' escolhendo aparecem as tres
+    if etapa == 'TIPO' or ('abertura' in escolhas
+                           and etapa not in ETAPAS_FERRAGENS_ASSISTENTE):
         filas.append(('Escolha a abertura' if etapa == 'TIPO' else 'Abertura',
                       'porta_abertura', a.get('tipos') or _portas.ESCOLHAS_PORTAS[0][2],
                       escolhas.get('abertura')))
     for i, (rotulo, pergunta, opcoes, atual) in enumerate(filas):
         if i:
             itens.append((x, y + 30, w, 1, '', ('separador',)))
-        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, pergunta, opcoes,
-                                  atual, alvo=_portas.ALVO_ASSISTENTE) - 10
+        fila = (_carrossel_gaveta if pergunta == 'porta_abertura'
+                else _linha_escolha_gaveta)
+        if pergunta == 'porta_abertura':
+            opcoes = _retratos_abertura(opcoes)
+        y = fila(itens, x, y, w, rotulo, pergunta, opcoes,
+                 atual, alvo=_portas.ALVO_ASSISTENTE) - 10
     if etapa not in ETAPAS_FERRAGENS_ASSISTENTE:
         return itens
     feitas = ETAPAS_FERRAGENS_ASSISTENTE[
@@ -875,8 +904,15 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
     dados = {'DOBRADICA': dobradicas}
     if 'PISTOES_QTD' in feitas and 'pqtd' in a:
         dados['PISTAO'] = {'qtd': a['pqtd'], 'mm': a.get('poffset')}
+    if etapa in confirmar:
+        tipo, parte = confirmar[etapa]
+        dados[tipo]['confirmar'] = (etapa, parte)
+    abertura = escolhas.get('abertura')
+    retrato = next(((v, t, _biblioteca.foto_padrao('abertura_' + v))
+                    for v, t in _portas.ESCOLHAS_PORTAS[0][2] if v == abertura),
+                   None)
     _secao_ferragens_gaveta(itens, x, y, w, dados, _portas.ALVO_ASSISTENTE,
-                            'assistente')
+                            'assistente', abertura=retrato)
     return itens
 
 
@@ -902,12 +938,12 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
         return itens
     if grupo is None:
         return itens
-    y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
-                              modos=False)
-    # Ordem: medidas da porta logo abaixo do bloco de medidas, separador,
-    # escolhas. No vao de 9 px que o rodape deixa, nao dentro do item
-    # seguinte.
-    itens.append((x, y + 31, w, 1, '', ('separador',)))
+    # Reposicionar (diagonal no vao novo) e frente EM CIMA das medidas,
+    # com icone (pedido do usuario). Converter em porta/dupla sairam da
+    # aba a pedido do usuario; seguem no F3.
+    topo = _botoes_gaveta(itens, x, y + 26, w, (
+        ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
+        ('Definir como frente', 'object.cabinet_definir_frente'))) + 28 - 4
     alvo = grupo.name
     valores = _valores_portas(s, grupo)
     # Sem cabecalho "Porta N de M - vao L x A": nada de nome nem medida
@@ -987,6 +1023,46 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
         ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
         ('Definir como frente', 'object.cabinet_definir_frente')))
     return itens
+
+
+ESPACO_SECOES = 8       # respiro a mais entre as categorias da aba
+
+
+def _titulo_secao(itens, x, topo, w, texto):
+    """Titulo de categoria (o de Montagem: 23 px) com o TOPO em `topo`;
+    devolve o topo do que vem embaixo."""
+    itens.append((x, topo - 23, w, 23, texto, None))
+    return topo - 31
+
+
+def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
+    """Campos de valor (37 px, passo 43) a partir do TOPO, numa GRADE: a
+    das medidas da porta (L/A/E: 3, 2 ou 1 coluna pela largura), a mesma
+    em todas as categorias -- as colunas se alinham de uma secao a outra e
+    campo sozinho nao estica (auditoria visual: "Entre planos" virava uma
+    faixa de 460 px). `compacto` = (texto, acao) do campo estreito
+    (LARGURA_CAMPO_FOLHAS) logo DEPOIS do ultimo; sem lugar na linha (uma
+    coluna so'), o vizinho cede o espaco. Devolve o topo do que vem embaixo."""
+    if not campos and compacto is None:
+        return topo
+    colunas = _colunas_medidas(context, w + 24, 3)
+    coluna = (w - 6 * (colunas - 1)) / colunas
+    posicoes = [[x + (i % colunas) * (coluna + 6), topo - 37 - (i // colunas) * 43,
+                 coluna] for i in range(len(campos))]
+    if compacto is not None:
+        if not posicoes:
+            posicoes.append([x, topo - 37, LARGURA_CAMPO_FOLHAS])
+        else:
+            ultimo = posicoes[-1]
+            fim = ultimo[0] + ultimo[2] + 6
+            if x + w - fim < LARGURA_CAMPO_FOLHAS:
+                ultimo[2] -= LARGURA_CAMPO_FOLHAS + 6
+                fim = ultimo[0] + ultimo[2] + 6
+            posicoes.append([fim, ultimo[1], LARGURA_CAMPO_FOLHAS])
+        campos = list(campos) + [compacto]
+    for (cx, cy, largura_campo), (texto, acao) in zip(posicoes, campos):
+        itens.append((cx, cy, largura_campo, 37, texto, acao))
+    return min(p[1] for p in posicoes) - 6
 
 
 # botoes LARANJA do topo das abas: Criar Portas e Criar Puxador
@@ -1076,6 +1152,23 @@ def _limites_rolagem_gaveta(context, largura, altura):
 
 def _limite_rolagem_gaveta(context, largura, altura):
     return _limites_rolagem_gaveta(context, largura, altura)[0]
+
+
+def _rolar_ate_o_fim(context):
+    """A aba acompanha quem cria: a etapa nova do wizard nasce no FIM do
+    painel e, com os retratos, caia para baixo da divisoria sem ninguem
+    ver. Chamado so' quando a etapa muda: rolar a' mao continua valendo."""
+    tela = getattr(context, 'screen', None)
+    area = _area_gaveta(tela) if tela is not None else None
+    regiao = next((r for r in area.regions if r.type == 'WINDOW'),
+                  None) if area is not None else None
+    if regiao is None:
+        return
+    with context.temp_override(area=area, region=regiao):
+        limite = _limite_rolagem_gaveta(bpy.context, regiao.width,
+                                        regiao.height)
+    tela[_CHAVE_ROLAGEM] = limite
+    area.tag_redraw()
 
 
 ALTURA_RODAPE_GAVETA = 40      # faixa fixa da engrenagem, no pe' da gaveta
@@ -1561,6 +1654,9 @@ def _quebrar_texto(texto, largura):
         else:
             atual = tentativa
     return linhas + ([atual] if atual else [])
+
+
+LARGURA_MIN_RESPOSTA = 70   # px: abaixo disto as respostas quebram a fila
 
 
 def _pergunta_na_gaveta(itens, x, topo, w, pergunta):

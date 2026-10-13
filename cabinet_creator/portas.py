@@ -1151,7 +1151,12 @@ def _alvos_do_ima(context):
 # `assistente`; aqui ficam as constantes e as contas que ele usa.
 OPCOES_CONFIRMAR = (('SIM', 'Sim, criar assim'), ('NAO', 'Nao, marcar de novo'))
 OPCOES_FOLHAS = (('1', '1 folha'), ('2', '2 folhas'))
-TIPOS_SOBREPOSTA = (('GIRO', 'Giro'), ('BASCULANTE', 'Basculante'))
+# botao da gaveta que confirma a etapa do wizard (valor = a etapa)
+CONFIRMAR_ETAPA = 'confirmar_etapa'
+# por cima: o correr vem COM MOLDURA (pedido do usuario: o gesto de fora
+# para dentro e' o da porta que avanca na frente do modulo)
+TIPOS_SOBREPOSTA = (('GIRO', 'Giro'), ('BASCULANTE', 'Basculante'),
+                    ('CORRER', 'Correr'))
 TIPOS_EMBUTIDA = (('GIRO', 'Giro (Super Curva)'), ('CORRER', 'Correr'))
 COR_FIO_COBERTURA = (1.0, 0.55, 0.1, 1.0)     # laranja (print do usuario)
 COR_FIO_VAO = (1.0, 1.0, 1.0, 1.0)

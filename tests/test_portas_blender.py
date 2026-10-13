@@ -1185,9 +1185,17 @@ class TestPortas(unittest.TestCase):
         campos = {a[2]: a for a in acoes if a[0] == 'medida'}
         self.assertEqual(set(campos), {'dobradicas_margem_mm'})
         self.assertEqual(campos['dobradicas_margem_mm'][1], 'ferragens')
-        qtd = [a for a in acoes if a[0] == 'escolha']
-        self.assertEqual({a[1] for a in qtd}, {'dobradicas_qtd'})
-        self.assertTrue(all(a[5] == addon.gaveta.ALVO_FERRAGENS for a in qtd))
+        # o tipo da dobradica e' automatico: retratos so' para ver (sem
+        # clique), o detectado aceso
+        retratos = [a for a in acoes if a[0] == 'escolha' and a[1] == 'dobradica']
+        self.assertEqual([a[2] for a in retratos if a[3]],
+                         [grupo['porta_parametros']['dobradica']])
+        self.assertFalse(any(a[4] for a in retratos))
+        # quantidade = CONTADOR (mockup do usuario), sem "aceitar": a
+        # selecao edita na hora
+        self.assertFalse([a for a in acoes if a[0] == 'escolha'
+                          and a[1] == addon.portas.CONFIRMAR_ETAPA])
+        (qtd,) = [a for a in acoes if a[0] == 'contador']
         n = len(addon.ferragens._dobradicas_da_porta(
             *addon.ferragens._porta_calculada(grupo))[0][1])
         self.assertEqual([a[2] for a in qtd if a[3]], [n])
