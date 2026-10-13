@@ -22,6 +22,7 @@ _hud = None
 _solda = None
 _perguntas = None
 _gaveta_desenho = None
+_materiais = None
 
 def _gaveta_sob_evento(context, event):
     """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
@@ -329,7 +330,23 @@ class OBJECT_OT_interagir_gaveta(Operator):
     def poll(cls, context):
         return _gaveta._eh_area_gaveta(context)
 
+    def _botao_direito(self, context, event):
+        """Botao DIREITO sobre um material da biblioteca: a pintura rapida
+        (pedido do usuario). Fora dele, o evento segue como sempre."""
+        x, y = event.mouse_region_x, event.mouse_region_y
+        acao = next((a for wx, wy, w, h, _r, a in _gaveta._widgets_interativos(context)
+                     if a and a[0] == 'material'
+                     and wx <= x <= wx + w and wy <= y <= wy + h), None)
+        if acao is None:
+            return {'PASS_THROUGH'}
+        if not _materiais.perguntar_pintar(context, acao[1]):
+            self.report({'WARNING'}, "Nenhum modulo na cena para pintar")
+        context.area.tag_redraw()
+        return {'FINISHED'}
+
     def invoke(self, context, event):
+        if event.type == 'RIGHTMOUSE':
+            return self._botao_direito(context, event)
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             for wx, wy, w, h, _, acao in _gaveta._widgets_gaveta(
                     context, context.region.width, context.region.height):
@@ -731,13 +748,66 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
+    def _modal_material(self, context, event):
+        """Esfera arrastada da gaveta: o pincel segue o mouse e, ao soltar
+        numa viewport, pinta o que esta' embaixo (`pecas_do_solte`)."""
+        estado = self._material
+        if event.type == 'MOUSEMOVE':
+            if not estado['arrastou']:
+                dx = event.mouse_x - estado['x0']
+                dy = event.mouse_y - estado['y0']
+                raio = _biblioteca.RAIO_DUPLO_CLIQUE_PX
+                if dx * dx + dy * dy <= raio * raio:
+                    return {'RUNNING_MODAL'}
+                estado['arrastou'] = True
+                _materiais._clique_esfera[0] = None     # arraste nao e' 1o clique
+                context.window.cursor_modal_set('PAINT_BRUSH')
+                try:
+                    context.workspace.status_text_set(
+                        "%s | Solte sobre um modulo, porta ou peca | "
+                        "Botao direito: cancelar" % estado['nome'])
+                except Exception:
+                    pass
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self._encerrar_material(context)
+            if estado['arrastou']:
+                alvo = _objeto_sob_mouse(context, event)
+                if alvo:
+                    bpy.ops.object.cabinet_aplicar_material(
+                        chave=estado['chave'], alvo=alvo)
+                elif _gaveta_sob_evento(context, event) is None:
+                    self.report({'WARNING'},
+                                "Solte o material sobre um modulo, porta ou peca")
+            context.area.tag_redraw()
+            return {'FINISHED'}
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self._encerrar_material(context)
+            return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
+
+    def _encerrar_material(self, context):
+        if self._material['arrastou']:
+            context.window.cursor_modal_restore()
+            try:
+                context.workspace.status_text_set(None)
+            except Exception:
+                pass
+
+    def cancel(self, context):
+        if hasattr(self, '_material'):
+            self._encerrar_material(context)
+
     def modal(self, context, event):
+        if hasattr(self, '_material'):
+            return self._modal_material(context, event)
         if hasattr(self, '_no_soltar'):
             if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
                 _perguntas._na_gaveta[0] = True     # pergunta que nascer vem na gaveta
                 try:
                     modulo, nome = self._no_soltar.split('.')
-                    getattr(getattr(bpy.ops, modulo), nome)('INVOKE_DEFAULT')
+                    getattr(getattr(bpy.ops, modulo), nome)(
+                        'INVOKE_DEFAULT', **getattr(self, '_props_no_soltar', {}))
                 except Exception as e:
                     self.report({'WARNING'}, str(e))
                 finally:
@@ -901,7 +971,10 @@ def _icone_acao_gaveta(acao):
                 'object.cabinet_vincular_puxador': 'LINKED',
                 'object.cabinet_abrir_biblioteca': 'FILE_FOLDER',
                 'object.cabinet_prateleira': 'ASSET_MANAGER',
-                'object.cabinet_salvar_biblioteca': 'FILE_TICK'}.get(acao[1])
+                'object.cabinet_salvar_biblioteca': 'FILE_TICK',
+                'object.cabinet_novo_material': 'ADD'}.get(acao[1])
+    if acao[0] == 'material_item':
+        return ('GREASEPENCIL', 'TRASH')[acao[2]]
     if acao[0] == 'cadeado':
         return 'LOCKED' if acao[3] else 'UNLOCKED'
     if acao[0] == 'item':
@@ -1068,7 +1141,10 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                     botao.target_set_operator('object.cabinet_interagir_gaveta')
                 elif acao[0] == 'operador':
                     botao.target_set_operator(acao[1])
-                elif acao[0] in {'rolar_nivel', 'cadeado'}:
+                elif acao[0] in {'rolar_nivel', 'cadeado', 'escolha',
+                                 'material_item'} or (
+                        acao[0] == 'item' and _eh_modelo_do_criador(acao[1])):
+                    # modelo do criador: a gaveta decide (`_modelo_do_criador`)
                     botao.target_set_operator('object.cabinet_interagir_gaveta')
                 elif acao[0] == 'item':
                     it, indice = acao[1:]

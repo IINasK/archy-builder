@@ -1178,15 +1178,14 @@ class OBJECT_OT_navegar(Operator):
 
     def execute(self, context):
         s = context.scene
-        if self.nivel == 1:
-            s.chapa_n1 = "" if s.chapa_n1 == self.valor else self.valor
-            s.chapa_n2 = ""
-            s.chapa_n3 = ""
-        elif self.nivel == 2:
-            s.chapa_n2 = "" if s.chapa_n2 == self.valor else self.valor
-            s.chapa_n3 = ""
-        else:
-            s.chapa_n3 = "" if s.chapa_n3 == self.valor else self.valor
+        # a cascata e' a da biblioteca que esta' aberta: presets ou materiais
+        prefixo = ('cabinet_mat_n' if getattr(s, 'cabinet_bib_modo', '') == 'MATERIAIS'
+                   else 'chapa_n')
+        atual = trilha_da_cena(s, prefixo)
+        trilha = list(atual[:self.nivel - 1])
+        if not (len(atual) >= self.nivel and atual[self.nivel - 1] == self.valor):
+            trilha.append(self.valor)       # o mesmo de novo = fecha o nivel
+        definir_trilha(s, trilha, prefixo)
         return {'FINISHED'}
 
 

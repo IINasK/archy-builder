@@ -15,6 +15,7 @@ from . import opcoes as _opcoes
 _chapas = None
 _modulos = None
 _biblioteca = None
+_materiais = None
 _portas = None
 _ferragens = None
 _gaveta_eventos = None
@@ -1328,6 +1329,31 @@ def _rolar_ate_o_fim(context):
     area.tag_redraw()
 
 
+def _rolar_biblioteca_ate_pergunta(context):
+    """A caixa "Apagar?" de um material nasce sob a fila dele e, numa
+    fila de baixo, caia abaixo do pe' do painel (o "Nao" sumia). A
+    biblioteca rola o NECESSARIO para a caixa aparecer inteira."""
+    tela = getattr(context, 'screen', None)
+    area = _area_gaveta(tela) if tela is not None else None
+    regiao = next((r for r in area.regions if r.type == 'WINDOW'),
+                  None) if area is not None else None
+    if regiao is None:
+        return
+    with context.temp_override(area=area, region=regiao):
+        conteudo = _widgets_conteudo_gaveta(bpy.context, regiao.width,
+                                            regiao.height, 0, 0)
+        limite_bib = _limites_rolagem_gaveta(bpy.context, regiao.width,
+                                             regiao.height)[1]
+    baixo = _paineis_gaveta(conteudo[WIDGETS_CABECALHO:])[2]
+    caixa = next((v for v in baixo if v[5] == ('pergunta',)), None)
+    if caixa is None:
+        return
+    necessario = int(18 + ALTURA_RODAPE_GAVETA - caixa[1]) + 1
+    if necessario > int(tela.get(_CHAVE_ROLAGEM_BIB, 0)):
+        tela[_CHAVE_ROLAGEM_BIB] = min(limite_bib, necessario)
+    area.tag_redraw()
+
+
 ALTURA_RODAPE_GAVETA = 40      # faixa fixa da engrenagem, no pe' da gaveta
 OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
@@ -1836,58 +1862,167 @@ def _pergunta_na_gaveta(itens, x, topo, w, pergunta):
     return baixo
 
 
-def _biblioteca_gaveta(context, itens, x, y, w):
-    """Biblioteca no painel de baixo, igual nas tres abas e sempre
-    aberta: o titulo deixou de ser botao de abrir/fechar."""
-    s = context.scene
-    indice = _biblioteca.indice_completo()
+# Icones a' direita do titulo, por biblioteca: presets (pasta, Asset
+# Browser, salvar a selecao) ou materiais (pasta, novo material)
+BOTOES_BIBLIOTECA = {
+    'MODULOS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
+                ('Assets', 'object.cabinet_prateleira'),
+                ('Salvar +', 'object.cabinet_salvar_biblioteca')),
+    'MATERIAIS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
+                  ('Novo +', 'object.cabinet_novo_material')),
+}
+TITULO_BIBLIOTECA = 'Biblioteca'
+MODOS_BIBLIOTECA = (('MODULOS', 'Modulos'), ('MATERIAIS', 'Materiais'))
+
+
+def _cabecalho_biblioteca(context, itens, x, y, w, contagens):
+    """Titulo, os dois botoes Modulos | Materiais AO LADO dele (pedido do
+    usuario; gaveta estreita: na linha de baixo) e os icones a' direita.
+    A contagem vai no botao de cada biblioteca. Devolve o y seguinte."""
+    modo = context.scene.cabinet_bib_modo
+    botoes = BOTOES_BIBLIOTECA[modo]
     bw = min(28, max(12, (w - 44) / 3))
-    reserva = 3 * (bw + 4)
-    itens.append((x, y, max(1, w - reserva), 26, 'Biblioteca (%d)' % len(indice),
-                  None))
-    for i, (rotulo, op) in enumerate((('Pasta', 'object.cabinet_abrir_biblioteca'),
-                                     ('Assets', 'object.cabinet_prateleira'),
-                                     ('Salvar +', 'object.cabinet_salvar_biblioteca'))):
+    reserva = len(botoes) * (bw + 4)
+    largura_titulo = _px_botao(TITULO_BIBLIOTECA, False)
+    sobra = w - reserva - largura_titulo - 4
+    ao_lado = sobra >= 2 * PX_MIN_NIVEL + 4
+    # o titulo e' o PRIMEIRO widget do painel (o teste de rolagem o acha)
+    itens.append((x, y, largura_titulo if ao_lado else max(1, w - reserva), 26,
+                  TITULO_BIBLIOTECA, None))
+    for i, (rotulo, op) in enumerate(botoes):
         itens.append((x + w - reserva + 4 + i * (bw + 4), y, bw, 26, rotulo,
                       ('operador', op)))
-    y -= 34
-    y = _linha_cascata_gaveta(itens, x, y, w,
-                              list(_biblioteca.ARVORE.keys()), 1, s.chapa_n1, indice)
-    if s.chapa_n1:
-        itens.append((x, y + 31.5, w, 1, '', ('separador',)))
-        y = _linha_cascata_gaveta(itens, x, y, w, _biblioteca._filhos_n2(s.chapa_n1),
-                                  2, s.chapa_n2, indice, s.chapa_n1)
-    if s.chapa_n1 and s.chapa_n2:
-        filhos = _biblioteca._filhos_n3(s.chapa_n1, s.chapa_n2)
-        if filhos:
+    if ao_lado:
+        # segmento (25) centrado no titulo (26)
+        mx, mw, my = x + largura_titulo + 4, sobra, y + 0.5
+        y -= 34
+    else:
+        mx, mw, my = x, w, y - 33
+        y -= 33 + 33
+    sw = (mw - 4) / 2
+    for i, (valor, nome) in enumerate(MODOS_BIBLIOTECA):
+        completo = '%s (%d)' % (nome, contagens[valor])
+        rotulo = completo if _px_botao(completo, False) <= sw else nome
+        itens.append((mx + i * (sw + 4), my, sw, 25, rotulo,
+                      ('biblioteca', valor, valor == modo)))
+    return y
+
+
+def _biblioteca_gaveta(context, itens, x, y, w):
+    """Biblioteca no painel de baixo, igual nas tres abas e sempre
+    aberta: o titulo deixou de ser botao de abrir/fechar. Duas
+    bibliotecas, a mesma cascata: presets (Modulos) e Materiais."""
+    s = context.scene
+    indice = _biblioteca.indice_completo()
+    materiais = _materiais.ler_materiais()
+    y = _cabecalho_biblioteca(context, itens, x, y, w,
+                              {'MODULOS': len(indice), 'MATERIAIS': len(materiais)})
+    if s.cabinet_bib_modo == 'MATERIAIS':
+        return _materiais_gaveta(context, itens, x, y, w, materiais)
+    # os de fabrica (puxadores, dobradicas) entram travados na cascata
+    indice = indice + _biblioteca.itens_de_fabrica()
+    # Cascata SEM limite de niveis (pedido do usuario): um carrossel por
+    # nivel do caminho escolhido, e o de baixo dele enquanto houver filhos
+    # (Armarios > Cozinha > Altos > Despenseiros). Ramo vazio nao aparece.
+    trilha = _biblioteca.trilha_da_cena(s)
+    for nivel in range(1, len(trilha) + 2):
+        pai = trilha[:nivel - 1]
+        filhos = _biblioteca.filhos_de(indice, pai)
+        if not filhos:
+            break
+        if nivel > 1:
             itens.append((x, y + 31.5, w, 1, '', ('separador',)))
-        y = _linha_cascata_gaveta(itens, x, y, w, filhos,
-                                  3, s.chapa_n3, indice,
-                                  (s.chapa_n1, s.chapa_n2))
-        if not filhos or s.chapa_n3:
-            itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
-                          ('slider', None)))
-            y -= 12
-            daqui = [it for it in indice
-                     if _biblioteca._niveis_de(it)[:2] == (s.chapa_n1, s.chapa_n2)
-                     and (not filhos or _biblioteca._niveis_de(it)[2] == s.chapa_n3)]
-            daqui.sort(key=lambda it: it.get('nome', '').casefold())
-            # A foto nunca herda a largura da gaveta: e' sempre quadrada.
-            lado_foto = 88 + (s.chapa_tam_bloco - 2) * 14
-            bw = min(w, lado_foto + 10)
-            colunas = max(1, int((w + 8) // (bw + 8)))
-            altura_bloco = bw + 17
-            for i, it in enumerate(daqui):
-                linha, coluna = divmod(i, colunas)
-                bx = x + coluna * (bw + 8)
-                by = y - altura_bloco - linha * (altura_bloco + 30)
-                itens.append((bx, by, bw, altura_bloco,
-                              _abreviar(it.get('nome', ''), 17), ('preset', it)))
-                acao = ('item', it)
-                for j, rotulo in enumerate(('Ins.', 'Edit.', 'Trava')):
-                    sw = (bw - 8) / 3
-                    itens.append((bx + j * (sw + 4), by - 24,
-                                  sw, 21, rotulo, (*acao, j)))
+        # o pai do nivel 1 e' None (a chave de rolagem de sempre); o do 2,
+        # o nome do 1; do 3 em diante, a tupla
+        chave_pai = None if nivel == 1 else (pai[0] if nivel == 2 else tuple(pai))
+        y = _linha_cascata_gaveta(itens, x, y, w, filhos, nivel,
+                                  trilha[nivel - 1] if len(trilha) >= nivel else '',
+                                  indice, chave_pai)
+        if len(trilha) < nivel:
+            break
+    daqui = _biblioteca.itens_em(indice, trilha) if trilha else []
+    if daqui:
+        itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
+                      ('slider', None)))
+        y -= 12
+        daqui.sort(key=lambda it: it.get('nome', '').casefold())
+        bw, colunas, altura_bloco = _grade_biblioteca(s, w)
+        for i, it in enumerate(daqui):
+            linha, coluna = divmod(i, colunas)
+            bx = x + coluna * (bw + 8)
+            by = y - altura_bloco - linha * (altura_bloco + 30)
+            itens.append((bx, by, bw, altura_bloco,
+                          _abreviar(it.get('nome', ''), 17), ('preset', it)))
+            acao = ('item', it)
+            for j, rotulo in enumerate(('Ins.', 'Edit.', 'Trava')):
+                sw = (bw - 8) / 3
+                itens.append((bx + j * (sw + 4), by - 24,
+                              sw, 21, rotulo, (*acao, j)))
+    return itens
+
+
+def _grade_biblioteca(s, w):
+    """(lado do bloco, colunas, altura do bloco) da grade de miniaturas,
+    a mesma para presets e materiais (slider "Tamanho das miniaturas").
+    A foto nunca herda a largura da gaveta: e' sempre quadrada."""
+    lado_foto = 88 + (s.chapa_tam_bloco - 2) * 14
+    bw = min(w, lado_foto + 10)
+    return bw, max(1, int((w + 8) // (bw + 8))), bw + 17
+
+
+def _materiais_gaveta(context, itens, x, y, w, materiais):
+    """A cascata dos materiais (MDF/MDP > categoria) e, no fim dela, a
+    grade de esferas: clicar pinta a selecao (`cabinet_aplicar_material`);
+    embaixo de cada uma, Editar e Apagar. A esfera do material da selecao
+    acende. O "Apagar?" abre logo abaixo da fila do material."""
+    s = context.scene
+    prefixo = 'cabinet_carrossel_mat'
+    y = _linha_cascata_gaveta(itens, x, y, w, _materiais.filhos_n1(materiais),
+                              1, s.cabinet_mat_n1, materiais, prefixo=prefixo)
+    if not s.cabinet_mat_n1:
+        return itens
+    itens.append((x, y + 31.5, w, 1, '', ('separador',)))
+    y = _linha_cascata_gaveta(itens, x, y, w,
+                              _materiais.filhos_n2(materiais, s.cabinet_mat_n1),
+                              2, s.cabinet_mat_n2, materiais, s.cabinet_mat_n1,
+                              prefixo=prefixo)
+    if not s.cabinet_mat_n2:
+        return itens
+    filhos = _materiais.filhos_n3(materiais, s.cabinet_mat_n1, s.cabinet_mat_n2)
+    if filhos:
+        itens.append((x, y + 31.5, w, 1, '', ('separador',)))
+        y = _linha_cascata_gaveta(itens, x, y, w, filhos, 3, s.cabinet_mat_n3,
+                                  materiais, (s.cabinet_mat_n1, s.cabinet_mat_n2),
+                                  prefixo=prefixo)
+        if not s.cabinet_mat_n3:
+            return itens
+    itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
+                  ('slider', None)))
+    y -= 12
+    daqui = [it for it in materiais
+             if (it['n1'], it['n2']) == (s.cabinet_mat_n1, s.cabinet_mat_n2)
+             and (not filhos or it['n3'] == s.cabinet_mat_n3)]
+    daqui.sort(key=lambda it: it['nome'].casefold())
+    aplicada = _materiais.chave_aplicada(_selecionado(context))
+    pergunta = _perguntas._pergunta_atual[0]
+    pendente = (_materiais.chave_da_caixa()
+                if pergunta is not None and pergunta.get('biblioteca') else None)
+    bw, colunas, altura_bloco = _grade_biblioteca(s, w)
+    sw = (bw - 4) / 2
+    topo = y
+    for inicio in range(0, len(daqui), colunas):
+        fila = daqui[inicio:inicio + colunas]
+        by = topo - altura_bloco
+        for coluna, it in enumerate(fila):
+            bx = x + coluna * (bw + 8)
+            itens.append((bx, by, bw, altura_bloco, _abreviar(it['nome'], 17),
+                          ('material', it, it['chave'] == aplicada)))
+            for j, rotulo in enumerate(('Edit.', 'Apagar')):
+                itens.append((bx + j * (sw + 4), by - 24, sw, 21, rotulo,
+                              ('material_item', it, j)))
+        topo = by - 30
+        if pendente and any(it['chave'] == pendente for it in fila):
+            topo = _pergunta_na_gaveta(itens, x, topo, w, pergunta) - 8
     return itens
 
 

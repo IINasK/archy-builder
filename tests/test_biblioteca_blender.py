@@ -1259,6 +1259,135 @@ class TestOperadoresDeLote(InsercaoBase):
         self.assertAlmostEqual(px[1], 1.0, delta=0.02)
 
 
+class TestMateriais(BaseBiblioteca):
+    """Biblioteca de materiais (MDF/MDP): catalogo, cascata, aplicar a
+    cor solida na selecao, criar/editar/apagar e a grade na gaveta."""
+
+    def setUp(self):
+        super().setUp()
+        s = bpy.context.scene
+        s.cabinet_bib_modo = 'MATERIAIS'
+        s.cabinet_mat_n1 = s.cabinet_mat_n2 = s.cabinet_mat_n3 = ""
+        addon.perguntas._pergunta_atual[0] = None
+        addon.materiais._apagar_pendente[0] = None
+        addon.materiais._pintar_pendente[0] = None
+        for mat in list(bpy.data.materials):
+            bpy.data.materials.remove(mat)
+
+    def test_pintura_rapida_por_comodo_e_por_parte(self):
+        # pedido do usuario: botao direito no material (cabinet_pintar_modulos)
+        # -> quais modulos (por comodo) -> tudo, so' a caixa ou so' as portas
+        M = addon.modulos
+        cozinha = M.criar_armario(bpy.context, "Balcao", 800, 720, 550)
+        porta = addon.portas.porta_no_modulo(cozinha, 2)
+        quarto = M.criar_armario(bpy.context, "Roupeiro", 600, 2400, 550)
+        solto = M.criar_armario(bpy.context, "Solto", 400, 600, 450)
+        cena = bpy.context.scene
+        addon.orcamento.definir_comodo(cena, [cozinha], 'Cozinha')
+        addon.orcamento.definir_comodo(cena, [quarto], 'Quarto')
+        grafite = self.item('MDF', 'Unicolores', 'Grafite')
+        P = addon.materiais
+
+        def cor(pecas):
+            return {p.material_slots[0].material.name
+                    if p.material_slots and p.material_slots[0].material else None
+                    for p in pecas}
+
+        def responder(rotulo):
+            pergunta = addon.perguntas._pergunta_atual[0]
+            rotulos = [o[0] for o in pergunta['opcoes']]
+            return bpy.ops.object.cabinet_responder_pergunta(opcao=rotulos.index(rotulo))
+        self.assertTrue(P.perguntar_pintar(bpy.context, grafite))
+        pergunta = addon.perguntas._pergunta_atual[0]
+        self.assertTrue(pergunta['na_gaveta'] and pergunta['biblioteca'])
+        self.assertEqual([o[0] for o in pergunta['opcoes']],
+                         ['Cozinha (1)', 'Quarto (1)', 'Sem comodo (1)', 'Todos (3)',
+                          'Cancelar'])
+        self.assertEqual(responder('Cozinha (1)'), {'CANCELLED'})   # so' perguntou
+        pergunta = addon.perguntas._pergunta_atual[0]
+        self.assertEqual([o[0] for o in pergunta['opcoes']],
+                         ['Tudo', "So' a caixa", "So' as portas", 'Cancelar'])
+        self.assertEqual(P._pintar_pendente[0], grafite['chave'])
+        self.assertEqual(responder("So' a caixa"), {'FINISHED'})
+        self.assertIsNone(P._pintar_pendente[0])
+        caixa = P.pecas_do_modulo(cozinha, 'CAIXA')
+        folhas = P.pecas_do_modulo(cozinha, 'PORTAS')
+        self.assertEqual(len(caixa), 5)                   # com o fundo
+        self.assertEqual(set(folhas), set(addon.portas._folhas_portas(porta)))
+        self.assertEqual(cor(caixa), {'MDF Grafite'})
+        self.assertEqual(cor(folhas), {None})             # porta nao
+        self.assertEqual(cor(P.pecas_do_modulo(quarto, 'TUDO')), {None})
+        # todos os modulos, so' as portas
+        areia = self.item('MDF', 'Unicolores', 'Areia')
+        P.perguntar_pintar(bpy.context, areia)
+        responder('Todos (3)')
+        self.assertEqual(responder("So' as portas"), {'FINISHED'})
+        self.assertEqual(cor(folhas), {'MDF Areia'})
+        self.assertEqual(cor(caixa), {'MDF Grafite'})
+        # tudo do quarto; e Cancelar nao pinta nada
+        P.perguntar_pintar(bpy.context, areia)
+        responder('Quarto (1)')
+        responder('Tudo')
+        self.assertEqual(cor(P.pecas_do_modulo(quarto, 'TUDO')), {'MDF Areia'})
+        P.perguntar_pintar(bpy.context, grafite)
+        self.assertEqual(responder('Cancelar'), {'CANCELLED'})
+        self.assertIsNone(P._pintar_pendente[0])
+        self.assertEqual(cor(P.pecas_do_modulo(solto, 'TUDO')), {None})
+
+    def test_caixa_da_pintura_abre_sob_o_material_e_quebra_as_respostas(self):
+        M = addon.modulos
+        cena = bpy.context.scene
+        for nome in ('Cozinha', 'Quarto', 'Sala', 'Banheiro'):
+            conj = M.criar_armario(bpy.context, nome, 400, 600, 450)
+            addon.orcamento.definir_comodo(cena, [conj], nome)
+        it = self.item('MDP', 'Unicolores', 'Grafite')
+        cena.cabinet_mat_n1, cena.cabinet_mat_n2 = 'MDP', 'Unicolores'
+        addon.materiais.perguntar_pintar(bpy.context, it)
+        self.assertEqual(len(addon.perguntas._pergunta_atual[0]['opcoes']), 6)
+        for largura in (190, 320, 564):
+            ws = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
+            (caixa,) = [w for w in ws if w[5] == ('pergunta',)]
+            alvo = next(w for w in ws if w[5] and w[5][0] == 'material'
+                        and w[5][1]['chave'] == it['chave'])
+            self.assertLess(caixa[1] + caixa[3], alvo[1] - 24)   # logo abaixo
+            respostas = [w for w in ws if w[5] and w[5][0] == 'resposta']
+            self.assertEqual(len(respostas), 6)
+            for r in respostas:
+                # dentro da caixa e nunca espremida
+                self.assertGreaterEqual(r[0], caixa[0])
+                self.assertLessEqual(r[0] + r[2], caixa[0] + caixa[2] + 0.01)
+                self.assertGreaterEqual(r[1], caixa[1])
+                self.assertGreaterEqual(r[2], addon.gaveta.LARGURA_MIN_RESPOSTA - 0.01)
+            for a in respostas:
+                for b in respostas:
+                    if a is not b:
+                        self.assertFalse(a[0] < b[0] + b[2] and b[0] < a[0] + a[2]
+                                         and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
+
+    def tearDown(self):
+        bpy.context.scene.cabinet_bib_modo = 'MODULOS'
+        addon.perguntas._pergunta_atual[0] = None
+        super().tearDown()
+
+    def arquivo(self):
+        return os.path.join(self.pasta, addon.materiais.NOME_ARQUIVO)
+
+    def item(self, n1, n2, nome):
+        return addon.materiais.achar("%s/%s//%s" % (n1, n2, nome))
+
+    def selecionar(self, obj):
+        for o in bpy.context.selected_objects:
+            o.select_set(False)
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        return obj
+
+    def modulo(self):
+        bpy.ops.object.cabinet_criar_nicho()
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.cabinet_agrupar()
+        return self.selecionar(bpy.context.object)
+
 # ====================================================== execucao
 addon.register()
 CASOS = (TestIndice, TestCatalogos, TestGravacao, TestOperadores,

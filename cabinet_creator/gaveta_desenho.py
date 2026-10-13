@@ -15,6 +15,9 @@ _gaveta = None
 _orcamento = None
 _hud = None
 _solda = None
+_portas = None
+_materiais = None
+
 def _eh_campo_contador(acao):
     """Contador com rotulo (7o campo): o "Folhas" da porta, desenhado
     como campo de medida -- arrastar muda, clicar digita -- em vez do
@@ -70,6 +73,12 @@ def _chave_widget(acao):
         return 'preset:%s' % acao[1]['arquivo']
     if verbo == 'item':
         return 'item:%s:%s' % (acao[1]['arquivo'], acao[2])
+    if verbo == 'biblioteca':
+        return 'bib:%s' % acao[1]
+    if verbo == 'material':
+        return 'mat:%s' % acao[1]['chave']
+    if verbo == 'material_item':
+        return 'matitem:%s:%s' % (acao[1]['chave'], acao[2])
     return verbo
 
 
@@ -418,6 +427,18 @@ def _desenhar_gaveta(tela=False):
             # BLF e outros widgets podem alterar o blend antes da foto.
             gpu.state.blend_set('ALPHA')
             _gaveta._desenhar_foto_gaveta(acao[1], x + 5, y + 22, lado, lado)
+            _gaveta._texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
+            continue
+        if acao and acao[0] == 'material':
+            # o bloco do preset, com a ESFERA da cor no lugar da foto;
+            # aceso = o material da selecao
+            chave = _chave_widget(acao)
+            _gaveta._glow_gaveta(x, y, w, h, 4, _gaveta._valor_realce(context, chave),
+                                 cores.text)
+            _gaveta._botao_gaveta(x, y, w, h, ativo=acao[2])
+            lado = min(w - 10, h - 27)
+            _gaveta._retangulo_gaveta(x + 5, y + 22, lado, lado, fundo)
+            _materiais.desenhar_esfera(acao[1]['cor'], x + 5, y + 22, lado, lado)
             _gaveta._texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
             continue
         # A peca que esta' entrando (ou saindo) invade a area das setas.

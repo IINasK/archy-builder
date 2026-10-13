@@ -32,6 +32,7 @@ from bpy.types import Operator
 from . import chapas as _chapas
 from . import modulos as _modulos
 from . import biblioteca as _biblioteca
+from . import materiais as _materiais
 from . import opcoes as _opcoes
 from . import eventos as _eventos
 from . import selecao as _selecao
@@ -51,7 +52,7 @@ from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
 from . import painel_legado as _painel_legado
 
-_MODULOS = (_chapas, _modulos, _biblioteca, _opcoes, _eventos, _selecao,
+_MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _painel_legado)
@@ -89,6 +90,11 @@ CLASSES = (
     _biblioteca.OBJECT_OT_prateleira,
     _selecao.OBJECT_OT_selecionar,
     _biblioteca.OBJECT_OT_navegar,
+    _materiais.OBJECT_OT_aplicar_material,
+    _materiais.OBJECT_OT_novo_material,
+    _materiais.OBJECT_OT_editar_material,
+    _materiais.OBJECT_OT_apagar_material,
+    _materiais.OBJECT_OT_pintar_modulos,
     _biblioteca.OBJECT_OT_editar_modelo,
     _biblioteca.OBJECT_OT_alternar_bloqueio,
     _modulos.OBJECT_OT_agrupar_conjunto,
@@ -367,6 +373,15 @@ def register():
     S.chapa_n1 = StringProperty(default="")
     S.chapa_n2 = StringProperty(default="")
     S.chapa_n3 = StringProperty(default="")
+    # a biblioteca mostra os presets (Modulos) ou os Materiais, cada um
+    # com a sua cascata (os botoes ao lado do titulo)
+    S.cabinet_bib_modo = EnumProperty(
+        name="Biblioteca", default='MODULOS',
+        items=[('MODULOS', "Modulos", "Presets de modulos e pecas"),
+               ('MATERIAIS', "Materiais", "Cores de MDF e MDP")])
+    S.cabinet_mat_n1 = StringProperty(default="")
+    S.cabinet_mat_n2 = StringProperty(default="")
+    S.cabinet_mat_n3 = StringProperty(default="")
     # barra continua (estilo volume) no lugar dos tres degraus P/M/G
     # 7 degraus: com 11 a barra ocupava 70% da sidebar e nao cabia no
     # canto. A miniatura maior continua grande o bastante.
@@ -469,6 +484,11 @@ def unregister():
     _hud._campos_gaveta.clear()
     _hud._realce_medida[0] = None
     _gaveta._fotos_gaveta.clear()
+    _materiais._texturas_esfera.clear()
+    _materiais._cache[0] = None
+    _materiais._apagar_pendente[0] = None
+    _materiais._pintar_pendente[0] = None
+    _materiais._clique_esfera[0] = None
     for nome in _gaveta._imagens_gaveta:
         imagem = bpy.data.images.get(nome)
         if imagem is not None:

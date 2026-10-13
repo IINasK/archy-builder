@@ -124,6 +124,9 @@ def limpar(janela):
     for nome in addon.portas._PROPS_PORTAS_CENA:
         cena.property_unset(nome)
     cena.chapa_n1, cena.chapa_n2, cena.chapa_n3 = 'Armarios', '', ''
+    cena.cabinet_bib_modo = 'MODULOS'
+    cena.cabinet_mat_n1 = cena.cabinet_mat_n2 = cena.cabinet_mat_n3 = ''
+    addon.materiais._apagar_pendente[0] = None
     tela = janela.screen
     for chave in (addon.gaveta._CHAVE_ROLAGEM, addon.gaveta._CHAVE_ROLAGEM_BIB,
                   addon.gaveta._CHAVE_DIVISA, addon.gaveta._CHAVE_OPCOES):
@@ -2084,7 +2087,147 @@ def test_usar_como_puxador_pela_gaveta(janela, m):
         shutil.rmtree(pasta, True)
 
 
+def test_materiais_pela_gaveta(janela, m):
+    # Botao "Materiais" ao lado do titulo -> MDF -> Unicolores -> UM clique
+    # na esfera nao faz nada; o DUPLO pinta o modulo selecionado; ARRASTAR
+    # a esfera e soltar no modulo (fora da selecao) pinta ele. A lixeira
+    # pergunta na caixa preta, logo abaixo, e o "Nao" nao apaga nada. A
+    # biblioteca vai para uma pasta temporaria (nada pode escrever na real).
+    import shutil
+    import tempfile
+    pasta = tempfile.mkdtemp()
+    original = addon.biblioteca.pasta_biblioteca
+    addon.biblioteca.pasta_biblioteca = lambda: pasta
+    try:
+        conj = criar_modulo(janela)
+        selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
+        yield
+        passos = ((lambda v: v[5][:2] == ('biblioteca', 'MATERIAIS')),
+                  (lambda v: v[5][:3] == ('navegar', 1, 'MDF')),
+                  (lambda v: v[5][:3] == ('navegar', 2, 'Unicolores')))
+        for alvo in passos:
+            m.mover(*widget(janela, alvo))
+            yield
+            m.clicar()
+            yield
+        cena = bpy.context.scene
+        assert (cena.cabinet_bib_modo, cena.cabinet_mat_n1, cena.cabinet_mat_n2) == (
+            'MATERIAIS', 'MDF', 'Unicolores'), (cena.cabinet_bib_modo, cena.cabinet_mat_n1)
+        # a 1a da grade (ordem alfabetica): a 2a fila fica abaixo do painel
+        areia = 'MDF/Unicolores//Areia'
+        m.mover(*widget(janela, lambda v: v[5][0] == 'material'
+                        and v[5][1]['chave'] == areia))
+        yield
+        chapas = addon.modulos._chapas_do_conjunto(conj)
+
+        def nomes():
+            return {c.material_slots[0].material.name
+                    if c.material_slots and c.material_slots[0].material
+                    else None for c in chapas}
+        m.clicar()
+        yield esperar(0.6)       # passou do tempo de duplo: clique simples
+        assert nomes() == {None}, ('um clique pintou', nomes())
+        m.clicar()
+        yield esperar(0.05)      # bem abaixo do tempo de duplo clique
+        m.clicar()
+        yield
+        assert nomes() == {'MDF Areia'}, nomes()
+        # a esfera do material da selecao acende
+        widget(janela, lambda v: v[5][0] == 'material' and v[5][2]
+               and v[5][1]['chave'] == areia)
+        m.mover(*widget(janela, lambda v: v[5][0] == 'material_item'
+                        and v[5][1]['chave'] == areia and v[5][2] == 1))
+        yield
+        m.clicar()
+        yield
+        pergunta = addon.perguntas._pergunta_atual[0]
+        assert pergunta is not None and pergunta.get('biblioteca'), pergunta
+        m.mover(*widget(janela, lambda v: v[5] == ('resposta', 1)))     # Nao
+        yield
+        m.clicar()
+        yield
+        assert addon.perguntas._pergunta_atual[0] is None
+        assert addon.materiais.achar(areia) is not None, 'o Nao apagou'
+        # arrastar outra esfera ate' o modulo, sem selecao: pinta o modulo
+        bpy.ops.object.select_all(action='DESELECT')
+        yield
+        area_g, regiao_g = gaveta(janela)
+        with contexto(janela, area_g, regiao_g):
+            item = next(v[5][1] for v in addon.gaveta._widgets_interativos(
+                bpy.context) if v[5] and v[5][0] == 'material'
+                and v[5][1]['chave'] != areia)
+        outro = addon.materiais.nome_do_material(item)
+        m.mover(*widget(janela, lambda v: v[5][0] == 'material'
+                        and v[5][1]['chave'] == item['chave']))
+        yield
+        _area, regiao, rv3d = viewport(janela)
+        x, y = na_tela(regiao, rv3d, chapas[0].matrix_world.translation)
+        m.apertar()
+        yield
+        for t in (0.25, 0.5, 0.75, 1.0):
+            m.mover(m.x + (x - m.x) * t, m.y + (y - m.y) * t)
+            yield
+        m.soltar()
+        yield
+        assert nomes() == {outro}, (outro, nomes())
+        assert not bpy.context.selected_objects, 'o solte mexeu na selecao'
+    finally:
+        addon.biblioteca.pasta_biblioteca = original
+        shutil.rmtree(pasta, True)
+
+
+def test_botao_direito_no_material_pinta_o_comodo(janela, m):
+    # Pintura rapida (pedido do usuario): mouse sobre o material + botao
+    # DIREITO -> "quais modulos?" (por comodo) -> "pintar o que?" na caixa
+    # preta sob o material; nenhum menu de contexto do Blender.
+    import shutil
+    import tempfile
+    pasta = tempfile.mkdtemp()
+    original = addon.biblioteca.pasta_biblioteca
+    addon.biblioteca.pasta_biblioteca = lambda: pasta
+    try:
+        area, regiao, _rv3d = viewport(janela)
+        with contexto(janela, area, regiao):
+            conj = addon.modulos.criar_armario(bpy.context, "Balcao", 800, 720, 550)
+            addon.portas.porta_no_modulo(conj, 2)
+            addon.orcamento.definir_comodo(bpy.context.scene, [conj], 'Cozinha')
+        cena = bpy.context.scene
+        cena.cabinet_bib_modo = 'MATERIAIS'
+        cena.cabinet_mat_n1, cena.cabinet_mat_n2 = 'MDF', 'Unicolores'
+        yield
+        areia = 'MDF/Unicolores//Areia'
+        m.mover(*widget(janela, lambda v: v[5][0] == 'material'
+                        and v[5][1]['chave'] == areia))
+        yield
+        m.clicar('RIGHTMOUSE')
+        yield
+        pergunta = addon.perguntas._pergunta_atual[0]
+        assert pergunta is not None and pergunta.get('biblioteca'), pergunta
+        for rotulo in ('Cozinha (1)', "So' a caixa"):
+            m.mover(*widget(janela, lambda v: v[5][0] == 'resposta'
+                            and v[4] == rotulo))
+            yield
+            m.clicar()
+            yield
+        assert addon.perguntas._pergunta_atual[0] is None
+        caixa = addon.materiais.pecas_do_modulo(conj, 'CAIXA')
+        folhas = addon.materiais.pecas_do_modulo(conj, 'PORTAS')
+        assert {c.material_slots[0].material.name for c in caixa} == {'MDF Areia'}
+        assert not any(f.material_slots and f.material_slots[0].material
+                       for f in folhas), 'pintou a porta'
+    finally:
+        addon.biblioteca.pasta_biblioteca = original
+        bpy.context.scene.cabinet_bib_modo = 'MODULOS'
+        shutil.rmtree(pasta, True)
+
+
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
+       test_botao_direito_no_material_pinta_o_comodo,
+       test_criar_gavetas_pelo_assistente,
+       test_slider_abre_a_gaveta_e_clique_seleciona,
+       test_alt_arrasta_o_ponto_das_gavetas,
+       test_arrastar_modulo_com_o_direito_ate_a_parede,
+       test_materiais_pela_gaveta,
        test_clique_na_aba_troca_a_aba,
        test_arrastar_a_divisoria,
        test_roda_rola_so_a_biblioteca,
