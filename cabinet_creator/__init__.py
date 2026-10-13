@@ -52,12 +52,14 @@ from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
 from . import formas as _formas
+from . import gavetas as _gavetas
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
-            _portas_viewport, _gaveta_desenho, _paredes, _formas, _painel_legado)
+            _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas,
+            _painel_legado)
 
 
 def _ligar_modulos():
@@ -129,6 +131,11 @@ CLASSES = (
     # na ordem do registro)
     _portas_viewport.VIEW3D_GT_slider_porta,
     _portas_viewport.VIEW3D_GGT_slider_porta,
+    _gavetas.VIEW3D_GT_slider_gaveta,
+    _gavetas.VIEW3D_GGT_slider_gaveta,
+    _gavetas.OBJECT_OT_criar_gavetas,
+    _gavetas.OBJECT_OT_abrir_gaveta,
+    _gavetas.OBJECT_OT_arrastar_ponto_gaveta,
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,
@@ -370,6 +377,7 @@ def register():
         name="Aba", default='MODULOS',
         items=[('MODULOS', "Modulos", "Medidas, montagem e biblioteca"),
                ('PORTAS', "Portas", "Criacao e configuracao de portas"),
+               ('GAVETAS', "Gavetas", "Criacao e configuracao de gavetas"),
                ('PUXADORES', "Puxadores", "Puxadores ligados as portas")])
     # modelo que a ferramenta de posicionar vai criar
     # padrao = PERFIL (pedido do usuario)
@@ -474,6 +482,7 @@ def unregister():
     _hud._clique_pendente.clear()
     _paredes.esquecer()
     _formas.esquecer()
+    _gavetas.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)

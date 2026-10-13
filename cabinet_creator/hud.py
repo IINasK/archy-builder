@@ -24,6 +24,7 @@ _portas_viewport = None
 _paredes = None
 _gaveta_desenho = None
 _formas = None
+_gavetas = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -370,6 +371,18 @@ def _itens_da_selecao(context):
             itens.append((obj, modo, chapas))
 
     for o in selecionados:
+        grupo = _gavetas.grupo_de(o)
+        if grupo is not None and (o == grupo or _gavetas.MARCA_GAVETA in o):
+            # gavetas selecionadas: SO' elas tem linha (pedido do usuario)
+            if ('G', grupo.name) not in chaves:
+                chaves.add(('G', grupo.name))
+                itens.append((grupo, 'GAVETAS', []))
+            continue
+        if grupo is not None and (grupo.select_get() or any(
+                g.select_get() for g in _gavetas.gavetas_do_grupo(grupo))):
+            continue            # peca de gaveta selecionada junto: e' a gaveta
+        if grupo is not None and _portas._modulo_da_chapa(o) is None:
+            continue
         if any(m in o for m in (_chapas.MARCA_PORTAS, _chapas.MARCA_FOLHA, _chapas.MARCA_PUXADOR,
                                 _chapas.MARCA_ACESSORIO)):
             continue
@@ -396,6 +409,10 @@ def _itens_da_selecao(context):
 def _geometria_do_item(obj, modo, chapas):
     """A geometria da HUD de UM item -- o ativo ou, na edicao de varios
     itens, cada modulo/chapa que entra na conta."""
+    if modo == 'GAVETAS':
+        cantos, linhas = _gavetas.linhas_hud(obj, chapas)
+        return {'objeto': obj, 'modo': modo, 'chapas': chapas,
+                'cantos': cantos, 'linhas': linhas}
     matriz = obj.matrix_world if modo == 'INDIVIDUAL' else None
     forma = (_formas.forma_do_modulo(obj)
              if modo == 'GRUPO' and _chapas.MARCA_CONJUNTO in obj else None)
@@ -933,7 +950,7 @@ def _tamanho_na_tela(context, geometria):
     """Maior aresta de medida do item, em pixels de tela."""
     maior = 0.0
     for linha in geometria['linhas']:
-        if linha['tipo'] != 'medida':
+        if linha['tipo'] not in ('medida', 'forma', 'gavetas'):
             continue
         a = _projetar_hud(context, linha['pontos'][0])
         b = _projetar_hud(context, linha['pontos'][-1])
@@ -1035,6 +1052,7 @@ def _desenhar_hud_texto():
     _portas_viewport._desenhar_cantos_porta(context)
     _portas_viewport._desenhar_sliders_porta(context)
     _paredes.desenhar_guias(context)     # modulo associado a uma parede
+    _gavetas.desenhar(context)           # sliders e, com Alt, os 3 pontos
     desenhos = _desenhos_hud(context)
     if not desenhos:
         return
@@ -1350,6 +1368,8 @@ def _valor_hud(alvo, context=None):
         return _angulo_da_ponta(alvo)
     if alvo['tipo'] == 'forma':
         return _formas.valor(alvo['objeto'], alvo['face'])
+    if alvo['tipo'] == 'gavetas':
+        return _gavetas.valor(alvo['objeto'], alvo['face'])
     if alvo['tipo'] == 'gap':
         return float(alvo['objeto']['porta_parametros']['entre_folhas_mm'])
     propriedade = _propriedade_hud(alvo)
@@ -1391,6 +1411,11 @@ def _aplicar_valor_hud(context, alvo, valor):
         return
     if alvo['tipo'] == 'forma':
         _formas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
+        return
+    if alvo['tipo'] == 'gavetas':
+        erro = _gavetas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'))
+        if erro:
+            raise ValueError(erro)
         return
     if alvo['tipo'] == 'gap':
         parametros = dict(obj['porta_parametros'])
@@ -1784,8 +1809,8 @@ class OBJECT_OT_arrastar_hud(Operator):
             return {'CANCELLED'}
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            if (not self._arrastou and self._alvo['tipo'] == 'medida'
-                    and self._alvo.get('lado')):
+            if (not self._arrastou and (self._alvo['tipo'] in ('forma', 'gavetas') or (
+                    self._alvo['tipo'] == 'medida' and self._alvo.get('lado')))):
                 # Clique sem arrastar numa linha do modulo: a seta fica e
                 # o valor passa a ser digitado (Enter confirma, Esc volta).
                 texto = (('%.1f' % self._valor).rstrip('0').rstrip('.')

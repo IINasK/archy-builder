@@ -134,6 +134,7 @@ def limpar(janela):
     addon.hud._hover_hud.clear()
     addon.portas_viewport._arraste_canto_porta[0] = None
     addon.portas_viewport._arraste_slider_porta[0] = None
+    addon.gavetas.esquecer()
     addon.hud._edicao_hud[0] = None
     addon.solda._tecla_corrente_segurada[0] = False
     addon.solda._conexao_pendente[0] = None
@@ -2279,6 +2280,148 @@ def test_botao_direito_no_material_pinta_o_comodo(janela, m):
         addon.biblioteca.pasta_biblioteca = original
         bpy.context.scene.cabinet_bib_modo = 'MODULOS'
         shutil.rmtree(pasta, True)
+
+
+# ------------------------------------------------------------ gavetas
+def _gavetas_de_frente(janela):
+    """Nicho de frente, aba Gavetas, nada selecionado."""
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
+    bpy.context.scene.cabinet_aba = 'GAVETAS'
+    return conj, area, regiao, rv3d
+
+
+def _gavetas_prontas(janela, conj, n=3):
+    area, regiao, _ = viewport(janela)
+    with contexto(janela, area, regiao):
+        E = conj.conj_espessura_mm
+        grupo = addon.gavetas.criar_gavetas(
+            bpy.context, conj, (E, E, E, E, 0),
+            dict(quantidade=n, lateral_mm=E, espessura_frente_mm=E,
+                 profundidade_mm=conj.conj_profundidade_mm))
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.ed.undo_push(message='Gavetas criadas')
+    return grupo
+
+
+def test_criar_gavetas_pelo_assistente(janela, m):
+    # Pedido do usuario: "Criar Gavetas" -> 2 cliques na diagonal do vao
+    # (de cima a' esquerda a baixo a' direita) -> scroll = quantas ->
+    # mouse = profundidade -> o trilho (telescopico de padrao).
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    yield
+    yield
+    m.mover(*widget(janela, lambda v: v[5][0] == 'gavetas'))
+    yield
+    m.clicar()
+    yield
+    w = addon.gavetas._assistente_gavetas[0]
+    assert w is not None, 'Criar Gavetas nao abriu'
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    y = -P / 2
+    for ponto in ((-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
+        yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
+    assert w['etapa'] == 'QUANTIDADE', w['etapa']
+    for _ in range(2):
+        m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
+        yield
+    assert w['p']['quantidade'] == 3, w['p']['quantidade']
+    m.clicar()
+    yield
+    assert w['etapa'] == 'PROFUNDIDADE', w['etapa']
+    m.mover(m.x + 3, m.y + 2)
+    yield
+    m.clicar()
+    yield
+    assert w['etapa'] == 'TRILHO', w['etapa']
+    (x, yb, bw, bh), _c, _t = next(b for b in w['botoes'] if b[1] == 'TELESCOPICO')
+    m.mover(regiao.x + x + bw / 2, regiao.y + yb + bh / 2)
+    yield
+    m.clicar()
+    yield
+    yield
+    assert addon.gavetas._assistente_gavetas[0] is None
+    grupo = next(o for o in bpy.data.objects if addon.gavetas.MARCA_GRUPO in o)
+    assert len(addon.gavetas.gavetas_do_grupo(grupo)) == 3
+    assert addon.gavetas.parametros(grupo)['trilho'] == 'TELESCOPICO'
+    largura, altura, _p = addon.gavetas.medidas(grupo)
+    assert abs(largura - (L - 2 * E)) < 1 and abs(altura - (A - 2 * E)) < 1, (largura, altura)
+    assert bpy.context.scene.cabinet_aba == 'GAVETAS'
+    assert bpy.context.view_layer.objects.active == grupo
+
+
+def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
+    # clique na frente = todas as gavetas (so' elas com linha na HUD); a
+    # bolinha do slider (gizmo VIEW3D_GT_slider_gaveta, grupo
+    # VIEW3D_GGT_slider_gaveta) abre pelo cabinet_abrir_gaveta, e a
+    # gaveta aberta nao cobre o slider: ele anda com a frente
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    grupo = _gavetas_prontas(janela, conj)
+    gaveta = addon.gavetas.gavetas_do_grupo(grupo)[1]
+    frente = addon.gavetas.frente_da_gaveta(gaveta)
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, frente.matrix_world.translation)
+    yield esperar(0.4)
+    assert bpy.context.view_layer.objects.active == grupo, bpy.context.object
+    with contexto(janela, area, regiao):
+        assert addon.gavetas.VIEW3D_GGT_slider_gaveta.poll(bpy.context)
+        inicio, fim = addon.gavetas._slider_na_tela(bpy.context, gaveta)
+    m.mover(regiao.x + inicio.x, regiao.y + inicio.y)
+    yield
+    yield
+    assert addon.gavetas._slider_hover[0] == gaveta.name, 'a bolinha nao acendeu'
+    m.apertar()
+    yield
+    assert any(o.bl_idname.endswith('cabinet_abrir_gaveta')
+               for o in m.janela.modal_operators), 'o arraste nao abriu'
+    meio = inicio.lerp(fim, 0.5)
+    for passo in range(1, 5):
+        m.mover(regiao.x + inicio.x + (meio.x - inicio.x) * passo / 4,
+                regiao.y + inicio.y + (meio.y - inicio.y) * passo / 4)
+        yield
+    m.soltar()
+    yield
+    yield
+    fracao = gaveta[addon.gavetas.CHAVE_ABERTURA]
+    assert abs(fracao - 0.5) < 0.06, fracao
+    assert bpy.context.view_layer.objects.active == grupo
+
+
+def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
+    # pedido do usuario: com Alt, 3 pontos -- as duas quinas da frente na
+    # diagonal e a profundidade; o de cima a' esquerda gruda num vertice
+    conj, area, regiao, rv3d = _gavetas_de_frente(janela)
+    grupo = _gavetas_prontas(janela, conj, n=2)
+    with contexto(janela, area, regiao):
+        addon.gavetas.selecionar(bpy.context, grupo, 'GRUPO')
+    yield
+    yield
+    m.mover(*na_tela(regiao, rv3d, addon.gavetas.pontos_editaveis(grupo)[0]))
+    yield
+    m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
+    yield
+    yield
+    m.apertar(alt=True)
+    yield
+    assert addon.gavetas._arraste_ponto[0] is not None, 'o ponto nao pegou'
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    # a quina de baixo do tampo vira a de cima da lateral: o vao sobe E
+    destino = na_tela(regiao, rv3d, _local(conj, -L / 2 + E, -P / 2, A))
+    inicio = (m.x, m.y)
+    for passo in range(1, 5):
+        m.mover(inicio[0] + (destino[0] - inicio[0]) * passo / 4,
+                inicio[1] + (destino[1] - inicio[1]) * passo / 4)
+        yield
+    m.soltar(alt=True)
+    yield
+    yield
+    m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
+    yield
+    assert addon.gavetas._arraste_ponto[0] is None
+    _l, altura, _p = addon.gavetas.medidas(grupo)
+    assert abs(altura - (A - E)) < 1, altura
 
 
 rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,

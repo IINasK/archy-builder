@@ -11,6 +11,7 @@ from bpy.types import Operator
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = None
+_gavetas = None
 _modulos = None
 _opcoes = None
 _eventos = None
@@ -248,6 +249,11 @@ def _alvo_da_corrente(context, posicao):
         ponto = _hud._projetar_hud(context, _portas_viewport._cantos_da_porta(grupo)[indice])
         candidatos.append(((ponto - mouse).length / (RAIO_BOLINHA_PX * escala),
                            'canto_porta', grupo, indice))
+    grupo, indice = _gavetas.ponto_sob_mouse(context, posicao)
+    if grupo is not None:
+        ponto = _hud._projetar_hud(context, _gavetas.pontos_editaveis(grupo)[indice])
+        candidatos.append(((ponto - mouse).length / (RAIO_BOLINHA_PX * escala),
+                           'ponto_gaveta', grupo, indice))
     grupo, tipo = _ferragens._controle_ferragem_sob_mouse(context, posicao)
     if grupo is not None:
         ponto = next(_hud._projetar_hud(context, c[1])
@@ -481,6 +487,11 @@ class OBJECT_OT_clique_corrente(Operator):
             # controlador da dobradica (borda) ou do pistao (lateral)
             bpy.ops.object.cabinet_arrastar_ferragem(
                 'INVOKE_DEFAULT', grupo=corrente.name, tipo=tipo)
+            return {'FINISHED'}
+        if tipo_alvo == 'ponto_gaveta':
+            # quina da frente ou profundidade das gavetas (ima nos vertices)
+            bpy.ops.object.cabinet_arrastar_ponto_gaveta(
+                'INVOKE_DEFAULT', grupo=corrente.name, indice=tipo)
             return {'FINISHED'}
         if tipo_alvo == 'canto_porta':
             # canto da porta: arrastar ate' outro vertice refaz a porta

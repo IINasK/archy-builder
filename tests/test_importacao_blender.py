@@ -365,7 +365,8 @@ class TestImportacao(unittest.TestCase):
     # ------------------------------------------------------------ gaveta
     def test_cabecalho_tem_so_as_tres_abas(self):
         # As correntes entre as abas foram descontinuadas (pedido do
-        # usuario): nenhum widget de operador no cabecalho
+        # usuario): nenhum widget de operador no cabecalho. A aba Gavetas
+        # (pedido do usuario) e' a quarta.
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
             cabecalho = widgets[:addon.gaveta.WIDGETS_CABECALHO]
@@ -373,7 +374,7 @@ class TestImportacao(unittest.TestCase):
             self.assertFalse(any(w[5] and w[5][0] == 'operador'
                                  and w[1] > 1200 - 48 for w in widgets))
             self.assertEqual([w[5][1] for w in cabecalho if w[5][0] == 'aba'],
-                             ['MODULOS', 'PORTAS', 'PUXADORES'])
+                             ['MODULOS', 'PORTAS', 'GAVETAS', 'PUXADORES'])
             fim = cabecalho[-1]
             self.assertAlmostEqual(fim[0] + fim[2], 12 + min(540, largura - 24))
         # sem selecao, as correntes nao tem o que ligar

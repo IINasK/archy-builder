@@ -26,6 +26,7 @@ _hud = None
 _solda = None
 _perguntas = None
 _gaveta_desenho = None
+_gavetas = None
 _formas = None
 
 class OBJECT_OT_modo_medidas(Operator):
@@ -1225,7 +1226,7 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
 
 
 # botoes LARANJA do topo das abas: Criar Portas e Criar Puxador
-BOTOES_CRIAR = ('portas', 'criar_puxador')
+BOTOES_CRIAR = ('portas', 'gavetas', 'criar_puxador')
 COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # laranja
 COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 
@@ -1250,6 +1251,80 @@ def _botao_criar_portas(context):
         rotulo = 'Criar Portas'
     return rotulo, ('portas', bool(grupo), _portas._apanhando_vao[0], motivo,
                     grupo is not None)
+
+
+def _botao_criar_gavetas():
+    """(rotulo, acao) do "Criar Gavetas", no topo da aba Gavetas (o
+    mesmo formato do "Criar Portas": aceso = marcando o vao)."""
+    criando = _gavetas._criando()
+    return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Gavetas'),
+            ('gavetas', False, criando, '', False))
+
+
+# alvo da 'escolha' do modelo do puxador das GAVETAS selecionadas
+ALVO_PUXADOR_GAVETAS = '@puxador_gavetas'
+
+
+def _aba_gavetas_gaveta(context, itens, x, y, w):
+    """Como a aba Portas (pedido do usuario): nada selecionado = so' o
+    "Criar Gavetas" (no topo); criando = o recado da etapa; gavetas
+    selecionadas (clique = todas do vao, duplo = uma) = as medidas, a
+    frente, o trilho e o puxador -- da gaveta escolhida ou de todas."""
+    assistente = _gavetas._assistente_gavetas[0]
+    if assistente is not None:
+        itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
+        return itens
+    obj = _selecionado(context)
+    grupo = _gavetas.grupo_de(obj) if obj is not None else None
+    if grupo is None or not (obj == grupo or _gavetas.MARCA_GAVETA in obj):
+        return itens
+    p = _gavetas.parametros(grupo)
+    alvo = grupo.name
+    largura_vao, altura_vao, profundidade = _gavetas.medidas(grupo)
+
+    def campo(nome, rotulo, valor):
+        return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
+                ('medida', 'gavetas', nome, rotulo, valor))
+
+    topo = _titulo_secao(itens, x, y + 26, w, 'Gavetas')
+    topo = _campos_em_linhas(context, itens, x, topo, w, [
+        campo('largura', 'Largura', largura_vao),
+        campo('altura', 'Altura', altura_vao),
+        campo('profundidade_mm', 'Profundidade', profundidade)],
+        compacto=(str(p['quantidade']),
+                  ('contador', 'gavetas_quantidade', int(p['quantidade']), 1,
+                   _gavetas.MAXIMO_GAVETAS, alvo, 'Gavetas')))
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Frente')
+    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'gavetas_cobertura',
+                                 _gavetas.OPCOES_COBERTURA, p['cobertura'],
+                                 alvo=alvo) + 23
+    topo = _campos_em_linhas(context, itens, x, topo, w, [
+        campo('folga_frontal_mm', 'Espacamento frontal', p['folga_frontal_mm']),
+        campo('entre_gavetas_mm', 'Entre gavetas', p['entre_gavetas_mm']),
+        campo('recuo_mm', 'Recuo', p['recuo_mm']),
+        campo('espessura_frente_mm', 'Espessura', p['espessura_frente_mm']),
+        # flecha do arco da frente (0 = reta): o gaveteiro de canto curvo
+        campo('frente_curva_mm', 'Curva', float(p.get('frente_curva_mm') or 0.0))])
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Trilho %d mm' % round(
+        float(grupo.get(_gavetas.CHAVE_TRILHO_MM, 0.0))))
+    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'gavetas_trilho',
+                                 _gavetas.OPCOES_TRILHO, p['trilho'],
+                                 alvo=alvo) + 23
+    # puxador: o duplo clique isola UMA gaveta (so' ela troca); o grupo
+    # selecionado troca todas
+    gaveta = obj if _gavetas.MARCA_GAVETA in obj else None
+    atual = gaveta.get(_gavetas.CHAVE_PUXADOR, p['puxador']) if gaveta else p['puxador']
+    _carrossel_gaveta(itens, x, topo - 23 - ESPACO_SECOES, w,
+                      'Puxador desta gaveta' if gaveta else 'Puxador (todas)',
+                      'gavetas_puxador', _modelos_puxador_gaveta(), atual,
+                      alvo=ALVO_PUXADOR_GAVETAS)
+    try:
+        _gavetas.calcular(largura_vao, altura_vao, p)
+    except ValueError as erro:
+        itens.append((x, topo - 23 - ESPACO_SECOES - 160, w, 22, str(erro), None))
+    return itens
+
+
 def _secao_forma_gaveta(context, itens, x, y, w):
     """Modulo em L, diagonal ou curvo (pedido do usuario: as medidas
     novas no menu): P1/P2 de cada braco, o raio e o ANGULO da diagonal.
@@ -1391,7 +1466,7 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
-               ('Puxadores', 'Pux.', 'PUXADORES'))
+               ('Gavetas', 'Gav.', 'GAVETAS'), ('Puxadores', 'Pux.', 'PUXADORES'))
 # As correntes entre as abas (porta no modulo, puxador na folha) foram
 # DESCONTINUADAS a pedido do usuario: o cabecalho e' so' as tres abas.
 # Os operadores seguem existindo (F3) -- so' sairam da gaveta.
@@ -1731,20 +1806,21 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     metade = (w - 6) / 2
     # Cabecalho: Modulos | Portas | Puxadores, na largura toda (as
     # correntes entre elas foram descontinuadas)
-    aba_w = (w - 2 * 4) / 3
+    aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
     cx = x
     for rotulo, curto, acao in ABAS_GAVETA:
         itens.append((cx, altura - 40, aba_w, 29,
                       rotulo if aba_w >= 74 else curto, ('aba', acao)))
         cx += aba_w + 4
     y = altura - 105 + _rolagem
-    if s.cabinet_aba in {'PORTAS', 'PUXADORES'}:
+    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
         # antes morava no pe' fixo ao lado da engrenagem. O "Criar
         # Puxador" segue o MESMO padrao (pedido do usuario).
         rotulo, acao = (_botao_criar_portas(context)
                         if s.cabinet_aba == 'PORTAS'
+                        else _botao_criar_gavetas() if s.cabinet_aba == 'GAVETAS'
                         else _botao_criar_puxador())
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
@@ -1755,6 +1831,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     if s.cabinet_aba == 'PUXADORES':
         return _aba_puxadores_gaveta(context, itens, x, y, w, s, largura,
                                      metade)
+    if s.cabinet_aba == 'GAVETAS':
+        return _aba_gavetas_gaveta(context, itens, x, y, w)
     return _aba_modulos_gaveta(context, itens, x, y, w, largura, metade)
 
 

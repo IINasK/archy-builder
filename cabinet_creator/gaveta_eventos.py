@@ -23,6 +23,7 @@ _solda = None
 _perguntas = None
 _gaveta_desenho = None
 _materiais = None
+_gavetas = None
 _formas = None
 
 def _gaveta_sob_evento(context, event):
@@ -229,6 +230,14 @@ def aplicar_medida(context, dono, objeto, propriedade, valor):
             return 'O modulo nao tem mais esse formato'
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
+    if dono == 'gavetas':
+        grupo = _gavetas.grupo_de(bpy.data.objects.get(objeto))
+        if grupo is None:
+            return 'Gavetas nao encontradas'
+        if propriedade in ('largura', 'altura'):
+            return _gavetas.aplicar(context, grupo, ('L' if propriedade == 'largura'
+                                                     else 'A',), valor * 1000.0)
+        return _gavetas.editar(context, grupo, propriedade, valor * 1000.0)
     if dono == 'porta':
         # Porta colocada: a medida e' um parametro do GRUPO, nao uma
         # propriedade de objeto ou da cena.
@@ -262,7 +271,7 @@ FATOR_FINO, FATOR_GROSSO = 0.1, 10.0
 PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
-DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao'}
+DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas'}
 
 
 def _passo_do_arraste(event):
@@ -286,6 +295,8 @@ def _aplicar_contador(context, acao, valor):
         _formas.aplicar(context, grupo, ('ANG', int(prop.rsplit('_', 1)[1])),
                         float(valor))
         erro = None
+    elif grupo is not None and _gavetas.MARCA_GRUPO in grupo:
+        erro = _gavetas.editar(context, grupo, prop, valor)
     elif grupo is not None:
         # digitado pode vir qualquer numero: o limite e' o da abertura
         parametros = dict(grupo.get('porta_parametros') or {})
@@ -479,6 +490,17 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if erro:
                         self.report({'WARNING'}, erro)
                     bpy.ops.ed.undo_push(message='Editar ferragens')
+                elif len(acao) > 5 and acao[5] == _gaveta.ALVO_PUXADOR_GAVETAS:
+                    erro = _gavetas.trocar_puxador(context, acao[2])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    bpy.ops.ed.undo_push(message='Puxador das gavetas')
+                elif grupo is not None and _gavetas.MARCA_GRUPO in grupo:
+                    erro = _gavetas.editar(context, grupo, acao[1], acao[2])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    else:
+                        bpy.ops.ed.undo_push(message='Editar gavetas')
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_PUXADOR:
                     _puxadores._trocar_modelo_puxador(_gaveta._selecionado(context), acao[2])
                     bpy.ops.ed.undo_push(message='Trocar modelo do puxador')
@@ -512,6 +534,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'criar_puxador':
                 if not acao[2]:         # ja' posicionando: Esc cancela
                     bpy.ops.object.cabinet_posicionar_puxador('INVOKE_DEFAULT')
+            elif acao[0] == 'gavetas':
+                if not acao[2]:         # ja' marcando: Esc cancela
+                    bpy.ops.object.cabinet_criar_gavetas('INVOKE_DEFAULT')
             elif acao[0] == 'portas':
                 if acao[3]:
                     self.report({'WARNING'}, acao[3])

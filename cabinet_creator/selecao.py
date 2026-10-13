@@ -16,6 +16,7 @@ _gaveta = None
 _hud = None
 _solda = None
 _portas_viewport = None
+_gavetas = None
 
 # ====================================================== SELECAO
 # 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
@@ -33,6 +34,8 @@ def _aba_da_selecao(obj):
         return None
     if _chapas.MARCA_PUXADOR in obj:
         return 'PUXADORES'
+    if _gavetas.grupo_de(obj) is not None:
+        return 'GAVETAS'
     if _chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj:
         return 'PORTAS'
     if _chapas.MARCA_CONJUNTO in obj or _chapas.MARCA_CHAPA in obj:
@@ -135,7 +138,8 @@ class OBJECT_OT_selecionar(Operator):
         pendente = _hud._clique_pendente.pop(chave, None)
         if self.clique:
             return self._soltou(context, pendente)
-        if _portas_viewport._slider_sob_mouse(context, self.location) is not None:
+        if (_portas_viewport._slider_sob_mouse(context, self.location) is not None
+                or _gavetas.slider_sob_mouse(context, self.location) is not None):
             # a bolinha do slider: no keyconfig do usuario esta entrada vem
             # antes da do slider, e selecionar aqui esconderia o slider
             return {'PASS_THROUGH'}
@@ -155,6 +159,14 @@ class OBJECT_OT_selecionar(Operator):
         atingido = _hud._raio_hud(context, self.location)
         _log_clique('  raio=%s anterior=%s' % (
             atingido and atingido[0].name, _hud._clique_chapa_hud.get(chave)))
+        if atingido is not None and _gavetas.grupo_de(atingido[0]) is not None:
+            # GAVETA (pedido do usuario, como a porta): clique = todas as
+            # gavetas do vao, duplo = so' aquela; Shift soma. O corpo do
+            # modulo continua selecionando o modulo.
+            _gavetas.selecionar(context, atingido[0],
+                                'GAVETA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
+                                somar=self.toggle or self.extend)
+            return {'FINISHED'}
         if atingido is not None and _chapas.MARCA_CHAPA in atingido[0]:
             obj = atingido[0]
             anterior = _hud._clique_chapa_hud.get(chave) or ('', 'MODULO')

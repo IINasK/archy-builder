@@ -1133,11 +1133,11 @@ class TestGaveta(unittest.TestCase):
             addon.portas._apanhando_vao[0] = False
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertIn("acao[0] in _gaveta.BOTOES_CRIAR and acao[2]", fonte)
-        self.assertEqual(addon.gaveta.BOTOES_CRIAR, ('portas', 'criar_puxador'))
+        self.assertEqual(addon.gaveta.BOTOES_CRIAR, ('portas', 'gavetas', 'criar_puxador'))
 
     def test_motivo_portas_reflete_a_aba(self):
         self.assertEqual(addon.portas._motivo_portas(self.cena), '')
-        self.cena.porta_folga_mm = 5000.0
+        self.cena.porta_entre_folhas_mm = 5000.0
         self.assertTrue(addon.portas._motivo_portas(self.cena))
 
     def test_padrao_e_porta_dupla(self):
@@ -1315,7 +1315,8 @@ class TestGaveta(unittest.TestCase):
 
     def test_cada_painel_rola_sozinho(self):
         tela = bpy.context.screen
-        largura, altura = 320, 400
+        # baixa o bastante para as medidas do cubo nao caberem no painel
+        largura, altura = 320, 240
         tela.pop(addon.gaveta._CHAVE_DIVISA, None)
         limite, limite_bib = addon.gaveta._limites_rolagem_gaveta(
             bpy.context, largura, altura)
@@ -1408,7 +1409,7 @@ class TestGaveta(unittest.TestCase):
             tela.pop(addon.gaveta._CHAVE_DIVISA, None)
 
     def test_medidas_estreitas_e_limite_da_rolagem(self):
-        largura, altura = 190, 400
+        largura, altura = 190, 300
         inicio = addon.gaveta._widgets_gaveta(bpy.context, largura, altura,
                                        _rolagem=0)
         medidas = [v for v in inicio if v[5] and v[5][0] == 'medida']
