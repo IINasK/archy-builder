@@ -122,7 +122,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   FOLHA: Chapa | Quadro de aluminio (perfil 23 x 10 + painel 5, o do Promob).
 - Gaveta sem redundancia (sem nome do item, Sincronizar, Auto-regenerar); Montagem =
   Corrente e Resetar distancia (resto: F3). Campo: ARRASTAR de lado muda; clicar digita.
-- Biblioteca: Modulos | Materiais; niveis SEM LIMITE (carrossel por nivel; `niveis` no indice),
+- Biblioteca: Modulos | Materiais; reformulacao PLANEJADA = faixa no TOPO, acima do menu E da viewport (`PLANO_BIBLIOTECA.md`); niveis SEM LIMITE (`niveis` no indice),
   SEM contagem, ramo vazio some. Material = COR SOLIDA no slot do OBJETO. Esfera: 1 clique NADA;
   duplo = SELECAO; arrastada = o de baixo; DIREITO = pintura rapida (comodo -> parte).
 - PAREDE (Promob): DIREITO segurado no modulo, solto numa FACE vertical nao-movel

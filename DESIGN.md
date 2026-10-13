@@ -114,7 +114,7 @@ em coluna larga fica ilegivel e a miniatura vira faixa. Como
 Regra de ouro, com teste: widget nenhum termina fora de
 `min(largura - 12, 552)`.
 
-**Dois paineis** (pedido do usuario, como Outliner | Properties): a aba
+**Layout atual, a substituir conforme `PLANO_BIBLIOTECA.md`:** biblioteca no topo acima do menu e da viewport (pedido de 13/10/2026). Hoje: a aba
 em cima, a **biblioteca fixa embaixo** nas tres abas, sempre aberta.
 Entre eles o widget `divisa` (`_paineis_gaveta` corta o conteudo nele):
 nasce na metade (`DIVISA_PADRAO`), guarda FRACAO em
@@ -638,7 +638,7 @@ teste nao pega — halo opaco, texto cortado, icone fora do lugar.
 
 ## 13. Alternativas ja' avaliadas e RECUSADAS
 A antiga restricao contra overlay foi substituida pela HUD da secao 8,
-por solicitacao explicita do usuario. A biblioteca continua na gaveta.
+por solicitacao explicita do usuario. A biblioteca ainda esta na gaveta; a faixa superior foi solicitada e planejada em `PLANO_BIBLIOTECA.md`.
 
 - **Pop-up / `invoke_props_dialog`**: fecha quando o mouse sai, e
   clicar na viewport e' a acao seguinte do posicionador. Nao existe
