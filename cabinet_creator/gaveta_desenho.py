@@ -47,7 +47,8 @@ def _chave_widget(acao):
     if verbo == 'cadeado':
         return 'cad:%d' % acao[2]
     if verbo == 'medida':
-        return 'medida:' + acao[3]
+        # prop + nome: "Espessura" da porta e da moldura sao campos distintos
+        return 'medida:%s:%s' % (acao[2], acao[3])
     if verbo == 'modo':
         return None             # so' indicador: o modo sai da selecao
     if verbo == 'divisa':

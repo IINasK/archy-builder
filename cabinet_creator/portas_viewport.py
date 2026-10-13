@@ -48,6 +48,29 @@ def _portas_com_cantos(context):
             and not _porta_veio_do_modulo(o)]
 
 
+def _folhas_com_contorno(context):
+    """Folhas selecionadas SEM a porta inteira (duplo clique): o contorno
+    nativo esta' desligado, entao sem o branco do add-on parecia que nada
+    tinha sido selecionado (pedido do usuario)."""
+    selecionados = getattr(context, 'selected_objects', ()) or ()
+    saida = []
+    for o in selecionados:
+        grupo = (_portas._grupo_portas(o) if _chapas.MARCA_FOLHA in o
+                 else None)
+        if (grupo is not None and not grupo.select_get()
+                and not _porta_veio_do_modulo(grupo)):
+            saida.append(o)
+    return saida
+
+
+def _caixa_da_folha(folha):
+    """8 cantos (MUNDO) da folha, na ordem de `ARESTAS_CAIXA`."""
+    l, a, e, _centro = _ferragens._dados_da_folha(folha)
+    meia = Vector((l, a, e)) / 2000.0
+    return [folha.matrix_world @ Vector((meia.x * sx, meia.y * sy, meia.z * sz))
+            for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+
+
 def _cantos_da_porta(grupo):
     """Os 4 pontos do wizard em MUNDO, na ordem dos cliques: canto da
     porta e do vao em cima a esquerda, do vao e da porta embaixo a
@@ -130,7 +153,8 @@ def _desenhar_cantos_porta(context):
     (ou arrastando), as 4 bolinhas brancas. As dobradicas nao (pedido do
     usuario): so' criando ou com elas selecionadas."""
     portas = _portas_com_cantos(context)
-    if not portas:
+    folhas = _folhas_com_contorno(context)
+    if not (portas or folhas):
         return
     estado = _arraste_canto_porta[0]
     escala = max(1.0, context.preferences.system.ui_scale)
@@ -139,6 +163,15 @@ def _desenhar_cantos_porta(context):
     gpu.state.blend_set('ALPHA')
     try:
         shader.bind()
+        for folha in folhas:
+            # so' a folha: sem vao, fios nem cantos (sao da porta inteira)
+            tela = [_hud._projetar_hud(context, v) for v in _caixa_da_folha(folha)]
+            if any(v is None for v in tela):
+                continue
+            shader.uniform_float('color', _portas.COR_FIO_VAO)
+            for i, j in _portas.ARESTAS_CAIXA:
+                batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
+                    tela[i], tela[j], 1.4 * escala)}).draw(shader)
         for grupo in portas:
             desenho = _desenho_da_porta(grupo)
             contornos = [(caixa, _portas.ARESTAS_CAIXA, _portas.COR_FIO_VAO)
@@ -348,6 +381,7 @@ class OBJECT_OT_arrastar_canto_porta(Operator):
 SLIDER_FRENTE_MM = 30.0
 SLIDER_RECUO_MM = 40.0           # de cada ponta da folha (min.)
 SLIDER_RECUO_FRACAO = 0.12       # ... ou esta fracao da largura
+SLIDER_DEGRAU_MM = 40.0          # correr: um slider acima do outro, por trilho
 # Medidas em MM do mundo (pedido do usuario): longe, o slider encolhe na
 # mesma proporcao da porta; perto, para no teto (2x). Calibrado na vista
 # normal de um modulo (~1 px/mm): o desenho aprovado pelo usuario.
@@ -379,19 +413,44 @@ def _folhas_com_slider(context):
 def _slider_no_mundo(folha):
     """As 2 pontas do slider em MUNDO: base da folha fechada, a' frente,
     recuadas das quinas (a folga entre os sliders de uma porta dupla)."""
-    l, a, e, _centro = _ferragens._dados_da_folha(folha)
+    l, a, e, centro = _ferragens._dados_da_folha(folha)
     fechada = _ferragens._matriz_fechada(folha)
+    curso = _curso_do_slider(folha, l, centro)
+    if curso is not None:
+        # correr: do centro da folha fechada ao da aberta (a bolinha anda
+        # embaixo dela), um degrau acima por trilho -- os sliders de uma
+        # porta de varias folhas nao se sobrepoem
+        y = -a / 2.0 + int(folha.get('porta_indice', 0)) * SLIDER_DEGRAU_MM
+        return [fechada @ (Vector((dx, y, e / 2.0 + SLIDER_FRENTE_MM)) / 1000.0)
+                for dx in curso]
     recuo = min(max(SLIDER_RECUO_MM, SLIDER_RECUO_FRACAO * l), 0.3 * l)
     return [fechada @ (Vector((sx * (l / 2.0 - recuo), -a / 2.0,
                                e / 2.0 + SLIDER_FRENTE_MM)) / 1000.0)
             for sx in (-1, 1)]
 
 
+def _curso_do_slider(folha, l, centro):
+    """(0, deslocamento) da folha de CORRER fechada ate' aberta (mm, no X
+    do vao), ou None se ela nao for de correr."""
+    grupo = _portas._grupo_portas(folha)
+    p = (grupo.get('porta_parametros') or {}) if grupo is not None else {}
+    if p.get('abertura') != 'CORRER':
+        return None
+    fechado, destino = _ferragens._curso_correr(
+        p, float(grupo.get('porta_vao_largura_mm', 0.0)),
+        len(_portas._folhas_portas(grupo)), l, centro[0])
+    return 0.0, destino - fechado
+
+
 def _slider_na_tela(context, folha):
-    """(inicio, fim) do slider em pixels, o inicio sempre a' esquerda."""
+    """(inicio, fim) do slider em pixels, o inicio sempre a' esquerda --
+    menos no de correr, que vai de onde a folha fecha para onde ela abre
+    (a bolinha acompanha a folha)."""
     pontos = [_hud._projetar_hud(context, p) for p in _slider_no_mundo(folha)]
     if any(p is None for p in pontos) or (pontos[1] - pontos[0]).length < 1:
         return None
+    if _curso_do_slider(folha, *_ferragens._dados_da_folha(folha)[::3]) is not None:
+        return tuple(pontos)
     return tuple(sorted(pontos, key=lambda p: p.x))
 
 

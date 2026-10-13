@@ -42,6 +42,19 @@ MARCA_CHAPA = "eh_chapa"
 MARCA_CONJUNTO = "eh_conjunto_chapa"
 MARCA_PORTAS = "eh_grupo_portas"
 MARCA_FOLHA = "eh_folha_porta"
+# Peca da MOLDURA da porta de correr (revestimento das laterais, bases do
+# trilho, testeira e rodape): chapa de verdade, filha do grupo da porta e
+# refeita com ela, como a folha (`_portas._pecas_moldura`).
+MARCA_MOLDURA = "eh_moldura_porta"
+# FUNDO do modulo (chapa de 5 mm em canal, recuada): peca DEPENDENTE --
+# refeita pela caixa do modulo (`_modulos.ajustar_fundo`), fora da
+# adjacencia, da proporcao do redimensionar e da espessura do modulo.
+MARCA_FUNDO = "eh_fundo_modulo"
+# TRAVESSA (frente/tras) no lugar do tampo dos modulos de bancada: tambem
+# dependente -- refeita pela caixa, com a largura que tiver (`ajustar_travessas`)
+MARCA_TRAVESSA = "eh_travessa_modulo"
+
+
 # Objetos de fora que entram no modulo/porta sem virar chapa (IMPORTACAO).
 MARCA_ACESSORIO = "eh_acessorio"
 MARCA_PUXADOR = "eh_puxador"
@@ -109,6 +122,43 @@ def _esticar_malha(obj, medidas):
     obj.data.update()
 
 
+def _malha_com_canais(obj, L, C, E):
+    """A chapa (m) com canais FRESADOS ao longo do comprimento (Y local),
+    na face de cima (Z+, `chapa_canal_lado` 1) ou de baixo (-1): a base do
+    trilho leve, como o "Trilho exemplo" do usuario. Secao no plano X/Z
+    com os entalhes, extrudada em Y."""
+    hx, hy, hz = L / 2.0, C / 2.0, E / 2.0
+    largura = float(obj.get('chapa_canal_largura', 0.0)) / 1000.0
+    fundo = min(float(obj.get('chapa_canal_fundo', 0.0)) / 1000.0, E * 0.9)
+    lado = 1.0 if int(obj.get('chapa_canal_lado', 1)) >= 0 else -1.0
+    face = lado * hz
+    contorno = [(-hx, face)]
+    for c in sorted(float(x) / 1000.0 for x in obj['chapa_canais']):
+        a, b = max(-hx, c - largura / 2.0), min(hx, c + largura / 2.0)
+        if b - a <= 1e-6:
+            continue
+        contorno += [(a, face), (a, face - lado * fundo),
+                     (b, face - lado * fundo), (b, face)]
+    contorno += [(hx, face), (hx, -face), (-hx, -face)]
+    # pontos repetidos (canal na quina) deixariam face degenerada
+    secao = [p for i, p in enumerate(contorno)
+             if (Vector(p) - Vector(contorno[i - 1])).length > 1e-7]
+    bm = bmesh.new()
+    try:
+        pontas = [[bm.verts.new((x, y, z)) for x, z in secao] for y in (-hy, hy)]
+        n = len(secao)
+        for i in range(n):
+            j = (i + 1) % n
+            bm.faces.new((pontas[0][i], pontas[0][j], pontas[1][j], pontas[1][i]))
+        bm.faces.new(pontas[0])
+        bm.faces.new(pontas[1][::-1])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(obj.data)
+    finally:
+        bm.free()
+    obj.data.update()
+
+
 def gerar_malha_chapa(obj):
     """Malha REAL via bmesh -> editavel em Edit Mode.
     X local = largura | Y local = comprimento | Z local = ESPESSURA.
@@ -121,6 +171,11 @@ def gerar_malha_chapa(obj):
     L = obj.chapa_largura_mm / 1000.0
     C = obj.chapa_comprimento_mm / 1000.0
     E = obj.chapa_espessura_mm / 1000.0
+    if obj.get('chapa_canais'):
+        # base do trilho leve: refeita COM os canais (nao e' caixa, mas
+        # tambem nao foi modelada -- esticar levaria os canais junto)
+        _malha_com_canais(obj, L, C, E)
+        return
     if not _malha_e_caixa(obj.data):
         _esticar_malha(obj, (L, C, E))
         for filho in obj.children:
@@ -194,6 +249,10 @@ def _upd_espessura(self, context):
     # Folha de porta nao engrossa para dentro do modulo: a porta inteira
     # e' refeita com a espessura nova (ver `_portas._espessura_da_folha_mudou`).
     if MARCA_FOLHA in self and _portas._espessura_da_folha_mudou(self, alvo):
+        return
+    # Peca da moldura: o E vale para a moldura inteira (pedido do usuario:
+    # editavel), gravado na porta, que refaz as seis pecas
+    if MARCA_MOLDURA in self and _portas._espessura_da_moldura_mudou(self, alvo):
         return
     if (MARCA_CHAPA not in self
             or e_velha is None or abs(e_velha - alvo) < 1e-4):
@@ -287,7 +346,7 @@ def absorver_malha_editada(obj):
     tambem: a faixa do perfil e' cortada de proposito so' na malha.
     Devolve True se mudou algo.
     """
-    if (MARCA_FOLHA in obj or obj.get('chapa_rebaixos')
+    if (MARCA_FOLHA in obj or MARCA_MOLDURA in obj or obj.get('chapa_rebaixos')
             or not obj.data.vertices
             or any(abs(s - 1.0) > 1e-6 for s in obj.scale)):
         return False

@@ -37,23 +37,35 @@ ESCOLHAS_PORTAS = (
 )
 # (prop em metros, prop em mm, rotulo, minimo em mm)
 MEDIDAS_PORTAS = (
-    ('ui_porta_folga', 'porta_folga_mm', 'Folga no perimetro', 0.0),
     ('ui_porta_entre_folhas', 'porta_entre_folhas_mm', 'Entre folhas', 0.0),
     ('ui_porta_afastamento', 'porta_afastamento_mm', 'Afastamento', 0.0),
     ('ui_porta_recuo_embutida', 'porta_recuo_embutida_mm',
      'Recuo da embutida', 0.0),
     ('ui_porta_recuo_correr', 'porta_recuo_correr_mm',
      'Recuo para trilhos', 0.1),
-    ('ui_porta_sobreposicao', 'porta_sobreposicao_mm', 'Sobreposicao', 0.0),
     ('ui_porta_entre_planos', 'porta_entre_planos_mm',
      'Entre planos', 0.1),
+    # moldura da porta de correr (pedido do usuario: editaveis)
+    ('ui_porta_moldura', 'porta_moldura_mm', 'Espessura', 1.0),
+    ('ui_porta_rodape', 'porta_rodape_mm', 'Rodape', 0.0),
+    ('ui_porta_testeira', 'porta_testeira_mm', 'Testeira', 0.0),
 )
+# padrao das medidas da porta (as que nao comecam em zero)
+PADRAO_MEDIDAS_PORTAS = {'porta_entre_folhas_mm': 2.0,
+                         'porta_recuo_correr_mm': 30.0,
+                         'porta_entre_planos_mm': 2.0,
+                         # moldura: tudo 15 mm (pedido do usuario); rodape
+                         # e testeira do guarda-roupa de exemplo dele
+                         'porta_moldura_mm': 15.0,
+                         'porta_rodape_mm': 100.0,
+                         'porta_testeira_mm': 80.0}
 
 
 # Campo da gaveta -> parametro do grupo, para editar uma porta colocada.
 _PARAMETRO_DA_MEDIDA_PORTA = dict(
     [(m[0], m[1][len('porta_'):]) for m in MEDIDAS_PORTAS]
-    + [('ui_porta_espessura', 'espessura_mm')])
+    + [('ui_porta_espessura', 'espessura_mm'),
+       ('ui_porta_largura_folha', 'largura_folha_mm')])
 
 
 def _parametros_portas_da_cena(s, numerico=False):
@@ -73,12 +85,13 @@ def _parametros_portas_da_cena(s, numerico=False):
         'dobradica': s.porta_dobradica,
         'espessura_mm': converter(padrao),
         'lateral_mm': converter(padrao),
-        'folga_mm': s.porta_folga_mm,
+        # sem campo (pedido do usuario: sempre zero); so' a porta importada
+        # grava uma, para nascer onde estava (`importacao`)
+        'folga_mm': 0.0,
         'entre_folhas_mm': s.porta_entre_folhas_mm,
         'afastamento_mm': s.porta_afastamento_mm,
         'recuo_embutida_mm': s.porta_recuo_embutida_mm,
         'recuo_correr_mm': s.porta_recuo_correr_mm,
-        'sobreposicao_mm': s.porta_sobreposicao_mm,
         'entre_planos_mm': s.porta_entre_planos_mm,
         # Ferragens (wizard de criacao): 0 = automatico pela medida da
         # folha (`_qtd_dobradicas_padrao`, `_qtd_pistoes_padrao`,
@@ -99,7 +112,7 @@ def _carregar_portas_na_cena(s, grupo):
             continue    # moram no grupo e no modulo, nao na aba
         elif nome == 'folhas':
             s.porta_folhas = int(valor)
-        elif nome in {'abertura', 'dobradica'}:
+        elif nome in {'abertura', 'dobradica', 'trilho', 'folha'}:
             setattr(s, 'porta_' + nome, valor)
         elif nome in _PARAMETROS_PORTAS and hasattr(s, 'porta_' + nome):
             # as ferragens do wizard (lado, quantidades) moram so' na porta
@@ -109,7 +122,8 @@ def _carregar_portas_na_cena(s, grupo):
 _PARAMETROS_PORTAS = (
     'abertura', 'folhas', 'dobradica', 'espessura_mm', 'lateral_mm',
     'folga_mm', 'entre_folhas_mm', 'afastamento_mm', 'recuo_embutida_mm',
-    'recuo_correr_mm', 'sobreposicao_mm', 'entre_planos_mm',
+    'recuo_correr_mm', 'entre_planos_mm',
+    'moldura_mm', 'rodape_mm', 'testeira_mm', 'trilho', 'folha',
     'dobradica_lado', 'dobradicas_qtd', 'dobradicas_margem_mm',
     'pistoes_qtd', 'pistoes_offset_mm',
 )
@@ -311,9 +325,9 @@ def _mapear_vao_portas(ponto_a, ponto_b, referencia, frente, largura_em=None):
 # print): em toda cobertura padrao sobra este respiro. Reta = espessura
 # MENOS ele; Curva = metade menos ele (duas portas dividindo a chapa do
 # meio se encostavam: 18 mm -> 7 mm cada, 4 mm entre as folhas);
-# embutida e correr = a borda ele para DENTRO do vao. A "Folga no
-# perimetro" soma por cima. Cobertura fora do padrao (o usuario marcou o
-# canto e confirmou) vale como marcada.
+# embutida e correr = a borda ele para DENTRO do vao. A folga (`folga_mm`,
+# sem campo: so' a importada grava) soma por cima. Cobertura fora do
+# padrao (o usuario marcou o canto e confirmou) vale como marcada.
 RESPIRO_PORTA_MM = 2.0
 
 
@@ -354,9 +368,355 @@ def _inicios_porta(p):
     folga - cobertura (negativo = cobre a chapa)."""
     cobertura = _cobertura_porta(p)
     lateral = p['lateral_mm']
-    return [p['folga_mm'] - (_cobertura_mm(float(p[k]), lateral) if k in p
-                             else cobertura)
-            for k in COBERTURAS_LADOS]
+    inicios = [p['folga_mm'] - (_cobertura_mm(float(p[k]), lateral) if k in p
+                                else cobertura)
+               for k in COBERTURAS_LADOS]
+    if p.get('abertura') == 'CORRER' and _correr_sobreposta(p):
+        # com moldura a folha cobre a frente do modulo (pedido do usuario):
+        # de pe' no trilho de baixo (`_pe_da_folha_moldura`) ate' o topo
+        # dele; a moldura soma o resto acima (e abaixo, com rodape)
+        inicios[2] = _pe_da_folha_moldura(p)
+        inicios[3] = -float(lateral)
+    elif p.get('abertura') == 'CORRER':
+        # em pe' na guia do trilho de baixo; em cima, entra no canal com
+        # folga para levantar e tirar (o trilho da foto do usuario). O
+        # trilho fica na borda do vao
+        borda = [min(0.0, i) for i in inicios]
+        inicios[2] = borda[2] + _ferragens.altura_trilho_baixo()
+        inicios[3] = (borda[3] + _ferragens.TRILHO_CIMA_CHAPA_MM
+                      + _ferragens.TRILHO_LEVANTAR_MM)
+    return inicios
+
+
+def _correr_sobreposta(p):
+    """Correr que COBRE a chapa em algum lado = porta COM MOLDURA (pedido
+    do usuario: cliques canto de fora -> de dentro, o gesto das portas por
+    cima): folhas e trilhos na FRENTE do modulo, dentro da moldura
+    (`_pecas_moldura`). A que fica no vao, recuada, e' a EMBUTIDA."""
+    if p.get('abertura') != 'CORRER':
+        return False
+    lateral = float(p.get('lateral_mm', ESPESSURA_PADRAO_PORTA))
+    return any(_cobertura_mm(float(p[k]), lateral) > 1e-6
+               for k in COBERTURAS_LADOS if k in p)
+
+
+# ------------------------------------------------ correr COM MOLDURA
+# O guarda-roupa de exemplo do usuario: revestimento nas duas laterais,
+# base do trilho + testeira em cima, base do trilho + rodape embaixo, tudo
+# de `moldura_mm` (15); a moldura SOMA acima e abaixo do modulo e as
+# folhas (18) cobrem a frente inteira dele. Trilhos = os perfis de
+# aluminio do usuario (`_ferragens.perfil_trilho_moldura`), dois canais:
+# uma folha em cada, alternando. Referencial da porta: x no vao, y para
+# cima, z para FORA (0 = frente do modulo).
+TRILHO_MOLDURA_COSTAS_MM = 16.0   # da frente do modulo as costas do trilho
+TRILHO_MOLDURA_FRENTE_MM = 4.0    # da frente do trilho a' testeira
+INSERCAO_CANAL_MM = 15.0          # quanto a folha entra no canal de cima
+ESPESSURA_PORTA_MOLDURA_MM = 18.0
+# Resposta do "Porta embutida ou com moldura?" (cliques metade-metade):
+# a cobertura de todos os lados (`_preparar_vao_portas`)
+TIPOS_CORRER = (('EMBUTIDA', 'Porta embutida'),
+                ('MOLDURA', 'Porta com moldura'))
+COBERTURA_DO_TIPO_CORRER = {'EMBUTIDA': 0.0, 'MOLDURA': 1.0}
+# Com moldura, o wizard pergunta a BASE (pedido do usuario): ha' armario
+# de correr que vai direto no chao, sem a chapa frontal de baixo (o
+# rodape). Sem base = rodape 0 (a peca some); depois, o campo Rodape.
+OPCOES_BASE = (('COM', 'Com rodape'), ('SEM', 'Sem rodape'))
+# TIPO DE TRILHO, tambem perguntado (pedido do usuario): PESADO = os perfis
+# de aluminio do guarda-roupa (sobre a base, canal alto em cima); LEVE =
+# o do "Trilho exemplo" -- dois canais FRESADOS nas bases da moldura (em
+# cima da de baixo, embaixo da de cima) com o perfil em U de embutir,
+# aba rente a' chapa. Os canais do leve ficam a 17,3 mm um do outro: a
+# folha de 18 nao cabe, a do leve nasce de 15.
+ITENS_TRILHO = (('PESADO', "Trilho pesado", "Perfis de aluminio"),
+                ('LEVE', "Trilho leve", "Canais fresados na chapa"))
+OPCOES_TRILHO = tuple((k, t) for k, t, _d in ITENS_TRILHO)
+ESPESSURA_PORTA_TRILHO = {'PESADO': ESPESSURA_PORTA_MOLDURA_MM, 'LEVE': 15.0}
+FOLGA_TOPO_TRILHO_LEVE_MM = 5.0   # da folha a' base de cima: levantar e tirar
+# FOLHA da porta de correr (pedido do usuario: a "diferenciada" do
+# despenseiro do Promob vira estilo NOSSO): chapa de MDF ou QUADRO de
+# aluminio -- perfil de 23 mm de fundo e 10 de face em volta de um painel
+# de 5 mm (vidro, espelho, MDF) a 6 mm da frente, entrando 5 no perfil
+# (medidas do Promob). O trilho continua o do add-on.
+ITENS_FOLHA_CORRER = (('CHAPA', "Chapa", "Folha de MDF"),
+                      ('QUADRO', "Quadro de aluminio",
+                       "Perfil de aluminio em volta de um painel fino"))
+OPCOES_FOLHA_CORRER = tuple((k, t) for k, t, _d in ITENS_FOLHA_CORRER)
+ESPESSURA_QUADRO_MM = 23.0
+FACE_QUADRO_MM = 10.0
+PAINEL_QUADRO_MM = 5.0
+PAINEL_FRENTE_MM = 6.0
+PAINEL_ENTRA_MM = 5.0
+NOME_MATERIAL_QUADRO = 'Aluminio Quadro'
+NOME_MATERIAL_PAINEL = 'Painel Quadro'
+
+
+def _moldura_mm(p):
+    return float(p.get('moldura_mm', PADRAO_MEDIDAS_PORTAS['porta_moldura_mm']))
+
+
+def _trilho_leve(p):
+    return p.get('trilho') == 'LEVE'
+
+
+def _perfil_trilho(p, lado='CIMA'):
+    """O perfil (`_ferragens.perfil_trilho_moldura`) do tipo de trilho:
+    no leve, o mesmo U em cima e embaixo."""
+    return _ferragens.perfil_trilho_moldura('LEVE' if _trilho_leve(p) else lado)
+
+
+def _canais_moldura(p):
+    """(costas, frente): meio dos canais, a partir das costas do trilho."""
+    if _trilho_leve(p):
+        return tuple(_perfil_trilho(p)['canais_mm'])
+    return _ferragens.CANAIS_TRILHO_MOLDURA_MM
+
+
+def _espessura_porta_do_trilho(p):
+    return ESPESSURA_PORTA_TRILHO.get(p.get('trilho'), ESPESSURA_PORTA_MOLDURA_MM)
+
+
+def _folha_quadro(p):
+    return p.get('abertura') == 'CORRER' and p.get('folha') == 'QUADRO'
+
+
+def _material_solido(nome, cor):
+    mat = bpy.data.materials.get(nome)
+    if mat is None:
+        mat = bpy.data.materials.new(nome)
+        mat.diffuse_color = cor
+    return mat
+
+
+def _vestir_folha(folha, p):
+    """Quadro de aluminio liga a malha do quadro (`_chapas._malha_quadro`)
+    e os 2 materiais dela; chapa volta a' caixa. Sem `_ocupado` aqui:
+    sao ID props, nao props com update."""
+    if _folha_quadro(p):
+        folha['chapa_quadro_mm'] = FACE_QUADRO_MM
+        folha['chapa_painel_mm'] = PAINEL_QUADRO_MM
+        folha['chapa_painel_frente_mm'] = PAINEL_FRENTE_MM
+        folha['chapa_painel_entra_mm'] = PAINEL_ENTRA_MM
+        mats = folha.data.materials
+        if len(mats) < 2:
+            # pintura do usuario (slot do objeto) fica no 1o: o perfil
+            while len(mats) < 2:
+                mats.append(None)
+            mats[0] = mats[0] or _material_solido(NOME_MATERIAL_QUADRO,
+                                                  (0.62, 0.64, 0.67, 1.0))
+            mats[1] = _material_solido(NOME_MATERIAL_PAINEL, (0.55, 0.7, 0.75, 1.0))
+        return
+    if 'chapa_quadro_mm' in folha:
+        for chave in ('chapa_quadro_mm', 'chapa_painel_mm', 'chapa_painel_frente_mm',
+                      'chapa_painel_entra_mm'):
+            if chave in folha:
+                del folha[chave]
+        folha.data.clear_geometry()          # nasce caixa de novo
+        mats = folha.data.materials
+        while len(mats) > 1:
+            mats.pop()
+        if len(mats) and mats[0] is not None and mats[0].name == NOME_MATERIAL_QUADRO:
+            mats[0] = None
+
+
+def _avanco_moldura(p):
+    """Da frente do modulo a' face da testeira (mm)."""
+    return (TRILHO_MOLDURA_COSTAS_MM + _perfil_trilho(p)['profundidade_mm']
+            + TRILHO_MOLDURA_FRENTE_MM + _moldura_mm(p))
+
+
+def _sem_base(p):
+    """Rodape zerado = a moldura vai direto no chao (pergunta do wizard)."""
+    return float(p.get('rodape_mm', PADRAO_MEDIDAS_PORTAS['porta_rodape_mm'])) <= 0.0
+
+
+def _topo_base_baixo(p):
+    """y (mm, referencial da porta) do TOPO da base de baixo, onde o
+    trilho assenta. A base encosta no fundo do modulo (y = -lateral), sem
+    fresta (print do usuario: sobrava um vao de 6 mm entre ela e o
+    modulo): com rodape, ela fica logo ABAIXO dele e o rodape desce; sem
+    base, ela fica no chao, no nivel do fundo do modulo."""
+    lateral = float(p['lateral_mm'])
+    return -lateral + (_moldura_mm(p) if _sem_base(p) else 0.0)
+
+
+def _pe_da_folha_moldura(p):
+    """y do pe' da folha com moldura: em cima do trilho de baixo (no
+    leve, sobre a aba do U, rente a' chapa)."""
+    sobre = (_perfil_trilho(p)['aba_mm'] if _trilho_leve(p)
+             else _ferragens.perfil_trilho_moldura('BAIXO')['altura_mm'])
+    return _topo_base_baixo(p) + sobre
+
+
+def _alturas_moldura(p, altura):
+    """(y do trilho de cima, y da base de cima, y da base de baixo, y da
+    face de baixo da base de baixo), em mm no referencial da porta. No
+    leve o trilho de cima e' EMBUTIDO na base de cima: os dois y sao a
+    face de baixo dela, uma folga acima do topo da folha."""
+    lateral = float(p['lateral_mm'])
+    if _trilho_leve(p):
+        trilho_cima = base_cima = altura + lateral + FOLGA_TOPO_TRILHO_LEVE_MM
+    else:
+        trilho_cima = altura + lateral - INSERCAO_CANAL_MM
+        base_cima = (trilho_cima
+                     + _ferragens.perfil_trilho_moldura('CIMA')['altura_mm'])
+    base_baixo = _topo_base_baixo(p)
+    return trilho_cima, base_cima, base_baixo, base_baixo - _moldura_mm(p)
+
+
+def _canais_das_bases(p):
+    """{peca: (x locais mm, largura, fundo, lado)} dos canais fresados nas
+    bases da moldura do trilho LEVE (`_chapas._malha_com_canais`): em cima
+    da de baixo (lado +1), embaixo da de cima (-1). x local da base = z da
+    porta menos o meio do avanco (eixo 1 de `EIXOS_PECA_MOLDURA`)."""
+    if not _trilho_leve(p):
+        return {}
+    leve = _perfil_trilho(p)
+    meio = _avanco_moldura(p) / 2.0
+    xs = [TRILHO_MOLDURA_COSTAS_MM + c - meio for c in leve['canais_mm']]
+    dados = (xs, leve['canal_largura_mm'], leve['canal_fundo_mm'])
+    return {'BASE_BAIXO': dados + (1,), 'BASE_CIMA': dados + (-1,)}
+
+
+# (colunas X, Y, Z locais no referencial da porta) pelo eixo da espessura:
+# a chapa e' X = largura, Y = comprimento, Z = espessura (invariante 1)
+EIXOS_PECA_MOLDURA = {
+    0: ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),   # lateral: fundo x altura
+    1: ((0, 0, 1), (1, 0, 0), (0, 1, 0)),    # base: fundo x largura
+    2: ((1, 0, 0), (0, 1, 0), (0, 0, 1)),    # testeira/rodape: de frente
+}
+
+
+def _pecas_moldura(p, largura, altura, profundidade=0.0):
+    """[(id, nome, caixa (x0, x1, y0, y1, z0, z1) mm, eixo da espessura)]
+    da moldura; vazia fora da porta de correr com moldura. `profundidade`
+    = a do modulo: o revestimento das laterais vai das costas dele a'
+    frente da moldura."""
+    if not _correr_sobreposta(p):
+        return []
+    lateral, t = float(p['lateral_mm']), _moldura_mm(p)
+    avanco = _avanco_moldura(p)
+    _trilho, base_cima, base_baixo, fundo_baixo = _alturas_moldura(p, altura)
+    teto = base_cima + t
+    piso = fundo_baixo - float(p.get('rodape_mm', 0.0))
+    x0, x1 = -lateral, largura + lateral
+    # o trilho LEVE nao tem fechamento frontal em cima (print do usuario):
+    # a folha corre a' vista ate' a base de cima
+    testeira = 0.0 if _trilho_leve(p) else float(p.get('testeira_mm', 0.0))
+    pecas = [
+        ('LATERAL_ESQ', 'Moldura Lateral Esquerda',
+         (x0 - t, x0, piso, teto, -profundidade, avanco), 0),
+        ('LATERAL_DIR', 'Moldura Lateral Direita',
+         (x1, x1 + t, piso, teto, -profundidade, avanco), 0),
+        ('BASE_CIMA', 'Moldura Base Superior',
+         (x0, x1, base_cima, teto, 0.0, avanco), 1),
+        ('TESTEIRA', 'Moldura Testeira',
+         (x0, x1, base_cima - testeira, base_cima, avanco - t, avanco), 2),
+        ('BASE_BAIXO', 'Moldura Base Inferior',
+         (x0, x1, fundo_baixo, base_baixo, 0.0, avanco), 1),
+        ('RODAPE', 'Moldura Rodape',
+         (x0, x1, piso, fundo_baixo, avanco - t, avanco), 2),
+    ]
+    # rodape/testeira zerados: a peca nao existe
+    return [peca for peca in pecas
+            if min(peca[2][1] - peca[2][0], peca[2][3] - peca[2][2],
+                   peca[2][5] - peca[2][4]) > 0.5]
+
+
+def _matriz_peca_moldura(caixa, eixo):
+    """(matriz_basis em m, (largura, comprimento, espessura) mm)."""
+    x0, x1, y0, y1, z0, z1 = caixa
+    medidas = (x1 - x0, y1 - y0, z1 - z0)
+    colunas = [Vector(c) for c in EIXOS_PECA_MOLDURA[eixo]]
+    rotacao = Matrix(colunas).transposed()        # vetores como COLUNAS
+    centro = Vector(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)) / 1000.0
+    dims = tuple(abs(c.dot(Vector(medidas))) for c in colunas)
+    return Matrix.Translation(centro) @ rotacao.to_4x4(), dims
+
+
+def _montar_moldura(grupo, pecas, canais=None):
+    """Cria/atualiza/remove as chapas da moldura (com `_ocupado`), pelo
+    id da peca, como as folhas. `canais` = os fresados das bases do trilho
+    leve (`_canais_das_bases`). Devolve as que ficaram."""
+    canais = canais or {}
+    existentes = {}
+    for o in list(grupo.children):
+        if _chapas.MARCA_MOLDURA in o:
+            if o.get('porta_moldura_peca') in existentes:
+                _remover_chapa(o)
+            else:
+                existentes[o.get('porta_moldura_peca')] = o
+    feitas = []
+    for chave, nome, caixa, eixo in pecas:
+        obj = existentes.pop(chave, None)
+        if obj is None:
+            obj = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
+            grupo.users_collection[0].objects.link(obj)
+            obj[_chapas.MARCA_CHAPA] = 1
+            obj[_chapas.MARCA_MOLDURA] = 1
+            obj['porta_moldura_peca'] = chave
+        elif obj.data.users > 1:
+            obj.data = obj.data.copy()
+        _ferragens._padronizar_nome(obj, nome)
+        obj.parent = grupo
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        matriz, (l, c, e) = _matriz_peca_moldura(caixa, eixo)
+        obj.matrix_basis = matriz
+        obj.chapa_largura_mm = l
+        obj.chapa_comprimento_mm = c
+        obj.chapa_espessura_mm = e
+        obj.chapa_auto = True
+        _gravar_canais(obj, canais.get(chave))
+        feitas.append(obj)
+    for obj in existentes.values():
+        _remover_chapa(obj)
+    return feitas
+
+
+CHAVES_CANAIS = ('chapa_canais', 'chapa_canal_largura', 'chapa_canal_fundo',
+                 'chapa_canal_lado')
+
+
+def _gravar_canais(obj, dados):
+    """Canais fresados ao longo do comprimento da chapa (os da base do
+    trilho leve), que `_chapas._malha_com_canais` corta na malha; None tira."""
+    if dados is None:
+        if 'chapa_canais' in obj:
+            # voltou ao pesado: malha vazia nasce caixa de novo (a com
+            # canais seria "modelada" e esticada com os canais junto)
+            obj.data.clear_geometry()
+        for chave in CHAVES_CANAIS:
+            if chave in obj:
+                del obj[chave]
+        return
+    xs, largura, fundo, lado = dados
+    obj['chapa_canais'] = [float(x) for x in xs]
+    obj['chapa_canal_largura'] = float(largura)
+    obj['chapa_canal_fundo'] = float(fundo)
+    obj['chapa_canal_lado'] = int(lado)
+
+
+def _remover_chapa(obj):
+    malha = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if malha is not None and malha.users == 0:
+        bpy.data.meshes.remove(malha)
+
+
+def _moldura_da_porta(grupo):
+    return [o for o in grupo.children if _chapas.MARCA_MOLDURA in o]
+
+
+def _espessura_da_moldura_mudou(peca, espessura):
+    """O E de UMA peca vale para a moldura inteira (como a folha)."""
+    grupo = peca.parent
+    if (grupo is None or _chapas.MARCA_PORTAS not in grupo
+            or not grupo.get('porta_parametros')):
+        return False
+    erro = _editar_parametro_porta(bpy.context, grupo, 'moldura_mm', espessura)
+    if erro:
+        print("[Cabinet Creator] espessura da moldura:", erro)
+        return False
+    return True
 
 
 def _encaixar_cobertura(mm, lateral):
@@ -456,11 +816,15 @@ def _meias_do_vao(a, b, base, objetos, pontos):
 
 
 def _preparar_vao_portas(a, b, referencia, frente, parametros,
-                         modulo=None, objetos=(None, None), portas=None):
+                         modulo=None, objetos=(None, None), portas=None,
+                         forcar=''):
     """Converte cantos externos e encontros com portas em vao interno.
 
     `portas`: os cantos da PORTA (cliques 1 e 4 do wizard; a e b sao os
     do vao). Devolve (vao, pontos em mundo, apoios, coberturas por lado).
+    `forcar` = resposta do "embutida ou com moldura?" (`TIPOS_CORRER`):
+    o vao e' o de DENTRO do modulo (o canto clicado por fora volta para
+    dentro da chapa) e a cobertura de todos os lados e' a da resposta.
 
     O calculador recebe sempre o vao livre. Normalizar ANTES dele evita
     somar a cobertura duas vezes e serve tanto ao gesto quanto ao execute.
@@ -469,9 +833,13 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
     base = _base_da_frente(referencia, frente, largura_em)
     pontos = [base @ Vector(p) * 1000.0 for p in (a, b)]
     bordas, espelhados = None, [False, False]
+    forcada = COBERTURA_DO_TIPO_CORRER.get(forcar)
     if portas is not None:
         bordas = [base @ Vector(p) * 1000.0 for p in portas]
-        pontos, espelhados = _espelhar_margem(bordas, pontos)
+        if forcada is None or modulo is None:
+            # sem modulo nao ha' chapa para achar o canto de dentro: o
+            # par do mesmo ponto copia a margem do outro, como sempre
+            pontos, espelhados = _espelhar_margem(bordas, pontos)
     originais = [p.copy() for p in pontos]
     tolerancia = _modulos.TOL_BORDA * 1000.0
     ancoras = {}
@@ -528,6 +896,8 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
     if bordas is not None:
         coberturas = _coberturas_dos_cantos(bordas, pontos,
                                             parametros['lateral_mm'])
+        if forcada is not None:
+            coberturas = {k: forcada for k in COBERTURAS_LADOS}
         for indice in ancoras:
             # encostado em outra porta: quem manda e' o apoio
             coberturas.pop(COBERTURAS_LADOS[indice], None)
@@ -537,6 +907,42 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
     else:
         coberturas = {}
     return vao, mundo, ancoras, coberturas
+
+
+# Porta de correr (pedido do usuario): cada folha no SEU trilho -- uma,
+# duas, tres ou quatro, todas correm o vao inteiro, uma por cima da
+# outra. Sem largura digitada, a folha unica tem METADE do vao (sobra
+# para onde correr) e as varias o cobrem, cruzando
+# `SOBREPOSICAO_CORRER_MM` com a vizinha. A largura digitada
+# (`CHAVE_LARGURA_CORRER`, chave solta como as coberturas: e' desta
+# porta, nao padrao da cena) vale para todas e nunca passa do vao. Nao ha'
+# campo de sobreposicao: com a largura e as folhas espalhadas no vao ela
+# e' consequencia, (n x largura - vao) / (n - 1) -- o usuario a recusou.
+CHAVE_LARGURA_CORRER = 'largura_folha_mm'
+SOBREPOSICAO_CORRER_MM = 20.0
+
+
+def _largura_folha_correr(p, util, n):
+    escolhida = float(p.get(CHAVE_LARGURA_CORRER, 0.0) or 0.0)
+    if escolhida > 0:
+        return min(escolhida, util)
+    if n == 1:
+        return util / 2.0
+    return (util + (n - 1) * SOBREPOSICAO_CORRER_MM) / n
+
+
+def _plano_correr(p, e, indice, n=1):
+    """Centro (z, mm) da folha `indice` de correr: um trilho por folha,
+    a 1a na frente. O recuo mede a FACE mais externa, assim nem meia
+    espessura invade o espaco reservado ao trilho. Sobreposta: na frente
+    do modulo, a de tras encostada na parede do trilho (que encosta nele)."""
+    passo = e + float(p['entre_planos_mm'])
+    if _correr_sobreposta(p):
+        # com moldura: no meio de um dos DOIS canais do trilho do usuario,
+        # a 1a na frente e as outras alternando
+        costas, frente = _canais_moldura(p)
+        return TRILHO_MOLDURA_COSTAS_MM + (frente if indice % 2 == 0 else costas)
+    return -float(p['recuo_correr_mm']) - e / 2.0 - indice * passo
 
 
 def _calcular_folhas_portas(largura, altura, parametros):
@@ -562,11 +968,12 @@ def _calcular_folhas_portas(largura, altura, parametros):
     if correr:
         if p['recuo_correr_mm'] <= 0:
             raise ValueError("Portas de correr exigem recuo positivo para os trilhos")
-        sobreposicao = p['sobreposicao_mm'] if n > 1 else 0.0
-        l = (util + (n - 1) * sobreposicao) / n
-        passo = l - sobreposicao
-        if passo <= 0 or (n > 2 and 2 * passo < l - 1e-6):
-            raise ValueError("Sobreposicao excessiva: folhas no mesmo plano colidem")
+        l = _largura_folha_correr(p, util, n)
+        # as folhas se espalham pelo vao, a 1a encostada a' esquerda e a
+        # ultima a' direita (a unica fica a' esquerda: corre para a outra)
+        if l > util + 1e-6:
+            raise ValueError("Vao estreito demais para as folhas")
+        passo = (util - l) / (n - 1) if n > 1 else 0.0
     else:
         l = (util - (n - 1) * p['entre_folhas_mm']) / n
         passo = l + p['entre_folhas_mm']
@@ -575,10 +982,7 @@ def _calcular_folhas_portas(largura, altura, parametros):
     saida = []
     for i in range(n):
         if correr:
-            # Dois planos alternados. O recuo mede a FACE mais externa,
-            # assim nem meia espessura invade o espaco reservado ao trilho.
-            z = (-p['recuo_correr_mm'] - e / 2.0
-                 - (i % 2) * (e + p['entre_planos_mm']))
+            z = _plano_correr(p, e, i, n)
         elif p['dobradica'] == 'SUPER_CURVA':
             z = -p['recuo_embutida_mm'] - e / 2.0
         else:
@@ -840,15 +1244,29 @@ def _refazer_porta(context, grupo, parametros):
 def _editar_parametro_porta(context, grupo, nome, valor):
     """Muda UM parametro de uma porta colocada (aba Portas, nivel porta)."""
     guardados = grupo.get('porta_parametros') if grupo is not None else None
-    if not guardados or nome not in _PARAMETROS_PORTAS:
+    if not guardados or nome not in _PARAMETROS_PORTAS + (CHAVE_LARGURA_CORRER,):
         return 'Porta sem parametros para editar'
     parametros = dict(guardados)
-    if nome == 'espessura_mm':
+    if nome in {'espessura_mm', 'moldura_mm'}:
         valor = _chapas._espessura_livre(valor)
+    elif nome == CHAVE_LARGURA_CORRER:
+        valor = max(1.0, float(valor))
     parametros[nome] = valor
+    if nome in {'abertura', 'folhas'}:
+        # outra tipologia: a largura volta a' do padrao dela
+        parametros.pop(CHAVE_LARGURA_CORRER, None)
     if nome == 'abertura':
         parametros['folhas'] = min(int(parametros.get('folhas', 1)),
                                    LIMITES_FOLHAS[valor])
+    if nome == 'trilho':
+        # outro trilho, outra folha: a de 18 nao cabe nos canais do leve
+        parametros['espessura_mm'] = _espessura_porta_do_trilho(parametros)
+    if nome == 'folha' or (nome == 'trilho' and _folha_quadro(parametros)):
+        # o quadro tem o fundo do perfil; a chapa volta a' do trilho
+        parametros['espessura_mm'] = (
+            ESPESSURA_QUADRO_MM if _folha_quadro(parametros)
+            else _espessura_porta_do_trilho(parametros) if _correr_sobreposta(parametros)
+            else ESPESSURA_PADRAO_PORTA)
     return _refazer_porta(context, grupo, parametros)
 
 
@@ -979,11 +1397,20 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             if malha.users == 0:
                 bpy.data.meshes.remove(malha)
         _ferragens._montar_ferragens(grupo, parametros, largura, altura, calculadas)
+        modulo = pai if pai is not None and _chapas.MARCA_CONJUNTO in pai else None
+        caixa = _caixa_do_modulo(modulo) if modulo is not None else None
+        moldura = _montar_moldura(grupo, _pecas_moldura(
+            parametros, largura, altura, caixa[2] if caixa else 0.0),
+            _canais_das_bases(parametros))
     finally:
         _chapas._ocupado[0] = ocupado_antes
-    for folha in _folhas_portas(grupo):
+    for folha in _folhas_portas(grupo) + moldura:
         _chapas.gerar_malha_chapa(folha)
     context.view_layer.update()
+    if modulo is not None:
+        # a moldura e' parte da caixa do armario (pedido do usuario): as
+        # medidas do modulo passam a conta-la (ou deixam, se ela saiu)
+        _modulos.sincronizar_medidas_conjunto(modulo)
     refazer = set()
     for pux in orfaos:
         folha = _folha_mais_proxima(pux, _folhas_portas(grupo))

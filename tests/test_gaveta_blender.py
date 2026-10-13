@@ -1096,7 +1096,7 @@ class TestGaveta(unittest.TestCase):
         self.assertEqual(acao[3], '')
         self.assertEqual(rotulo, 'Criar Portas')
 
-        self.cena.porta_folga_mm = 5000.0
+        self.cena.porta_entre_folhas_mm = 5000.0
         rotulo, acao = self.botao_portas()
         self.assertTrue(acao[3])
         self.assertEqual(rotulo, acao[3])
@@ -1185,7 +1185,7 @@ class TestGaveta(unittest.TestCase):
                     'espessura_mm': 20.0, 'lateral_mm': 15.0,
                     'folga_mm': 4.0, 'entre_folhas_mm': 2.0,
                     'afastamento_mm': 0.0, 'recuo_embutida_mm': 0.0,
-                    'recuo_correr_mm': 25.0, 'sobreposicao_mm': 30.0,
+                    'recuo_correr_mm': 25.0,
                     'entre_planos_mm': 2.0}
         bpy.ops.object.empty_add()
         falso = bpy.context.object
@@ -1193,7 +1193,6 @@ class TestGaveta(unittest.TestCase):
         addon.portas._carregar_portas_na_cena(self.cena, falso)
         self.assertEqual(self.cena.porta_abertura, 'CORRER')
         self.assertEqual(self.cena.porta_folhas, 3)
-        self.assertAlmostEqual(self.cena.porta_folga_mm, 4.0)
         self.assertAlmostEqual(self.cena.porta_recuo_correr_mm, 25.0)
 
     def test_criar_portas_nao_abre_popup(self):
@@ -1229,6 +1228,7 @@ class TestGaveta(unittest.TestCase):
             for posicao, esperado in ((inicio, 2), (inicio + trilho, 8)):
                 addon.gaveta_eventos.OBJECT_OT_interagir_gaveta._atualizar(op, ctx, posicao)
                 self.assertEqual(self.cena.chapa_tam_bloco, esperado)
+
 
     def paineis(self, largura=478, altura=900):
         _cab, conteudo, _rod = addon.gaveta._partes_gaveta(

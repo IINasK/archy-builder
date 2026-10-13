@@ -15,6 +15,7 @@ from . import portas as _portas
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _eventos = _ferragens = _gaveta_eventos = _arame = _gaveta = _hud = None
+_modulos = None
 
 PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
 MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
@@ -230,8 +231,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         try:
             (largura, altura, matriz), _, _, coberturas = _portas._preparar_vao_portas(
                 a, b, referencia, frente, parametros,
-                modulo, apoios, portas=portas)
+                modulo, apoios, portas=portas,
+                forcar=escolhas.get('tipo_correr', ''))
             parametros.update(coberturas)
+            if alvo is None and _portas._correr_sobreposta(parametros):
+                # com moldura a folha nasce de 18 (pesado) ou 15 (leve)
+                parametros['espessura_mm'] = _portas._espessura_porta_do_trilho(parametros)
             embutida = portas is not None and _portas._porta_embutida(coberturas)
             if embutida and 'dobradica' not in escolhas:
                 parametros['dobradica'] = 'SUPER_CURVA'
@@ -468,6 +473,10 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         'CONFIRMAR': 'A cobertura nao bate com reta, meia nem embutida',
         'FOLHAS': 'Quantas folhas?',
         'TIPO': 'Escolha a abertura',
+        # cliques metade-metade (um par no mesmo ponto, o outro nao)
+        'MOLDURA': 'Os cliques nao combinam: embutida ou com moldura?',
+        'BASE': 'A porta tem base (rodape) ou vai direto no chao?',
+        'TRILHO': 'Trilho pesado (aluminio) ou leve (canais fresados)?',
         'EIXO': "Clique na borda das dobradicas (o tipo e' automatico)",
         'QUANTIDADE': 'Scroll: quantidade de dobradicas | clique confirma',
         'MARGEM': 'Mova em Y: distancia das quinas | clique confirma',
@@ -478,7 +487,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
     PASSOS_CANTOS = ('1/4: canto da porta', '2/4: canto do vao',
                      '3/4: canto oposto do vao', '4/4: canto oposto da porta')
     PERGUNTAS = {'CONFIRMAR': (_portas.OPCOES_CONFIRMAR, 'As medidas estao corretas?'),
-                 'FOLHAS': (_portas.OPCOES_FOLHAS, 'Quantas folhas?')}
+                 'FOLHAS': (_portas.OPCOES_FOLHAS, 'Quantas folhas?'),
+                 'MOLDURA': (_portas.TIPOS_CORRER, 'Porta embutida ou com moldura?'),
+                 'BASE': (_portas.OPCOES_BASE, 'A porta tem base?'),
+                 'TRILHO': (_portas.OPCOES_TRILHO, 'Qual trilho?')}
+    ETAPAS_CAIXA = ('CONFIRMAR', 'FOLHAS', 'TIPO', 'MOLDURA', 'BASE', 'TRILHO')
 
     def _instrucao(self):
         if self._cliques() == 2:
@@ -546,9 +559,27 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._area.tag_redraw()
 
     def _escolher(self, context, chave):
-        """Resposta de uma caixa (CONFIRMAR, FOLHAS ou TIPO)."""
+        """Resposta de uma caixa (CONFIRMAR, FOLHAS, TIPO, MOLDURA, BASE ou
+        TRILHO)."""
         w = self._w
         escolhas = w['escolhas']
+        if w['etapa'] == 'MOLDURA':
+            escolhas['tipo_correr'] = chave
+            if chave == 'MOLDURA':
+                self._ir('BASE')
+                return None
+            escolhas.pop('rodape_mm', None)
+            return self._criar(context)
+        if w['etapa'] == 'BASE':
+            # sem base = sem rodape: a moldura vai direto no chao
+            padrao = (getattr(context.scene, 'porta_rodape_mm', 0.0) if context
+                      else 0.0) or _portas.PADRAO_MEDIDAS_PORTAS['porta_rodape_mm']
+            escolhas['rodape_mm'] = 0.0 if chave == 'SEM' else float(padrao)
+            self._ir('TRILHO')          # e o trilho: pesado ou leve?
+            return None
+        if w['etapa'] == 'TRILHO':
+            escolhas['trilho'] = chave
+            return self._criar(context)
         if w['etapa'] == 'CONFIRMAR':
             if chave == 'NAO':
                 self._recomecar()
@@ -561,18 +592,41 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             w['tipos'] = tuple(t for t in opcoes
                                if _portas.LIMITES_FOLHAS[t[0]] >= escolhas['folhas'])
             if len(w['tipos']) == 1:
-                # 2 folhas por cima so' podem ser de giro: nada a perguntar
+                # uma opcao so': nada a perguntar
                 return self._escolher_abertura(context, w['tipos'][0][0])
             self._ir('TIPO')
             return None
         return self._escolher_abertura(context, chave)
 
+    def _metade_metade(self):
+        """Cliques 1-2 no mesmo ponto e 3-4 nao (ou o contrario). Os dois
+        no mesmo ponto = embutida; nenhum = com moldura: so' o caso do
+        meio e' duvida."""
+        if len(self._pontos) < 4:
+            return False
+        (p1, _o1), (a, _oa), (b, _ob), (p4, _o4) = self._pontos[:4]
+        tolerancia = _modulos.TOL_BORDA
+        juntos = [(Vector(p1) - Vector(a)).length <= tolerancia,
+                  (Vector(p4) - Vector(b)).length <= tolerancia]
+        return juntos[0] != juntos[1]
+
     def _escolher_abertura(self, context, chave):
         w = self._w
         escolhas = w['escolhas']
         escolhas['abertura'] = chave
+        escolhas.pop('tipo_correr', None)
+        escolhas.pop('rodape_mm', None)
+        escolhas.pop('trilho', None)
         if chave == 'CORRER':
             escolhas['dobradica'] = 'RETA'
+            if self._metade_metade():
+                # um par clicado no mesmo ponto e o outro nao: o gesto nao
+                # diz se e' embutida ou com moldura (pedido do usuario)
+                self._ir('MOLDURA')
+                return None
+            if not w.get('embutida'):
+                self._ir('BASE')        # com moldura: tem base (rodape)?
+                return None
             return self._criar(context)
         w['tipo'] = chave
         if w['embutida']:
@@ -624,7 +678,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         mouse = self._mouse_na_regiao(event)
         w['mouse'] = mouse
         etapa = w['etapa']
-        caixa = etapa in {'CONFIRMAR', 'FOLHAS', 'TIPO'}
+        caixa = etapa in self.ETAPAS_CAIXA
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and etapa in {
                 'QUANTIDADE', 'PISTOES_QTD'}:
             passo = 1 if event.type == 'WHEELUPMOUSE' else -1
@@ -732,7 +786,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         escolha_do_tipo = 'TIPO' if len(w.get('tipos', ())) > 1 else 'FOLHAS'
         borda_automatica = (w.get('duas_bordas')
                             or w.get('tipo') == 'BASCULANTE')
-        anteriores = {'TIPO': 'FOLHAS', 'EIXO': escolha_do_tipo,
+        anteriores = {'TIPO': 'FOLHAS', 'MOLDURA': escolha_do_tipo,
+                      'BASE': ('MOLDURA' if 'tipo_correr' in w['escolhas']
+                               else escolha_do_tipo),
+                      'TRILHO': 'BASE',
+                      'EIXO': escolha_do_tipo,
                       'QUANTIDADE': (escolha_do_tipo if borda_automatica
                                      else 'EIXO'),
                       'MARGEM': 'QUANTIDADE', 'PISTOES_QTD': 'MARGEM',
@@ -774,6 +832,20 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                     else None)
         if pergunta == 'porta_confirmar':
             if w['etapa'] != 'CONFIRMAR':
+                return None
+            return self._escolher(context, chave)
+        if pergunta == 'porta_tipo_correr':
+            if w['etapa'] not in {'MOLDURA', 'BASE'}:
+                return None
+            w['etapa'] = 'MOLDURA'          # respondida de novo: refaz dali
+            return self._escolher(context, chave)
+        if pergunta == 'porta_base':
+            if w['etapa'] not in {'BASE', 'TRILHO'}:
+                return None
+            w['etapa'] = 'BASE'             # respondida de novo: refaz dali
+            return self._escolher(context, chave)
+        if pergunta == 'porta_trilho':
+            if w['etapa'] != 'TRILHO':
                 return None
             return self._escolher(context, chave)
         if w['etapa'] == 'CONFIRMAR':
@@ -978,15 +1050,35 @@ class OBJECT_OT_portas_parametricas(Operator):
         name="Espessura da lateral (mm)", default='18',
         options={'HIDDEN', 'SKIP_SAVE'},
         items=[(str(int(e)), str(int(e)), "mm") for e in _chapas.ESPESSURAS_PERMITIDAS])
-    folga_mm: FloatProperty(name="Folga no perimetro (mm)", default=0, min=0)
+    # sem campo (sempre zero); fica para quem chama com ela (importacao)
+    folga_mm: FloatProperty(name="Folga no perimetro (mm)", default=0, min=0,
+                            options={'HIDDEN', 'SKIP_SAVE'})
     entre_folhas_mm: FloatProperty(name="Folga entre folhas (mm)", default=2, min=0)
     afastamento_mm: FloatProperty(name="Afastamento frontal (mm)", default=0, min=0)
     recuo_embutida_mm: FloatProperty(name="Recuo da embutida (mm)", default=0, min=0)
     recuo_correr_mm: FloatProperty(
         name="Recuo para trilhos (mm)", default=30, min=0.1,
         description="Distancia da borda frontal ate a face externa da primeira folha")
-    sobreposicao_mm: FloatProperty(name="Sobreposicao entre folhas (mm)", default=20, min=0)
     entre_planos_mm: FloatProperty(name="Folga entre planos (mm)", default=2, min=0.1)
+    # moldura do correr (`_portas._pecas_moldura`)
+    moldura_mm: FloatProperty(
+        name="Espessura da moldura (mm)", min=1.0,
+        default=_portas.PADRAO_MEDIDAS_PORTAS['porta_moldura_mm'])
+    rodape_mm: FloatProperty(
+        name="Rodape (mm)", min=0.0,
+        default=_portas.PADRAO_MEDIDAS_PORTAS['porta_rodape_mm'])
+    testeira_mm: FloatProperty(
+        name="Testeira (mm)", min=0.0,
+        default=_portas.PADRAO_MEDIDAS_PORTAS['porta_testeira_mm'])
+    trilho: EnumProperty(name="Trilho", items=_portas.ITENS_TRILHO,
+                         default='PESADO')
+    folha: EnumProperty(name="Folha", items=_portas.ITENS_FOLHA_CORRER,
+                        default='CHAPA')
+    # resposta do "embutida ou com moldura?" (cliques metade-metade)
+    tipo_correr: EnumProperty(
+        name="Correr", default='AUTO', options={'HIDDEN', 'SKIP_SAVE'},
+        items=[('AUTO', "Pelos cliques", "")]
+        + [(k, t, "") for k, t in _portas.TIPOS_CORRER])
     # Ferragens escolhidas no wizard (0 = automatico pela medida)
     dobradica_lado: EnumProperty(
         name="Lado das dobradicas", default='ESQUERDA',
@@ -1051,7 +1143,8 @@ class OBJECT_OT_portas_parametricas(Operator):
             self.ponto_a, self.ponto_b, self._ref(), self._frente_resolvida(),
             self._parametros(), bpy.data.objects.get(self.modulo_nome),
             self._objetos(), portas=((self.porta_a, self.porta_b)
-                                     if self.quatro_pontos else None))
+                                     if self.quatro_pontos else None),
+            forcar='' if self.tipo_correr == 'AUTO' else self.tipo_correr)
 
     def _vao(self):
         return self._preparar_vao()[0]
@@ -1159,12 +1252,10 @@ class OBJECT_OT_portas_parametricas(Operator):
             if self.folhas > 1:
                 layout.prop(self, 'entre_folhas_mm')
         else:
-            layout.label(text="Embutidas, em dois planos alternados")
+            layout.label(text="Embutidas, uma em cada trilho")
             layout.prop(self, 'recuo_correr_mm')
             if self.folhas > 1:
-                layout.prop(self, 'sobreposicao_mm')
                 layout.prop(self, 'entre_planos_mm')
-        layout.prop(self, 'folga_mm')
         if largura is not None:
             try:
                 folhas = _portas._calcular_folhas_portas(largura, altura, self._parametros())
@@ -1208,6 +1299,9 @@ class OBJECT_OT_portas_parametricas(Operator):
             parametros = self._parametros()
             if not self.editar:
                 parametros.update(coberturas)
+                if not self.grupo_alvo and _portas._correr_sobreposta(parametros):
+                    # porta nova com moldura: folha do trilho (18 pesado, 15 leve)
+                    parametros['espessura_mm'] = _portas._espessura_porta_do_trilho(parametros)
                 if self.quatro_pontos and parametros['abertura'] != 'CORRER':
                     # dobradica automatica: a cobertura do lado dela
                     lado = parametros.get('dobradica_lado', 'ESQUERDA')
@@ -1255,6 +1349,9 @@ class OBJECT_OT_portas_parametricas(Operator):
                     grupo[_portas.CHAVE_MODULO_PORTA] = modulo.name
                     grupo[_portas.CHAVE_FOLGAS_PORTA] = list(medido[0])
                     grupo[_portas.CHAVE_RECUO_PORTA] = medido[1]
+                    # so' agora a porta e' "do modulo": a moldura entra nas
+                    # medidas dele (`pecas_do_envelope`)
+                    _modulos.sincronizar_medidas_conjunto(modulo)
         except (ValueError, KeyError) as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}

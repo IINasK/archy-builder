@@ -372,14 +372,14 @@ def _itens_da_selecao(context):
             continue
         if _chapas.MARCA_CONJUNTO in o:
             if ('M', o.name) not in chaves:
-                somar(o, 'GRUPO', _modulos._chapas_do_conjunto(o))
+                somar(o, 'GRUPO', _modulos.pecas_do_envelope(o))
             continue
         if _chapas.MARCA_CHAPA not in o or o.type != 'MESH':
             continue
         modulo = _portas._modulo_da_chapa(o)
         if modulo is not None and modulo in marcados:
             if ('M', modulo.name) not in chaves:
-                somar(modulo, 'GRUPO', _modulos._chapas_do_conjunto(modulo))
+                somar(modulo, 'GRUPO', _modulos.pecas_do_envelope(modulo))
             continue
         if modulo is None and len(marcados) > 1:
             grupo = _modulos.grupo_de(o) or [o]

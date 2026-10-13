@@ -497,7 +497,8 @@ def _medidas_da_porta(obj, grupo):
 
     L/A de uma folha nao se editam: o proximo recalculo das folhas
     (modulo redimensionado, folga mudada) apagaria a mudanca. A
-    espessura e' da porta inteira -- folhas de uma porta sao iguais.
+    espessura e' da porta inteira -- folhas de uma porta sao iguais. A
+    largura da folha de CORRER e' parametro da porta: essa se edita.
     """
     folhas = _portas._folhas_portas(grupo)
     if _chapas.MARCA_FOLHA in obj:
@@ -513,6 +514,13 @@ def _medidas_da_porta(obj, grupo):
     espessura = float(grupo['porta_parametros'].get(
         'espessura_mm', folhas[0].chapa_espessura_mm if folhas
         else _portas.ESPESSURA_PADRAO_PORTA))
+    if grupo['porta_parametros'].get('abertura') == 'CORRER' and folhas:
+        # correr: a largura e' a da FOLHA (todas iguais) e se edita
+        # (pedido do usuario); o conjunto mudaria ao correr
+        nome = 'Largura' if _chapas.MARCA_FOLHA in obj or len(folhas) == 1             else 'Largura da folha'
+        return [(nome, folhas[0].chapa_largura_mm, 'ui_porta_largura_folha'),
+                ('Altura', folhas[0].chapa_comprimento_mm, ''),
+                ('Espessura', espessura, 'ui_porta_espessura')]
     return [('Largura', largura, ''), ('Altura', altura, ''),
             ('Espessura', espessura, 'ui_porta_espessura')]
 
@@ -752,7 +760,7 @@ def _valores_portas(s, grupo=None):
     for nome, valor in guardados.items():
         if nome not in valores:
             continue
-        if nome in {'abertura', 'dobradica', 'dobradica_lado'}:
+        if nome in {'abertura', 'dobradica', 'dobradica_lado', 'trilho', 'folha'}:
             valores[nome] = str(valor)
         elif nome in {'folhas', 'dobradicas_qtd', 'pistoes_qtd'}:
             valores[nome] = int(valor)
@@ -916,6 +924,19 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
         filas.append(('Escolha a abertura' if etapa == 'TIPO' else 'Abertura',
                       'porta_abertura', a.get('tipos') or _portas.ESCOLHAS_PORTAS[0][2],
                       escolhas.get('abertura')))
+    if etapa == 'MOLDURA' or (etapa in {'BASE', 'TRILHO'}
+                              and 'tipo_correr' in escolhas):
+        # cliques metade-metade num correr: a mesma caixa da viewport
+        filas.append(('Porta embutida ou com moldura?', 'porta_tipo_correr',
+                      _portas.TIPOS_CORRER, escolhas.get('tipo_correr')))
+    if etapa in {'BASE', 'TRILHO'}:
+        # com moldura: vai direto no chao (sem rodape) ou tem base?
+        sem = escolhas.get('rodape_mm')
+        filas.append(('A porta tem base?', 'porta_base', _portas.OPCOES_BASE,
+                      None if sem is None else 'SEM' if sem <= 0 else 'COM'))
+    if etapa == 'TRILHO':
+        filas.append(('Qual trilho?', 'porta_trilho', _portas.OPCOES_TRILHO,
+                      escolhas.get('trilho')))
     for i, (rotulo, pergunta, opcoes, atual) in enumerate(filas):
         if i:
             itens.append((x, y + 30, w, 1, '', ('separador',)))
@@ -993,67 +1014,72 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
         ('Definir como frente', 'object.cabinet_definir_frente'))) + 28 - 4
     alvo = grupo.name
     valores = _valores_portas(s, grupo)
-    # Sem cabecalho "Porta N de M - vao L x A": nada de nome nem medida
-    # repetida na aba (pedido do usuario); o bloco de cima ja' mede.
-    topo = y + 26               # topo da 1a linha, como o de um rotulo
+    moldura = _portas._correr_sobreposta(dict(grupo['porta_parametros']))
 
-    # Sem espessuras aqui: a da porta e' o E do bloco de medidas e a da
-    # lateral e' a do modulo.
-    correr = valores['abertura'] == 'CORRER'
-    medidas = []
-    if correr:
-        medidas.append(('ui_porta_recuo_correr', 'porta_recuo_correr_mm',
-                        'Recuo para trilhos'))
-        if valores['folhas'] > 1:
-            medidas.append(('ui_porta_sobreposicao', 'porta_sobreposicao_mm',
-                            'Sobreposicao'))
-            medidas.append(('ui_porta_entre_planos', 'porta_entre_planos_mm',
-                            'Entre planos'))
+    def campo(prop_ui, rotulo):
+        valor = valores[_portas._PARAMETRO_DA_MEDIDA_PORTA[prop_ui]]
+        return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
+                ('medida', 'porta', prop_ui, rotulo, valor))
+
+    # Auditoria do usuario: a aba em CATEGORIAS com titulo (o mesmo de
+    # Montagem/Orcamento), rotulos curtos que nao se cortam e campos
+    # alinhados pela mesma regra de colunas. Sem cabecalho "Porta N de M":
+    # nada de nome nem medida repetida (pedido do usuario).
+    _modo, medidas, dono = _medidas_gaveta(context)
+    topo = _titulo_secao(itens, x, topo, w, 'Porta')
+    topo = _campos_em_linhas(context, itens, x, topo, w, [
+        ('%s: %s' % (nome, _opcoes._texto_medida(valor)),
+         ('medida', dono, prop, nome, valor)) for nome, valor, prop in medidas])
+
+    # FOLHAS: campo COMPACTO na ponta da linha do "Entre planos" (pedido do
+    # usuario; eram segmentos 1 2 3 4): arrastar de lado muda, clicar digita
+    folhas = []
+    if valores['folhas'] > 1:
+        folhas.append(campo('ui_porta_entre_planos', 'Entre planos')
+                      if valores['abertura'] == 'CORRER'
+                      else campo('ui_porta_entre_folhas', 'Entre folhas'))
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Folhas')
+    topo = _campos_em_linhas(
+        context, itens, x, topo, w, folhas,
+        compacto=(str(valores['folhas']),
+                  ('contador', 'porta_folhas', int(valores['folhas']), 1,
+                   _portas.LIMITES_FOLHAS.get(valores['abertura'], 1),
+                   alvo, 'Folhas')))
+
+    # Posicao da folha em relacao ao modulo (nao ha' "Folga no perimetro":
+    # pedido do usuario, sempre zero). Com moldura, as medidas DELA.
+    if moldura:
+        secao, campos = 'Moldura', [campo('ui_porta_moldura', 'Espessura'),
+                                    campo('ui_porta_rodape', 'Rodape')]
+        if valores.get('trilho') != 'LEVE':
+            # o leve nao tem testeira: o campo nao vale nada para ele
+            campos.append(campo('ui_porta_testeira', 'Testeira'))
+    elif valores['abertura'] == 'CORRER':
+        secao, campos = 'Trilhos', [campo('ui_porta_recuo_correr', 'Recuo')]
+    elif valores['dobradica'] == 'SUPER_CURVA':
+        secao, campos = 'Posicao', [campo('ui_porta_recuo_embutida', 'Recuo')]
     else:
-        if valores['dobradica'] in {'RETA', 'CURVA'}:
-            medidas.append(('ui_porta_afastamento', 'porta_afastamento_mm',
-                            'Afastamento'))
-        elif valores['dobradica'] == 'SUPER_CURVA':
-            medidas.append(('ui_porta_recuo_embutida',
-                            'porta_recuo_embutida_mm', 'Recuo da embutida'))
-        if valores['folhas'] > 1:
-            medidas.append(('ui_porta_entre_folhas', 'porta_entre_folhas_mm',
-                            'Entre folhas'))
-    # Folgas, afastamentos e vaos nao se definem ANTES de desenhar a porta
-    # (backlog do usuario, Epico 2.1/2.4): so' com a porta selecionada.
-    medidas.append(('ui_porta_folga', 'porta_folga_mm', 'Folga no perimetro'))
+        secao, campos = 'Posicao', [campo('ui_porta_afastamento', 'Afastamento')]
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, secao)
+    topo = _campos_em_linhas(context, itens, x, topo, w, campos)
+    if moldura:
+        # o tipo de trilho da moldura (pesado/leve), trocavel na porta pronta
+        topo = _linha_escolha_gaveta(
+            itens, x, topo - 25, w, '', 'porta_trilho', _portas.OPCOES_TRILHO,
+            valores.get('trilho', 'PESADO'), alvo=alvo) + 23   # passo 29 -> 31
+    if valores['abertura'] == 'CORRER':
+        # a folha: chapa ou o quadro de aluminio (estilo do Promob)
+        topo = _linha_escolha_gaveta(
+            itens, x, topo - 25, w, '', 'porta_folha', _portas.OPCOES_FOLHA_CORRER,
+            valores.get('folha', 'CHAPA'), alvo=alvo) + 23
 
-    if medidas:
-        # Mesma regra de colunas do bloco de cima: as duas linhas de
-        # campos ficam alinhadas (layout do usuario: 3 + 3 na larga).
-        colunas = _colunas_medidas(context, w + 24, len(medidas))
-        largura_campo = (w - 6 * (colunas - 1)) / colunas
-        linhas = math.ceil(len(medidas) / colunas)
-        for i, (prop_ui, prop_mm, rotulo) in enumerate(medidas):
-            linha, coluna = divmod(i, colunas)
-            valor = valores[prop_mm[len('porta_'):]]
-            itens.append((x + coluna * (largura_campo + 6),
-                          topo - 37 - linha * 43, largura_campo, 37,
-                          '%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
-                          ('medida', 'porta', prop_ui, rotulo, valor)))
-        fundo_campos = topo - 37 - (linhas - 1) * 43
-        itens.append((x, fundo_campos - 10, w, 1, '', ('separador',)))
-        y = fundo_campos - 10 - 9 - 20      # rotulo da 1a fila de escolhas
-
-    # A MESMA ordem das perguntas do wizard (pedido do usuario); a
-    # dobradica nao aparece: e' automatica (sai dos 4 cliques).
+    # Abertura: a dobradica nao aparece, e' automatica (sai dos 4 cliques)
     (prop, rotulo, opcoes), = _portas.ESCOLHAS_PORTAS
-    filas = (('Folhas', 'porta_folhas',
-              tuple((n, str(n)) for n in range(
-                  1, _portas.LIMITES_FOLHAS.get(valores['abertura'], 1) + 1)),
-              valores['folhas']),
-             (rotulo, prop, opcoes, valores['abertura']))
-    for i, (rotulo, prop, opcoes, atual) in enumerate(filas):
-        if i:
-            itens.append((x, y + 30, w, 1, '', ('separador',)))
-        y = _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
-                                  alvo=alvo) - 10
-    y += 6
+    topo -= ESPACO_SECOES
+    _titulo_com_slider(itens, x, topo - 23, w, rotulo, altura=23)
+    y = _carrossel_gaveta(itens, x, topo - 31 - 25, w, '', prop,
+                          _retratos_abertura(opcoes), valores['abertura'],
+                          alvo=alvo) - 4
 
     # Medida da folha nao se repete aqui; so' o ERRO aparece, quando a
     # configuracao nao cabe no vao da porta selecionada.
@@ -1062,13 +1088,6 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
                                 grupo['porta_vao_altura_mm'], valores)
     except (ValueError, KeyError, TypeError) as erro:
         itens.append((x, y, w, 22, str(erro), None))
-        y -= 26
-
-    # Reposicionar (diagonal no vao novo) e frente. Converter em
-    # porta/dupla sairam da aba a pedido do usuario; seguem no F3.
-    _botoes_gaveta(itens, x, y, w, (
-        ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
-        ('Definir como frente', 'object.cabinet_definir_frente')))
     return itens
 
 

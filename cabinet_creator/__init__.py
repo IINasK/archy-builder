@@ -298,12 +298,13 @@ def register():
     S.porta_dobradica = EnumProperty(name="Dobradica",
                                      items=_portas.ITENS_DOBRADICA,
                                      default='RETA')
+    # trilho da porta de correr com moldura (perguntado ao criar)
+    S.porta_trilho = EnumProperty(name="Trilho", items=_portas.ITENS_TRILHO,
+                                  default='PESADO')
     # Dupla e' o padrao de armario; uma folha so' e' a excecao.
     S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=4)
     for prop_ui, prop_mm, rotulo, minimo in _portas.MEDIDAS_PORTAS:
-        padrao = {'porta_entre_folhas_mm': 2.0, 'porta_recuo_correr_mm': 30.0,
-                  'porta_sobreposicao_mm': 20.0,
-                  'porta_entre_planos_mm': 2.0}.get(prop_mm, 0.0)
+        padrao = _portas.PADRAO_MEDIDAS_PORTAS.get(prop_mm, 0.0)
         setattr(S, prop_mm, FloatProperty(name=rotulo, default=padrao,
                                           min=minimo))
         _registrar_medida_ui(S, prop_ui, prop_mm, rotulo, minimo)
@@ -425,6 +426,7 @@ def unregister():
     _solda._nome_grupo_gaveta[0] = None
     _orcamento._orcamento_copiado[0] = None
     _ferragens._contagem_objetos[0] = -1
+    _ferragens._perfis_trilho_moldura[0] = None
     _solda._bolinha_hover[0] = None
     for timer in (_selecao._log_keymaps, _registrar_bibliotecas_adiado,
                   _hud._animar_piscada, _ferragens._conferir_ferragens,

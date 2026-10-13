@@ -40,7 +40,21 @@ CHAVE_ABERTURA = 'porta_fracao_aberta'     # na folha: 0 fechada .. 1 aberta
 CHAVE_CENTRO_FOLHA = 'porta_centro_mm'     # centro da folha FECHADA
 ABERTURA_MAX_GRAUS = {'GIRO': 110.0, 'BASCULANTE': 90.0}
 PISTAO_DA_LATERAL_MM = 25.0      # do eixo do pistao a' face interna
-TRILHO_ALTURA_MM = 15.0
+# Trilho do correr (foto do usuario): em CIMA, um U alto com um canal
+# fundo por folha -- ela entra e sobra folga para levantar e tirar; em
+# BAIXO, uma chapa baixa com uma guia por folha, onde ela fica em pe'.
+TRILHO_CIMA_ALTURA_MM = 35.0    # do perfil de cima inteiro
+TRILHO_CIMA_CHAPA_MM = 2.0      # a chapa do topo dele
+TRILHO_LEVANTAR_MM = 10.0       # da folha ate' a chapa do topo
+TRILHO_PAREDE_MM = 2.0          # paredes de fora dos dois perfis
+TRILHO_BAIXO_CHAPA_MM = 3.0     # a chapa do perfil de baixo
+TRILHO_GUIA_MM = 5.0            # altura da guia sob cada folha
+TRILHO_GUIA_LARGURA_MM = 4.0
+
+
+def altura_trilho_baixo():
+    """Do fundo do vao ate' o pe' da folha de correr (mm)."""
+    return TRILHO_BAIXO_CHAPA_MM + TRILHO_GUIA_MM
 NOME_MIRA_PISTAO = 'Cabinet Mira'
 
 
@@ -74,6 +88,24 @@ def _lado_da_folha(p, indice, n):
 # se passar da face) anda ate' a face interna -- copo e porta ficam.
 PASTA_FERRAGENS = os.path.join(os.path.dirname(__file__), 'ferragens')
 ARQUIVO_DOBRADICA_RETA = os.path.join(PASTA_FERRAGENS, 'dobradica_reta.blend')
+# Trilhos da porta de correr COM MOLDURA: os perfis de aluminio do
+# guarda-roupa do usuario (`extrair_trilho_moldura.py`), como poligonos da
+# secao (u = das costas para a frente, v = da base para cima), extrudados
+# na largura. Em cima, dois canais (meio de cada, medido no perfil); em
+# baixo, duas guias, cujo meio fica sob o meio dos canais.
+ARQUIVO_TRILHO_MOLDURA = os.path.join(PASTA_FERRAGENS, 'trilho_moldura.json')
+CANAIS_TRILHO_MOLDURA_MM = (16.75, 47.0)      # (costas, frente)
+MEIO_GUIAS_TRILHO_BAIXO_MM = 23.8
+_perfis_trilho_moldura = [None]
+
+
+def perfil_trilho_moldura(lado):
+    """{'profundidade_mm', 'altura_mm', 'poligonos'} do trilho 'CIMA' ou
+    'BAIXO' (lido uma vez)."""
+    if _perfis_trilho_moldura[0] is None:
+        with open(ARQUIVO_TRILHO_MOLDURA, encoding='utf-8') as arq:
+            _perfis_trilho_moldura[0] = json.load(arq)['trilhos']
+    return _perfis_trilho_moldura[0][lado]
 PREFIXO_FURO = 'Cabinet Copo '        # Boolean do copo na folha
 PECAS_REALCE_RIG = ('base', 'suporte', 'cabeca')
 # x mais externo (mm, raiz do asset, +X = para dentro da chapa) das pecas
@@ -171,6 +203,18 @@ def _movimento_rig(dentro, origem_mm, fracao):
     return raiz @ passo @ raiz.inverted()
 
 
+def _curso_correr(p, largura, n, l, x):
+    """(x fechada, x aberta) do CENTRO da folha de correr de largura `l`
+    fechada em `x` (mm, no vao): cada folha tem o seu trilho, entao corre
+    ate' a OUTRA ponta do vao, por cima das vizinhas (a unica e as da
+    esquerda vao para a direita)."""
+    esq, dir_ = _portas._inicios_porta(p)[:2]
+    inicio, fim = esq + l / 2.0, largura - dir_ - l / 2.0
+    if fim < inicio:
+        return x, x
+    return x, (fim if n == 1 or x < (inicio + fim) / 2.0 - 1e-6 else inicio)
+
+
 def _eixo_da_dobradica(p, e):
     """Altura do eixo de giro sobre as COSTAS da folha (mm).
 
@@ -194,10 +238,8 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
         return fechada
     abertura = p.get('abertura', 'GIRO')
     if abertura == 'CORRER':
-        # cada folha corre para o meio, por cima da vizinha
-        sobra = float(p.get('sobreposicao_mm', 0.0)) if n > 1 else 0.0
-        sentido = 1.0 if n == 1 or c.x < largura / 2.0 - 1e-6 else -1.0
-        passo = Vector((sentido * fracao * (l - sobra), 0.0, 0.0))
+        fechado, destino = _curso_correr(p, largura, n, l, c.x)
+        passo = Vector(((destino - fechado) * fracao, 0.0, 0.0))
         return Matrix.Translation(passo / 1000.0) @ fechada
     if _usa_rig(p):
         # Reta: o movimento medido no rig do usuario, a partir da raiz
@@ -408,18 +450,106 @@ def _ferragens_da_porta(p, largura, altura, folhas):
     if abertura == 'BASCULANTE' and folhas:
         saida += _pistoes_da_porta(p, largura, altura, folhas)
     elif abertura == 'CORRER' and folhas:
-        zs = [c[2] + s * e / 2.0 for _l, _a, e, c in folhas for s in (-1, 1)]
-        saida.append({'id': 'TRILHO', 'tipo': 'TRILHO', 'folha': None,
-                      'forma': 'CAIXA', 'cantos': [
-                          Vector((x, y, z)) for x in (0.0, largura)
-                          for y in (altura - TRILHO_ALTURA_MM, altura)
-                          for z in (min(zs), max(zs))]})
+        saida += _trilhos_correr(p, largura, altura, folhas)
     return saida
 
 
+def _caixa_mm(x0, x1, y0, y1, z0, z1):
+    return [Vector((x, y, z)) for x in (x0, x1) for y in (y0, y1)
+            for z in (z0, z1)]
+
+
+def _trilhos_correr(p, largura, altura, folhas):
+    """Blocagem dos trilhos (foto do usuario), o vao inteiro de largura.
+    CIMA: U alto -- chapa no topo e paredes por fora e entre os canais (no
+    vao entre os planos), um canal por folha. BAIXO: chapa baixa com uma
+    guia sob o meio de cada folha (ela fica em pe' nela). Com moldura,
+    os perfis do usuario (`_trilhos_moldura`)."""
+    if _portas._correr_sobreposta(p):
+        return _trilhos_moldura(p, largura, altura)
+    e = folhas[0][2]
+    entre = float(p.get('entre_planos_mm', 0.0))
+    frente = max(c[2] + e / 2.0 for _l, _a, _e, c in folhas)
+    fundo = min(c[2] - e / 2.0 for _l, _a, _e, c in folhas)
+    z0, z1 = fundo - TRILHO_PAREDE_MM, frente + TRILHO_PAREDE_MM
+    # do vao inteiro (embutida) ou da cobertura (sobreposta): pelas folhas
+    x0 = min(0.0, min(c[0] - l / 2.0 for l, _a, _e, c in folhas))
+    x1 = max(largura, max(c[0] + l / 2.0 for l, _a, _e, c in folhas))
+    y0 = min(c[1] - a / 2.0 for _l, a, _e, c in folhas) - altura_trilho_baixo()
+    y1 = (max(c[1] + a / 2.0 for _l, a, _e, c in folhas)
+          + TRILHO_LEVANTAR_MM + TRILHO_CIMA_CHAPA_MM)
+    paredes = [(frente, z1), (z0, fundo)]
+    for _l, _a, _e, c in folhas:
+        costas = c[2] - e / 2.0
+        if costas - 1e-6 > fundo:
+            paredes.append((costas - entre, costas))
+    topo = y1 - TRILHO_CIMA_CHAPA_MM
+    cima = [_caixa_mm(x0, x1, topo, y1, z0, z1)]
+    cima += [_caixa_mm(x0, x1, y1 - TRILHO_CIMA_ALTURA_MM, topo, a, b)
+             for a, b in paredes if b - a > 1e-6]
+    chapa = y0 + TRILHO_BAIXO_CHAPA_MM
+    baixo = [_caixa_mm(x0, x1, y0, chapa, z0, z1)]
+    meia = TRILHO_GUIA_LARGURA_MM / 2.0
+    baixo += [_caixa_mm(x0, x1, chapa, y0 + altura_trilho_baixo(),
+                        c[2] - meia, c[2] + meia)
+              for _l, _a, _e, c in folhas]
+    return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
+             'folha': None, 'forma': 'CAIXAS', 'caixas': caixas}
+            for lado, nome, caixas in (('CIMA', 'Trilho Superior', cima),
+                                       ('BAIXO', 'Trilho Inferior', baixo))]
+
+
+def _trilhos_moldura(p, largura, altura):
+    """Os dois perfis do usuario na largura da moldura (entre os
+    revestimentos): o de cima com a folha entrando `INSERCAO_CANAL_MM`
+    no canal, o de baixo sob o pe' dela, na base da moldura."""
+    lateral = float(p['lateral_mm'])
+    x = (-lateral, largura + lateral)
+    trilho_cima, _base, base_baixo, _fundo = _portas._alturas_moldura(p, altura)
+    costas = _portas.TRILHO_MOLDURA_COSTAS_MM
+    if _portas._trilho_leve(p):
+        # LEVE: o U de embutir do usuario dentro de cada canal fresado --
+        # embaixo na face de cima da base, em cima espelhado na face de
+        # baixo da base de cima. Chapa fina (pontas abertas), como o dele
+        leve = perfil_trilho_moldura('LEVE')
+        return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
+                 'folha': None, 'forma': 'PERFIL', 'x': x, 'aberto': True,
+                 'poligonos': [[(costas + u, y0 + sinal * v) for u, v in poligono]
+                               for poligono in leve['poligonos']]}
+                for lado, nome, y0, sinal in (
+                    ('CIMA', 'Trilho Superior', trilho_cima, -1.0),
+                    ('BAIXO', 'Trilho Inferior', base_baixo, 1.0))]
+    meio = costas + sum(CANAIS_TRILHO_MOLDURA_MM) / 2.0
+    lugares = (('CIMA', 'Trilho Superior', costas, trilho_cima),
+               ('BAIXO', 'Trilho Inferior', meio - MEIO_GUIAS_TRILHO_BAIXO_MM,
+                base_baixo))
+    return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
+             'folha': None, 'forma': 'PERFIL', 'x': x,
+             # secao no referencial da porta: (z, y) em mm
+             'poligonos': [[(z0 + u, y0 + v) for u, v in poligono]
+                           for poligono in perfil_trilho_moldura(lado)['poligonos']]}
+            for lado, nome, z0, y0 in lugares]
+
+
+def _limites_perfil(item):
+    """(lo, hi) em mm da caixa do perfil extrudado."""
+    pontos = [zy for poligono in item['poligonos'] for zy in poligono]
+    lo = Vector((item['x'][0], min(y for _z, y in pontos), min(z for z, _y in pontos)))
+    hi = Vector((item['x'][1], max(y for _z, y in pontos), max(z for z, _y in pontos)))
+    return lo, hi
+
+
 def _origem_da_ferragem(item):
+    if item['forma'] == 'PERFIL':
+        lo, hi = _limites_perfil(item)
+        return (lo + hi) / 2.0
     if item['forma'] == 'CAIXA':
         return sum(item['cantos'], Vector()) / len(item['cantos'])
+    if item['forma'] == 'CAIXAS':
+        cantos = [v for caixa in item['caixas'] for v in caixa]
+        lo = Vector(tuple(min(v[k] for v in cantos) for k in range(3)))
+        hi = Vector(tuple(max(v[k] for v in cantos) for k in range(3)))
+        return (lo + hi) / 2.0
     return Vector(item['origem'])
 
 
@@ -428,11 +558,35 @@ def _malha_da_ferragem(malha, item):
     pistao (cilindro de 0 a +Y: o Damped Track aponta o Y para a mira)."""
     bm = bmesh.new()
     try:
-        if item['forma'] == 'CAIXA':
-            lo = Vector(tuple(min(v[k] for v in item['cantos']) for k in range(3)))
-            hi = Vector(tuple(max(v[k] for v in item['cantos']) for k in range(3)))
-            bmesh.ops.create_cube(bm, size=1.0)
-            bmesh.ops.scale(bm, vec=(hi - lo) / 1000.0, verts=bm.verts)
+        if item['forma'] == 'PERFIL':
+            # cada poligono da secao extrudado de x0 a x1 (o perfil do
+            # usuario e' feito de pedacos sobrepostos: um prisma por pedaco)
+            origem = _origem_da_ferragem(item)
+            # `aberto` (o U do trilho leve): chapa fina, contorno sem
+            # fechar e sem tampas, como a malha do usuario
+            aberto = item.get('aberto', False)
+            for poligono in item['poligonos']:
+                pontas = [[bm.verts.new((Vector((x, y, z)) - origem) / 1000.0)
+                           for z, y in poligono] for x in item['x']]
+                n = len(poligono)
+                for i in range(n - 1 if aberto else n):
+                    j = (i + 1) % n
+                    bm.faces.new((pontas[0][i], pontas[0][j],
+                                  pontas[1][j], pontas[1][i]))
+                if not aberto:
+                    bm.faces.new(pontas[0][::-1])
+                    bm.faces.new(pontas[1])
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        elif item['forma'] in {'CAIXA', 'CAIXAS'}:
+            # varias caixas numa malha so', em volta da origem do item
+            origem = _origem_da_ferragem(item)
+            for cantos in item.get('caixas') or [item['cantos']]:
+                lo = Vector(tuple(min(v[k] for v in cantos) for k in range(3)))
+                hi = Vector(tuple(max(v[k] for v in cantos) for k in range(3)))
+                novos = bmesh.ops.create_cube(bm, size=1.0)['verts']
+                bmesh.ops.scale(bm, vec=(hi - lo) / 1000.0, verts=novos)
+                bmesh.ops.translate(bm, vec=((lo + hi) / 2.0 - origem) / 1000.0,
+                                    verts=novos)
         else:
             raio = item['raio'] / 1000.0
             fundo = item['comprimento'] / 1000.0
@@ -504,6 +658,8 @@ TIPO_DA_PECA_RIG = {'raiz': 'DOBRADICA_RIG', 'base': 'DOBRADICA',
                     'cabeca': 'CANECO', 'furo': 'DOBRADICA_FURO'}
 # o que so' faz o rig funcionar nao aparece (o Blender ainda os avalia)
 PECAS_OCULTAS_RIG = ('furo', 'controle', 'armacao', 'armacao_ik')
+
+
 def ocultar_pecas_do_rig(objetos=None):
     """Esconde de novo o que so' faz o rig funcionar (controlador, furo do
     copo, armacoes). Relato do usuario: o arco do controlador aparecia na
@@ -865,7 +1021,8 @@ TIPOS_SELECAO_FERRAGEM = {
     'DOBRADICA': 'DOBRADICA', 'CANECO': 'DOBRADICA',
     'DOBRADICA_PECA': 'DOBRADICA',      # braco, pino, parafuso do rig
     'PISTAO_CORPO': 'PISTAO', 'PISTAO_HASTE': 'PISTAO',
-    'PISTAO_SUPORTE': 'PISTAO'}
+    'PISTAO_SUPORTE': 'PISTAO',
+    'TRILHO': 'TRILHO'}             # do correr: so' o arame, nada a editar
 _ferragens_selecionadas = [None]   # {'portas': [nomes], 'tipos': [..]}
 _arraste_ferragem = [None]         # (grupo, tipo) do controlador arrastado
 ORDEM_BOUND_BOX = (0, 1, 3, 2, 4, 5, 7, 6)   # = a ordem de ARESTAS_CAIXA
@@ -952,7 +1109,7 @@ def _caixas_ferragens(grupo, tipos):
     caneco gira com a folha e o pistao estica pela mira. Nao e' desenhado
     (o realce e' o arame, `_arame_ferragens`): mede onde cada uma esta'."""
     ordem = ('DOBRADICA', 'CANECO', 'PISTAO_CORPO', 'PISTAO_HASTE',
-             'PISTAO_SUPORTE', 'DOBRADICA_PECA')
+             'PISTAO_SUPORTE', 'DOBRADICA_PECA', 'TRILHO')
     # do rig da reta, so' o volume das pecas grandes (base, suporte e
     # cabeca): parafuso e pino viravam um enxame de caixinhas
     ferragens = sorted(

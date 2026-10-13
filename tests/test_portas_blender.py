@@ -24,7 +24,7 @@ def parametros(**alteracoes):
              espessura_mm=18.0, lateral_mm=18.0, folga_mm=0.0,
              entre_folhas_mm=2.0, afastamento_mm=0.0,
              recuo_embutida_mm=0.0, recuo_correr_mm=30.0,
-             sobreposicao_mm=20.0, entre_planos_mm=2.0)
+             entre_planos_mm=2.0)
     p.update(alteracoes)
     return p
 
@@ -134,30 +134,52 @@ class TestPortas(unittest.TestCase):
                             addon.portas._calcular_folhas_portas(
                                 600, 800, parametros(abertura=abertura, folhas=n))
 
-    def test_correr_planos_sem_colisao_e_recuo(self):
+    def test_correr_um_trilho_por_folha_e_recuo(self):
+        # pedido do usuario: cada folha no SEU trilho (plano proprio), a 1a
+        # na frente; o recuo mede a face mais externa
+        r = addon.portas.RESPIRO_PORTA_MM
+        util = 600 - 2 * r
         for n in range(1, 5):
             folhas = addon.portas._calcular_folhas_portas(
                 600, 800, parametros(abertura='CORRER', folhas=n))
             # o respiro de cada lado: nem a de correr encosta na lateral
-            r = addon.portas.RESPIRO_PORTA_MM
             self.assertAlmostEqual(folhas[0][3][0] - folhas[0][0] / 2, r)
-            self.assertAlmostEqual(folhas[-1][3][0] + folhas[-1][0] / 2, 600 - r)
+            if n == 1:
+                # a unica tem METADE do vao: sobra para onde correr
+                self.assertAlmostEqual(folhas[0][0], util / 2)
+            else:
+                self.assertAlmostEqual(folhas[-1][3][0] + folhas[-1][0] / 2,
+                                       600 - r)
             for i, (l, a, e, centro) in enumerate(folhas):
-                self.assertEqual(centro[2] + e / 2, -30 - (i % 2) * 20)
+                self.assertEqual(centro[2] + e / 2, -30 - i * 20)
                 if i:
                     anterior = folhas[i - 1]
                     self.assertAlmostEqual(anterior[3][0] + l / 2 -
                                            (centro[0] - l / 2), 20)
-                if i >= 2:
-                    self.assertGreaterEqual(centro[0] - l / 2,
-                                            folhas[i - 2][3][0] + l / 2)
+
+    def test_correr_largura_da_folha_digitada(self):
+        r = addon.portas.RESPIRO_PORTA_MM
+        util = 600 - 2 * r
+        chave = addon.portas.CHAVE_LARGURA_CORRER
+        for n in range(1, 5):
+            folhas = addon.portas._calcular_folhas_portas(
+                600, 800, parametros(abertura='CORRER', folhas=n,
+                                     **{chave: 350.0}))
+            self.assertEqual({f[0] for f in folhas}, {350.0})
+            # espalhadas no vao: 1a a' esquerda, ultima a' direita
+            self.assertAlmostEqual(folhas[0][3][0] - 175, r)
+            if n > 1:
+                self.assertAlmostEqual(folhas[-1][3][0] + 175, 600 - r)
+        # maior que o vao: fica do vao (o modulo encolheu)
+        (folha,) = addon.portas._calcular_folhas_portas(
+            600, 800, parametros(abertura='CORRER', **{chave: 900.0}))
+        self.assertAlmostEqual(folha[0], util)
 
     def test_medidas_invalidas(self):
         for alteracao in [dict(folga_mm=500), dict(entre_folhas_mm=1000, folhas=2),
                           dict(dobradica='ESCOLHER'), dict(espessura_mm=0),
                           dict(folga_mm=float('nan')),
-                          dict(abertura='CORRER', recuo_correr_mm=0),
-                          dict(abertura='CORRER', folhas=4, sobreposicao_mm=200)]:
+                          dict(abertura='CORRER', recuo_correr_mm=0)]:
             with self.subTest(alteracao=alteracao), self.assertRaises(ValueError):
                 addon.portas._calcular_folhas_portas(600, 800, parametros(**alteracao))
 
@@ -218,10 +240,13 @@ class TestPortas(unittest.TestCase):
         grupo = self.criar(abertura='CORRER', folhas=4)
         folhas = addon.portas._folhas_portas(grupo)
         self.assertEqual(len(folhas), 4)
-        # vao, grupo, 4 solidos e o trilho (ferragem da Fase 3)
-        self.assertEqual(len(bpy.data.objects), 7)
-        self.assertEqual([o[addon.ferragens.CHAVE_FERRAGEM]
-                          for o in addon.ferragens._ferragens_portas(grupo)], ['TRILHO'])
+        # vao, grupo, 4 solidos e os trilhos de cima e de baixo
+        self.assertEqual(len(bpy.data.objects), 8)
+        trilhos = addon.ferragens._ferragens_portas(grupo)
+        self.assertEqual(sorted(o.name for o in trilhos),
+                         ['Trilho Inferior', 'Trilho Superior'])
+        self.assertEqual({o[addon.ferragens.CHAVE_FERRAGEM] for o in trilhos},
+                         {'TRILHO'})
         for folha in folhas:
             self.assertEqual(len(folha.data.vertices), 8)
             self.assertEqual(len(folha.data.polygons), 6)
@@ -234,7 +259,7 @@ class TestPortas(unittest.TestCase):
         addon.chapas.normalizar_chapas()
         addon.modulos.absorver_conjuntos()
         self.assertEqual(len(addon.portas._folhas_portas(grupo)), 4)
-        self.assertEqual(len(grupo.children), 5)
+        self.assertEqual(len(grupo.children), 6)
         self.assertEqual(len(addon.selecao.familia_de(folhas[0])), 5)
 
     def test_posicao_em_mundo_e_origem(self):
@@ -1410,19 +1435,401 @@ class TestPortas(unittest.TestCase):
         self.assertEqual(addon.portas._editar_parametro_porta(
             bpy.context, grupo, 'abertura', 'CORRER'), '')
         self.assertEqual([o[addon.ferragens.CHAVE_FERRAGEM]
-                          for o in addon.ferragens._ferragens_portas(grupo)], ['TRILHO'])
+                          for o in addon.ferragens._ferragens_portas(grupo)],
+                         ['TRILHO', 'TRILHO'])
         esquerda, direita = addon.portas._folhas_portas(grupo)
         p = grupo['porta_parametros']
+        util = (grupo['porta_vao_largura_mm']
+                - 2 * addon.portas.RESPIRO_PORTA_MM - 2 * p['folga_mm'])
         x_vao = grupo.matrix_world.to_3x3() @ Vector((1, 0, 0))
+        # cada uma no seu trilho: corre o vao INTEIRO, ate' a outra ponta
         for folha, sentido in ((esquerda, 1), (direita, -1)):
             antes = folha.matrix_world.translation.copy()
             addon.ferragens._definir_abertura(bpy.context, folha, 1.0)
             passo = (folha.matrix_world.translation - antes) * 1000.0
             self.assertAlmostEqual(passo.dot(x_vao.normalized()),
-                                   sentido * (folha.chapa_largura_mm
-                                              - p['sobreposicao_mm']), places=3)
-        self.assertEqual(addon.portas_viewport._texto_abertura(esquerda), '%d mm' % round(
-            esquerda.chapa_largura_mm - p['sobreposicao_mm']))
+                                   sentido * (util - folha.chapa_largura_mm),
+                                   places=3)
+        self.assertEqual(addon.portas_viewport._texto_abertura(esquerda),
+                         '%d mm' % round(util - esquerda.chapa_largura_mm))
+
+    def test_correr_folha_unica_corre_de_um_lado_ao_outro(self):
+        # pedido do usuario: a unica nasce com METADE do vao, a' esquerda,
+        # e o slider a leva ate' a direita; a largura se edita na gaveta
+        conj = self.nicho()
+        grupo = self.porta_no_nicho(conj)
+        self.assertEqual(addon.portas._editar_parametro_porta(
+            bpy.context, grupo, 'folhas', 1), '')
+        self.assertEqual(addon.portas._editar_parametro_porta(
+            bpy.context, grupo, 'abertura', 'CORRER'), '')
+        (folha,) = addon.portas._folhas_portas(grupo)
+        p = grupo['porta_parametros']
+        r = addon.portas.RESPIRO_PORTA_MM + p['folga_mm']
+        L = grupo['porta_vao_largura_mm']
+        util = L - 2 * r
+        self.assertAlmostEqual(folha.chapa_largura_mm, util / 2, places=3)
+        m = grupo.matrix_world.inverted()
+
+        def bordas():
+            bpy.context.view_layer.update()
+            xs = [(m @ (folha.matrix_world @ v.co)).x * 1000.0
+                  for v in folha.data.vertices]
+            return min(xs), max(xs)
+        self.assertAlmostEqual(bordas()[0], r, places=2)
+        addon.ferragens._definir_abertura(bpy.context, folha, 1.0)
+        self.assertAlmostEqual(bordas()[1], L - r, places=2)
+        # o slider vai do centro fechado ao aberto: a bolinha fica sob ela
+        a, b = addon.portas_viewport._slider_no_mundo(folha)
+        self.assertAlmostEqual(((b - a) * 1000.0).length, util / 2, places=2)
+        meio = (folha.matrix_world.translation - b) * 1000.0
+        self.assertAlmostEqual(meio.dot(grupo.matrix_world.to_3x3().col[0]
+                                        .normalized()), 0.0, places=2)
+        # a largura e' o campo L da gaveta, editavel (digitar ou arrastar)
+        grupo.select_set(True)
+        bpy.context.view_layer.objects.active = grupo
+        campos = addon.gaveta._medidas_da_porta(grupo, grupo)
+        self.assertEqual(campos[0][::2], ('Largura', 'ui_porta_largura_folha'))
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(
+            bpy.context, 'porta', grupo.name, 'ui_porta_largura_folha', 0.4))
+        (folha,) = addon.portas._folhas_portas(grupo)
+        self.assertAlmostEqual(folha.chapa_largura_mm, 400.0, places=3)
+        self.assertAlmostEqual(bordas()[1], L - r, places=2)    # segue aberta
+        # outra tipologia: a largura volta a' do padrao
+        self.assertEqual(addon.portas._editar_parametro_porta(
+            bpy.context, grupo, 'folhas', 2), '')
+        self.assertNotIn(addon.portas.CHAVE_LARGURA_CORRER,
+                         grupo['porta_parametros'])
+
+    def test_correr_com_moldura_cobre_o_modulo_e_traz_a_moldura(self):
+        # Pedido do usuario: o correr que cobre a chapa (cliques de fora para
+        # dentro) avanca na frente do modulo dentro de uma MOLDURA --
+        # revestimento nas laterais, base + testeira em cima, base + rodape
+        # embaixo, tudo de 15 -- e as folhas cobrem a frente INTEIRA dele.
+        pt, f = addon.portas, addon.ferragens
+        cobre = {k: 1.0 for k in pt.COBERTURAS_LADOS}
+        p = parametros(abertura='CORRER', folhas=2, moldura_mm=15.0,
+                       rodape_mm=100.0, testeira_mm=80.0, **cobre)
+        self.assertTrue(pt._correr_sobreposta(p))
+        self.assertFalse(pt._correr_sobreposta(parametros(abertura='CORRER', folhas=2)))
+        folhas = pt._calcular_folhas_portas(600, 800, p)
+        borda = 18 - pt.RESPIRO_PORTA_MM
+        self.assertAlmostEqual(folhas[0][3][0] - folhas[0][0] / 2, -borda)
+        self.assertAlmostEqual(folhas[1][3][0] + folhas[1][0] / 2, 600 + borda)
+        trilho_baixo = f.perfil_trilho_moldura('BAIXO')['altura_mm']
+        for _l, a, _e, c in folhas:   # do trilho (sobre a base) ao topo do modulo
+            self.assertAlmostEqual(c[1] - a / 2, -18.0 + trilho_baixo, places=5)
+            self.assertAlmostEqual(c[1] + a / 2, 818.0)
+        # uma folha em cada canal do trilho do usuario, a 1a na frente
+        costas, frente = f.CANAIS_TRILHO_MOLDURA_MM
+        self.assertAlmostEqual(folhas[0][3][2], pt.TRILHO_MOLDURA_COSTAS_MM + frente)
+        self.assertAlmostEqual(folhas[1][3][2], pt.TRILHO_MOLDURA_COSTAS_MM + costas)
+        # trilhos = os perfis do usuario, entre os revestimentos
+        itens = f._ferragens_da_porta(p, 600, 800, folhas)
+        trilhos = {i['id']: i for i in itens if i['tipo'] == 'TRILHO'}
+        self.assertEqual({t['forma'] for t in trilhos.values()}, {'PERFIL'})
+        for item in trilhos.values():
+            self.assertEqual(tuple(item['x']), (-18.0, 618.0))
+        lo_c, hi_c = f._limites_perfil(trilhos['TRILHO_CIMA'])
+        lo_b, hi_b = f._limites_perfil(trilhos['TRILHO_BAIXO'])
+        self.assertAlmostEqual(lo_c.y, 818.0 - pt.INSERCAO_CANAL_MM, places=3)  # no canal
+        self.assertAlmostEqual(hi_b.y, -18.0 + trilho_baixo, places=3)  # o pe' dela
+        malha = bpy.data.meshes.new('perfil')
+        f._malha_da_ferragem(malha, trilhos['TRILHO_CIMA'])
+        self.assertEqual(len(malha.polygons),
+                         sum(len(pol) + 2 for pol in trilhos['TRILHO_CIMA']['poligonos']))
+        bpy.data.meshes.remove(malha)
+        _pecas, pontos = addon.arame._arame_dos_itens(list(trilhos.values()))
+        self.assertTrue(pontos)                                        # previa do wizard
+        # a moldura
+        pecas = {k: caixa for k, _n, caixa, _e in pt._pecas_moldura(p, 600, 800, 300.0)}
+        self.assertEqual(set(pecas), {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA',
+                                      'TESTEIRA', 'BASE_BAIXO', 'RODAPE'})
+        avanco = pt._avanco_moldura(p)
+        esq, dir_ = pecas['LATERAL_ESQ'], pecas['LATERAL_DIR']
+        self.assertEqual(esq[:2], (-33.0, -18.0))        # por fora da lateral
+        self.assertEqual(dir_[:2], (618.0, 633.0))
+        self.assertEqual(esq[4:], (-300.0, avanco))      # das costas a' frente
+        testeira, rodape = pecas['TESTEIRA'], pecas['RODAPE']
+        self.assertAlmostEqual(testeira[5] - testeira[4], 15.0)
+        self.assertAlmostEqual(testeira[3] - testeira[2], 80.0)
+        self.assertGreater(testeira[4], max(c[2] + e / 2 for _l, _a, e, c in folhas))
+        self.assertAlmostEqual(rodape[3] - rodape[2], 100.0)
+        self.assertAlmostEqual(pecas['BASE_CIMA'][2], hi_c.y, places=3)   # sobre o trilho
+        self.assertAlmostEqual(pecas['BASE_BAIXO'][3], lo_b.y, places=3)  # sob o trilho
+        self.assertAlmostEqual(esq[2], rodape[2])               # do piso
+        self.assertAlmostEqual(esq[3], pecas['BASE_CIMA'][3])   # ao teto
+        # a base de baixo encosta no fundo do modulo (y = -18): sem fresta
+        # entre ela e o modulo (print do usuario)
+        self.assertAlmostEqual(pecas['BASE_BAIXO'][3], -18.0)
+        self.assertEqual(pecas['BASE_BAIXO'][4], 0.0)          # da frente dele
+        # rodape e testeira zerados: as pecas somem; embutida: sem moldura
+        sem = {k: caixa for k, _n, caixa, _e in pt._pecas_moldura(
+            dict(p, rodape_mm=0.0, testeira_mm=0.0), 600, 800)}
+        self.assertEqual(set(sem), {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA',
+                                    'BASE_BAIXO'})
+        # SEM BASE: tudo no chao, no nivel do fundo do modulo -- nada abaixo
+        # dele; o trilho na base e a folha no trilho
+        self.assertAlmostEqual(sem['BASE_BAIXO'][2], -18.0)
+        self.assertAlmostEqual(sem['LATERAL_ESQ'][2], -18.0)
+        sem_p = dict(p, rodape_mm=0.0)
+        self.assertAlmostEqual(pt._pe_da_folha_moldura(sem_p),
+                               -18.0 + 15.0 + trilho_baixo, places=5)
+        folhas_sem = pt._calcular_folhas_portas(600, 800, sem_p)
+        self.assertAlmostEqual(folhas_sem[0][3][1] - folhas_sem[0][1] / 2,
+                               pt._pe_da_folha_moldura(sem_p), places=5)
+        _lo, hi_sem = f._limites_perfil(next(
+            i for i in f._ferragens_da_porta(sem_p, 600, 800, folhas_sem)
+            if i['id'] == 'TRILHO_BAIXO'))
+        self.assertAlmostEqual(_lo.y, sem['BASE_BAIXO'][3], places=3)
+        self.assertEqual(pt._pecas_moldura(parametros(abertura='CORRER', folhas=2),
+                                           600, 800), [])
+
+    def test_trilho_leve_tem_canais_fresados_e_folha_de_15(self):
+        # Pedido do usuario: trilho LEVE = o do "Trilho exemplo" -- dois
+        # canais fresados nas bases da moldura com o U de embutir dentro; o
+        # PESADO e' o de aluminio. Trocar na porta pronta refaz tudo.
+        pt, f = addon.portas, addon.ferragens
+        conj = self.nicho()
+        L, A, P, E = pt._caixa_do_modulo(conj)
+        y = -P / 2
+        grupo = self.porta_por_quatro_cliques(
+            conj, (-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E),
+            (L / 2, y, 0), abertura='CORRER', folhas=2, trilho='LEVE')
+        p = dict(grupo['porta_parametros'])
+        leve = f.perfil_trilho_moldura('LEVE')
+        self.assertEqual(p['trilho'], 'LEVE')
+        folhas = pt._folhas_portas(grupo)
+        for folha in folhas:            # os canais ficam a 17,3 mm: folha de 15
+            self.assertAlmostEqual(folha.chapa_espessura_mm, 15.0)
+        # uma folha no meio de cada canal, a 1a na frente
+        calculadas = pt._calcular_folhas_portas(
+            grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'], p)
+        costas, frente = leve['canais_mm']
+        self.assertAlmostEqual(calculadas[0][3][2], pt.TRILHO_MOLDURA_COSTAS_MM + frente)
+        self.assertAlmostEqual(calculadas[1][3][2], pt.TRILHO_MOLDURA_COSTAS_MM + costas)
+        # pe' da folha na aba do U, rente a' base; topo com folga ate' a de cima
+        _t, base_cima, base_baixo, _fundo = pt._alturas_moldura(p, grupo['porta_vao_altura_mm'])
+        for _l, a, _e, c in calculadas:
+            self.assertAlmostEqual(c[1] - a / 2, base_baixo + leve['aba_mm'], places=5)
+            self.assertAlmostEqual(base_cima - (c[1] + a / 2),
+                                   pt.FOLGA_TOPO_TRILHO_LEVE_MM, places=5)
+        # as duas bases com os canais na malha (em cima da de baixo, embaixo
+        # da de cima), o U dentro deles
+        bases = {o['porta_moldura_peca']: o for o in pt._moldura_da_porta(grupo)
+                 if o['porta_moldura_peca'] in {'BASE_BAIXO', 'BASE_CIMA'}}
+        self.assertEqual(set(bases), {'BASE_BAIXO', 'BASE_CIMA'})
+        for chave, lado in (('BASE_BAIXO', 1), ('BASE_CIMA', -1)):
+            base = bases[chave]
+            self.assertEqual(base['chapa_canal_lado'], lado)
+            self.assertEqual(len(base['chapa_canais']), 2)
+            self.assertEqual(len(base.data.vertices), 2 * (4 + 4 * 2))
+            zs = sorted({round(v.co.z * 1000, 3) for v in base.data.vertices})
+            self.assertEqual(len(zs), 3)        # face, fundo do canal e a outra face
+        trilhos = {i['id']: i for i in f._ferragens_da_porta(
+            p, grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'], calculadas)
+            if i['tipo'] == 'TRILHO'}
+        lo, hi = f._limites_perfil(trilhos['TRILHO_BAIXO'])
+        self.assertAlmostEqual(hi.y, base_baixo + leve['aba_mm'], places=3)
+        self.assertAlmostEqual(lo.y, base_baixo + min(v for pol in leve['poligonos']
+                                                      for _u, v in pol), places=3)
+        self.assertLess(lo.y, base_baixo)                   # o U dentro do canal
+        self.assertTrue(trilhos['TRILHO_BAIXO']['aberto'])
+        malha = bpy.data.meshes.new('u')
+        f._malha_da_ferragem(malha, trilhos['TRILHO_BAIXO'])
+        self.assertEqual(len(malha.polygons),
+                         sum(len(pol) - 1 for pol in leve['poligonos']))   # sem tampas
+        bpy.data.meshes.remove(malha)
+        # a moldura do leve e' mais rasa (o trilho tem 27 mm, o pesado 64)
+        self.assertLess(pt._avanco_moldura(p), pt._avanco_moldura(dict(p, trilho='PESADO')))
+        # e nao tem fechamento frontal em cima (print do usuario): sem testeira,
+        # nem o campo dela na aba
+        pecas = {o['porta_moldura_peca'] for o in pt._moldura_da_porta(grupo)}
+        self.assertNotIn('TESTEIRA', pecas)
+        self.assertIn('RODAPE', pecas)
+        addon.hud._selecionar_porta_hud(bpy.context, folhas[0], 'PORTA')
+        bpy.context.scene.cabinet_aba = 'PORTAS'
+        campos = {v[5][2] for v in addon.gaveta._widgets_gaveta(bpy.context, 564, 1600)
+                  if v[5] and v[5][0] == 'medida'}
+        self.assertNotIn('ui_porta_testeira', campos)
+        self.assertIn('ui_porta_rodape', campos)
+        # trocar para o pesado na porta pronta: folha de 18, bases sem canais
+        nomes = {k: o.name for k, o in bases.items()}
+        self.assertEqual(pt._editar_parametro_porta(bpy.context, grupo, 'trilho', 'PESADO'), '')
+        for folha in pt._folhas_portas(grupo):
+            self.assertAlmostEqual(folha.chapa_espessura_mm, 18.0)
+        for nome in nomes.values():
+            base = bpy.data.objects[nome]
+            self.assertNotIn('chapa_canais', base)
+            self.assertEqual(len(base.data.vertices), 8)       # caixa de novo
+        # o pesado tem a testeira de volta
+        self.assertIn('TESTEIRA', {o['porta_moldura_peca']
+                                   for o in pt._moldura_da_porta(grupo)})
+
+    def test_porta_com_moldura_no_modulo(self):
+        # Metade-metade (1-2 no mesmo canto de dentro, 3-4 de dentro para
+        # fora) respondido "com moldura": vale o modulo inteiro e as seis
+        # pecas nascem como chapas de 15, as folhas de 18 (pedido do usuario)
+        pt = addon.portas
+        conj = self.nicho()
+        L, A, P, E = pt._caixa_do_modulo(conj)
+        y = -P / 2
+        grupo = self.porta_por_quatro_cliques(
+            conj, (-L / 2 + E, y, A - E), (-L / 2 + E, y, A - E),
+            (L / 2 - E, y, E), (L / 2, y, 0), abertura='CORRER', folhas=2,
+            tipo_correr='MOLDURA')
+        p = grupo['porta_parametros']
+        self.assertEqual([p[k] for k in pt.COBERTURAS_LADOS], [1.0] * 4)
+        self.assertAlmostEqual(grupo['porta_vao_largura_mm'], L - 2 * E, places=3)
+        moldura = {o['porta_moldura_peca']: o for o in pt._moldura_da_porta(grupo)}
+        self.assertEqual(len(moldura), 6)
+        # ja' ao criar, o modulo mede com a moldura (sem esperar o timer)
+        self.assertAlmostEqual(conj.conj_largura_mm, L + 2 * 15.0, places=2)
+        for o in moldura.values():
+            self.assertIn(addon.chapas.MARCA_CHAPA, o)
+            self.assertEqual(o.parent, grupo)
+            self.assertAlmostEqual(o.chapa_espessura_mm, 15.0)
+        for folha in pt._folhas_portas(grupo):
+            self.assertAlmostEqual(folha.chapa_espessura_mm, 18.0)
+        # nao entram nas operacoes do modulo (como as folhas)
+        self.assertFalse(set(moldura.values())
+                         & set(addon.modulos._chapas_do_conjunto(conj)))
+
+        def caixa_local(nome):
+            bpy.context.view_layer.update()
+            o = bpy.data.objects[nome]
+            inv = conj.matrix_world.inverted()
+            vs = [inv @ (o.matrix_world @ v.co) * 1000.0 for v in o.data.vertices]
+            return ([min(v[i] for v in vs) for i in range(3)],
+                    [max(v[i] for v in vs) for i in range(3)])
+        lo, hi = caixa_local(moldura['LATERAL_ESQ'].name)
+        self.assertAlmostEqual(hi[0], -L / 2, places=3)       # encosta por fora
+        self.assertAlmostEqual(lo[0], -L / 2 - 15.0, places=3)
+        self.assertAlmostEqual(hi[1], P / 2, places=3)         # das costas
+        self.assertAlmostEqual(lo[1], -P / 2 - pt._avanco_moldura(p), places=3)
+        # o E de uma peca vale para a moldura inteira
+        nomes = {k: o.name for k, o in moldura.items()}
+        moldura['TESTEIRA'].chapa_espessura_mm = 20.0
+        self.assertAlmostEqual(grupo['porta_parametros']['moldura_mm'], 20.0)
+        for nome in nomes.values():
+            self.assertAlmostEqual(bpy.data.objects[nome].chapa_espessura_mm, 20.0)
+        # a moldura conta como o armario (pedido do usuario): L/A/P do modulo
+        # sao do ENVELOPE, e mudar a largura leva a moldura ate' ela
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(conj.conj_largura_mm, L + 2 * 20.0, places=2)
+        envelope = addon.modulos.medir_conjunto(conj)
+        self.assertGreater(envelope[1], A + 100.0)            # rodape + topo
+        self.assertAlmostEqual(envelope[2], P + pt._avanco_moldura(
+            dict(grupo['porta_parametros'])), places=2)
+        conj.conj_largura_mm = L + 100
+        bpy.context.view_layer.update()
+        lo, hi = caixa_local(nomes['LATERAL_DIR'])
+        self.assertAlmostEqual(hi[0], (L + 100) / 2, places=3)   # a borda de fora
+        self.assertAlmostEqual(conj.conj_largura_mm, L + 100, places=2)
+        self.assertAlmostEqual(pt._caixa_do_modulo(conj)[0], L + 60, places=2)  # o corpo
+        # a caixa da HUD do modulo e' a do envelope
+        bpy.ops.object.select_all(action='DESELECT')
+        conj.select_set(True)
+        bpy.context.view_layer.objects.active = conj
+        (_obj, _modo, pecas), = addon.hud._itens_da_selecao(bpy.context)
+        self.assertTrue(set(addon.portas._moldura_da_porta(grupo)) <= set(pecas))
+
+    def test_metade_metade_embutida_usa_o_vao_de_dentro(self):
+        # O mesmo gesto, respondido "embutida": a medida de DENTRO da chapa,
+        # mesmo com o 4o clique no canto de fora; nada de moldura
+        pt = addon.portas
+        conj = self.nicho()
+        L, A, P, E = pt._caixa_do_modulo(conj)
+        y = -P / 2
+        grupo = self.porta_por_quatro_cliques(
+            conj, (-L / 2 + E, y, A - E), (-L / 2 + E, y, A - E),
+            (L / 2, y, 0), (L / 2, y, 0), abertura='CORRER', folhas=2,
+            tipo_correr='EMBUTIDA')
+        p = grupo['porta_parametros']
+        self.assertEqual([p[k] for k in pt.COBERTURAS_LADOS], [0.0] * 4)
+        self.assertAlmostEqual(grupo['porta_vao_largura_mm'], L - 2 * E, places=3)
+        self.assertAlmostEqual(grupo['porta_vao_altura_mm'], A - 2 * E, places=3)
+        self.assertFalse(pt._moldura_da_porta(grupo))
+
+    def test_wizard_pergunta_embutida_ou_moldura_so_no_metade_metade(self):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        dentro, fora = Vector((0.018, 0, 0.018)), Vector((0.6, 0, 0.4))
+        perto = Vector((0.582, 0, 0.382))
+        caso = lambda *pts: SimpleNamespace(_pontos=[(p, None) for p in pts])
+        self.assertTrue(tipo._metade_metade(caso(dentro, dentro, perto, fora)))
+        self.assertTrue(tipo._metade_metade(caso(Vector(), dentro, fora, fora)))
+        self.assertFalse(tipo._metade_metade(caso(dentro, dentro, perto, perto)))
+        self.assertFalse(tipo._metade_metade(caso(Vector(), dentro, perto, fora)))
+        # correr escolhido no metade-metade: a caixa pergunta; a resposta cria
+        w = {'etapa': 'TIPO', 'escolhas': {'folhas': 2}, 'embutida': False}
+        op = SimpleNamespace(_w=w, _metade_metade=lambda: True,
+                             _ir=lambda etapa, mouse=None: w.update(etapa=etapa),
+                             _criar=lambda ctx: 'CRIADA')
+        self.assertIsNone(tipo._escolher_abertura(op, None, 'CORRER'))
+        self.assertEqual(w['etapa'], 'MOLDURA')
+        # com moldura, mais uma pergunta: tem base (rodape)? (pedido do usuario)
+        self.assertIsNone(tipo._escolher(op, None, 'MOLDURA'))
+        self.assertEqual(w['escolhas']['tipo_correr'], 'MOLDURA')
+        self.assertEqual(w['etapa'], 'BASE')
+        self.assertIsNone(tipo._escolher(op, None, 'SEM'))
+        self.assertEqual(w['escolhas']['rodape_mm'], 0.0)
+        # e o trilho (pedido do usuario): pesado ou leve -- a resposta cria
+        self.assertEqual(w['etapa'], 'TRILHO')
+        self.assertEqual(tipo._escolher(op, None, 'LEVE'), 'CRIADA')
+        self.assertEqual(w['escolhas']['trilho'], 'LEVE')
+        # embutida: nada de base, cria direto
+        w.update(etapa='MOLDURA', escolhas={'folhas': 2})
+        self.assertEqual(tipo._escolher(op, None, 'EMBUTIDA'), 'CRIADA')
+        self.assertNotIn('rodape_mm', w['escolhas'])
+        # gesto de fora para dentro (com moldura, sem duvida): so' a base
+        op._metade_metade = lambda: False
+        w.update(etapa='TIPO', escolhas={'folhas': 2}, embutida=False)
+        self.assertIsNone(tipo._escolher_abertura(op, None, 'CORRER'))
+        self.assertEqual(w['etapa'], 'BASE')
+        self.assertIsNone(tipo._escolher(op, None, 'COM'))
+        self.assertEqual(w['escolhas']['rodape_mm'],
+                         addon.portas.PADRAO_MEDIDAS_PORTAS['porta_rodape_mm'])
+        self.assertEqual(tipo._escolher(op, None, 'PESADO'), 'CRIADA')
+        # embutido pelos cliques: cria direto
+        w.update(etapa='TIPO', escolhas={'folhas': 2}, embutida=True)
+        self.assertEqual(tipo._escolher_abertura(op, None, 'CORRER'), 'CRIADA')
+        # por cima, 2 folhas: Giro ou Correr (com moldura), nao mais giro direto
+        self.assertIn('CORRER', dict(addon.portas.TIPOS_SOBREPOSTA))
+
+    def test_correr_trilhos_como_os_de_verdade(self):
+        # a foto do usuario: em CIMA um U alto, um canal fundo por folha
+        # (ela entra e sobra folga para levantar); em BAIXO uma chapa baixa
+        # com uma guia sob cada folha, que fica em pe' nela
+        f = addon.ferragens
+        p = parametros(abertura='CORRER', folhas=3)
+        folhas = addon.portas._calcular_folhas_portas(600, 800, p)
+        itens = f._ferragens_da_porta(p, 600, 800, folhas)
+        trilhos = {i['id']: i for i in itens if i['tipo'] == 'TRILHO'}
+        self.assertEqual(set(trilhos), {'TRILHO_CIMA', 'TRILHO_BAIXO'})
+        cima, baixo = trilhos['TRILHO_CIMA'], trilhos['TRILHO_BAIXO']
+        # chapa do topo, 2 paredes de fora e 2 entre os 3 canais
+        self.assertEqual(len(cima['caixas']), 1 + 2 + 2)
+        # chapa de baixo e uma guia por folha
+        self.assertEqual(len(baixo['caixas']), 1 + 3)
+        for l, a, e, c in folhas:
+            frente, costas = c[2] + e / 2, c[2] - e / 2
+            paredes = [cx for cx in cima['caixas'][1:]
+                       if min(v.z for v in cx) < frente - 1e-6
+                       and max(v.z for v in cx) > costas + 1e-6]
+            self.assertFalse(paredes, 'parede dentro do canal da folha')
+            pe, topo = c[1] - a / 2, c[1] + a / 2
+            # em pe' na guia; o topo dentro do canal, longe da chapa
+            self.assertAlmostEqual(pe, f.altura_trilho_baixo())
+            self.assertAlmostEqual(800 - f.TRILHO_CIMA_CHAPA_MM - topo,
+                                   f.TRILHO_LEVANTAR_MM)
+            self.assertGreater(topo, 800 - f.TRILHO_CIMA_ALTURA_MM)
+            (guia,) = [cx for cx in baixo['caixas'][1:]
+                       if min(v.z for v in cx) < c[2] < max(v.z for v in cx)]
+            self.assertAlmostEqual(max(v.y for v in guia), pe)
+        ys = [v.y for cx in baixo['caixas'] for v in cx]
+        self.assertEqual((min(ys), max(ys)), (0.0, f.altura_trilho_baixo()))
+        ys = [v.y for cx in cima['caixas'] for v in cx]
+        self.assertEqual((min(ys), max(ys)),
+                         (800 - f.TRILHO_CIMA_ALTURA_MM, 800.0))
 
     # ---- nomes e organizacao dos grupos (pedido do usuario, com print)
     def test_grupo_tem_nome_colecao_e_porta_pelo_modelo(self):
@@ -1897,7 +2304,6 @@ class TestPortas(unittest.TestCase):
         self.addCleanup(lambda: [setattr(cena, p, v) for p, v in antes.items()])
         cena.porta_dobradica = 'CURVA'
         cena.porta_folhas = 1
-        cena.porta_folga_mm = 7.0
         addon.hud._selecionar_porta_hud(bpy.context, addon.portas._folhas_portas(grupo)[0],
                                     'PORTA')
         widgets = self.aba_portas()
@@ -1916,6 +2322,55 @@ class TestPortas(unittest.TestCase):
                              for r in rotulos))
         botao = next(v[5] for v in widgets if v[5] and v[5][0] == 'portas')
         self.assertTrue(botao[4])
+    def test_aba_da_porta_com_moldura_em_categorias(self):
+        # Auditoria do usuario: campos compactos, organizados por categoria
+        # (Porta, Folhas, Moldura, Abertura), que nao cortam texto e nao se
+        # sobrepoem; a moldura e' editavel ali
+        import blf
+        conj = self.nicho()
+        L, A, P, E = addon.portas._caixa_do_modulo(conj)
+        y = -P / 2
+        grupo = self.porta_por_quatro_cliques(
+            conj, (-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E),
+            (L / 2, y, 0), abertura='CORRER', folhas=2)
+        self.assertEqual(len(addon.portas._moldura_da_porta(grupo)), 6)
+        addon.hud._selecionar_porta_hud(
+            bpy.context, addon.portas._folhas_portas(grupo)[0], 'PORTA')
+        bpy.context.scene.cabinet_aba = 'PORTAS'
+        titulos = ['Porta', 'Folhas', 'Moldura', 'Abertura']
+        for largura in (190, 320, 564):
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1600)
+            ys = {v[4]: v[1] for v in widgets if v[5] is None and v[4] in titulos}
+            self.assertEqual(sorted(ys, key=lambda t: -ys[t]), titulos, largura)
+            campos = {v[5][2]: v for v in widgets if v[5] and v[5][0] == 'medida'}
+            for prop in ('ui_porta_moldura', 'ui_porta_rodape', 'ui_porta_testeira'):
+                self.assertIn(prop, campos)
+                self.assertLess(campos[prop][1], ys['Moldura'])
+                self.assertGreater(campos[prop][1], ys['Abertura'])
+            self.assertNotIn('ui_porta_recuo_correr', campos)     # com moldura, sem recuo
+            interativos = [v for v in widgets if v[5] and v[5][0] in {
+                'medida', 'contador', 'operador', 'escolha', 'slider'}
+                and v[1] > 0]
+            for i, a in enumerate(interativos):
+                self.assertLessEqual(a[0] + a[2], min(largura - 12, 552) + 0.01)
+                for b in interativos[i + 1:]:
+                    self.assertFalse(
+                        a[0] < b[0] + b[2] - 0.01 and b[0] < a[0] + a[2] - 0.01
+                        and a[1] < b[1] + b[3] - 0.01 and b[1] < a[1] + a[3] - 0.01,
+                        (largura, a[4], b[4]))
+            # rotulo inteiro, nem que seja no menor tamanho da fonte (9)
+            blf.size(0, 9)
+            for v in campos.values():
+                self.assertLessEqual(blf.dimensions(0, v[5][3])[0], v[2] - 14,
+                                     (largura, v[5][3]))
+        # o rodape zerado na aba some da moldura
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(
+            bpy.context, 'porta', grupo.name, 'ui_porta_rodape', 0.0))
+        self.assertEqual({o['porta_moldura_peca']
+                          for o in addon.portas._moldura_da_porta(grupo)},
+                         {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA',
+                          'TESTEIRA', 'BASE_BAIXO'})
+
 
     def test_editar_parametro_muda_so_aquela_porta(self):
         conj = self.nicho()
@@ -2211,12 +2666,14 @@ class TestPortas(unittest.TestCase):
                     if v[5] and v[5][0] == 'medida'
                     and v[5][2].startswith('ui_porta_')}
 
-        self.assertIn('ui_porta_folga', props())
+        self.assertNotIn('ui_porta_folga', props())
         self.assertNotIn('ui_porta_recuo_correr', props())
         self.assertEqual(addon.portas._editar_parametro_porta(
             bpy.context, grupo, 'abertura', 'CORRER'), '')
         self.assertIn('ui_porta_recuo_correr', props())
         self.assertNotIn('ui_porta_afastamento', props())
+        # a sobreposicao e' consequencia da largura da folha: sem campo
+        self.assertNotIn('ui_porta_sobreposicao', props())
 
     def test_previa_e_execucao_usam_o_mesmo_vao(self):
         from types import SimpleNamespace

@@ -103,9 +103,30 @@ def grupo_de(obj, simetrico=False):
     return _grupo_solto(obj, simetrico)
 
 
+def pecas_do_envelope(conj):
+    """O que conta como o ARMARIO (pedido do usuario): as chapas dele e,
+    com porta de correr com moldura, a moldura -- ela passa a ser a caixa
+    do modulo, nas medidas (L/A/P) e na HUD. So' medida: quem redimensiona
+    continua sendo o corpo (`redimensionar_conjunto`), e a moldura vem
+    junto com a porta."""
+    return _chapas_do_conjunto(conj) + [
+        o for g in _portas._portas_do_conjunto(conj)
+        for o in _portas._moldura_da_porta(g)]
+
+
 def _caixa_do_conjunto(conj):
-    """Bounding box em coordenadas de mundo das chapas filhas."""
-    return _caixa_de(_chapas_do_conjunto(conj))
+    """Bounding box em coordenadas de mundo do envelope do modulo."""
+    return _caixa_de(pecas_do_envelope(conj))
+
+
+def _acrescimo_da_moldura(conj):
+    """(L, A, P) em mm que a moldura soma a' caixa do corpo: constante
+    (espessura, trilhos, rodape, testeira), nao cresce com o modulo."""
+    corpo, envelope = _caixa_de(_chapas_do_conjunto(conj)), _caixa_do_conjunto(conj)
+    if corpo is None or envelope is None:
+        return (0.0, 0.0, 0.0)
+    medida = lambda c, a: (c[1][a] - c[0][a]) * 1000.0
+    return tuple(medida(envelope, a) - medida(corpo, a) for a in (0, 2, 1))
 
 
 def _eixo_local_alinhado(obj, a):
@@ -478,10 +499,14 @@ def _upd_conj_dim(self, context):
 
 
 def redimensionar_conjunto(conj, ancoras=None):
-    """Aplica as medidas `conj_*` ao modulo (ver `redimensionar_grupo`)."""
+    """Aplica as medidas `conj_*` ao modulo (ver `redimensionar_grupo`).
+    Elas sao do ENVELOPE (com a moldura): o corpo recebe o alvo menos o
+    que a moldura soma, e ela volta junto com a porta."""
+    acrescimo = _acrescimo_da_moldura(conj)
+    alvo = (conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm)
     redimensionar_grupo(_chapas_do_conjunto(conj),
-                        (conj.conj_largura_mm, conj.conj_altura_mm,
-                         conj.conj_profundidade_mm), ancoras)
+                        tuple(max(20.0, a - e) for a, e in zip(alvo, acrescimo)),
+                        ancoras)
     reposicionar_origem(conj)
     _portas.atualizar_portas_do_conjunto(conj)
 

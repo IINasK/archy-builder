@@ -661,7 +661,8 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
     assert _filas_da_aba(janela) == ['porta_folhas'], _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, '1')
     assert w['etapa'] == 'TIPO', w['etapa']
-    assert [c for _r, c, _t in w['botoes']] == ['GIRO', 'BASCULANTE']
+    # por cima, o correr vem COM MOLDURA (pedido do usuario)
+    assert [c for _r, c, _t in w['botoes']] == ['GIRO', 'BASCULANTE', 'CORRER']
     assert _filas_da_aba(janela) == ['porta_folhas', 'porta_abertura'],         _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, 'GIRO')
     assert _filas_da_aba(janela) == ['porta_folhas', 'porta_abertura']
@@ -700,6 +701,48 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
     assert p['folhas'] == 1 and p['cobertura_esq_e'] == 0.5, dict(p)
     assert p['dobradicas_qtd'] == padrao + 1 and p['dobradica_lado'] == 'ESQUERDA'
     assert abs(p['dobradicas_margem_mm'] - margem) < 1e-3
+
+
+def test_wizard_correr_metade_metade_pergunta_moldura(janela, m):
+    # Pedido do usuario: 1-2 no MESMO canto de dentro e 3-4 de dentro para
+    # fora num correr = duvida; a caixa (e a copia na gaveta) pergunta
+    # "Porta embutida ou com moldura?" e a moldura usa o modulo inteiro
+    conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
+    yield
+    yield
+    yield from _abrir_wizard(janela, m)
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    y = -P / 2
+    for ponto in ((-L / 2 + E, y, A - E), (-L / 2 + E, y, A - E),
+                  (L / 2 - E, y, E), (L / 2, y, 0)):
+        yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
+    w = addon.portas._assistente_porta[0]
+    assert w['etapa'] == 'FOLHAS', w['etapa']
+    yield from _clicar_na_fila(janela, m, 'porta_folhas', 2)
+    assert w['etapa'] == 'TIPO', w['etapa']        # 2 por cima: Giro ou Correr
+    yield from _clicar_na_fila(janela, m, 'porta_abertura', 'CORRER')
+    assert w['etapa'] == 'MOLDURA', w['etapa']
+    assert 'porta_tipo_correr' in _filas_da_aba(janela), _filas_da_aba(janela)
+    yield from _clicar_na_fila(janela, m, 'porta_tipo_correr', 'MOLDURA')
+    # com moldura: "A porta tem base?" -- sem rodape, direto no chao
+    assert w['etapa'] == 'BASE', w['etapa']
+    assert 'porta_base' in _filas_da_aba(janela), _filas_da_aba(janela)
+    yield from _clicar_na_fila(janela, m, 'porta_base', 'SEM')
+    # e o trilho (pedido do usuario): pesado ou leve
+    assert w['etapa'] == 'TRILHO', w['etapa']
+    assert 'porta_trilho' in _filas_da_aba(janela), _filas_da_aba(janela)
+    yield from _clicar_na_fila(janela, m, 'porta_trilho', 'LEVE')
+    yield
+    assert addon.portas._assistente_porta[0] is None, 'o wizard nao terminou'
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
+    p = grupo['porta_parametros']
+    assert [p[k] for k in addon.portas.COBERTURAS_LADOS] == [1.0] * 4, dict(p)
+    assert p['rodape_mm'] == 0.0, dict(p)
+    assert p['trilho'] == 'LEVE', dict(p)
+    pecas = {o['porta_moldura_peca'] for o in addon.portas._moldura_da_porta(grupo)}
+    # sem base: sem rodape; trilho leve: sem testeira
+    assert pecas == {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA', 'BASE_BAIXO'}, pecas
 
 
 def test_wizard_basculante_com_pistoes(janela, m):
@@ -1079,6 +1122,67 @@ def test_selecao_da_porta_e_da_folha(janela, m):
     assert set(bpy.context.selected_objects) == portas
 
 
+def test_correr_duplo_clique_na_folha_e_clique_no_trilho(janela, m):
+    # Pedido do usuario: o duplo clique na folha a seleciona COM o contorno
+    # branco do add-on (o nativo fica desligado: sem ele parecia que nada
+    # foi selecionado); um clique no trilho o acende como as dobradicas
+    conj = criar_modulo(janela)
+    area, regiao, rv3d = viewport(janela)
+    L, A = conj.conj_largura_mm, conj.conj_altura_mm
+    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
+    a = conj.matrix_world @ (Vector((-L / 2 + E, -P / 2, E)) / 1000.0)
+    b = conj.matrix_world @ (Vector((L / 2 - E, -P / 2, A - E)) / 1000.0)
+    with contexto(janela, area, regiao):
+        bpy.ops.object.cabinet_portas(
+            'EXEC_DEFAULT', capturado=True, ponto_a=a, ponto_b=b,
+            referencia=tuple(v for linha in
+                             conj.matrix_world.to_quaternion().to_matrix()
+                             for v in linha),
+            pai_nome=conj.name, modulo_nome=conj.name, frente='NEG_Y',
+            dobradica='RETA', folhas=2)
+    grupo = addon.portas._portas_do_conjunto(conj)[0]
+    assert addon.portas._editar_parametro_porta(
+        bpy.context, grupo, 'abertura', 'CORRER') == ''
+    folha = addon.portas._folhas_portas(grupo)[0]
+    bpy.ops.object.select_all(action='DESELECT')
+    rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
+    lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
+    rv3d.view_location = (lo + hi) / 2
+    yield
+    yield
+    m.mover(*na_tela(regiao, rv3d, folha.matrix_world.translation))
+    yield
+    m.clicar()
+    yield
+    portas = {grupo, *addon.portas._folhas_portas(grupo)}
+    assert set(bpy.context.selected_objects) == portas, sorted(
+        o.name for o in bpy.context.selected_objects)
+    m.clicar()
+    yield
+    _duplo_clique_do_keymap(janela)
+    yield
+    assert set(bpy.context.selected_objects) == {folha}, sorted(
+        o.name for o in bpy.context.selected_objects)
+    with contexto(janela, area, regiao):
+        contornos = addon.portas_viewport._folhas_com_contorno(bpy.context)
+    assert contornos == [folha], 'a folha sozinha ficou sem o contorno branco'
+    # o trilho de cima: a parede da frente, acima da folha
+    p = grupo['porta_parametros']
+    ponto = grupo.matrix_world @ (Vector((
+        grupo['porta_vao_largura_mm'] / 2,
+        grupo['porta_vao_altura_mm'] - addon.ferragens.TRILHO_CIMA_ALTURA_MM / 2,
+        -p['recuo_correr_mm'] + addon.ferragens.TRILHO_PAREDE_MM / 2)) / 1000.0)
+    yield esperar(0.6)          # sem virar duplo clique
+    m.mover(*na_tela(regiao, rv3d, ponto))
+    yield
+    m.clicar()
+    yield
+    with contexto(janela, area, regiao):
+        edicao = addon.ferragens._ferragens_em_edicao(bpy.context)
+    assert [(g, t) for g, t in edicao] == [(grupo, {'TRILHO'})], edicao
+    with contexto(janela, area, regiao):
+        _pecas, pontos = addon.arame._arame_ferragens(grupo, {'TRILHO'})
+    assert pontos, 'o trilho selecionado ficou sem o arame'
 
 
 def _modulo_em(janela, x):
@@ -1937,6 +2041,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_criar_puxador_no_topo_da_aba,
        test_digitar_com_operador_e_cursor_no_meio,
        test_wizard_quatro_cliques_meia_chapa_vira_curva,
+       test_wizard_correr_metade_metade_pergunta_moldura,
        test_wizard_basculante_com_pistoes,
        test_wizard_cobertura_fora_do_padrao_pergunta,
        test_alt_arrasta_o_canto_da_porta,
@@ -1947,6 +2052,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_a_bolinha_troca_a_ancora,
        test_clique_dentro_do_campo_da_gaveta_move_o_cursor,
        test_selecao_da_porta_e_da_folha,
+       test_correr_duplo_clique_na_folha_e_clique_no_trilho,
        test_shift_soma_chapas_individuais_e_grupos,
        test_dois_modulos_selecionados_editam_pela_hud_os_dois,
        test_quina_com_ctrl_gruda_na_quina_de_outro_modulo,
