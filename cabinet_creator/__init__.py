@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (225, 0, 0),
+    "version": (229, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -44,6 +44,7 @@ from . import importacao as _importacao
 from . import puxadores as _puxadores
 from . import arame as _arame
 from . import gaveta as _gaveta
+from . import biblioteca_faixa as _biblioteca_faixa
 from . import orcamento as _orcamento
 from . import hud as _hud
 from . import solda as _solda
@@ -62,7 +63,7 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
-            _geometria, _painel_legado)
+            _geometria, _biblioteca_faixa, _painel_legado)
 
 
 def _ligar_modulos():
@@ -80,6 +81,8 @@ _ligar_modulos()
 
 
 CLASSES = (
+    _biblioteca_faixa.OBJECT_OT_recolher_biblioteca,
+    _biblioteca_faixa.OBJECT_OT_acao_item_biblioteca,
     _opcoes.CabinetCreatorPreferences,
     _modulos.OBJECT_OT_sincronizar_grupo,
     _modulos.OBJECT_OT_sincronizar_conjunto,
@@ -498,6 +501,7 @@ def unregister():
     _paredes.esquecer()
     _formas.esquecer()
     _gavetas.esquecer()
+    _biblioteca_faixa.esquecer()
     _prateleiras.esquecer()
     _geometria.esquecer()
     _gaveta._edicao_gaveta[0] = None

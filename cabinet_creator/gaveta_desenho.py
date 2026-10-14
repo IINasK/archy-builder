@@ -17,6 +17,7 @@ _hud = None
 _solda = None
 _portas = None
 _materiais = None
+_biblioteca_faixa = None
 
 def _eh_campo_contador(acao):
     """Contador com rotulo (7o campo): o "Folhas" da porta, desenhado
@@ -335,6 +336,10 @@ def _desenhar_gaveta(tela=False):
     widgets = _gaveta._widgets_gaveta(context, largura, altura)
     # O cabecalho e' desenhado por ultimo, acima do conteudo rolavel.
     cabecalho, conteudo, rodape = _gaveta._partes_gaveta(widgets)
+    faixa_biblioteca = _biblioteca_faixa.eh_faixa(context)
+    escala_faixa = max(1.0, context.preferences.system.ui_scale) if faixa_biblioteca else 1.0
+    if faixa_biblioteca:
+        cabecalho, conteudo, rodape = [], widgets, []
     # A faixa do rodape (e o fundo do painel de opcoes) entra ENTRE o
     # conteudo e os botoes do rodape: o conteudo rola por baixo dela.
     faixa = (0, 0, 0, 0, '', ('faixa_rodape',))
@@ -348,9 +353,14 @@ def _desenhar_gaveta(tela=False):
                      max(0, meio - _gaveta.ALTURA_RODAPE_GAVETA))
     recortes = ([recorte_cima] * len(cima) + [None] * bool(divisa)
                 + [recorte_baixo] * len(baixo))
+    if faixa_biblioteca:
+        recortes = [(0, 0, largura, altura)] * len(conteudo)
     for indice, (x, y, w, h, rotulo, acao) in enumerate(
-            conteudo + [faixa] + rodape + cabecalho):
+            conteudo + ([] if faixa_biblioteca else [faixa]) + rodape + cabecalho):
         painel = recortes[indice] if indice < len(recortes) else None
+        if faixa_biblioteca and acao and acao[0] in ('pergunta', 'resposta'):
+            escala = max(1.0, context.preferences.system.ui_scale)
+            painel = (0, 4 * escala, largura, max(0, altura - 44 * escala))
         if painel is not None:
             gpu.state.scissor_test_set(True)
             gpu.state.scissor_set(*(int(round(c)) for c in painel))
@@ -422,12 +432,13 @@ def _desenhar_gaveta(tela=False):
             continue
         if acao and acao[0] == 'preset':
             _gaveta._botao_gaveta(x, y, w, h)
-            lado = min(w - 10, h - 27)
-            _gaveta._retangulo_gaveta(x + 5, y + 22, lado, lado, fundo)
+            lado = min(w - 10 * escala_faixa, h - 27 * escala_faixa)
+            _gaveta._retangulo_gaveta(x + 5 * escala_faixa, y + 22 * escala_faixa, lado, lado, fundo)
             # BLF e outros widgets podem alterar o blend antes da foto.
             gpu.state.blend_set('ALPHA')
-            _gaveta._desenhar_foto_gaveta(acao[1], x + 5, y + 22, lado, lado)
-            _gaveta._texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
+            _gaveta._desenhar_foto_gaveta(acao[1], x + 5 * escala_faixa, y + 22 * escala_faixa, lado, lado)
+            _gaveta._texto_cabivel_gaveta(x + 5 * escala_faixa, y + 5 * escala_faixa,
+                                         rotulo, w - 10 * escala_faixa, round(11 * escala_faixa))
             continue
         if acao and acao[0] == 'material':
             # o bloco do preset, com a ESFERA da cor no lugar da foto;
@@ -436,15 +447,17 @@ def _desenhar_gaveta(tela=False):
             _gaveta._glow_gaveta(x, y, w, h, 4, _gaveta._valor_realce(context, chave),
                                  cores.text)
             _gaveta._botao_gaveta(x, y, w, h, ativo=acao[2])
-            lado = min(w - 10, h - 27)
-            _gaveta._retangulo_gaveta(x + 5, y + 22, lado, lado, fundo)
-            _materiais.desenhar_esfera(acao[1]['cor'], x + 5, y + 22, lado, lado)
-            _gaveta._texto_cabivel_gaveta(x + 5, y + 5, rotulo, w - 10, 11)
+            lado = min(w - 10 * escala_faixa, h - 27 * escala_faixa)
+            _gaveta._retangulo_gaveta(x + 5 * escala_faixa, y + 22 * escala_faixa, lado, lado, fundo)
+            _materiais.desenhar_esfera(acao[1]['cor'], x + 5 * escala_faixa,
+                                      y + 22 * escala_faixa, lado, lado)
+            _gaveta._texto_cabivel_gaveta(x + 5 * escala_faixa, y + 5 * escala_faixa,
+                                         rotulo, w - 10 * escala_faixa, round(11 * escala_faixa))
             continue
         # A peca que esta' entrando (ou saindo) invade a area das setas.
         # O recorte faz o carrossel parecer uma janela por onde a fila
         # passa, em vez de pecas aparecendo do nada.
-        recortado = bool(acao and acao[0] == 'navegar')
+        recortado = bool(acao and acao[0] == 'navegar' and not faixa_biblioteca)
         if recortado:
             # trilho do carrossel DENTRO do recorte do painel
             trilho = (12 + 24, int(y) - 1, max(0, largura - 24 - 48), 27)
@@ -536,14 +549,18 @@ def _desenhar_gaveta(tela=False):
                 x + h + 4, y + (h - 12) / 2, rotulo, w - h - 13,
                 cor=(*cores.text[:3], 0.4) if apagado else None)
         elif not _gaveta_eventos._icone_acao_gaveta(acao):
+            compacto = faixa_biblioteca and acao and acao[0] in ('navegar', 'biblioteca', 'operador')
+            margem = (6 if compacto else 9) * escala_faixa
+            fonte = round((10 if compacto else 12) * escala_faixa)
             _gaveta._texto_cabivel_gaveta(
-                x + 9, y + (h - 12) / 2, rotulo, w - 18,
+                x + margem, y + (h - fonte) / 2,
+                rotulo, w - 2 * margem, fonte,
                 cor=(*cores.text[:3], 0.4) if apagado else None)
         if recortado:
             gpu.state.scissor_test_set(False)
     gpu.state.scissor_test_set(False)
-    _gaveta._retangulo_gaveta(0, altura - 48, largura, 48,
-                       fundo)
+    if not faixa_biblioteca:
+        _gaveta._retangulo_gaveta(0, altura - 48, largura, 48, fundo)
     for x, y, w, h, rotulo, acao in cabecalho:
         _gaveta._glow_gaveta(x, y, w, h, 4,
                      _gaveta._valor_realce(context, _chave_widget(acao)), cores.text)

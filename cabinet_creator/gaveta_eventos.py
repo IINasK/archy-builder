@@ -26,19 +26,21 @@ _materiais = None
 _gavetas = None
 _prateleiras = None
 _formas = None
+_biblioteca_faixa = None
 
 def _gaveta_sob_evento(context, event):
     """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
     None. Para os modais (wizard, posicionador): a gaveta continua sendo
     da gaveta enquanto eles rodam."""
-    area = _gaveta._area_gaveta(context.screen) if context.screen else None
-    regiao = next((r for r in area.regions if r.type == 'WINDOW'),
-                  None) if area is not None else None
-    if regiao is None:
-        return None
-    x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
-    if 0 <= x < regiao.width and 0 <= y < regiao.height:
-        return area, regiao
+    areas = (_gaveta._area_gaveta(context.screen),
+             _biblioteca_faixa.area_da_faixa(context.screen)) if context.screen else ()
+    for area in areas:
+        regiao = next((r for r in area.regions if r.type == 'WINDOW'),
+                      None) if area is not None else None
+        if regiao is not None:
+            x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
+            if 0 <= x < regiao.width and 0 <= y < regiao.height:
+                return area, regiao
     return None
 
 
@@ -53,9 +55,8 @@ def _objeto_sob_mouse(context, event):
     """NOME do objeto sob o mouse numa viewport que nao e' a gaveta (o
     mesmo raio do clique da HUD), ou ''. Nome, nunca o objeto: quem chama
     e' modal (ver `_larga_dados_ao_terminar`)."""
-    gaveta = _gaveta._area_gaveta(context.screen)
     for area in context.screen.areas:
-        if area.type != 'VIEW_3D' or area == gaveta:
+        if area.type != 'VIEW_3D' or _gaveta._eh_area_gaveta_bruto(area):
             continue
         regiao = next((r for r in area.regions if r.type == 'WINDOW'), None)
         if regiao is None:
@@ -355,20 +356,28 @@ class OBJECT_OT_interagir_gaveta(Operator):
     """Recebe clique e arraste diretamente na interface independente."""
     bl_idname = "object.cabinet_interagir_gaveta"
     bl_label = "Interagir com Gaveta Cabinet Creator"
+    dica: StringProperty(options={'SKIP_SAVE'})
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.dica or cls.bl_label
 
     @classmethod
     def poll(cls, context):
         return _gaveta._eh_area_gaveta(context)
 
     def _botao_direito(self, context, event):
-        """Botao DIREITO sobre um material da biblioteca: a pintura rapida
-        (pedido do usuario). Fora dele, o evento segue como sempre."""
+        """Foto/nome do modulo: menu no soltar; material: pintura rapida."""
         x, y = event.mouse_region_x, event.mouse_region_y
         acao = next((a for wx, wy, w, h, _r, a in _gaveta._widgets_interativos(context)
-                     if a and a[0] == 'material'
+                     if a and a[0] in ('material', 'preset')
                      and wx <= x <= wx + w and wy <= y <= wy + h), None)
         if acao is None:
-            return {'PASS_THROUGH'}
+            return {'FINISHED'} if _biblioteca_faixa.eh_faixa(context) else {'PASS_THROUGH'}
+        if acao[0] == 'preset':
+            self._menu_item = dict(acao[1])
+            context.window_manager.modal_handler_add(self)
+            return {'RUNNING_MODAL'}
         if not _materiais.perguntar_pintar(context, acao[1]):
             self.report({'WARNING'}, "Nenhum modulo na cena para pintar")
         context.area.tag_redraw()
@@ -378,6 +387,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
         if event.type == 'RIGHTMOUSE':
             return self._botao_direito(context, event)
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+            if _biblioteca_faixa.eh_faixa(context):
+                _biblioteca_faixa.rolar(context, event)
+                return {'FINISHED'}
             for wx, wy, w, h, _, acao in _gaveta._widgets_gaveta(
                     context, context.region.width, context.region.height):
                 if (acao and acao[0] in {'navegar', 'rolar_nivel'}
@@ -394,8 +406,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
             # divisoria, a biblioteca embaixo.
             limites = _gaveta._limites_rolagem_gaveta(
                 context, context.region.width, context.region.height)
-            de_baixo = event.mouse_region_y < _gaveta._divisa_gaveta(
-                context, context.region.height)
+            de_baixo = (context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
+                        and event.mouse_region_y < _gaveta._divisa_gaveta(
+                            context, context.region.height))
             chave = _gaveta._CHAVE_ROLAGEM_BIB if de_baixo else _gaveta._CHAVE_ROLAGEM
             limite = limites[1] if de_baixo else limites[0]
             atual = max(0, min(limite, int(context.screen.get(chave, 0))))
@@ -852,6 +865,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
             self._encerrar_material(context)
 
     def modal(self, context, event):
+        if hasattr(self, '_menu_item'):
+            if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
+                _biblioteca_faixa.abrir_menu_item(context, self._menu_item)
+                return {'FINISHED'}
+            if event.type == 'ESC':
+                return {'CANCELLED'}
+            return {'RUNNING_MODAL'}
         if hasattr(self, '_material'):
             return self._modal_material(context, event)
         if hasattr(self, '_no_soltar'):
@@ -934,39 +954,10 @@ class OBJECT_OT_alternar_gaveta(Operator):
     def execute(self, context):
         screen = context.screen
         painel = _gaveta._area_gaveta(screen)
-        if painel is not None:
-            janela = context.window
-            screen[_gaveta._CHAVE_GAVETA] = 0
-            try:
-                with context.temp_override(window=janela, screen=screen,
-                                           area=painel):
-                    bpy.ops.screen.area_close()
-            except Exception as e:
-                screen[_gaveta._CHAVE_GAVETA] = str(painel.as_pointer())
-                self.report({'WARNING'}, "Nao consegui fechar a gaveta: %s" % e)
-                return {'CANCELLED'}
+        if _biblioteca_faixa.area_da_faixa(screen) is not None:
+            _biblioteca_faixa.fechar(context.window, screen)
             return {'FINISHED'}
-        # Corrige o estado deixado pela versao antiga da gaveta, que
-        # invertia a regiao N inteira para a esquerda.
-        ui = next((r for r in context.area.regions if r.type == 'UI'), None)
-        if ui is not None and ui.alignment == 'LEFT':
-            with context.temp_override(area=context.area, region=ui):
-                bpy.ops.screen.region_flip()
-        screen[_gaveta._CHAVE_PENDENTE] = str(context.area.as_pointer())
-        try:
-            # Teto de metade da viewport: numa tela estreita a gaveta
-            # abre menor que o padrao, mas nunca engole a cena.
-            largura = context.area.width
-            fator = max(0.08, min(0.5, _gaveta._largura_inicial_gaveta(context)
-                                  / largura))
-            with context.temp_override(area=context.area):
-                bpy.ops.screen.area_split(direction='VERTICAL', factor=fator)
-        except Exception as e:
-            screen[_gaveta._CHAVE_PENDENTE] = 0
-            self.report({'WARNING'}, "Nao consegui abrir a gaveta: %s" % e)
-            return {'CANCELLED'}
-        if not bpy.app.timers.is_registered(_gaveta._configurar_gavetas):
-            bpy.app.timers.register(_gaveta._configurar_gavetas, first_interval=0.05)
+        _biblioteca_faixa.abrir(context)
         return {'FINISHED'}
 
 
@@ -1066,6 +1057,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
     def setup(self, context):
         self.botoes = []
         self.campos = []
+        self.operadores_campos = []
         alca = self.gizmos.new('VIEW3D_GT_alca_gaveta')
         alca.target_set_operator("object.cabinet_alternar_gaveta")
         alca.use_tooltip = True
@@ -1088,18 +1080,25 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
             campo = self.gizmos.new('VIEW3D_GT_campo_gaveta')
             # O clique cai no mesmo operador que a keymap ja' dispara
             # para a area inteira, entao clicar continua igual.
-            campo.target_set_operator('object.cabinet_interagir_gaveta')
+            self.operadores_campos.append(campo.target_set_operator('object.cabinet_interagir_gaveta'))
             campo.use_tooltip = False
             self.campos.append(campo)
 
         escala = max(1.0, context.preferences.system.ui_scale)
-        _hud._campos_gaveta.clear()
+        # Duas areas usam este grupo: apagar tudo aqui invalidava os
+        # hit-tests do menu sempre que a faixa era redesenhada.
+        for campo in self.campos:
+            _hud._campos_gaveta.pop(campo.as_pointer(), None)
         acesos = set(acesos_por_icone)
-        for campo, (x, y, w, h, _rotulo, acao) in zip(self.campos, alvos):
+        for campo, op, (x, y, w, h, _rotulo, acao) in zip(self.campos, self.operadores_campos, alvos):
             campo.hide = False
+            campo.use_tooltip = bool(acao and acao[0] in ('preset', 'material', 'navegar'))
+            if campo.use_tooltip:
+                op.dica = acao[1].get('nome', '') if acao[0] in ('preset', 'material') else str(acao[2])
             icone = None
             if _icone_acao_gaveta(acao):
-                icone = _centro_icone(x, y, w, h, acao) + (13.0 * escala,)
+                raio = min(13.0 * escala, min(w, h) / 2) if _biblioteca_faixa.eh_faixa(context) else 13.0 * escala
+                icone = _centro_icone(x, y, w, h, acao) + (raio,)
             _hud._campos_gaveta[campo.as_pointer()] = (x, y, w, h, icone)
             if campo.is_highlight:
                 acesos.add(_gaveta_desenho._chave_widget(acao))
@@ -1146,19 +1145,14 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
         if gaveta:
             widgets = [v for v in _gaveta._widgets_interativos(context)
                        if _icone_acao_gaveta(v[5]) and v[1] >= 0]
-            assinatura = tuple(_icone_acao_gaveta(v[5]) for v in widgets)
-            if assinatura != getattr(self, '_assinatura', None):
-                for botao in self.botoes:
-                    self.gizmos.remove(botao)
-                self.botoes.clear()
-                for icone in assinatura:
-                    botao = self.gizmos.new('GIZMO_GT_button_2d')
-                    botao.draw_options = set()
-                    botao.icon = icone
-                    botao.show_drag = False
-                    botao.use_tooltip = True
-                    self.botoes.append(botao)
-                self._assinatura = assinatura
+            # O tooltip nativo pode estar agendado para um gizmo desta
+            # fila. Reutilizar/ocultar; nao liberar alvos no redraw.
+            while len(self.botoes) < len(widgets):
+                botao = self.gizmos.new('GIZMO_GT_button_2d')
+                botao.draw_options = set()
+                botao.show_drag = False
+                botao.use_tooltip = True
+                self.botoes.append(botao)
             cores, _ = _gaveta._cores_gaveta()
             acesos_por_icone = set()
             for botao, (x, y, w, h, _, acao) in zip(self.botoes, widgets):
@@ -1178,7 +1172,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 botao.alpha_highlight = 0.3 if apagado else 1
                 botao.hide_select = False
                 botao.icon = _icone_acao_gaveta(acao)
-                botao.scale_basis = 11
+                botao.scale_basis = min(11, min(w, h) / (2 * max(1.0, context.preferences.system.ui_scale))) if _biblioteca_faixa.eh_faixa(context) else 11
                 ao_lado = _icone_ao_lado(acao)
                 # o texto ao lado ja' diz o que e': sem o tooltip do
                 # operador da gaveta, que nao diria nada

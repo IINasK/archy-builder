@@ -106,6 +106,7 @@ def _abreviar(texto, limite):
 # (`_gaveta_eventos.OBJECT_OT_interagir_gaveta`) nao passam pelo handler
 # de UILayout; portanto a barra recebe PRESS/MOUSEMOVE/RELEASE de verdade.
 _handler_gaveta = [None]
+_biblioteca_faixa = None
 _fotos_gaveta = {}
 _imagens_gaveta = set()
 _edicao_gaveta = [None]
@@ -160,7 +161,8 @@ def _area_gaveta(screen):
 
 def _eh_area_gaveta(context):
     return (context.area is not None and context.screen is not None
-            and context.area == _area_gaveta(context.screen))
+            and (context.area == _area_gaveta(context.screen)
+                 or _biblioteca_faixa.eh_faixa(context)))
 
 
 def _limitar_largura_gaveta():
@@ -198,6 +200,7 @@ def _configurar_gavetas():
     pendente = False
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
+        _biblioteca_faixa.reconectar(screen)
         ptr = int(screen.get(_CHAVE_PENDENTE, 0))
         if not ptr:
             continue
@@ -236,7 +239,15 @@ def _reconectar_gavetas():
     # Ponteiros de areas nao sobrevivem a recarga de um arquivo .blend.
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
-        if not screen.get(_CHAVE_GAVETA) or _area_gaveta(screen):
+        _biblioteca_faixa.reconectar(screen)
+        painel = _area_gaveta(screen)
+        if painel is not None and screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
+            principal = _biblioteca_faixa.viewport(screen)
+            if principal is not None:
+                with bpy.context.temp_override(window=janela, area=principal):
+                    _biblioteca_faixa.abrir(bpy.context)
+            continue
+        if not screen.get(_CHAVE_GAVETA) or painel:
             continue
         candidatos = [a for a in screen.areas
                       if a.type == 'VIEW_3D' and a.width < 600
@@ -246,6 +257,11 @@ def _reconectar_gavetas():
         if len(candidatos) == 1:
             screen[_CHAVE_GAVETA] = str(candidatos[0].as_pointer())
             candidatos[0].tag_redraw()
+            if screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
+                principal = _biblioteca_faixa.viewport(screen)
+                if principal is not None:
+                    with bpy.context.temp_override(window=janela, area=principal):
+                        _biblioteca_faixa.abrir(bpy.context)
         else:
             screen[_CHAVE_GAVETA] = 0
     return None
@@ -254,6 +270,9 @@ def _reconectar_gavetas():
 def _fechar_gavetas_registradas():
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
+        if _biblioteca_faixa.area_da_faixa(screen) is not None:
+            _biblioteca_faixa.fechar(janela, screen)
+            continue
         painel = _area_gaveta(screen)
         screen[_CHAVE_GAVETA] = 0
         screen[_CHAVE_PENDENTE] = 0
@@ -1502,6 +1521,9 @@ def _rolar_biblioteca_ate_pergunta(context):
     fila de baixo, caia abaixo do pe' do painel (o "Nao" sumia). A
     biblioteca rola o NECESSARIO para a caixa aparecer inteira."""
     tela = getattr(context, 'screen', None)
+    if tela is not None and _biblioteca_faixa.area_da_faixa(tela) is not None:
+        _biblioteca_faixa.area_da_faixa(tela).tag_redraw()
+        return
     area = _area_gaveta(tela) if tela is not None else None
     regiao = next((r for r in area.regions if r.type == 'WINDOW'),
                   None) if area is not None else None
@@ -1553,6 +1575,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
     cabecalho/conteudo/rodape e `_paineis_gaveta` corta o conteudo na
     divisoria. Cada painel tem a sua rolagem.
     """
+    if _biblioteca_faixa.eh_faixa(context):
+        return _biblioteca_faixa.widgets(context, largura, altura)
     if _rolagem is None or _rolagem_bib is None:
         limite, limite_bib = _limites_rolagem_gaveta(context, largura, altura)
         if _rolagem is None:
@@ -1586,6 +1610,8 @@ def _widgets_interativos(context):
     """Widgets que podem receber mouse, do que esta' POR CIMA para baixo:
     lista suspensa aberta, rodape/painel, cabecalho e o conteudo que nao
     esta' escondido sob as duas faixas fixas."""
+    if _biblioteca_faixa.eh_faixa(context):
+        return _biblioteca_faixa.interativos(context)
     altura = context.region.height
     cabecalho, conteudo, rodape = _partes_gaveta(
         _widgets_gaveta(context, context.region.width, altura))
@@ -1849,6 +1875,8 @@ def _widgets_conteudo_gaveta(context, largura, altura, _rolagem,
                              _rolagem_bib=0):
     """Cabecalho + painel da aba + divisoria + biblioteca."""
     itens = _widgets_aba_gaveta(context, largura, altura, _rolagem)
+    if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) == 2:
+        return itens
     x, w = 12, max(24, min(540, largura - 24))
     divisa = _divisa_gaveta(context, altura)
     # a linha e' desenhada de borda a borda; o retangulo de pegar fica
@@ -2262,6 +2290,19 @@ def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade,
             rotulo('E', pontos[1], 4, -13)
 
 
+LIMITE_BYTES_FOTOS = 64 * 1024 * 1024
+
+
+def _guardar_foto_gaveta(caminho, entrada):
+    _fotos_gaveta.pop(caminho, None)
+    _fotos_gaveta[caminho] = entrada
+    total = sum(e[3] * e[4] * 4 for e in _fotos_gaveta.values())
+    while total > LIMITE_BYTES_FOTOS and len(_fotos_gaveta) > 1:
+        chave = next(iter(_fotos_gaveta))
+        antiga = _fotos_gaveta.pop(chave)
+        total -= antiga[3] * antiga[4] * 4
+
+
 def _desenhar_foto_gaveta(it, x, y, w, h):
     png = it.get('foto') or os.path.splitext(it['arquivo'])[0] + '.png'
     caminho = os.path.join(it['pasta'], png)
@@ -2284,14 +2325,20 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
                             int(xs.max()) + 1, int(ys.max()) + 1)
                            if len(xs) else (0, 0, largura, altura))
                 # PNG RGBA: preservar o alpha, sem achatar contra uma cor.
+                # PNG de preview nao precisa de 32 bits por canal: em
+                # telas largas, RGBA8 mantem toda a fila no cache sem thrash.
+                # A API aceita somente Buffer FLOAT, mesmo quando o
+                # armazenamento da textura e' RGBA8 (conversao na GPU).
                 dados = gpu.types.Buffer('FLOAT', largura * altura * 4,
                                           pixels)
                 textura = gpu.types.GPUTexture(
-                    (largura, altura), format='RGBA32F', data=dados)
+                    (largura, altura), format='RGBA8', data=dados)
                 entrada = (stamp, textura, limites, largura, altura)
             finally:
                 bpy.data.images.remove(imagem)
-            _fotos_gaveta[caminho] = entrada
+            _guardar_foto_gaveta(caminho, entrada)
+        elif caminho in _fotos_gaveta:
+            _fotos_gaveta[caminho] = _fotos_gaveta.pop(caminho)
         _, textura, (x0, y0, x1, y1), iw, ih = entrada
         escala = min(w / (x1 - x0), h / (y1 - y0)) * 0.90
         dw, dh = (x1 - x0) * escala, (y1 - y0) * escala
@@ -2365,7 +2412,8 @@ def _eh_area_gaveta_bruto(area):
     """Versao de `_eh_area_gaveta` que aceita a area solta."""
     for janela in bpy.context.window_manager.windows:
         if area in janela.screen.areas.values():
-            return area == _area_gaveta(janela.screen)
+            return area in (_area_gaveta(janela.screen),
+                            _biblioteca_faixa.area_da_faixa(janela.screen))
     return False
 
 

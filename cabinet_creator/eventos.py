@@ -124,7 +124,7 @@ def _viewports_da_janela(janela):
     screen = janela.screen
     gaveta = _gaveta._area_gaveta(screen)
     for area in screen.areas:
-        if area.type == 'VIEW_3D' and area != gaveta:
+        if area.type == 'VIEW_3D' and not _gaveta._eh_area_gaveta_bruto(area):
             yield area.spaces.active
 
 

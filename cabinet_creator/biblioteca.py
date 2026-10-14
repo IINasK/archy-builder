@@ -15,6 +15,7 @@ from bpy.types import Operator
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _selecao = _gaveta = None
 _portas = _puxadores = _ferragens = None
+_biblioteca_faixa = None
 
 # ================================================== BIBLIOTECA / ASSETS
 # Salva chapas e modulos na biblioteca de assets do Blender, para
@@ -681,6 +682,7 @@ def _gravar_indice(pasta, itens):
                   encoding="utf-8", newline="\n") as f:
             json.dump(itens, f, ensure_ascii=False, indent=1)
             f.write("\n")
+        _biblioteca_faixa.invalidar()
     except Exception as e:
         print("[Cabinet Creator] nao gravei o indice:", e)
 
@@ -864,11 +866,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         # viewport: a janela de desenho tem de ser procurada na area
         self._area_preview = context.area
         if _gaveta._eh_area_gaveta(context):
-            self._area_preview = next(
-                (a for a in context.screen.areas
-                 if a.type == 'VIEW_3D' and a != context.area
-                 and a.x > context.area.x
-                 and a.y == context.area.y), None)
+            self._area_preview = _biblioteca_faixa.viewport(context.screen)
         self._regiao = next(
             (r for r in self._area_preview.regions if r.type == 'WINDOW'), None
         ) if self._area_preview else None

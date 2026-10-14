@@ -1,6 +1,7 @@
 # Plano de reformulacao da biblioteca
 
-Status: planejamento; a interface atual ainda nao foi alterada.
+Status: implementado e compactado na versao 229. Validacao automatizada e captura de
+tela em testes isolados; catalogo e miniaturas da biblioteca real preservados.
 Referencia: imagem enviada pelo usuario em 13/10/2026, com categorias
 em abas horizontais e uma fila de miniaturas abaixo.
 
@@ -25,28 +26,42 @@ ao trocar entre Modulos, Portas, Gavetas, Prateleiras e Puxadores.
 
 ## Navegacao e aparencia
 
-- Abas horizontais para categorias; a ativa fica realcada pelo tema.
+- Abas horizontais compactas (18 px, passo 20, fonte 10, intervalo 2)
+  para categorias; a ativa fica realcada pelo tema.
   Cada nivel exibe os filhos da categoria escolhida no nivel anterior.
 - Preservar `niveis`, UUIDs, catalogos e a biblioteca unica existentes.
   Este trabalho muda a apresentacao, sem reclassificar os presets.
 - Profundidade de categorias sem limite. Ramos vazios desaparecem.
-  Niveis que nao couberem tem rolagem, sem eliminar partes do caminho.
+  Niveis que nao couberem sao percorridos com Shift+roda, mantendo
+  as fotos acessiveis e sem eliminar partes do caminho.
 - Uma fila horizontal de miniaturas, como na referencia: foto acima,
   nome abaixo, tooltip com o nome completo. Rolagem e setas por fila.
   Nomes e fotos reutilizam o catalogo e os PNGs atuais.
-- Proposta inicial: fotos de 64-88 px logicos; faixa de cerca de
-  160-200 px com o caminho atual. Medidas finais dependem do prototipo
-  em escalas 100/150/200%. Altura ajustavel e opcao de recolher a faixa.
+  Setas apenas nas filas que excedem o espaco disponivel, no sentido
+  dos itens ocultos; ao caber tudo, a fila usa a largura sem setas.
+- Fotos ajustadas a altura disponivel (40-68 px no tamanho padrao);
+  faixa de 180 px iniciais, ajustavel pela fronteira nativa. Layout
+  verificado em escalas 100/150/200%; opcao de recolher a faixa.
+- Ao puxar a borda para cima e ficar abaixo de 160 px logicos, os
+  niveis de subcategorias ficam lado a lado numa linha, separados por
+  24 px e um divisor do tema. Cada grupo rola independentemente;
+  Shift+roda alcanca niveis profundos. Fotos encolhem para continuar
+  acessiveis; ao ampliar a altura, volta a uma fila por nivel.
 - Material continua representado por esfera; categoria e item nao
   exibem contagem. Manter renomear, salvar, apagar e protecoes atuais.
 
 ## Interacoes preservadas
 
 - Clique num modulo inicia seu posicionamento na viewport; Esc cancela.
+- Direito na foto ou no nome abre, ao SOLTAR, o menu junto ao mouse:
+  Inserir, Editar, Bloquear/Desbloquear. Sem botoes sob as miniaturas de
+  modulos; Editar fica desabilitado nos bloqueados. Protecao de fabrica
+  mantida; puxador usa o criador em vez de inserir malha solta.
 - Material: clique simples nao pinta; duplo pinta a selecao; arrastar
   pinta o alvo ao soltar; direito abre pintura rapida por comodo/parte.
 - Perguntas originadas na biblioteca aparecem dentro da propria faixa,
-  com espaco e rolagem para respostas. Pop-up permanece so' da viewport.
+  com espaco e rolagem para respostas. O menu contextual dos modulos e'
+  a excecao explicita a' regra de pop-up so' da viewport.
 - Mouse na biblioteca controla suas filas; mouse na cena controla a
   viewport. Camera, selecao, gizmos, HUD e snap nao recebem cliques da faixa.
 - Clicar na caixa seleciona o modulo; portas/puxadores abrem suas funcoes;

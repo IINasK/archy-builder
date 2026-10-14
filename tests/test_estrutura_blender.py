@@ -59,7 +59,8 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         # pilha de eventos, o estado de GPU e o canto superior esquerdo
         # com addons que tambem desenham na viewport (BlenderKit).
         # A area propria e' imune aos tres.
-        fonte = inspect.getsource(addon.gaveta_eventos.OBJECT_OT_alternar_gaveta.execute)
+        fonte = (inspect.getsource(addon.biblioteca_faixa.configurar_pendentes)
+                 + inspect.getsource(addon.biblioteca_faixa.fechar))
         self.assertIn('screen.area_split', fonte)
         self.assertIn('screen.area_close', fonte)
         self.assertEqual(addon.gaveta._CHAVE_GAVETA, 'cabinet_gaveta_area')
@@ -88,7 +89,7 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         # Profundidade ficam na mesma linha -- nem menos, nem mais.
         self.assertEqual(addon.gaveta._LARGURA_PADRAO_GAVETA,
                          addon.gaveta.LARGURA_MEDIDAS_EM_LINHA)
-        fonte = inspect.getsource(addon.gaveta_eventos.OBJECT_OT_alternar_gaveta.execute)
+        fonte = inspect.getsource(addon.biblioteca_faixa.configurar_pendentes)
         self.assertIn('_largura_inicial_gaveta', fonte)
         bpy.ops.mesh.primitive_cube_add()
         try:

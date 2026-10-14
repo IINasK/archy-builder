@@ -200,3 +200,8 @@ e' visto na GUI (sem comparacao de imagem ainda).
 | Ancora Alt das gavetas usa translate NATIVO do cursor, exclui proprias pecas/ferragens temporariamente; confirmar/Esc restaura cursor/overlay/alvos; undo/redo unico | `OBJECT_OT_mover_ancora_gaveta`, `OBJECT_OT_confirmar_ancora_gaveta` | gavetas, gui_interacao |
 
 | Clique no puxador de gaveta isola o acessorio e abre Puxadores; Shift soma; trilhos selecionam gavetas; modelo e ajustes individuais sobrevivem ao redimensionar | `_selecionar_puxador`, `_trocar_modelo_puxador`, `montar` | gavetas, gui_interacao |
+
+| Faixa de biblioteca acima de menu e viewport; categorias/miniaturas horizontais, recolher/expandir, areas reconectadas e migracao legada, alvo do preset, tooltip, cache limitado e indice reutilizado | `biblioteca_faixa`, `OBJECT_OT_recolher_biblioteca` | biblioteca_faixa, gui_biblioteca_faixa, gui_interacao |
+| Categorias compactas de 18 px; modulos sem botoes inferiores; direito na foto/nome abre menu no soltar, Inserir/Editar/Bloquear, protecao reconferida e modelos usam o criador | `abrir_menu_item`, `OBJECT_OT_acao_item_biblioteca` | biblioteca_faixa, gui_biblioteca_faixa |
+| Setas de categorias/fotos apenas com overflow e no sentido dos itens ocultos; resize recupera a largura e revela todos, mesmo com offset antigo | `biblioteca_faixa._linha`, `biblioteca_faixa.widgets` | biblioteca_faixa, gui_biblioteca_faixa |
+| Borda da faixa arrastada para cima: abaixo de 160 px, subcategorias lado a lado, espaco/divisor por nivel, rolagem independente por X/Y e fotos acessiveis | `_subcategorias_em_linha`, `biblioteca_faixa.widgets` | biblioteca_faixa, gui_biblioteca_faixa |

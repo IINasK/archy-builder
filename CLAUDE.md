@@ -15,7 +15,7 @@ esquerda (nao existe UILayout ali). O add-on e' um PACOTE, um modulo por
 area (o `__init__` so' carrega, liga e registra): chapas, modulos
 (conjunto), opcoes, biblioteca, materiais, eventos, selecao, portas, assistente
 (wizard), ferragens, portas_viewport, puxadores, arame, importacao, promob (DXF ->
-sistemas), solda (correntes), perguntas, hud, gaveta (layout), paredes, formas, gavetas
+sistemas), solda (correntes), perguntas, hud, gaveta (layout), biblioteca_faixa (topo), paredes, formas, gavetas
 (do MOVEL: a "gaveta" e' o menu), prateleiras (internas), geometria (quinas/area),
 gaveta_desenho, gaveta_eventos, orcamento, painel_legado (fora de CLASSES).
 Entre modulos, SEMPRE `_modulo.nome` (apelido ligado por `_ligar_modulos`;
@@ -38,7 +38,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (225).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (229).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -77,7 +77,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 ## Decisoes do usuario (nao "melhorar")
 - SNAP: reutilizar SEMPRE o motor nativo do Blender em novas ferramentas quando aplicavel;
   evitar varreduras Python de malhas no clique/arraste. Cursor temporario: restaurar no confirmar/Esc, undo unico.
-- Sim/Nao (`_perguntar`): pop-up SO' da viewport; botao da gaveta = caixa preta.
+- Sim/Nao (`_perguntar`): pop-up SO' da viewport; botao da gaveta = caixa preta. Excecao: DIREITO na foto/nome da biblioteca = menu no SOLTAR (Inserir/Editar/Bloquear); sem botoes sob modulos.
 - Selecao: caixa (laterais/tampo) = modulo; porta = so' porta; puxador = so' ele; duplo = peca, Shift soma; a gaveta vai a' aba
   do item; a SELECAO decide o que edita. Quina arrasta o modulo (Ctrl = snap
   SO' em quina/ponta de curva de outro armario/chapa). PORTA: clique = inteira (nunca o
@@ -122,9 +122,9 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   FOLHA: Chapa | Quadro de aluminio (perfil 23 x 10 + painel 5, o do Promob).
 - Gaveta sem redundancia (sem nome do item, Sincronizar, Auto-regenerar); Montagem =
   Corrente e Resetar distancia (resto: F3). Campo: ARRASTAR de lado muda; clicar digita.
-- Biblioteca: Modulos | Materiais; reformulacao PLANEJADA = faixa no TOPO, acima do menu E da viewport (`PLANO_BIBLIOTECA.md`); niveis SEM LIMITE (`niveis` no indice),
-  SEM contagem, ramo vazio some. Material = COR SOLIDA no slot do OBJETO. Esfera: 1 clique NADA;
-  duplo = SELECAO; arrastada = o de baixo; DIREITO = pintura rapida (comodo -> parte).
+- Biblioteca: Modulos | Materiais na FAIXA no TOPO, acima do menu E da viewport (`biblioteca_faixa`); menu so' edita. Niveis SEM LIMITE (`niveis` no indice),
+  Abas compactas (18/20 px, fonte 10, intervalo 2); altura <160: subniveis na mesma linha (vao 24 + divisor), roda por X/Y; Setas SO' com overflow, no sentido dos ocultos; SEM contagem, ramo vazio some; fotos so' visiveis, cache RGBA8 de 64 MiB e indice invalidavel. Material = COR SOLIDA no slot do OBJETO. Esfera: 1 clique NADA;
+  duplo = SELECAO; arrastada = o de baixo; DIREITO = pintura rapida (comodo -> parte). Areas: Screen `cabinet_layout=2`, biblioteca/menu/cena; reconecta/migra. Shift+roda percorre niveis profundos; chaves de rolagem com hash (63 bytes).
 - PAREDE (Promob): DIREITO segurado no modulo, solto numa FACE vertical nao-movel
   (realcada) = costas nela, ASSOCIADO A' FACE (anda c/ ela; G/R desliza). Guias editaveis.
 - GAVETAS (aba propria): 2 cliques na diagonal do vao (cima-esq -> baixo-dir) -> scroll =
@@ -146,7 +146,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 
 ## Armadilhas da API (confirmadas; nao "consertar")
 - Erro em callback de desenho/gizmo/timer o Blender so' IMPRIME (a UI some
-  calada; o harness GUI reprova). Desenho: nunca hashear acao (dict).
+  calada; o harness GUI reprova). Desenho: nunca hashear acao (dict). Biblioteca/menu: gizmos em pool (so' ocultar); campos conservam operador ligado, atualizam dica. Remover/religar no redraw caia em WM_gizmomap_tooltip_init.
 - `popup_menu` em `--background` derruba o Blender: `_abrir_pergunta`.
 - Objeto guardado em estado global (hover da HUD) vira memoria liberada
   no Ctrl+Z/abrir/apagar -- o release nao invalida -- e o crash sai em

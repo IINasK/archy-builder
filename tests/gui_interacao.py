@@ -12,6 +12,9 @@ import math
 import os
 import sys
 import time
+import json
+import tempfile
+import shutil
 
 import bpy
 from mathutils import Euler, Vector
@@ -24,6 +27,27 @@ sys.path.insert(0, AQUI)
 import cabinet_creator as addon  # noqa: E402
 from harness_gui import (rodar, esperar, viewport_principal, na_tela,  # noqa: E402
                          Pular)
+
+
+# O register agenda catalogos: toda a suite usa uma copia antes dele.
+_REAL = addon.opcoes._pasta_addon()
+_GUARDA = tempfile.mkdtemp(prefix='cabinet_gui_guard_')
+with open(os.path.join(_REAL, 'indice.json'), encoding='utf-8') as f:
+    _indice = json.load(f)
+_amostra, _contagem = [], {}
+for _it in _indice:
+    _caminho = addon.biblioteca.caminho_de(_it)
+    if _contagem.get(_caminho, 0) >= 2:
+        continue
+    _contagem[_caminho] = _contagem.get(_caminho, 0) + 1
+    _amostra.append(_it)
+    for _nome in (_it['arquivo'], os.path.splitext(_it['arquivo'])[0] + '.png'):
+        if os.path.isfile(os.path.join(_REAL, _nome)):
+            shutil.copyfile(os.path.join(_REAL, _nome), os.path.join(_GUARDA, _nome))
+with open(os.path.join(_GUARDA, 'indice.json'), 'w', encoding='utf-8') as f:
+    json.dump(_amostra, f)
+addon.biblioteca.pasta_biblioteca = lambda: _GUARDA
+addon.opcoes._pasta_addon = lambda: _GUARDA
 
 
 # ------------------------------------------------------------- apoio
@@ -39,19 +63,26 @@ def contexto(janela, area, regiao):
 
 
 def viewport(janela):
-    return viewport_principal(janela, addon.gaveta._area_gaveta(janela.screen))
+    area = addon.biblioteca_faixa.viewport(janela.screen)
+    regiao = next(r for r in area.regions if r.type == 'WINDOW')
+    return area, regiao, area.spaces.active.region_3d
 
 
 def widget(janela, teste):
     """Centro, em coordenadas da janela, do widget CLICAVEL da gaveta
     para o qual teste(v) e' verdadeiro."""
-    area, regiao = gaveta(janela)
-    with contexto(janela, area, regiao):
-        widgets = addon.gaveta._widgets_interativos(bpy.context)
-    v = next((v for v in widgets if v[5] and teste(v)), None)
-    assert v is not None, 'widget nao encontrado na gaveta'
-    x, y, w, h = v[:4]
-    return regiao.x + x + w / 2, regiao.y + y + h / 2
+    for area in (addon.gaveta._area_gaveta(janela.screen),
+                 addon.biblioteca_faixa.area_da_faixa(janela.screen)):
+        if area is None:
+            continue
+        regiao = next(r for r in area.regions if r.type == 'WINDOW')
+        with contexto(janela, area, regiao):
+            widgets = addon.gaveta._widgets_interativos(bpy.context)
+        v = next((v for v in widgets if v[5] and teste(v)), None)
+        if v is not None:
+            x, y, w, h = v[:4]
+            return regiao.x + x + w / 2, regiao.y + y + h / 2
+    raise AssertionError('widget nao encontrado na interface')
 
 
 def criar_modulo(janela):
@@ -175,38 +206,43 @@ def test_clique_na_aba_troca_a_aba(janela, m):
     assert bpy.context.scene.cabinet_aba == 'MODULOS'
 
 
-def test_arrastar_a_divisoria(janela, m):
-    area, regiao = gaveta(janela)
-    antes = addon.gaveta._divisa_gaveta(bpy.context, regiao.height)
-    x, y = widget(janela, lambda v: v[5][0] == 'divisa')
-    m.mover(x, y)
+def test_redimensiona_altura_da_biblioteca(janela, m):
+    area = addon.biblioteca_faixa.area_da_faixa(janela.screen)
+    regiao = next(r for r in area.regions if r.type == 'WINDOW')
+    antes = area.height
+    m.mover(area.x + area.width // 2, area.y)
     yield
-    m.apertar()
     yield
-    for passo in range(1, 4):
-        m.mover(x, y + 50 * passo)
-        yield
-    m.soltar()
-    yield
-    depois = addon.gaveta._divisa_gaveta(bpy.context, regiao.height)
-    assert abs(depois - (antes + 150)) <= 2, (antes, depois)
+    with contexto(janela, area, regiao):
+        addon.biblioteca_faixa.redimensionar_altura(bpy.context, antes + 40, (m.x,m.y))
+    yield esperar(0.4)
+    assert abs(area.height - (antes + 40)) < 4, (antes, area.height)
+    with contexto(janela, area, regiao):
+        addon.biblioteca_faixa.redimensionar_altura(bpy.context, antes, (m.x,m.y))
+    yield esperar(0.4)
 
 
 def test_roda_rola_so_a_biblioteca(janela, m):
-    area, regiao = gaveta(janela)
-    janela.screen[addon.gaveta._CHAVE_DIVISA] = 0.1      # biblioteca baixinha
+    s = bpy.context.scene
+    s.cabinet_bib_modo = 'MATERIAIS'
+    s.cabinet_mat_n1, s.cabinet_mat_n2, s.cabinet_mat_n3 = 'MDF', 'Roda', ''
+    addon.materiais.gravar_materiais([dict(nome='Cor %02d' % i, n1='MDF', n2='Roda',
+                                         n3='', cor='#888888') for i in range(30)])
+    addon.biblioteca_faixa.invalidar()
     yield
+    area = addon.biblioteca_faixa.area_da_faixa(janela.screen)
+    regiao = next(r for r in area.regions if r.type == 'WINDOW')
     with contexto(janela, area, regiao):
-        _lim, lim_bib = addon.gaveta._limites_rolagem_gaveta(
-            bpy.context, regiao.width, regiao.height)
-    assert lim_bib > 0, 'biblioteca nao rola nem baixinha'
-    # sobre o titulo "Biblioteca": em cima de um carrossel a roda
-    # troca a categoria (rolagem propria dele), nao rola o painel
-    m.mover(*widget_titulo(janela))
+        antes = next(v[5][1]['nome'] for v in addon.gaveta._widgets_interativos(bpy.context)
+                     if v[5] and v[5][0] == 'material')
+    m.mover(*widget(janela, lambda v: v[5][0] == 'material'))
     yield
     m.clicar('WHEELDOWNMOUSE')
     yield
-    assert janela.screen.get(addon.gaveta._CHAVE_ROLAGEM_BIB, 0) > 0
+    with contexto(janela, area, regiao):
+        depois = next(v[5][1]['nome'] for v in addon.gaveta._widgets_interativos(bpy.context)
+                      if v[5] and v[5][0] == 'material')
+    assert depois != antes, (antes, depois)
     assert janela.screen.get(addon.gaveta._CHAVE_ROLAGEM, 0) == 0
 
 
@@ -2096,6 +2132,11 @@ def test_usar_como_puxador_pela_gaveta(janela, m):
 
 
 def test_materiais_pela_gaveta(janela, m):
+    # Um teste anterior pode deixar o menu nativo da parede aberto.
+    # A pintura precisa comecar com a mesma interface limpa do teste isolado.
+    m.tecla('ESC')
+    yield
+    yield
     # Botao "Materiais" ao lado do titulo -> MDF -> Unicolores -> UM clique
     # na esfera nao faz nada; o DUPLO pinta o modulo selecionado; ARRASTAR
     # a esfera e soltar no modulo (fora da selecao) pinta ele. A lixeira
@@ -2159,7 +2200,8 @@ def test_materiais_pela_gaveta(janela, m):
         # arrastar outra esfera ate' o modulo, sem selecao: pinta o modulo
         bpy.ops.object.select_all(action='DESELECT')
         yield
-        area_g, regiao_g = gaveta(janela)
+        area_g = addon.biblioteca_faixa.area_da_faixa(janela.screen)
+        regiao_g = next(r for r in area_g.regions if r.type == 'WINDOW')
         with contexto(janela, area_g, regiao_g):
             item = next(v[5][1] for v in addon.gaveta._widgets_interativos(
                 bpy.context) if v[5] and v[5][0] == 'material'
@@ -2718,7 +2760,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_modulo_com_o_direito_ate_a_parede,
        test_materiais_pela_gaveta,
        test_clique_na_aba_troca_a_aba,
-       test_arrastar_a_divisoria,
+       test_redimensiona_altura_da_biblioteca,
        test_roda_rola_so_a_biblioteca,
        test_duplo_clique_na_foto_insere_no_cursor,
        test_clique_na_foto_e_depois_na_viewport_posiciona,

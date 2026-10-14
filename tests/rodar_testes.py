@@ -35,6 +35,7 @@ PISO = {
     'biblioteca': 79, 'cobertura': 4, 'gui_interacao': 51,
     'orcamento': 10, 'paredes': 12, 'armarios': 10, 'formas': 12, 'gavetas': 27,
     'geometria': 9, 'prateleiras': 8,
+    'biblioteca_faixa': 23, 'gui_biblioteca_faixa': 7,
 }
 LIMITE_SEGUNDOS = 300
 

@@ -114,17 +114,37 @@ em coluna larga fica ilegivel e a miniatura vira faixa. Como
 Regra de ouro, com teste: widget nenhum termina fora de
 `min(largura - 12, 552)`.
 
-**Layout atual, a substituir conforme `PLANO_BIBLIOTECA.md`:** biblioteca no topo acima do menu e da viewport (pedido de 13/10/2026). Hoje: a aba
-em cima, a **biblioteca fixa embaixo** nas tres abas, sempre aberta.
-Entre eles o widget `divisa` (`_paineis_gaveta` corta o conteudo nele):
-nasce na metade (`DIVISA_PADRAO`), guarda FRACAO em
-`screen['cabinet_gaveta_divisa']` e deixa `ALTURA_MIN_PAINEL_GAVETA` a
-cada lado. Perto dela: halo, pega e cursor MOVE_Y; arrastar = modal
-transitorio (Esc desfaz). Cada painel tem rolagem propria (a roda rola
-o que esta' sob o mouse) e e' recortado por `scissor`; o carrossel
-recorta na INTERSECAO com o painel. Widget cortado recebe clique so'
-na parte visivel (`_recortar_ao_painel`); icone e slider so' inteiros.
-Exigir o widget inteiro deixou a foto do preset morta a 633 px.
+**Biblioteca no topo (versao 229; referencia do usuario em 13/10/2026).**
+Area VIEW_3D dedicada, atravessando o menu e a cena. Primeiro split
+HORIZONTAL, depois VERTICAL na parte inferior. A faixa tem Modulos |
+Materiais, categorias em abas por nivel e UMA fila de fotos com nome e
+tooltip. Abas compactas: altura 18, passo 20, fonte 10, intervalo 2 px
+logicos (escala do usuario). Altura inicial da faixa: 180 px. Sem botoes
+sob os MODULOS: direito na foto OU no nome abre menu flutuante junto ao
+mouse com Inserir, Editar e Bloquear/Desbloquear. Abre no SOLTAR; editar
+bloqueado fica desabilitado; modelos de fabrica continuam protegidos.
+Este menu contextual e' uma excecao explicita a' regra de pop-ups;
+confirmacoes continuam na caixa preta da faixa. Ferramentas do catalogo
+ficam no cabecalho. Setas SO' quando a fila excede a largura util, e so'
+no sentido que ainda tem itens ocultos; sem setas, categorias/fotos usam
+a largura liberada. Resize recalcula a necessidade (inclusive offsets
+antigos). Roda e setas rolam a fila apontada; Shift+roda percorre os niveis
+profundos sem empurrar as fotos para fora. Perguntas longas rolam na faixa. Recolher/Expandir libera altura sem fechar o menu. Altura
+ajustavel pela fronteira nativa entre areas. Abaixo de 160 px LOGICOS,
+subcategorias ficam LADO A LADO numa unica linha abaixo do cabecalho:
+24 px entre niveis + divisor do tema (2 px continuam entre irmaos).
+Cada nivel tem seu proprio carrossel; roda usa X E Y para nao rolar
+o vizinho. Shift+roda percorre niveis que nao couberem na largura.
+Miniaturas encolhem com a altura; sem alvos fora da faixa. Ao aumentar,
+volta a uma linha por nivel. Tema e escala do usuario.
+Menu esquerdo: so' as abas e os controles da selecao, sem biblioteca nem
+divisoria interna. Layout antigo ainda pode ser lido, mas e' migrado ao
+reconectar/abrir. Os cliques da faixa nunca chegam a' cena. Perguntas da
+biblioteca ficam na propria faixa. Materiais conservam clique simples
+sem pintar, duplo clique, arraste e pintura rapida com o direito.
+Fotos RGBA8 com cache LRU de 64 MiB; so' itens visiveis geram widgets e
+texturas. Catalogo cacheado por caminho/mtime; abrir .blend e' so' ao
+inserir/editar, nunca ao desenhar. Ver `PLANO_BIBLIOTECA.md`.
 
 ## 7. Icones vem do GizmoGroup, nao da GPU
 
@@ -132,6 +152,9 @@ GPU desenha retangulo e texto, **nao icone do tema**. Para um icone
 nativo, `draw_prepare` cria um `GIZMO_GT_button_2d` em cima do
 retangulo e `_icone_acao_gaveta(acao)` diz qual usar; icone deslocado
 costuma ser `matrix_basis`, nao o layout.
+Na biblioteca/menu, gizmos sao reutilizados/ocultados, nunca removidos
+no redraw: tooltip pendente nativo caia em `WM_gizmomap_tooltip_init`.
+Campos conservam o operador ligado no setup; no redraw muda so' `dica`.
 
 ## 8. HUD parametrica na viewport
 
@@ -638,7 +661,7 @@ teste nao pega — halo opaco, texto cortado, icone fora do lugar.
 
 ## 13. Alternativas ja' avaliadas e RECUSADAS
 A antiga restricao contra overlay foi substituida pela HUD da secao 8,
-por solicitacao explicita do usuario. A biblioteca ainda esta na gaveta; a faixa superior foi solicitada e planejada em `PLANO_BIBLIOTECA.md`.
+por solicitacao explicita do usuario. A biblioteca foi movida a uma faixa superior propria (secao 6).
 
 - **Pop-up / `invoke_props_dialog`**: fecha quando o mouse sai, e
   clicar na viewport e' a acao seguinte do posicionador. Nao existe
