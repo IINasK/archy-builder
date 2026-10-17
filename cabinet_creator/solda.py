@@ -485,15 +485,19 @@ def juntar_conexao(C, alvos, pecas, juntar, pares_reais=None):
     if juntar and alvos:
         modulo = next((m for m in (_portas._modulo_da_chapa(N) for N in pecas)
                        if m is not None), None)
-        if modulo is not None and _portas._modulo_da_chapa(C) != modulo:
-            mundo = C.matrix_world.copy()
-            C.parent = modulo
-            C.matrix_parent_inverse = modulo.matrix_world.inverted()
-            C.matrix_world = mundo
+        if modulo is not None:
+            # Preparar antes de religar o pai: preset sem marca nao pode
+            # falhar no meio, nem deixar uma nova tentativa presa na raiz.
+            colecao = _modulos._garantir_colecao_modulo(bpy.context.scene,modulo)
+            if _portas._modulo_da_chapa(C) != modulo:
+                mundo = C.matrix_world.copy()
+                C.parent = modulo
+                C.matrix_parent_inverse = modulo.matrix_world.inverted()
+                C.matrix_world = mundo
             pecas |= set(_modulos._chapas_do_conjunto(modulo))
             bpy.context.view_layer.update()
+            _modulos._mover_para_colecao(C,colecao)
             _chapas.associar_por_distancia(C, pecas)
-            _modulos._mover_para_colecao(C,_modulos._colecao_do_modulo(modulo))
             _modulos.reposicionar_origem(modulo)
             _modulos.sincronizar_medidas_conjunto(modulo)
         else:_chapas.associar_por_distancia(C, pecas)

@@ -140,19 +140,8 @@ def _colecao_do_comodo(cena, nome):
 
 
 def _garantir_colecao_modulo(cena, conj):
-    """Armario de antes do v168 (sem Collection propria) ganha a dele:
-    so' Collection entra na pasta do comodo."""
-    colecao = _modulos._colecao_do_modulo(conj)
-    if colecao is not None:
-        return colecao
-    nome = _modulos._nome_livre(conj.name, ignorar=(conj,))
-    if nome != conj.name:
-        _modulos.nomear_grupo(conj, nome)
-    colecao = bpy.data.collections.new(conj.name)
-    colecao[_modulos.MARCA_COLECAO_MODULO] = 1
-    cena.collection.children.link(colecao)
-    _modulos._mover_para_colecao(conj, colecao)
-    return colecao
+    """Solda e comodo usam a mesma migracao da montagem legada."""
+    return _modulos._garantir_colecao_modulo(cena, conj)
 
 
 def _limpar_comodos_vazios():

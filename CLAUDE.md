@@ -37,7 +37,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (270).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (271).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -96,7 +96,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Vertice de canto: atributo `cabinet_canto` (nao o SINAL); modelada: `v<i>`. E de UMA
   chapa nao mexe em mais nada (so' o do MODULO). Corrente sozinha ate' 5 mm; alem: vertice.
 - Grupo = Empty + Collection de MESMO nome (`_nome_livre`), na raiz, com chapas e porta.
-  Nome: F3 = dialogo; Corrente juntando SOLTAS = campo. A porta guarda o NOME do modulo.
+  Nome: F3 = dialogo; Corrente juntando SOLTAS = campo. A porta guarda o NOME do modulo. Solda/comodo garantem a Collection ANTES da filiacao; preset sem marca reutiliza SO' a pasta exclusiva de mesmo nome. Pasta compartilhada nunca vira modulo.
 - Orcamento (VENDIDO, nada de "ERP"): fim das OPCOES, .txt da empresa, so' Moveis,
   falta = Pendencia. COMODO = PASTA no Outliner (a unica fonte), linha na Modulos.
 - Gaveta por CONTEXTO (toda aba): sem selecao, so' o botao laranja de criar

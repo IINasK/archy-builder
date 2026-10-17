@@ -24,6 +24,91 @@ class _ContextoRegiao:
 
 
 class TestHUD(unittest.TestCase):
+    def _nova_solda_legada(self, parcial=False):
+        modulo=self.modulo();colecao=addon.modulos._colecao_do_modulo(modulo)
+        del colecao[addon.modulos.MARCA_COLECAO_MODULO]
+        c=max(addon.modulos._chapas_do_conjunto(modulo),key=lambda o:o.matrix_world.translation.x)
+        c.location.x+=.4;bpy.context.view_layer.update();addon.solda.desagregar(c)
+        n=addon.modulos._chapas_do_conjunto(modulo)[0]
+        if parcial:
+            mundo=c.matrix_world.copy();c.parent=modulo
+            c.matrix_parent_inverse=modulo.matrix_world.inverted();c.matrix_world=mundo
+            bpy.context.view_layer.update()
+        return modulo,colecao,c,n
+
+    def _confirmar_nova_solda(self,c,n):
+        q=addon.solda._vertice_da_assinatura(n,'v1')
+        addon.solda._conexao_pendente[0]=dict(origem=c.name,alvos=[('v0',tuple(q))],
+            pecas=[n.name],pares=[('v0',n.name,'v1')])
+        addon.perguntas._pergunta_atual[0]=dict(texto='Juntar ao modulo?',na_gaveta=True,
+            opcoes=[('Sim','CHECKMARK','object.cabinet_juntar_modulo',dict(juntar=True))])
+        self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=0),{'FINISHED'})
+
+    def test_soldar_novamente_reconhece_colecao_importada_sem_marca(self):
+        # Regressao v271: o preset tem Collection, mas sem eh_colecao_modulo.
+        modulo,colecao,c,n=self._nova_solda_legada()
+        nome=modulo.name;antes=[c.matrix_world@v.co for v in c.data.vertices]
+        locais=[tuple(v.co) for v in c.data.vertices];me=c.data
+        self._confirmar_nova_solda(c,n)
+        self.assertIs(addon.modulos._colecao_do_modulo(modulo),colecao)
+        self.assertEqual(modulo.name,nome);self.assertEqual(colecao.name,nome)
+        self.assertEqual(list(c.users_collection),[colecao]);self.assertIs(c.parent,modulo)
+        for p,v in zip(antes,c.data.vertices):self.assertLess((c.matrix_world@v.co-p).length,1e-6)
+        self.assertIs(c.data,me);self.assertEqual(locais,[tuple(v.co) for v in me.vertices])
+        self.assertFalse(addon.solda._pontas_fora_do_lugar([c]))
+        addon.solda.desagregar(c);self._confirmar_nova_solda(c,n)
+        self.assertIs(addon.modulos._colecao_do_modulo(modulo),colecao)
+
+    def test_nova_solda_recupera_parentesco_parcial_de_tentativa_que_falhou(self):
+        # Regressao v271: o erro ja' tinha religado o pai, deixando a peca na raiz.
+        modulo,colecao,c,n=self._nova_solda_legada(parcial=True)
+        mundo=c.matrix_world.copy();self._confirmar_nova_solda(c,n)
+        self.assertIs(addon.modulos._colecao_do_modulo(modulo),colecao)
+        self.assertEqual(list(c.users_collection),[colecao]);self.assertIs(c.parent,modulo)
+        for a,b in zip(mundo,c.matrix_world):self.assertLess((a-b).length,1e-6)
+
+    def test_solda_sem_colecao_propria_cria_montagem_sem_tomar_itens_alheios(self):
+        # Regressao v271: Empty antigo pode estar numa pasta compartilhada.
+        modulo,compartilhada,c,n=self._nova_solda_legada()
+        extra=bpy.data.objects.new('Item alheio',None);compartilhada.objects.link(extra)
+        nome_antigo=compartilhada.name
+        fixos={o.name:o.matrix_world.copy() for o in modulo.children_recursive}
+        self._confirmar_nova_solda(c,n)
+        propria=addon.modulos._colecao_do_modulo(modulo)
+        self.assertIsNotNone(propria);self.assertIsNot(propria,compartilhada)
+        self.assertEqual(propria.name,modulo.name)
+        self.assertEqual(compartilhada.name,nome_antigo);self.assertEqual(list(extra.users_collection),[compartilhada])
+        for o in [modulo,*modulo.children_recursive]:self.assertEqual(list(o.users_collection),[propria])
+        for nome,mundo in fixos.items():
+            for a,b in zip(mundo,bpy.data.objects[nome].matrix_world):self.assertLess((a-b).length,1e-6)
+
+    def test_soldar_modulo_antigo_na_raiz_cria_colecao_propria(self):
+        modulo,antiga,c,n=self._nova_solda_legada()
+        addon.modulos._mover_para_colecao(modulo,bpy.context.scene.collection)
+        self.assertEqual(list(modulo.users_collection),[bpy.context.scene.collection])
+        self._confirmar_nova_solda(c,n)
+        propria=addon.modulos._colecao_do_modulo(modulo)
+        self.assertIsNotNone(propria);self.assertIsNot(propria,bpy.context.scene.collection)
+        self.assertEqual(propria.name,modulo.name);self.assertIsNot(propria,antiga)
+        for o in [modulo,*modulo.children_recursive]:self.assertEqual(list(o.users_collection),[propria])
+        self.assertFalse(bpy.context.scene.collection.get(addon.modulos.MARCA_COLECAO_MODULO))
+
+    def test_undo_redo_de_nova_solda_restaura_marca_colecao_e_parentesco(self):
+        modulo,colecao,c,n=self._nova_solda_legada()
+        nome=c.name;grupo=modulo.name;pasta=colecao.name;mundo=c.matrix_world.copy()
+        bpy.ops.ed.undo_push(message='Antes de soldar no preset legado')
+        self._confirmar_nova_solda(c,n)
+        bpy.ops.ed.undo_push(message='Solda no preset com colecao recuperada')
+        modulo=None;colecao=None;c=None;n=None
+        for funcao,junto in ((bpy.ops.ed.undo,False),(bpy.ops.ed.redo,True)):
+            funcao();bpy.context.view_layer.update();addon.eventos._fim_do_desfazer()
+            c=bpy.data.objects[nome];colecao=bpy.data.collections[pasta]
+            self.assertEqual(bool(colecao.get(addon.modulos.MARCA_COLECAO_MODULO)),junto)
+            self.assertEqual(c.parent==bpy.data.objects[grupo],junto)
+            self.assertEqual(colecao in c.users_collection,junto)
+            for a,b in zip(mundo,c.matrix_world):self.assertLess((a-b).length,1e-6)
+            c=None;colecao=None
+
     def test_alt_corrente_desvincula_lateral_ativa_e_nao_a_base(self):
         # Regressao v270: a base guardava a solda, mas a selecionada era a lateral.
         from unittest.mock import patch

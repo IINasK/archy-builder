@@ -992,6 +992,31 @@ def _colecao_do_modulo(conj):
                  if c.get(MARCA_COLECAO_MODULO)), None)
 
 
+def _garantir_colecao_modulo(cena, conj):
+    """Normaliza a montagem legada antes de inserir uma peca ou um comodo.
+
+    Colecao exclusiva do preset pode ter perdido apenas a marca. Uma
+    pasta compartilhada nao vira armario nem leva os outros objetos junto.
+    """
+    colecao = _colecao_do_modulo(conj)
+    if colecao is not None:
+        return colecao
+    familia = {conj, *conj.children_recursive}
+    colecao = next((c for c in conj.users_collection
+                    if c.name == conj.name and not c.is_embedded_data
+                    and not c.get('eh_colecao_comodo')
+                    and all(o in familia for o in c.all_objects)), None)
+    if colecao is None:
+        nome = _nome_livre(conj.name, ignorar=(conj,))
+        if nome != conj.name:
+            nomear_grupo(conj, nome)
+        colecao = bpy.data.collections.new(conj.name)
+        cena.collection.children.link(colecao)
+    colecao[MARCA_COLECAO_MODULO] = 1
+    _mover_para_colecao(conj, colecao)
+    return colecao
+
+
 def nomear_grupo(conj, nome):
     """Renomeia o Empty, a Collection e os vinculos das portas/gavetas
     que guardam o nome do modulo."""
