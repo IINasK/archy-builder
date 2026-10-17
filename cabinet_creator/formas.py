@@ -1,23 +1,28 @@
 """Formas de PLANTA: o modulo que nao e' caixa -- canto em L (RECORTE),
-diagonal (CHANFRO) e curvo (CURVA) -- lido da propria geometria e editado
-pela HUD: a profundidade de CADA lado (P1/P2), o raio R e as medidas
+diagonal (CHANFRO) -- lido da propria geometria e editado
+pela HUD: a profundidade de CADA lado (P1/P2), a diagonal R e as medidas
 totais (L/P) sem deformar o canto.
 
 A forma nao fica gravada: sai das pecas a cada mudanca (como as medidas
 L/A/P). Cada quina da caixa e' medida andando da quina para dentro ate'
 a primeira peca: recuo constante = recorte, linear = diagonal, que cai
-rapido = curva.
+rapido = contorno livre por segmentos retos.
 """
 
 import math
+import hashlib
+from array import array
 
 import bpy
+import bmesh
 from mathutils import Matrix, Vector
-from mathutils.geometry import convex_hull_2d
+from mathutils.geometry import convex_hull_2d, delaunay_2d_cdt
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _portas = None
+_chapas = _modulos = _portas = _prateleiras = None
+_gavetas = None
+_frentes = None
 
 # Recuo menor que isto numa quina e' folga de porta/fita, nao forma
 TOL_FORMA_MM = 30.0
@@ -32,7 +37,6 @@ RIGIDA_MM = 60.0
 # Na diagonal, o que esta' ate' esta distancia do lado anda inteiro (a
 # lateral nao entorta); dali ate' a outra ponta, cada vez menos
 MARGEM_CHANFRO_MM = 30.0
-SEGMENTOS_ARCO = 16
 MENOR_LADO_MM = 50.0      # nenhuma edicao deixa um lado menor que isto
 # A diagonal do lado inteiro: sobra ate' isto = a quina AFIADA (vai ate'
 # ela); mais = a ponta acaba na ESPESSURA de uma chapa (a prateleira da
@@ -47,51 +51,298 @@ MARCA_CURVA = "eh_peca_curva"
 # Quinas da caixa em ordem anti-horaria: (sinal em X, sinal em Y)
 QUINAS = ((-1, -1), (1, -1), (1, 1), (-1, 1))
 
-_cache = {}     # nome do modulo -> (assinatura, forma)
+_cache = {}     # nome do modulo/chapa -> (assinatura, {plano: forma})
+CHAVE_EDICAO = 'forma_edicao'
+VERSAO_REFERENCIA = 7
+ATR_ANGULO = 'cabinet_forma_angulo'
+
+
+def _base_do_plano(plano):
+    # Bases direitas: o mesmo solver 2D serve a planta e as elevacoes.
+    eixos = {'XY': ((1,0,0),(0,1,0),(0,0,1)),
+             'XZ': ((1,0,0),(0,0,1),(0,-1,0)),
+             'YZ': ((0,1,0),(0,0,1),(1,0,0))}
+    return Matrix(eixos[plano]).transposed().to_4x4()
+
+
+def _atributo_angular(plano):
+    return ATR_ANGULO if plano == 'XY' else ATR_ANGULO + '_' + plano.lower()
+
+
+def _matriz_gravada(valores):
+    return Matrix([valores[i:i+4] for i in (0, 4, 8, 12)])
+
+
+def _gravar_matriz(matriz):
+    return [v for linha in matriz for v in linha]
+
+
+def _pecas_da_edicao(conj):
+    return list(dict.fromkeys(_pecas(conj) + [o for o in conj.children
+                     if o.type == 'MESH' and (_chapas.MARCA_CHAPA in o
+                                             or _chapas.MARCA_ACESSORIO in o)]))
+
+
+def _digital_edicao(conj):
+    """Mudanca manual invalida a referencia; mover/abrir o movel nao.
+    foreach_get copia a malha pelo Blender, sem uma leitura RNA por co.
+    """
+    registros=[]
+    inv = matriz_do_modulo(conj).inverted()
+    for o in _pecas_da_edicao(conj):
+        h=hashlib.sha1()
+        m = (_portas._ferragens._matriz_fechada(o) if o.get('porta_curva_modelada')
+             else o.matrix_world)
+        h.update(repr((o.get('chapa_uid',''), tuple(round(v, 5) for linha in inv @ m for v in linha),
+                       len(o.data.polygons), o.chapa_largura_mm, o.chapa_comprimento_mm,
+                       o.chapa_espessura_mm)).encode())
+        co = array('f', [0]) * (3 * len(o.data.vertices))
+        o.data.vertices.foreach_get('co', co)
+        h.update(co.tobytes())
+        registros.append(h.digest())
+    for o in conj.children:
+        for chave in ('gavetas_parametros','prateleiras_parametros','porta_parametros'):
+            p=o.get(chave)
+            if p is not None:
+                h=hashlib.sha1()
+                m=(tuple(round(v,5) for linha in inv @ o.matrix_world for v in linha)
+                   if chave!='porta_parametros' else ())
+                parametros=p.to_dict()
+                # Curso medido e' cache de movimento, nao geometria.
+                # Recalcula-lo ao abrir nao descarta a referencia do resize.
+                if chave=='porta_parametros':parametros.pop('abertura_limite_graus',None)
+                h.update(repr((chave,m,parametros)).encode())
+                if chave=='porta_parametros':
+                    vao=o.get(_portas.CHAVE_VAO_ORIENTADO)
+                    h.update(repr(vao.to_dict() if vao else None).encode())
+                registros.append(h.digest())
+    # Append pode reordenar filhos sem mudar a geometria. A assinatura
+    # e' de um conjunto de pecas/sistemas, nao da ordem do Outliner.
+    return hashlib.sha1(b''.join(sorted(registros))).hexdigest()
+
+
+def concluir_edicao(conj):
+    estado=conj.get(CHAVE_EDICAO)
+    if estado:
+        estado['ultimo']=_digital_edicao(conj)
+        estado['fim']=_gravar_matriz(conj.matrix_world)
+
+
+def _preparar_edicao(conj, chave, lado, plano='XY'):
+    """Editar uma medida sempre parte da MESMA geometria de referencia.
+    Copias nativas de Mesh conservam topologia, atributos, UV e recortes;
+    a referencia acompanha undo, salvar/anexar e duplicar o modulo.
+    """
+    # A identidade semantica deve preceder a deformacao e a copia de
+    # referencia; depois dela o guia legado ja' pode estar em outro plano.
+    for o in conj.children:
+        if o.type=='MESH' and _chapas.MARCA_FUNDO in o:
+            _chapas.absorver_malha_editada(o)
+    if conj.type=='MESH':
+        if conj.data.users>1:conj.data=conj.data.copy()
+        _frentes.preparar(conj)
+    else:
+        _frentes.preparar_conjunto(conj)
+    canal = repr((tuple(chave), lado, plano))
+    estado = conj.get(CHAVE_EDICAO)
+    if (estado and estado.get('versao') == VERSAO_REFERENCIA and estado['canal'] == canal
+            and estado['ultimo'] == _digital_edicao(conj)
+            and all(isinstance(d.get('objeto'), bpy.types.Object)
+                    and isinstance(d.get('malha'), bpy.types.Mesh)
+                    for d in estado['pecas'].values())):
+        # A origem mudou com a medida; apenas movimento EXTERNO deve
+        # transformar a referencia original.
+        delta = conj.matrix_world @ _matriz_gravada(estado['fim']).inverted()
+        mundo = delta @ _matriz_gravada(estado['inicio'])
+        ocupado=_chapas._ocupado[0]
+        _chapas._ocupado[0] = True
+        try:
+            filhos = {o: o.matrix_world.copy() for o in conj.children}
+            conj.matrix_world = mundo
+            bpy.context.view_layer.update()
+            for o, m in filhos.items():
+                o.matrix_world = m
+            for d in estado['pecas'].values():
+                o = d['objeto']
+                velha = o.data
+                _frentes.copiar_rotulos(velha,d['malha'])
+                if chave[0]=='JUNTA' and velha.users==1:
+                    # A edicao de angulo conserva o ID usado pelo undo.
+                    bm=bmesh.new()
+                    try:bm.from_mesh(d['malha']);bm.to_mesh(velha)
+                    finally:bm.free()
+                else:
+                    o.data = d['malha'].copy()
+                    if velha.users == 0:
+                        bpy.data.meshes.remove(velha)
+                o.matrix_world = mundo @ _matriz_gravada(d['matriz'])
+                o.chapa_largura_mm, o.chapa_comprimento_mm, o.chapa_espessura_mm = d['medidas']
+                if 'centro_folha' in d:
+                    o[_portas._ferragens.CHAVE_CENTRO_FOLHA]=list(d['centro_folha'])
+            for d in estado['grupos'].values():
+                o = d.get('objeto')
+                if isinstance(o, bpy.types.Object):
+                    o.matrix_world = mundo @ _matriz_gravada(d['matriz'])
+                    if _gavetas.MARCA_GRUPO in o and 'parametros' in d:
+                        if d.get('referencia'):
+                            o[_gavetas.CHAVE_REFERENCIA]=list(d['referencia'])
+                        elif _gavetas.CHAVE_REFERENCIA in o:del o[_gavetas.CHAVE_REFERENCIA]
+                        for chave in (_gavetas.CHAVE_ENCAIXE,):
+                            if chave in o:del o[chave]
+                        o[_gavetas.CHAVE_MARGENS]=list(d['margens'])
+                        p=d['parametros'].to_dict()
+                        if (any(abs(a-b)>.01 for a,b in zip(o[_gavetas.CHAVE_VAO],d['vao']))
+                                or _gavetas.parametros(o)!=p):
+                            _gavetas._reencaixar_existentes(o,*d['vao'],p)
+                    if _prateleiras.MARCA_GRUPO in o and 'prateleiras' in d:
+                        dados=d['prateleiras'].to_dict()
+                        if _prateleiras.CHAVE_ENCAIXE in o:del o[_prateleiras.CHAVE_ENCAIXE]
+                        for chave,valor in dados.items():o[chave]=valor
+                    if _chapas.MARCA_PORTAS in o and 'porta' in d:
+                        for chave in list(o.keys()):
+                            if chave.startswith('porta_vao_'):del o[chave]
+                        for chave,valor in d['porta'].items():
+                            o[chave]=_portas._copiar_parametros(valor)
+            # Restaurar pais antes das matrizes mundiais dos filhos.
+            # A prateleira antes ganhava DUAS vezes a compensacao da origem.
+            bpy.context.view_layer.update()
+            for d in estado['pecas'].values():
+                d['objeto'].matrix_world=mundo @ _matriz_gravada(d['matriz'])
+        finally:
+            _chapas._ocupado[0] = ocupado
+        bpy.context.view_layer.update()
+        _cache.pop(conj.name, None)
+        return
+    if chave[0]=='ANG':
+        _marcar_aresta_angular(conj,chave[1],plano)
+    # Referencias descartadas nao ficam acumulando malhas orfas.
+    antigas = [d.get('malha') for d in estado['pecas'].values()] if estado else []
+    inv = matriz_do_modulo(conj).inverted()
+    pecas = {str(i): dict(objeto=o, malha=o.data.copy(),
+                         matriz=_gravar_matriz(inv @ (_portas._ferragens._matriz_fechada(o)
+                                  if o.get('porta_curva_modelada') else o.matrix_world)),
+                         medidas=[o.chapa_largura_mm, o.chapa_comprimento_mm, o.chapa_espessura_mm])
+             for i, o in enumerate(_pecas_da_edicao(conj))}
+    for d in pecas.values():
+        o=d['objeto']
+        if o.get('porta_curva_modelada') and _portas._ferragens.CHAVE_CENTRO_FOLHA in o:
+            d['centro_folha']=list(o[_portas._ferragens.CHAVE_CENTRO_FOLHA])
+    grupos = {str(i): dict(objeto=o, matriz=_gravar_matriz(inv @ o.matrix_world))
+              for i, o in enumerate(dict.fromkeys([o for o in conj.children if o.type=='EMPTY']
+                                                  +_portas._portas_do_conjunto(conj)))}
+    for d in grupos.values():
+        o=d['objeto']
+        if _gavetas.MARCA_GRUPO in o:
+            d.update(parametros=_gavetas.parametros(o),vao=list(o[_gavetas.CHAVE_VAO]),
+                     margens=list(o[_gavetas.CHAVE_MARGENS]),
+                     referencia=list(o.get(_gavetas.CHAVE_REFERENCIA,())))
+        if _chapas.MARCA_PORTAS in o:
+            d['porta']={chave:_portas._copiar_parametros(o[chave]) for chave in o.keys()
+                        if chave.startswith('porta_vao_')}
+        if _prateleiras.MARCA_GRUPO in o:
+            d['prateleiras']={chave:_portas._copiar_parametros(o[chave]) for chave in (
+                _prateleiras.CHAVE_PARAMETROS,_prateleiras.CHAVE_MARGENS,_prateleiras.CHAVE_VAO,
+                _prateleiras.CHAVE_ENCAIXE) if chave in o}
+    conj[CHAVE_EDICAO] = dict(versao=VERSAO_REFERENCIA,canal=canal, inicio=_gravar_matriz(matriz_do_modulo(conj)),
+                             fim=_gravar_matriz(conj.matrix_world), ultimo='',
+                             pecas=pecas, grupos=grupos)
+    for m in antigas:
+        if isinstance(m, bpy.types.Mesh) and m.users == 0:
+            bpy.data.meshes.remove(m)
+    _cache.pop(conj.name,None)
 
 
 def esquecer():
     _cache.clear()
 
 
-def matriz_do_modulo(conj):
+def matriz_do_modulo(conj, plano='XY'):
     loc, rot, _escala = conj.matrix_world.decompose()
-    return Matrix.LocRotScale(loc, rot, Vector((1.0, 1.0, 1.0)))
+    return Matrix.LocRotScale(loc, rot, Vector((1.0, 1.0, 1.0))) @ _base_do_plano(plano)
 
 
 def _pecas(conj):
     """Chapas da caixa e pecas curvas: o que desenha a planta."""
-    return [o for o in conj.children if o.type == 'MESH' and (
+    if conj.type=='MESH' and _chapas.MARCA_CHAPA in conj:return [conj]
+    return [o for o in conj.children_recursive if o.type == 'MESH' and (
+        o.get('porta_curva_modelada') or _prateleiras.MARCA_PRATELEIRA in o or (o.parent == conj and (
         (_chapas.MARCA_CHAPA in o and not _chapas.eh_dependente(o))
-        or MARCA_CURVA in o)]
+        or MARCA_CURVA in o)))]
 
 
 def _assinatura(conj, pecas):
     def matriz(m):
         return tuple(round(v, 6) for linha in m for v in linha)
     return (matriz(conj.matrix_world),) + tuple(
-        (o.name, matriz(o.matrix_world), len(o.data.vertices),
+        (o.name, matriz(_portas._ferragens._matriz_fechada(o) if o.get('porta_curva_modelada') else o.matrix_world), len(o.data.vertices),
          round(getattr(o, 'chapa_largura_mm', 0.0), 3),
          round(getattr(o, 'chapa_comprimento_mm', 0.0), 3)) for o in pecas)
 
 
-def _planta(conj, pecas):
+def _marcar_aresta_angular(conj,k,plano='XY'):
+    """Aresta nativa conserva identidade quando o chanfro fica reto.
+    Nao se grava indice: subdividir/editar transporta o atributo EDGE.
+    """
+    forma=forma_do_modulo(conj,plano)
+    if forma is None or forma['cantos'][k] is None:return
+    pa,pb=pontas_diagonal(forma,k);inv=matriz_do_modulo(conj,plano).inverted()
+    for o in _pecas(conj):
+        m=inv@o.matrix_world
+        if abs(m.to_3x3().col[2].normalized().z)<.99:continue
+        for e in o.data.edges:
+            a,b=[(m@o.data.vertices[i].co*1000).xy for i in e.vertices]
+            if min((a-pa).length+(b-pb).length,(a-pb).length+(b-pa).length)>.1:
+                continue
+            nome=_atributo_angular(plano)
+            atributo=o.data.attributes.get(nome)
+            if atributo is None:atributo=o.data.attributes.new(nome,'INT','EDGE')
+            atributo.data[e.index].value=k+1
+    _cache.pop(conj.name,None)
+
+
+def _planta(conj, pecas, plano='XY'):
     """(poligonos 2D, lo, hi) em mm no referencial do modulo. Chapa
     deitada entra com o contorno de verdade (recorte, curva); o resto,
     com o casco convexo da projecao."""
-    inversa = matriz_do_modulo(conj).inverted()
-    poligonos, todos = [], []
+    inversa = matriz_do_modulo(conj,plano).inverted()
+    poligonos, todos, deitadas, bordas, marcadas = [], [], [], [], []
     for o in pecas:
-        mundo = inversa @ o.matrix_world
+        # A frente ja' integrada acompanha a carcaca. Sua espessura e a
+        # folga nao podem aumentar a planta usada para medir o armario.
+        if o.get('porta_curva_modelada') and o.parent and o.parent.get('porta_perfil_corpo'):
+            continue
+        fechado=_portas._ferragens._matriz_fechada(o) if o.get('porta_curva_modelada') else o.matrix_world
+        mundo = inversa @ fechado
         pts = [mundo @ v.co * 1000.0 for v in o.data.vertices]
         if not pts:
             continue
         todos += pts
         eixo_z = (mundo.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
         faces = []
+        if o.get('porta_curva_modelada'):
+            faces=[[(pts[i].x,pts[i].y) for i in f.vertices] for f in o.data.polygons
+                   if (mundo.to_3x3() @ f.normal).z>.99]
         if _chapas.MARCA_CHAPA in o and abs(eixo_z.z) > 0.99:
             faces = [[(pts[i].x, pts[i].y) for i in f.vertices]
                      for f in o.data.polygons if f.normal.z > 0.99]
+            deitadas += faces
+            # Identidade so' durante a extracao. O cache guarda vetores,
+            # nunca indices; triangulos coplanares nao criam lados falsos.
+            contagens={}
+            for face in o.data.polygons:
+                if face.normal.z<=.99:continue
+                for aresta in face.edge_keys:
+                    chave=tuple(sorted(aresta))
+                    contagens[chave]=contagens.get(chave,0)+1
+            bordas.extend((pts[i].xy,pts[j].xy,o.name)
+                          for (i,j),n in contagens.items() if n==1)
+            atributo=o.data.attributes.get(_atributo_angular(plano))
+            if atributo is not None:
+                for e in o.data.edges:
+                    k=atributo.data[e.index].value-1
+                    if 0<=k<4:
+                        i,j=e.vertices
+                        marcadas.append((k,pts[i].xy,pts[j].xy,o.name))
         if not faces:
             planos = [(p.x, p.y) for p in pts]
             faces = [[planos[i] for i in convex_hull_2d(planos)]]
@@ -100,7 +351,7 @@ def _planta(conj, pecas):
         return None
     lo = Vector([min(p[i] for p in todos) for i in range(3)])
     hi = Vector([max(p[i] for p in todos) for i in range(3)])
-    return poligonos, lo, hi
+    return poligonos, lo, hi, deitadas, bordas, marcadas
 
 
 def _cortes(poligonos, eixo, valor):
@@ -139,15 +390,16 @@ def _recuo(poligonos, lo, hi, k, eixo, t):
     return max(0.0, hi.y - max(ys) if sy > 0 else min(ys) - lo.y)
 
 
-def _feicao(poligonos, lo, hi, k):
+def _feicao(poligonos, lo, hi, k, tolerancia=TOL_FORMA_MM):
     """O que falta na quina k: None ou {'tipo', 'a' (perna em X), 'b'
     (perna em Y)}. Na metade da perna b o recuo e' ~a no recorte, ~a/2
-    na diagonal e ~0.13a na curva (quarto de circulo)."""
-    a = _recuo(poligonos, lo, hi, k, 0, 1.0)
-    b = _recuo(poligonos, lo, hi, k, 1, 1.0)
+    na diagonal. Outros perfis conservam o contorno livre da malha."""
+    amostra=min(1.0,tolerancia/4)
+    a = _recuo(poligonos, lo, hi, k, 0, amostra)
+    b = _recuo(poligonos, lo, hi, k, 1, amostra)
     largura, fundo = hi.x - lo.x, hi.y - lo.y
     inteira_a, inteira_b = a > largura - TOL_FORMA_MM, b > fundo - TOL_FORMA_MM
-    if a < TOL_FORMA_MM or b < TOL_FORMA_MM:
+    if a < tolerancia or b < tolerancia:
         return None
     meio = _recuo(poligonos, lo, hi, k, 0, b / 2.0)
     if inteira_a or inteira_b:
@@ -170,44 +422,504 @@ def _feicao(poligonos, lo, hi, k):
         return {'tipo': 'RECORTE', 'a': meio, 'b': b}
     if meio >= 0.3 * a:
         return {'tipo': 'CHANFRO', 'a': a, 'b': b}
-    # O arco sai TANGENTE ao lado: perto dele o recuo ja' e' bem menor que
-    # o raio e o segmento reto do poligono pesa demais (12 segmentos davam
-    # +4 mm). Do circulo, (R - f)^2 = 2Rt - t^2: medido a 1/4 e 1/2 da
-    # perna, la' dentro do arco, nos dois lados.
-    amostras = []
-    for eixo, perna in ((0, b), (1, a)):
-        for fracao in (0.25, 0.5):
-            t = perna * fracao
-            f = _recuo(poligonos, lo, hi, k, eixo, t)
-            amostras.append((f + t) + math.sqrt(2.0 * f * t))
-    raio = sum(amostras) / len(amostras)
-    return {'tipo': 'CURVA', 'a': raio, 'b': raio}
+    # Perfis arredondados conservam as arestas modeladas. Nao inferir
+    # circulos nem oferecer deformacao radial a partir de amostras.
+    return None
 
 
-def forma_do_modulo(conj):
+def _perfil_contem_pecas(forma,poligonos,margem):
+    corpo=forma
+    perfil=[Vector(p[:2]) for p in contorno(corpo)]
+    trechos=[(a,b) for a,b in zip(perfil,perfil[1:]+perfil[:1]) if (b-a).length>.01]
+    vistos=set()
+    for p in (Vector(p) for pol in poligonos for p in pol):
+        chave=tuple(round(c,2) for c in p)
+        if chave in vistos:continue
+        vistos.add(chave)
+        if intervalos_no_perfil(corpo,p,p):continue
+        apoiado=False
+        for a,b in trechos:
+            d=b-a;t=max(0.,min(1.,(p-a).dot(d)/d.length_squared))
+            if (p-a-d*t).length<=margem:
+                apoiado=True;break
+        if not apoiado:return False
+    return True
+
+
+def _detectar_planos_curvos(conj,pecas):
+    """So' bordas das faces estruturais; porta/prateleira nao define caixa.
+    Contagens eliminam diagonais da triangulacao sem alterar a Mesh.
+    A projecao por plano conserva uma inclinacao real na outra elevacao.
+    """
+    if conj.type=='MESH':return ()
+    inv=matriz_do_modulo(conj).inverted();curvos=set()
+    for o in pecas:
+        if (o.parent!=conj or _chapas.MARCA_CHAPA not in o or
+                _chapas.eh_dependente(o) or _chapas.MARCA_FOLHA in o or
+                _prateleiras.MARCA_PRATELEIRA in o):continue
+        contagens={}
+        for face in o.data.polygons:
+            if face.normal.z<.99:continue
+            for par in face.edge_keys:
+                chave=tuple(sorted(par));contagens[chave]=contagens.get(chave,0)+1
+        bordas=[par for par,n in contagens.items() if n==1]
+        if len(bordas)<5:continue
+        m=inv@o.matrix_world
+        pts={i:m@o.data.vertices[i].co*1000 for par in bordas for i in par}
+        normal=m.to_3x3().col[2].normalized()
+        principal=max(range(3),key=lambda e:abs(normal[e]))
+        for plano,eixos,fora in (('XY',(0,1),2),('XZ',(0,2),1),('YZ',(1,2),0)):
+            # Uma tampa inclinada continua sendo tampa: suas projecoes
+            # curvas nao tornam as duas elevacoes arredondadas tambem.
+            if plano in curvos or fora!=principal:continue
+            segmentos=[tuple(Vector((pts[i][eixos[0]],pts[i][eixos[1]],0)) for i in par) for par in bordas]
+            extensao=max(max(p[e] for p in pts.values())-min(p[e] for p in pts.values()) for e in eixos)
+            if _frentes.contorno_tem_curva(segmentos,extensao_minima=max(30.,extensao*.1)):curvos.add(plano)
+    return tuple(sorted(curvos))
+
+
+def planos_curvos(conj):
+    forma_do_modulo(conj)
+    memoria=_cache.get(conj.name)
+    return memoria[1].get('planos_curvos',()) if memoria else ()
+
+
+def forma_do_modulo(conj, plano='XY'):
     """{'lo', 'hi' (mm, referencial do modulo), 'cantos': [4 x feicao]}
-    ou None quando o modulo e' uma caixa."""
-    if conj is None or _chapas.MARCA_CONJUNTO not in conj:
+    ou None para caixa e contorno livre (arestas nativas da blocagem)."""
+    if conj is None or not (_chapas.MARCA_CONJUNTO in conj or
+            (conj.type=='MESH' and _chapas.MARCA_CHAPA in conj)):
         return None
     pecas = _pecas(conj)
-    if len(pecas) < 2:
+    if len(pecas) < (1 if conj.type=='MESH' else 2):
         return None
     assinatura = _assinatura(conj, pecas)
     guardado = _cache.get(conj.name)
-    if guardado is not None and guardado[0] == assinatura:
-        return guardado[1]
+    if guardado is None or guardado[0] != assinatura:
+        guardado=(assinatura,{'planos_curvos':_detectar_planos_curvos(conj,pecas)})
+        _cache[conj.name]=guardado
+    if plano in guardado[1]:
+        return guardado[1][plano]
     forma = None
-    planta = _planta(conj, pecas)
-    if planta is not None:
-        poligonos, lo, hi = planta
-        cantos = [_feicao(poligonos, lo, hi, k) for k in range(4)]
+    planta = _planta(conj, pecas, plano)
+    guardado[1][('planta',plano)]=planta
+    if planta is not None and plano not in guardado[1]['planos_curvos']:
+        poligonos, lo, hi, deitadas, bordas, marcadas = planta
+        tolerancia=TOL_FORMA_MM if plano=='XY' and conj.type!='MESH' else .1
+        cantos = [_feicao(poligonos, lo, hi, k,tolerancia) for k in range(4)]
+        for k, f in enumerate(cantos):
+            referencia=[(a,b,dono) for ki,a,b,dono in marcadas if ki==k]
+            if referencia and f is None:
+                f=cantos[k]=dict(tipo='CHANFRO')
+            if f is not None and f['tipo'] == 'CHANFRO':
+                _diagonal_real(deitadas or poligonos, lo, hi, k, f, bordas, referencia,tolerancia)
+                if 'pontas' not in f:cantos[k]=None
         if any(cantos):
-            forma = {'lo': lo, 'hi': hi, 'cantos': cantos}
-    _cache[conj.name] = (assinatura, forma)
+            forma = {'lo': lo, 'hi': hi, 'cantos': cantos, 'plano': plano}
+            # Uma aresta inclinada nao basta: outras chapas podem ter
+            # ficado fora do perfil depois de uma edicao parcial por Tab.
+            # Nao recortar a madeira pelo modelo idealizado da sua vizinha.
+            margem=max((getattr(o,'chapa_espessura_mm',0.) for o in pecas),default=0.)+.1
+            if forma is not None and not _perfil_contem_pecas(forma,poligonos,margem):forma=None
+    guardado[1][plano] = forma
     return forma
 
 
+def _uniao_da_secao(poligonos):
+    """CDT nativo resolve sobreposicoes, concavidades e ilhas. Apenas
+    triangulos cobertos por alguma chapa entram na uniao; nao se fecha
+    um vazio pelo casco convexo do conjunto nem se desenha triangulacao.
+    """
+    pts,faces=[],[]
+    for pol in poligonos:
+        area=sum(p[0]*q[1]-p[1]*q[0] for p,q in zip(pol,pol[1:]+pol[:1]))
+        if abs(area)<.0001:continue
+        face=list(range(len(pts),len(pts)+len(pol)))
+        pts.extend(Vector(p) for p in pol)
+        faces.append(face if area>0 else face[::-1])
+    if not faces:return [],0.
+    vs,_es,fs,_ov,_oe,orig=delaunay_2d_cdt(pts,[],faces,1,.01)
+    contagens={};area=0.
+    for face,ids in zip(fs,orig):
+        if not ids:continue
+        area+=abs(sum(vs[i].x*vs[j].y-vs[i].y*vs[j].x
+                      for i,j in zip(face,face[1:]+face[:1])))/2
+        for i,j in zip(face,face[1:]+face[:1]):
+            par=tuple(sorted((i,j)))
+            contagens[par]=contagens.get(par,0)+1
+    bordas=[(vs[i],vs[j]) for (i,j),n in contagens.items()
+            if n==1 and (vs[i]-vs[j]).length>.01]
+    return bordas,area
+
+
+def _na_borda_da_secao(p,bordas):
+    for a,b in bordas:
+        d=b-a;t=max(0.,min(1.,(p-a).dot(d)/d.length_squared))
+        if (p-a-d*t).length<.02:return True
+    return False
+
+
+def blocagem_do_modulo(conj):
+    """Duas laterais sustentam o contorno, nao a tessela da frente.
+    Faces de fora desenham a madeira; faces de dentro definem as juntas.
+    O cache guarda so' numeros/nomes, inclusive depois de Tab e undo.
+    """
+    forma_do_modulo(conj)
+    memoria=_cache.get(conj.name)
+    if memoria is None:return None
+    dados=memoria[1]
+    if 'blocagem' in dados:return dados['blocagem']
+    inv=matriz_do_modulo(conj).inverted();candidatos={0:[],1:[]}
+    pecas=[o for o in _pecas(conj) if o.parent==conj and _chapas.MARCA_CHAPA in o
+           and not _chapas.eh_dependente(o) and not o.get('porta_curva_modelada')]
+    pontos={o:[inv@o.matrix_world@v.co*1000 for v in o.data.vertices] for o in pecas}
+    altura=max((p.z for vs in pontos.values() for p in vs),default=0)-min(
+               (p.z for vs in pontos.values() for p in vs),default=0)
+    for o,vs in pontos.items():
+        if not vs or max(p.z for p in vs)-min(p.z for p in vs)<altura*.45:continue
+        m=inv@o.matrix_world;n=m.to_3x3().col[2].normalized()
+        eixo=max((0,1),key=lambda i:abs(n[i]))
+        if abs(n[eixo])<.35 or abs(n.z)>.94:continue
+        candidatos[eixo].append((o,m,sum(vs,Vector())/len(vs),n))
+    pares=[]
+    for eixo,cs in candidatos.items():
+        for i,a in enumerate(cs):
+            for b in cs[i+1:]:
+                distancia=abs(a[2][eixo]-b[2][eixo])
+                if distancia<2*max(a[0].chapa_espessura_mm,b[0].chapa_espessura_mm):continue
+                area=min(o.chapa_largura_mm*o.chapa_comprimento_mm for o in (a[0],b[0]))
+                pares.append((distancia*area,eixo,sorted((a,b),key=lambda c:c[2][eixo])))
+    dados['blocagem']=None
+    if not pares:return None
+    _peso,eixo,par=max(pares,key=lambda p:p[0]);outro=1-eixo
+    externos=[None]*8;internos=[None]*8;planos=[];nomes=[]
+    for lado,(o,m,centro,n) in enumerate(par):
+        baixo=min(v.co.z for v in o.data.vertices);alto=max(v.co.z for v in o.data.vertices)
+        fora=alto if n[eixo]*(1 if lado else -1)>0 else baixo
+        dentro=baixo if fora==alto else alto
+        for z,saida in ((fora,externos),(dentro,internos)):
+            vs=[m@v.co*1000 for v in o.data.vertices if abs(v.co.z-z)<.00005]
+            if len(vs)<4:return None
+            # A lateral pode ser trapezoidal. Quatro extremos no plano
+            # conservam a inclinacao sem multiplicar vertices do contorno.
+            h0,h1=min(p[outro] for p in vs),max(p[outro] for p in vs)
+            z0,z1=min(p.z for p in vs),max(p.z for p in vs)
+            usados=set()
+            for h in (0,1):
+                for v in (0,1):
+                    ponto=max(vs,key=lambda p:(1 if h else -1)*(p[outro]-h0)/max(h1-h0,.01)
+                              +(1 if v else -1)*(p.z-z0)/max(z1-z0,.01))
+                    chave=tuple(round(x,4) for x in ponto)
+                    if chave in usados:return None
+                    usados.add(chave)
+                    bits=[0,0,v];bits[eixo]=lado;bits[outro]=h
+                    saida[bits[0]+2*bits[1]+4*bits[2]]=tuple(ponto)
+        normal=n if dentro==alto else -n
+        ponto=m@Vector((0,0,dentro))*1000
+        planos.append((tuple(normal),normal.dot(ponto)))
+        nomes.append(o.name)
+    # Retangularizar so' a projecao arredondada. Os outros componentes
+    # conservam, por exemplo, um teto inclinado acima de uma frente curva.
+    envolvente=[list(p) for p in externos]
+    for plano in dados['planos_curvos']:
+        eixos={'XY':(0,1),'XZ':(0,2),'YZ':(1,2)}[plano]
+        fora=next(i for i in range(3) if i not in eixos)
+        for nivel in (0,1):
+            indices=[i for i in range(8) if bool(i&(1<<fora))==bool(nivel)]
+            for e in eixos:
+                lo=min(externos[i][e] for i in indices);hi=max(externos[i][e] for i in indices)
+                for i in indices:envolvente[i][e]=hi if i&(1<<e) else lo
+    dados['blocagem']=dict(eixo=eixo,cantos=externos,internos=internos,apoios=planos,nomes=nomes,
+                          planos_curvos=dados['planos_curvos'],cantos_hud=[tuple(p) for p in envolvente])
+    return dados['blocagem']
+
+
+def dados_junta(conj,chave,bloco=None):
+    bloco=blocagem_do_modulo(conj) if bloco is None else bloco
+    if bloco is None:raise ValueError('As laterais nao definem mais esta junta')
+    _tipo,s,t,indice=chave
+    if s!=bloco['eixo']:raise ValueError('O apoio da junta mudou')
+    ps=[Vector(p) for p in bloco['internos']]
+    a,b,c,d=(ps[i] for i in (indice,indice^(1<<s),indice^(1<<t),indice^(1<<s)^(1<<t)))
+    u=c-a;v=b-a
+    if min(u.length,v.length)<.01:raise ValueError('A junta nao tem comprimento livre')
+    angulo=math.degrees(u.angle(v))
+    return dict(a=a,b=b,c=c,d=d,s=s,t=t,angulo=angulo,bloco=bloco)
+
+
+def blocagem_cobre_estrutura(conj,bloco):
+    """Reconhece um corpo entre duas laterais, sem fechar um L ou uma
+    quina extra por uma corda. Convex hull nativo UMA vez por assinatura;
+    frentes/prateleiras curvas nao definem a topologia dos apoios.
+    """
+    if 'cobre_estrutura' in bloco:return bloco['cobre_estrutura']
+    bm=bmesh.new()
+    try:
+        vs=[bm.verts.new(p) for p in bloco['cantos']]
+        bmesh.ops.convex_hull(bm,input=vs);bm.normal_update()
+        centro=sum((v.co for v in bm.verts),Vector())/len(bm.verts)
+        planos=[]
+        for face in bm.faces:
+            n=face.normal.copy();p=face.verts[0].co
+            if n.dot(p-centro)<0:n.negate()
+            planos.append((n,n.dot(p)))
+        if len(planos)<4:
+            bloco['cobre_estrutura']=False;return False
+        inv=matriz_do_modulo(conj).inverted()
+        for o in _pecas(conj):
+            if o.parent!=conj or _chapas.MARCA_CHAPA not in o or _chapas.eh_dependente(o):continue
+            m=inv@o.matrix_world
+            if abs(m.to_3x3().col[2].normalized().z)>.94:continue
+            margem=o.chapa_espessura_mm*1.1+.1
+            for v in o.data.vertices:
+                p=m@v.co*1000
+                if any(n.dot(p)-d>margem for n,d in planos):
+                    bloco['cobre_estrutura']=False;return False
+        bloco['cobre_estrutura']=True
+        return True
+    finally:bm.free()
+
+
+def _delta_da_junta(j,graus):
+    a,b,c,d,s,t=(j[k] for k in ('a','b','c','d','s','t'))
+    u=(c-a).normalized();v=d-a;w=b-d
+    # Intersecao da reta do apoio com o cone do angulo. A reta pode
+    # estar fora do plano cartesiano da quina quando ha mais inclinacoes.
+    # E' uma quadratica escalar; nao consulta malhas nem itera vertices.
+    def dot(x,y):return math.fsum(float(p)*float(q) for p,q in zip(x,y))
+    cos=math.cos(math.radians(float(graus)));uv,uw=dot(u,v),dot(u,w)
+    vv,vw,ww=dot(v,v),dot(v,w),dot(w,w)
+    if ww<.0001:raise ValueError('O apoio nao tem comprimento livre')
+    if abs(cos)<1e-8:
+        raizes=[-uv/uw] if abs(uw)>1e-9 else ([1.] if abs(uv)<.001 else [])
+    else:
+        A=uw*uw-cos*cos*ww;B=2*(uv*uw-cos*cos*vw);C=uv*uv-cos*cos*vv
+        if abs(A)<ww*1e-12:raizes=[-C/B] if abs(B)>1e-9 else []
+        else:
+            discriminante=B*B-4*A*C
+            if discriminante<0:raizes=[]
+            else:
+                q=-.5*(B+math.copysign(math.sqrt(discriminante),B))
+                raizes=[q/A,C/q] if abs(q)>1e-12 else [-B/(2*A)]
+    validas=[]
+    for t in raizes:
+        if t*math.sqrt(ww)<20:continue
+        ponto=v+w*t
+        if ponto.length<.01:continue
+        if abs(dot(u,ponto)/ponto.length-cos)>1e-5:continue
+        validas.append(t)
+    if not validas:raise ValueError('O angulo nao cabe entre os apoios')
+    t=min(validas,key=lambda t:abs(t-1.))
+    return d+w*t-b
+
+
+def aplicar_angulo_junta(context,conj,chave,graus):
+    """Gira a referencia pelo vertice INTERNO e corta na face de apoio.
+    Uma unica deformacao transporta o conjunto; a secao de cada chapa
+    e' reconstruida pela sua normal, sem engrossar, cisalhar ou soldar.
+    """
+    if not 1<float(graus)<179:raise ValueError('O angulo deve ficar entre 1 e 179 graus')
+    # Recusar um apoio invertido antes de restaurar a referencia: uma
+    # entrada impossivel nao pode modificar o ultimo angulo confirmado.
+    _delta_da_junta(dados_junta(conj,chave),graus)
+    _preparar_edicao(conj,chave,None)
+    j=dados_junta(conj,chave);a,b,c,d,s,t=(j[k] for k in ('a','b','c','d','s','t'))
+    delta=_delta_da_junta(j,graus)
+    def desloc(ponto):
+        u=max(0.,min(1.,(ponto[s]-a[s])/(b[s]-a[s])))
+        inicio=c[t]+u*(d[t]-c[t]);fim=a[t]+u*(b[t]-a[t])
+        v=max(0.,min(1.,(ponto[t]-inicio)/(fim-inicio)))
+        return delta*u*v
+    _deformar(conj,desloc,conservar_espessura=True,apoios=dict(j['bloco'],ancora=tuple((a+b)/2)))
+    _concluir_transformacao(context,conj)
+
+
+def estrutura_hud(conj):
+    """Contorno livre quando nao ha uma forma parametrica reconhecida.
+    Preparado uma vez por assinatura/Tab. Cache so' numerico; BMesh e
+    CDT leem a geometria nativa sem alterar Mesh, UV, props ou selecao.
+    """
+    for plano in ('XY','XZ','YZ'):forma_do_modulo(conj,plano)
+    guardado=_cache.get(conj.name)
+    if guardado is None:return None
+    dados=guardado[1]
+    if 'estrutura' in dados:return dados['estrutura']
+    perfis=[];livre=False
+    for plano in ('XY','XZ','YZ'):
+        planta=dados.get(('planta',plano))
+        if planta is None:continue
+        pol,lo,hi=planta[:3]
+        bordas,area=_uniao_da_secao(pol)
+        perfis.append((_base_do_plano(plano).to_3x3().transposed(),bordas))
+        l,p=hi.x-lo.x,hi.y-lo.y
+        obliqua=any(min(abs(b.x-a.x),abs(b.y-a.y))>.05 for a,b in bordas)
+        # Vazios de montagem numa caixa ortogonal nao sao deformacao
+        # da carcaca. Um perfil obliquo sem classificacao exige contorno
+        # real, mesmo com ripas ou outros degraus no mesmo perimetro.
+        livre=livre or (obliqua and l*p-area>.02*(l+p))
+    if not livre:
+        dados['estrutura']=None
+        return None
+    inv=matriz_do_modulo(conj).inverted();arestas={}
+    for o in sorted(_pecas(conj),key=lambda o:o.get('chapa_uid',o.name)):
+        # Folha articulada nao e' carcaca. Seu desenho fechado aparece
+        # separado na HUD de portas, nunca como madeira fixa do modulo.
+        if o.get('porta_curva_modelada'):continue
+        m=inv@(_portas._ferragens._matriz_fechada(o)
+               if o.get('porta_curva_modelada') else o.matrix_world)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data);bm.normal_update()
+            if not bm.verts:continue
+            lo=Vector([min(v.co[i] for v in bm.verts) for i in range(3)])
+            hi=Vector([max(v.co[i] for v in bm.verts) for i in range(3)])
+            def referencia(v):
+                # Fracoes locais identificam a borda durante o arraste;
+                # nao se conservam indices nativos ou objetos no cache.
+                return tuple(round((v.co[i]-lo[i])/max(hi[i]-lo[i],1e-9),4) for i in range(3))
+            for e in bm.edges:
+                if len(e.link_faces)==2 and abs(e.link_faces[0].normal.dot(e.link_faces[1].normal))>.99999:
+                    continue
+                a,b=[m@v.co*1000 for v in e.verts]
+                if (b-a).length<.01:continue
+                if not any(_na_borda_da_secao((base@((a+b)/2)).xy,bs) for base,bs in perfis):
+                    continue
+                chave=tuple(sorted((tuple(round(v,2) for v in a),tuple(round(v,2) for v in b))))
+                ref=tuple(sorted(referencia(v) for v in e.verts))
+                arestas.setdefault(chave,dict(a=tuple(a),b=tuple(b),
+                         referencia=(o.get('chapa_uid',o.name),ref)))
+        finally:bm.free()
+    dados['estrutura']=list(arestas.values())
+    return dados['estrutura']
+
+
 # ------------------------------------------------------------ contorno
+def _diagonal_real(poligonos, lo, hi, k, f, bordas=(), referencia=(),tolerancia=TOL_FORMA_MM):
+    """Amostras a 1 mm detectam a forma, mas nao sao as pontas da chapa.
+    A aresta real termina na face interna da lateral, inclusive quando
+    AMBAS as pontas estao recuadas pela espessura. Medir uma vez no cache.
+    """
+    sx, sy = QUINAS[k]
+    xc, yc = (hi.x if sx > 0 else lo.x), (hi.y if sy > 0 else lo.y)
+    candidatos = []
+    segmentos=(bordas or [(p,q,None) for pol in poligonos
+                          for p,q in zip(pol,pol[1:]+pol[:1])])
+    for p, q, dono in (referencia or segmentos):
+            a, b = sorted((Vector(p), Vector(q)),
+                          key=lambda v:(round(abs(v.y-yc),2),-abs(v.x-xc)))
+            dx, dy = abs(a.x - b.x), abs(a.y - b.y)
+            if not referencia and (min(dx, dy) < tolerancia or (a.x-b.x)*(a.y-b.y)*sx*sy >= 0):
+                continue
+            if not referencia and (abs(a.y-yc) > ESPESSURA_PONTA_MM or abs(b.x-xc) > ESPESSURA_PONTA_MM):
+                continue
+            if not referencia and (abs(abs(a.x-xc)-f['a']) > ESPESSURA_PONTA_MM or abs(abs(b.y-yc)-f['b']) > ESPESSURA_PONTA_MM):
+                continue
+            candidatos.append(((a-b).length, a, b, dono))
+    if candidatos:
+        _, a, b, dono = max(candidatos, key=lambda c: c[0])
+        f.update(a=abs(a.x-xc), b=abs(b.y-yc), pontas=(tuple(a), tuple(b)))
+        lados=[]
+        for ponto,outra in ((a,b),(b,a)):
+            anterior=outra;atual=ponto
+            for _ in range(len(segmentos)):
+                pares=[Vector(q) if (Vector(p)-atual).length<.05 else Vector(p)
+                       for p,q,d in segmentos if d==dono and
+                       ((Vector(p)-atual).length<.05 or (Vector(q)-atual).length<.05)]
+                pares=[p for p in pares if (p-anterior).length>.05]
+                if not pares:break
+                proximo=pares[0];trecho=proximo-atual
+                if trecho.length>ESPESSURA_PONTA_MM:
+                    lados.append((tuple(trecho.normalized()),trecho.length));break
+                anterior,atual=atual,proximo
+        if len(lados)==2:f['lados']=lados
+
+
+def pontas_diagonal(forma, k):
+    f = forma['cantos'][k]
+    if 'pontas' in f:
+        return tuple(Vector(p) for p in f['pontas'])
+    sx, sy = QUINAS[k]
+    xc, yc = _quina(forma, k)
+    return Vector((xc-sx*f['a'], yc)), Vector((xc, yc-sy*f['b']))
+
+
+def angulo_diagonal(forma, k):
+    a, b = pontas_diagonal(forma, k)
+    return math.degrees(math.atan2(abs(b.y-a.y), abs(b.x-a.x)))
+
+
+def lado_da_ponta(forma, k, ponta):
+    """Direcao real do lado vizinho, depois dos trechos da espessura.
+    HUD e digitacao usam a mesma referencia numerica; nenhuma Mesh no redraw.
+    """
+    lados=forma['cantos'][k].get('lados')
+    if lados:
+        direcao,comprimento=lados[0 if ponta=='A' else 1]
+        return Vector(direcao),comprimento
+    pa, pb = pontas_diagonal(forma, k)
+    vertice, outra = (pa, pb) if ponta == 'A' else (pb, pa)
+    pontos = []
+    for x, y, _ in contorno(forma):
+        p = Vector((x, y))
+        if not pontos or (p-pontos[-1]).length > 1.0:
+            pontos.append(p)
+    if len(pontos)>1 and (pontos[0]-pontos[-1]).length<=1.0:
+        pontos.pop()
+    n=len(pontos)
+    i=min(range(n),key=lambda j:(pontos[j]-vertice).length)
+    for passo in (-1,1):
+        anterior=vertice
+        for j in range(1,n):
+            p=pontos[(i+j*passo)%n]
+            if (p-outra).length<=1.0:break
+            trecho=p-anterior
+            if trecho.length>ESPESSURA_PONTA_MM:
+                return trecho.normalized(),trecho.length
+            anterior=p
+    return None,0.0
+
+
+def dados_angulo_da_ponta(forma, k, ponta):
+    pa,pb=pontas_diagonal(forma,k)
+    vertice,outra=(pa,pb) if ponta=='A' else (pb,pa)
+    lado,_=lado_da_ponta(forma,k,ponta)
+    if lado is None:raise ValueError('O canto nao tem lado de apoio')
+    ate=(outra-vertice).normalized()
+    giro=math.atan2(lado.x*ate.y-lado.y*ate.x,lado.dot(ate))
+    sx,sy=QUINAS[k]
+    sinal=(-sx*sy)*(1.0 if giro>=0 else -1.0)
+    visto=math.degrees(abs(giro))
+    return visto,visto-sinal*angulo_diagonal(forma,k),sinal
+
+
+def aplicar_angulo_interno(context,conj,k,ponta,graus,plano='XY'):
+    """Resolve o angulo entre as duas arestas, nunca uma base quantizada.
+    Cada tentativa restaura a Mesh de origem pelo canal ANG existente.
+    """
+    chave=('ANG',k)
+    _preparar_edicao(conj,chave,None,plano)
+    forma=forma_do_modulo(conj,plano)
+    if forma is None or forma['cantos'][k] is None:
+        raise ValueError('O canto nao tem mais diagonal')
+    anterior=angulo_diagonal(forma,k)
+    _,base,sinal=dados_angulo_da_ponta(forma,k,ponta)
+    alvo=(float(graus)-base)/sinal
+    if not -.0001<=alvo<=90.0001:
+        raise ValueError('Esse angulo ultrapassa o lado do modulo')
+    for _ in range(4):
+        aplicar(context,conj,chave,max(0.,min(90.,alvo)),plano=plano)
+        forma=forma_do_modulo(conj,plano)
+        # Nos extremos a diagonal vira um canto ortogonal e deixa de
+        # ser uma feicao CHANFRO. A referencia nativa permite voltar.
+        visto=(dados_angulo_da_ponta(forma,k,ponta)[0]
+               if forma and forma['cantos'][k] else 90.0)
+        erro=float(graus)-visto
+        if abs(erro)<=.01:return
+        alvo+=erro/sinal
+    aplicar(context,conj,chave,anterior,plano=plano)
+    raise ValueError('O angulo nao cabe com as folgas atuais do modulo')
+
+
 def _quina(forma, k):
     sx, sy = QUINAS[k]
     lo, hi = forma['lo'], forma['hi']
@@ -216,7 +928,7 @@ def _quina(forma, k):
 
 def _pontos_do_canto(forma, k):
     """[(x, y, sobe)] do canto k em ordem anti-horaria; `sobe` = tem
-    aresta vertical (nao nos pontos do meio do arco)."""
+    aresta vertical."""
     sx, sy = QUINAS[k]
     xc, yc = _quina(forma, k)
     f = forma['cantos'][k]
@@ -230,16 +942,14 @@ def _pontos_do_canto(forma, k):
         return [(*primeiro, True), (xc - sx * a, yc - sy * b, True),
                 (*segundo, True)]
     if f['tipo'] == 'CHANFRO':
-        return [(*primeiro, True), (*segundo, True)]
-    cx, cy = xc - sx * a, yc - sy * b
-    pontos = []
-    for i in range(SEGMENTOS_ARCO + 1):
-        t = i / SEGMENTOS_ARCO
-        angulo = (1.0 - t if x_antes else t) * math.pi / 2.0
-        pontos.append((cx + sx * a * math.cos(angulo),
-                       cy + sy * b * math.sin(angulo),
-                       i in (0, SEGMENTOS_ARCO)))
-    return pontos
+        pa, pb = pontas_diagonal(forma, k)
+        reais = (pa, pb) if x_antes else (pb, pa)
+        saida = [(*primeiro, True)]
+        for p in (*reais, segundo):
+            if (Vector(p) - Vector(saida[-1][:2])).length > .01:
+                saida.append((*p, True))
+        return saida
+    raise ValueError('Formato sem edicao parametrica por segmentos retos')
 
 
 def contorno(forma):
@@ -247,12 +957,42 @@ def contorno(forma):
     return [p for k in range(4) for p in _pontos_do_canto(forma, k)]
 
 
+def intervalos_no_perfil(forma,a,b):
+    """Recorta uma linha pela secao numerica ja' preparada, sem ler Mesh.
+    Intersecoes parametricas conservam a mesma linha nos tres planos,
+    inclusive quando o teto inclinado corta uma aresta da planta.
+    """
+    pol=[Vector(p[:2]) for p in contorno(forma)]
+    a,b=Vector(a),Vector(b);d=b-a
+    def cruz(u,v):return u.x*v.y-u.y*v.x
+    def dentro(p):
+        impar=False
+        for u,v in zip(pol,pol[1:]+pol[:1]):
+            e=v-u
+            if e.length_squared>1e-12:
+                t=max(0.,min(1.,(p-u).dot(e)/e.length_squared))
+                if (p-u-e*t).length<.01:return True
+            if (u.y>p.y)!=(v.y>p.y) and p.x<(v.x-u.x)*(p.y-u.y)/(v.y-u.y)+u.x:
+                impar=not impar
+        return impar
+    if d.length<1e-6:return [(0.,1.)] if dentro(a) else []
+    cortes=[0.,1.]
+    for u,v in zip(pol,pol[1:]+pol[:1]):
+        e=v-u;den=cruz(d,e)
+        if abs(den)<1e-9:continue
+        t,s=cruz(u-a,e)/den,cruz(u-a,d)/den
+        if 0<t<1 and -.00001<=s<=1.00001:cortes.append(t)
+    cortes=sorted(set(cortes))
+    return [(u,v) for u,v in zip(cortes,cortes[1:])
+            if v-u>1e-7 and dentro(a+d*((u+v)/2))]
+
+
 def segmentos(forma):
     """Arestas da planta: {'a', 'b', 'chave', 'letra', 'direcao',
     'cantos'}. `chave` None = so' contorno. Lado inteiro = L ou P total
     (de min para max, `cantos` = quinas da caixa); lado que chega num
     recorte/diagonal = P1 (vertical) ou P2 (horizontal), de `a` (ponta
-    de fora) para `b` (a que anda); diagonal e curva = R."""
+    de fora) para `b` (a que anda); diagonal = R."""
     pontos = [_pontos_do_canto(forma, k) for k in range(4)]
     saida = []
     for k in range(4):
@@ -263,7 +1003,7 @@ def segmentos(forma):
                 continue
             seg = {'a': p[:2], 'b': q[:2], 'chave': None, 'letra': None,
                    'direcao': None, 'cantos': None}
-            if f['tipo'] in ('CHANFRO', 'CURVA'):
+            if f['tipo'] == 'CHANFRO' and min(abs(p[0]-q[0]), abs(p[1]-q[1])) > .01:
                 raiz = math.sqrt(0.5)
                 seg.update(chave=('R', k), letra='R',
                            direcao=(-sx * raiz, -sy * raiz))
@@ -298,9 +1038,9 @@ def segmentos(forma):
     return saida
 
 
-def valor(conj, chave):
+def valor(conj, chave, plano='XY'):
     """Medida (mm) que a linha `chave` da HUD mostra."""
-    forma = forma_do_modulo(conj)
+    forma = forma_do_modulo(conj,plano)
     if forma is None:
         raise ValueError("O modulo nao tem mais esse formato")
     if chave[0] == 'L':
@@ -310,14 +1050,17 @@ def valor(conj, chave):
     if chave[0] == 'R':
         f = forma['cantos'][chave[1]]
         if f is None:
-            raise ValueError("O canto nao tem mais diagonal nem curva")
+            raise ValueError("O canto nao tem mais diagonal")
+        if (plano!='XY' or conj.type=='MESH') and f['tipo']=='CHANFRO':
+            a,b=pontas_diagonal(forma,chave[1])
+            return (b-a).length
         return (f['a'] + f['b']) / 2.0
     if chave[0] == 'ANG':
         # angulo da diagonal com o lado da FRENTE (o da perna a)
         f = forma['cantos'][chave[1]]
         if f is None or f['tipo'] != 'CHANFRO':
             raise ValueError("O canto nao tem mais diagonal")
-        return math.degrees(math.atan2(f['b'], f['a']))
+        return angulo_diagonal(forma, chave[1])
     for seg in segmentos(forma):
         if seg['chave'] == tuple(chave):
             return (Vector(seg['a']) - Vector(seg['b'])).length
@@ -337,7 +1080,10 @@ def _reajustar(o, era_caixa, cima):
     origem e L/C nas props. Caixa que entortou (porta diagonal com uma
     ponta movida) e' refeita: gira em volta da vertical e estica."""
     malha = o.data
-    if era_caixa and not _chapas._malha_e_caixa(malha):
+    # A chapa que define a secao pode deixar de ser retangular. Refazer
+    # sua caixa apagaria a inclinacao ao partir de 90 graus (ou append).
+    no_perfil=abs(o.matrix_world.to_3x3().col[2].normalized().dot(cima))>.99
+    if era_caixa and not no_perfil and not _chapas._malha_e_caixa(malha):
         _refazer_caixa(o, cima)
         return
     vs = malha.vertices
@@ -389,16 +1135,92 @@ def _refazer_caixa(o, cima):
     _chapas.gerar_malha_chapa(o)       # malha vazia nasce caixa
 
 
-def _deformar(conj, desloc, rigida=None):
+def _deformar_chapa_com_secao(o,matriz,desloc,ancora,apoios):
+    """Transporta uma face e conserva a distancia NORMAL da outra.
+    O corte das pontas e' a intersecao com o apoio, nao a caixa girada.
+    Isso permite uma unica quina de contato mesmo com os lados obliquos.
+    """
+    inv=matriz.inverted();m=inv@o.matrix_world
+    normal=m.to_3x3().col[2].normalized()
+    zs=[v.co.z for v in o.data.vertices]
+    z0,z1=min(zs),max(zs)
+    if (z1-z0)*1000>o.chapa_espessura_mm*1.2+.1:return False
+    centro=sum((m@v.co*1000 for v in o.data.vertices),Vector())/len(zs)
+    z=z1 if (ancora-centro).dot(normal)>=0 else z0
+    def mover(p):return p+desloc(p)
+    origem=m@Vector((0,0,z))*1000
+    q=mover(origem)
+    hx=max(1.,o.chapa_largura_mm/2);hy=max(1.,o.chapa_comprimento_mm/2)
+    dx=m.to_3x3().col[0].normalized()*hx
+    dy=m.to_3x3().col[1].normalized()*hy
+    x=(mover(origem+dx)-mover(origem-dx))/(2*hx)
+    y=(mover(origem+dy)-mover(origem-dy))/(2*hy)
+    n=x.cross(y).normalized()
+    if n.length<.9:raise ValueError('A inclinacao elimina a secao da chapa')
+    x.normalize();y=n.cross(x).normalized()
+    rot=Matrix((x,y,n)).transposed()
+    nova=Matrix.LocRotScale((q-n*z*1000)/1000,rot.to_quaternion(),Vector((1,1,1)))
+    volta=nova.inverted();coords=[]
+    for v in o.data.vertices:
+        p=m@Vector((v.co.x,v.co.y,z))*1000
+        original=m@v.co*1000
+        # O perfil pode ter recortes: conservar o campo em cada vertice,
+        # projetando so' a componente normal para a face continuar plana.
+        ponto=mover(p)
+        ponto-=n*n.dot(ponto-q)
+        ponto+=n*(v.co.z-z)*1000
+        for nome,normal_antes,dist_antes,normal_depois,dist_depois in apoios:
+            if nome==o.name or abs(normal_antes.dot(original)-dist_antes)>.15:continue
+            tangente=normal_depois-n*normal_depois.dot(n)
+            den=normal_depois.dot(tangente)
+            if den>1e-8:ponto+=tangente*((dist_depois-normal_depois.dot(ponto))/den)
+        coords.extend(volta@(ponto/1000))
+    if o.data.users>1:o.data=o.data.copy()
+    o.data.vertices.foreach_set('co',coords);o.data.update()
+    o.matrix_world=matriz@nova
+    _reajustar(o,False,matriz.to_3x3().col[2].normalized())
+    _frentes.preparar(o,forcar=True)
+    return True
+
+
+def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
+              conservar_espessura=False,apoios=None):
     """Aplica `desloc(p) -> Vector` (mm, referencial do modulo) a cada
     vertice das pecas. `rigida(pts, deslocs)` pode devolver UM
     deslocamento para a peca inteira (anda sem esticar). Acessorio comum
     anda inteiro pelo deslocamento do proprio centro."""
-    matriz = matriz_do_modulo(conj)
+    matriz = matriz_do_modulo(conj,plano)
     inversa = matriz.inverted()
     giro = matriz.to_3x3()
     cima = giro.col[2].normalized()
-    pecas = _pecas(conj)
+    base=_base_do_plano(plano).to_3x3()
+    def no_modulo(p):
+        return base @ desloc(base.transposed() @ p)
+    fator = _gavetas.acompanhar_forma(conj, no_modulo)
+    if fator < 1.:
+        original = desloc
+        desloc = lambda p: original(p) * fator
+    vaos=_portas.preparar_deformacao_vaos(conj,no_modulo)
+    paineis=_apoios_dos_paineis(conj,matriz)
+    contatos=[]
+    if conservar_espessura and apoios:
+        para_plano=_base_do_plano(plano).to_3x3().transposed()
+        for lado,(nome,(n,dist)) in enumerate(zip(apoios['nomes'],apoios['apoios'])):
+            ids=[i for i in range(8) if bool(i&(1<<apoios['eixo']))==bool(lado)]
+            ps=[para_plano@Vector(apoios['internos'][i]) for i in ids]
+            novos=[p+desloc(p) for p in ps]
+            normal=(novos[1]-novos[0]).cross(novos[2]-novos[0]).normalized()
+            n=para_plano@Vector(n)
+            if normal.dot(n)<0:normal.negate()
+            contatos.append((nome,n,dist,normal,normal.dot(novos[0])))
+        ancora=sum((Vector(p) for p in apoios['internos']),Vector())/8
+        # A face externa da chapa e' a que olha para a junta editada.
+        ancora=para_plano@Vector(apoios.get('ancora',ancora))
+    # Fundo/travessa nao definem o envelope, mas pertencem a deformacao.
+    # Mantem o recorte e a espessura reais em vez de refaze-los pela AABB.
+    pecas = list(dict.fromkeys([o for o in _pecas(conj) if not o.get('porta_curva_modelada')]
+             + [o for o in conj.children if o.type == 'MESH'
+                and _chapas.MARCA_CHAPA in o and _chapas.eh_dependente(o)]))
     for o in pecas + [o for o in conj.children if o not in pecas
                       and _chapas.MARCA_ACESSORIO in o]:
         mundo = o.matrix_world.copy()
@@ -412,6 +1234,17 @@ def _deformar(conj, desloc, rigida=None):
         para_modulo = inversa @ mundo
         pts = [para_modulo @ v.co * 1000.0 for v in o.data.vertices]
         deslocs = [desloc(p) for p in pts]
+        if conservar_espessura and apoios and not (reencaixar_paineis and _chapas.MARCA_FUNDO in o):
+            if all(d.length<1e-6 for d in deslocs):continue
+            if _deformar_chapa_com_secao(o,matriz,desloc,ancora,contatos):continue
+        if _chapas.MARCA_FUNDO in o and o!=conj:
+            if not reencaixar_paineis and all(d.length<.001 for d in deslocs):
+                continue
+            # Um painel acompanha suas duas pontas no plano, conservando
+            # a secao. Aplicar o campo a frente/verso separadamente cisalha
+            # a espessura; refazer pela caixa perderia a malha editada.
+            _transportar_painel(o,pts,deslocs,matriz,cima,desloc,paineis.get(o))
+            continue
         inteira = rigida(pts, deslocs) if rigida is not None else None
         if inteira is not None:
             deslocs = [inteira] * len(pts)
@@ -429,7 +1262,116 @@ def _deformar(conj, desloc, rigida=None):
         o.data.update()
         if _chapas.MARCA_CHAPA in o:
             _reajustar(o, era_caixa, cima)
+    # Folha curva e' um sistema nativo, mas seu contorno participa da
+    # mesma deformacao linear. Calcular FECHADA, inclusive com slider aberto.
+    for o in [o for o in conj.children_recursive if o.get('porta_curva_modelada')]:
+        fechado=_portas._ferragens._matriz_fechada(o)
+        para_modulo=inversa @ fechado
+        volta=para_modulo.inverted()
+        for v in o.data.vertices:
+            ponto=para_modulo @ v.co*1000
+            v.co=volta @ ((ponto+desloc(ponto))/1000)
+        o.data.update()
     bpy.context.view_layer.update()
+    _portas.aplicar_deformacao_vaos(conj,vaos)
+
+
+def _apoios_dos_paineis(conj,matriz):
+    """Arestas reais das chapas deitadas, preparadas fora do desenho.
+    O fundo segue seu apoio, conservando o recuo normal ao plano; um
+    cisalhamento aplicado ao centro reduziria esse recuo ao girar.
+    """
+    inversa=matriz.inverted();arestas=[]
+    for o in _pecas(conj):
+        if abs((inversa@o.matrix_world).to_3x3().col[2].normalized().z)<.99:
+            continue
+        contorno=_frentes.contorno(o)
+        if contorno is None:continue
+        ps,es=contorno
+        for i,j in es:
+            a,b=(inversa@ps[i]*1000).xy,(inversa@ps[j]*1000).xy
+            if (b-a).length>ESPESSURA_PONTA_MM:arestas.append((a,b))
+    resultado={}
+    for o in conj.children:
+        if o.type!='MESH' or _chapas.MARCA_FUNDO not in o:continue
+        m=inversa@o.matrix_world
+        eixos=[m.to_3x3().col[i].normalized() for i in range(2)]
+        longo=min(range(2),key=lambda i:abs(eixos[i].z))
+        direcao=eixos[longo].xy.normalized()
+        centro=sum((m@v.co*1000 for v in o.data.vertices),Vector())/len(o.data.vertices)
+        candidatos=[]
+        for a,b in arestas:
+            d=b-a
+            if abs(d.normalized().dot(direcao))<.7:continue
+            t=(centro.xy-a).dot(d)/d.length_squared
+            if not -.1<=t<=1.1:continue
+            candidatos.append(((centro.xy-(a+d*t)).length,a,b))
+        if not candidatos:continue
+        _,a,b=min(candidatos,key=lambda x:x[0])
+        if (b-a).dot(direcao)<0:a,b=b,a
+        d=(b-a).normalized();normal=Vector((-d.y,d.x))
+        if normal.dot(m.to_3x3().col[2].xy)<0:normal.negate()
+        resultado[o]=(a.copy(),b.copy(),normal,centro.copy())
+    return resultado
+
+
+def _transportar_painel(o,pts,deslocs,matriz,cima,desloc,apoio=None):
+    mundo=o.matrix_world.copy()
+    rot=mundo.to_3x3().normalized()
+    eixos=[rot.col[i].normalized() for i in range(2)]
+    longo=min(range(2),key=lambda i:abs(eixos[i].dot(cima)))
+    lados=[[i for i,v in enumerate(o.data.vertices) if (v.co[longo]>=0)==sinal]
+           for sinal in (False,True)]
+    if any(not lado for lado in lados):return
+    centros=[sum((pts[i] for i in lado),Vector())/len(lado) for lado in lados]
+    novos=[sum((pts[i]+deslocs[i] for i in lado),Vector())/len(lado) for lado in lados]
+    antigo=centros[1]-centros[0];novo=novos[1]-novos[0]
+    if antigo.length<1e-6 or novo.length<1e-6:return
+    giro=matriz.to_3x3()
+    a,b=(giro@antigo).normalized(),(giro@novo).normalized()
+    proporcao=novo.length/antigo.length
+    meio=matriz@((novos[0]+novos[1])/2000)
+    if apoio is not None:
+        p,q,normal,centro_apoio=apoio
+        origem,destino=Vector((*p,centro_apoio.z)),Vector((*q,centro_apoio.z))
+        nova_origem,nova_ponta=origem+desloc(origem),destino+desloc(destino)
+        d=(q-p);novo_d=(nova_ponta-nova_origem).xy
+        if novo_d.length>1e-6:
+            t=(centro_apoio.xy-p).dot(d)/d.length_squared
+            recuo=(centro_apoio.xy-p).dot(normal)
+            proporcao=novo_d.length/d.length
+            comprimento=(max(v.co[longo] for v in o.data.vertices)-
+                         min(v.co[longo] for v in o.data.vertices))*1000
+            entra=max(0.,_modulos.CANAL_FUNDO_MM-_modulos.FOLGA_CANAL_FUNDO_MM)
+            # Uma chapa cisalhada por edicao antiga pode ter crescido ao
+            # ser alinhada. Cabe no apoio mais a entrada real nos canais.
+            corte=min(comprimento*proporcao,novo_d.length+2*entra)
+            proporcao=corte/max(comprimento,1e-9)
+            margem=(corte/2-entra)/novo_d.length
+            t=max(margem,min(1-margem,t))
+            n=Vector((-novo_d.y,novo_d.x)).normalized()
+            if n.dot(normal)<0:n.negate()
+            pos=nova_origem.xy+novo_d*t+n*recuo
+            meio=matriz@(Vector((*pos,centro_apoio.z))/1000)
+            # Transportar a rotacao DO APOIO conserva a secao modelada
+            # do painel; alinha-lo ao eixo novo apagava sua inclinacao
+            # residual mesmo quando a operacao nao tinha deslocamento.
+            a=(giro@Vector((*d,0))).normalized()
+            b=(giro@Vector((*novo_d,0))).normalized()
+    angulo=math.atan2(cima.dot(a.cross(b)),a.dot(b))
+    centro=sum((v.co.copy() for v in o.data.vertices),Vector())/len(o.data.vertices)
+    escala=Matrix.Identity(4);escala[longo][longo]=proporcao
+    o.data.transform(Matrix.Translation(centro)@escala@Matrix.Translation(-centro))
+    nova=Matrix.Rotation(angulo,3,cima)@rot
+    o.matrix_world=Matrix.LocRotScale(meio-nova@centro,nova.to_quaternion(),Vector((1,1,1)))
+    _chapas._ocupado[0]=True
+    try:
+        nome=('chapa_largura_mm','chapa_comprimento_mm')[longo]
+        setattr(o,nome,float(getattr(o,nome))*proporcao)
+    finally:
+        _chapas._ocupado[0]=False
+    o.data.update()
+    _frentes.preparar(o,forcar=True)
 
 
 def _rigida_na_faixa(forma, k, eixo, centro, faixa=FAIXA_MM):
@@ -446,7 +1388,7 @@ def _rigida_na_faixa(forma, k, eixo, centro, faixa=FAIXA_MM):
     return rigida
 
 
-def _mover_perna(conj, forma, k, perna, variacao):
+def _mover_perna(conj, forma, k, perna, variacao, angular=False):
     """Aumenta a perna `perna` ('a' em X, 'b' em Y) da feicao da quina k
     em `variacao` mm: a face interna (ou a ponta da diagonal) anda para
     dentro do modulo; o outro braco fica onde esta'."""
@@ -462,35 +1404,51 @@ def _mover_perna(conj, forma, k, perna, variacao):
     if vizinha is not None:
         outra = vizinha['a' if eixo == 0 else 'b']
     atual = f[perna]
-    novo = min(max(atual + variacao, TOL_FORMA_MM + 5.0),
-               lado - outra - MENOR_LADO_MM)
+    novo = min(max(atual + variacao, 0.0 if angular else TOL_FORMA_MM + 5.0),
+               lado if angular else lado - outra - MENOR_LADO_MM)
     variacao = novo - atual
     if abs(variacao) < 1e-6:
+        if angular:
+            # Voltar ao valor da referencia tambem reencaixa um fundo
+            # antigo que ja' estava maior que seu apoio.
+            _deformar(conj,lambda p:Vector(),reencaixar_paineis=True,plano=forma.get('plano','XY'))
         return
     passo = Vector((-sx * variacao, 0.0, 0.0)) if eixo == 0 else \
         Vector((0.0, -sy * variacao, 0.0))
     ao_longo = f[perna]                         # onde esta' a face que anda
     largura_coluna = f['b' if eixo == 0 else 'a']
+    # A faixa fixa de 100 mm alcancava as COSTAS ao reduzir o braco:
+    # no retorno os mesmos vertices passavam a pertencer a outro lado.
+    # Separar as duas extremidades pelo meio do espaco que sobra mantem
+    # a espessura e a identidade das pontas, inclusive em bracos curtos.
+    meio = (ao_longo + lado) / 2.0
     if f['tipo'] == 'RECORTE':
         def peso(p):
             c = _no_canto(forma, k, p)
-            if (ao_longo - FAIXA_MM <= c[eixo] <= ao_longo + FAIXA_MM
-                    and c[1 - eixo] <= largura_coluna + FAIXA_MM):
+            if (ao_longo / 2 < c[eixo] < meio
+                    and c[1 - eixo] <= largura_coluna + TOL_FORMA_MM):
                 return 1.0
             return 0.0
     else:
         def peso(p):
             c = _no_canto(forma, k, p)
             longe, junto = c[eixo], c[1 - eixo]
-            if junto > largura_coluna or longe > ao_longo + 2 * FAIXA_MM:
+            if junto > largura_coluna or longe >= meio:
                 return 0.0
             px = 1.0 if junto <= MARGEM_CHANFRO_MM else (
                 (largura_coluna - junto) / max(largura_coluna - MARGEM_CHANFRO_MM, 1.0))
-            py = 1.0 if longe <= ao_longo + FAIXA_MM else (
-                (ao_longo + 2 * FAIXA_MM - longe) / FAIXA_MM)
-            return max(0.0, px) * max(0.0, py)
+            return max(0.0, px)
+    apoios=None
+    if angular:
+        apoios=blocagem_do_modulo(conj) or dict(nomes=[],apoios=[],internos=[])
+        a,b=pontas_diagonal(forma,k)
+        centro=Vector((*((a+b)/2),(forma['lo'].z+forma['hi'].z)/2))
+        apoios=dict(apoios,ancora=tuple(_base_do_plano(forma.get('plano','XY')).to_3x3()@centro))
     _deformar(conj, lambda p: passo * peso(p),
-              _rigida_na_faixa(forma, k, eixo, ao_longo))
+              None if angular else _rigida_na_faixa(forma, k, eixo, ao_longo,
+                               min(FAIXA_MM, (lado-ao_longo)/2-1)),
+              reencaixar_paineis=angular,plano=forma.get('plano','XY'),
+              conservar_espessura=angular,apoios=apoios)
 
 
 def _vizinha(k, eixo):
@@ -501,11 +1459,23 @@ def _vizinha(k, eixo):
     return QUINAS.index(alvo)
 
 
+def _concluir_transformacao(context,conj,sistemas=True):
+    # As duas familias de angulo/medida transportam a mesma referencia
+    # fechada. Reancorar depois do rig evita deformar a porta duas vezes.
+    context.view_layer.update()
+    curvas=[(o.parent,[_portas._ferragens._matriz_fechada(o)@v.co for v in o.data.vertices])
+            for o in conj.children_recursive if o.get('porta_curva_modelada')]
+    _modulos.reposicionar_origem(conj)
+    _modulos.sincronizar_medidas_conjunto(conj)
+    _portas.atualizar_portas_do_conjunto(conj,sistemas=sistemas)
+    for grupo,pontos in curvas:_portas.adotar_contorno_modelado(context,grupo,pontos)
+    context.view_layer.update();_cache.pop(conj.name,None);concluir_edicao(conj)
+
+
 def _corte(forma, eixo):
     """(posicao do plano que estica o total, folga ate' onde encolher).
     Com recorte/diagonal, o plano passa na coluna DELE (so' um braco ali:
-    o outro braco nao muda de profundidade); com curva, fora dela (o arco
-    nao deforma)."""
+    o outro braco nao muda de profundidade)."""
     lo, hi = forma['lo'][eixo], forma['hi'][eixo]
     colunas, ocupado = [], []
     for k, f in enumerate(forma['cantos']):
@@ -554,50 +1524,19 @@ def _esticar_total(conj, forma, eixo, variacao, lado):
         if min(coords) < corte < max(coords) and max(coords) - min(coords) < RIGIDA_MM:
             return passo if do_lado((min(coords) + max(coords)) / 2.0) else Vector()
         return None
-    _deformar(conj, lambda p: passo if do_lado(p[eixo]) else Vector(), rigida)
+    _deformar(conj, lambda p: passo if do_lado(p[eixo]) else Vector(), rigida,plano=forma.get('plano','XY'))
 
 
-def _mudar_raio(conj, forma, k, raio):
-    """Curva: os vertices da quina vao para o arco novo, em todas as
-    pecas -- prateleira, base, porta curva. Cada um anda na RADIAL e
-    mantem a distancia ate' o arco: a porta curva continua com a mesma
-    espessura (escalar engrossava 15 mm para 22)."""
-    f = forma['cantos'][k]
-    a, b = f['a'], f['b']
-    limite = [forma['hi'].x - forma['lo'].x, forma['hi'].y - forma['lo'].y]
-    inversa = matriz_do_modulo(conj).inverted()
-    for o in _pecas(conj):
-        para_modulo = inversa @ o.matrix_world
-        for v in o.data.vertices:
-            x, y = _no_canto(forma, k, para_modulo @ v.co * 1000.0)
-            # o primeiro vertice reto depois do arco limita o raio novo
-            if y <= 2.0 and x > a + 2.0:
-                limite[0] = min(limite[0], x)
-            if x <= 2.0 and y > b + 2.0:
-                limite[1] = min(limite[1], y)
-    raio = min(max(raio, TOL_FORMA_MM + 5.0), min(limite) - 2.0)
-    sx, sy = QUINAS[k]
-
-    def desloc(p):
-        x, y = _no_canto(forma, k, p)
-        if x > a + 0.5 or y > b + 0.5:
-            return Vector()
-        radial = Vector((x - a, y - b))
-        if radial.length < 1e-6:
-            return Vector()
-        novo = Vector((raio, raio)) + radial.normalized() * (radial.length - a + raio)
-        return Vector((-sx * (novo.x - x), -sy * (novo.y - y), 0.0))
-    _deformar(conj, desloc)
-
-
-def aplicar(context, conj, chave, novo, lado=None):
+def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _eixo_corpo=None, plano='XY'):
     """Leva a medida `chave` da forma a `novo` mm (arraste/digitacao da HUD)."""
-    forma = forma_do_modulo(conj)
-    if forma is None:
-        return
-    variacao = novo - valor(conj, chave)
-    if abs(variacao) < 1e-4:
-        return
+    # O limite reduzido pode esconder uma feicao no detector. Restaurar
+    # antes de procurar a medida permite voltar ao formato de origem.
+    _preparar_edicao(conj, chave, lado, plano)
+    forma = forma_do_modulo(conj,plano)
+    if forma is None:return
+    antes=(valor(conj,chave,plano) if _eixo_corpo is None
+           else _modulos.medir_conjunto(conj)[_eixo_corpo])
+    variacao = novo + _correcao - antes
     tipo = chave[0]
     if tipo in ('L', 'P'):
         _esticar_total(conj, forma, 0 if tipo == 'L' else 1, variacao, lado or 'min')
@@ -609,27 +1548,62 @@ def aplicar(context, conj, chave, novo, lado=None):
         # ponta do outro lado (P1) anda ate' dar o angulo
         k = chave[1]
         f = forma['cantos'][k]
-        angulo = math.radians(max(5.0, min(85.0, float(novo))))
-        if (f['b'] >= forma['hi'].y - forma['lo'].y - TOL_FORMA_MM
-                and f['a'] < forma['hi'].x - forma['lo'].x - TOL_FORMA_MM):
+        # Um angulo reto pode encerrar o chanfro; o minimo de P1/P2
+        # nao pode devolver silenciosamente 97 graus ao digitar 90.
+        graus = max(0.0, min(90.0, float(novo) + _correcao))
+        angulo = math.radians(graus)
+        pa, pb = pontas_diagonal(forma, k)
+        xc, yc = _quina(forma, k)
+        recuo_x, recuo_y = abs(pb.x-xc), abs(pa.y-yc)
+        if (graus >= 90.0 or (graus > 0.0 and
+                f['b'] >= forma['hi'].y - forma['lo'].y - TOL_FORMA_MM
+                and f['a'] < forma['hi'].x - forma['lo'].x - TOL_FORMA_MM)):
             # a diagonal toma o lado INTEIRO: ele fica, a frente anda
-            _mover_perna(conj, forma, k, 'a', f['b'] / math.tan(angulo) - f['a'])
+            _mover_perna(conj, forma, k, 'a', recuo_x + (f['b']-recuo_y) / math.tan(angulo) - f['a'], angular=True)
         else:
-            _mover_perna(conj, forma, k, 'b', f['a'] * math.tan(angulo) - f['b'])
+            _mover_perna(conj, forma, k, 'b', recuo_y + (f['a']-recuo_x) * math.tan(angulo) - f['b'], angular=True)
     elif tipo == 'R':
         k = chave[1]
         f = forma['cantos'][k]
-        if f['tipo'] == 'CURVA':
-            _mudar_raio(conj, forma, k, novo)
+        if (plano!='XY' or conj.type=='MESH') and f['tipo']=='CHANFRO':
+            pa,pb=pontas_diagonal(forma,k);xc,yc=_quina(forma,k)
+            rx,ry=abs(pb.x-xc),abs(pa.y-yc)
+            dx,dy=abs(pb.x-pa.x),abs(pb.y-pa.y)
+            if f['b']>=forma['hi'].y-forma['lo'].y-TOL_FORMA_MM:
+                if novo<dy:raise ValueError('A diagonal nao pode ser menor que sua altura')
+                _mover_perna(conj,forma,k,'a',rx+math.sqrt(max(0.,novo*novo-dy*dy))-f['a'],angular=True)
+            elif f['a']>=forma['hi'].x-forma['lo'].x-TOL_FORMA_MM:
+                if novo<dx:raise ValueError('A diagonal nao pode ser menor que sua largura')
+                _mover_perna(conj,forma,k,'b',ry+math.sqrt(max(0.,novo*novo-dx*dx))-f['b'],angular=True)
+            else:
+                fator=novo/max((pb-pa).length,1e-9)
+                _mover_perna(conj,forma,k,'a',rx+dx*fator-f['a'],angular=True)
+                _cache.pop(conj.name,None)
+                atual=forma_do_modulo(conj,plano)
+                _mover_perna(conj,atual,k,'b',ry+dy*fator-atual['cantos'][k]['b'],angular=True)
         else:
-            # diagonal: as duas pernas ficam iguais ao "raio"
+            # diagonal: as duas pernas recebem a mesma medida
             _mover_perna(conj, forma, k, 'b', novo - f['b'])
             _cache.pop(conj.name, None)
-            forma = forma_do_modulo(conj)
+            forma = forma_do_modulo(conj,plano)
             if forma is not None and forma['cantos'][k] is not None:
                 _mover_perna(conj, forma, k, 'a', novo - forma['cantos'][k]['a'])
     _cache.pop(conj.name, None)
-    _modulos.reposicionar_origem(conj)
-    _modulos.sincronizar_medidas_conjunto(conj)
-    _portas.atualizar_portas_do_conjunto(conj)
-    context.view_layer.update()
+    if conj.type=='MESH':
+        _chapas.absorver_malha_editada(conj)
+        _frentes.preparar(conj,forcar=True)
+        # Um recorte individual pode mudar sem alterar L/A/E: a forma
+        # do pai tambem precisa abandonar a secao anterior.
+        esquecer()
+        context.view_layer.update()
+        concluir_edicao(conj)
+        return
+    _concluir_transformacao(context,conj,sistemas=abs(variacao)>.01)
+    if tipo in ('P1','P2','ANG') and _tentativa<3 and _eixo_corpo is None:
+        # Girar uma chapa obliqua tambem desloca sua espessura projetada.
+        # Corrigir esse pequeno erro pela MESMA referencia, sem somar
+        # deformacoes. Limites fisicos (trilho, madeira) nao sao iterados.
+        try:erro=novo-valor(conj,chave,plano)
+        except ValueError:return
+        if .01<abs(erro)<5:
+            aplicar(context,conj,chave,novo,lado,_correcao+erro,_tentativa+1,plano=plano)

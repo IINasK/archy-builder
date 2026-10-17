@@ -25,7 +25,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _portas = _puxadores = _hud = _assistente = None
 _eventos = _gaveta = _solda = _portas_viewport = _selecao = None
-_geometria = None
+_geometria = _prateleiras = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_gavetas'
@@ -39,6 +39,8 @@ CHAVE_INDICE = 'gaveta_indice'
 CHAVE_ABERTURA = 'gaveta_fracao_aberta'
 CHAVE_PUXADOR = 'gaveta_puxador'      # valor do modelo (como o carrossel)
 CHAVE_TRILHO_MM = 'gavetas_trilho_mm'
+CHAVE_REFERENCIA = 'gavetas_referencia'
+CHAVE_ENCAIXE = 'gavetas_encaixe'
 
 PARAMETROS_PADRAO = {
     'quantidade': 1,
@@ -55,6 +57,9 @@ PARAMETROS_PADRAO = {
     # alturas das frentes em PROPORCAO, de baixo para cima (a importacao
     # do Promob traz frentes desiguais); vazia ou de outro tamanho = iguais
     'proporcoes': [],
+    'coberturas_mm': [],             # esq, dir, baixo, cima medidos na fonte
+    'individuais': {},              # indice -> escolhas so' desta gaveta
+    'folgas_mm': [],                # separacoes, de baixo para cima
 }
 OPCOES_TRILHO = (('TELESCOPICO', 'Telescopico'), ('OCULTO', 'Oculto'))
 OPCOES_COBERTURA = (('SOBREPOSTA', 'Sobreposta'), ('EMBUTIDA', 'Embutida'))
@@ -147,20 +152,39 @@ def frente_da_gaveta(gaveta):
 # ------------------------------------------------------------ calculo
 def trilho_que_cabe(tipo, disponivel):
     """O maior comprimento de linha que cabe em `disponivel` mm, ou None."""
-    cabem = [c for c in TRILHOS[tipo]['comprimentos'] if c <= disponivel + 1e-6]
+    cabem = [c for c in TRILHOS[tipo]['comprimentos'] if c <= disponivel + 1e-3]
     return max(cabem) if cabem else None
+
+
+def parametros_da_unidade(p, indice):
+    return dict(p, **p.get('individuais', {}).get(str(indice), {}))
+
+
+def folgas(p):
+    n = max(1, int(p['quantidade']))
+    valores = p.get('folgas_mm') or ()
+    return (list(map(float, valores)) if len(valores) == n-1
+            else [float(p['entre_gavetas_mm'])] * (n-1))
+
+
+def coberturas(p):
+    valores = p.get('coberturas_mm') or ()
+    if len(valores) == 4:
+        return list(map(float,valores))
+    c = (max(0.0,float(p['lateral_mm'])-float(p['folga_frontal_mm']))
+         if p['cobertura']=='SOBREPOSTA' else -float(p['folga_frontal_mm']))
+    return [c]*4
 
 
 def frentes(largura, altura, p):
     """[(x0, x1, z0, z1)] das frentes, de BAIXO para cima."""
     n = max(1, int(p['quantidade']))
-    folga, g = float(p['folga_frontal_mm']), float(p['entre_gavetas_mm'])
-    if p['cobertura'] == 'SOBREPOSTA':
-        c = max(0.0, float(p['lateral_mm']) - folga)
-        x0, x1, z0, z1 = -c, largura + c, -c, altura + c
-    else:
-        x0, x1, z0, z1 = folga, largura - folga, folga, altura - folga
-    util = z1 - z0 - (n - 1) * g
+    esq,direita,baixo,cima = coberturas(p)
+    z0,z1 = -baixo,altura+cima
+    separacoes = folgas(p)
+    if any(v < 0 for v in separacoes):
+        raise ValueError('Espacamento entre gavetas nao pode ser negativo')
+    util = z1 - z0 - sum(separacoes)
     pesos = [float(v) for v in (p.get('proporcoes') or ())]
     if len(pesos) != n or min(pesos, default=0.0) <= 0.0:
         pesos = [1.0] * n
@@ -169,9 +193,13 @@ def frentes(largura, altura, p):
         raise ValueError("Gavetas demais para a altura: frente de %d mm"
                          % round(min(alturas)))
     saida, z = [], z0
-    for a in alturas:
-        saida.append((x0, x1, z, z + a))
-        z += a + g
+    for i,a in enumerate(alturas):
+        q = parametros_da_unidade(p,i)
+        esq,dir_,_baixo,_cima = coberturas(q)
+        inicio = float(q.get('x_mm',-esq))
+        fim = inicio+float(q['largura_mm']) if 'largura_mm' in q else largura+dir_
+        saida.append((inicio, fim, z, z + a))
+        z += a + (separacoes[i] if i < n-1 else 0)
     return saida
 
 
@@ -179,11 +207,18 @@ def calcular(largura, altura, p):
     """Tudo de cada gaveta em caixas (x0, x1, y0, y1, z0, z1) mm:
     {'trilho_mm', 'gavetas': [{'frente', 'caixa': [(peca, nome, caixa,
     eixo)], 'fixos': [caixa], 'moveis': [caixa]}]}."""
-    if largura < LARGURA_MIN_VAO_MM or altura < ALTURA_MIN_FRENTE_MM:
+    if largura < LARGURA_MIN_VAO_MM-1e-3 or altura < ALTURA_MIN_FRENTE_MM-1e-3:
         raise ValueError("Vao pequeno demais para gaveta (%d x %d mm)"
                          % (round(largura), round(altura)))
+    unidades = [_calcular_unidade(largura,altura,parametros_da_unidade(p,i),f)
+                for i,f in enumerate(frentes(largura,altura,p))]
+    return {'trilho_mm':unidades[0]['trilho_mm'], 'gavetas':unidades}
+
+
+def _calcular_unidade(largura, altura, p, frente):
     trilho = TRILHOS[p['trilho']]
     e = float(p['espessura_frente_mm'])
+    if e <= 0:raise ValueError('A espessura da frente deve ser maior que zero')
     recuo = float(p['recuo_mm'])
     if p['cobertura'] == 'SOBREPOSTA':
         fy0, fy1 = recuo - e, recuo
@@ -196,43 +231,55 @@ def calcular(largura, altura, p):
         raise ValueError("Profundidade de %d mm: o menor trilho %s tem %d mm"
                          % (round(disponivel), dict(OPCOES_TRILHO)[p['trilho']].lower(),
                             trilho['comprimentos'][0]))
+    x0,x1,z0,z1 = frente
+    esq,dir_,_baixo,_cima = coberturas(p)
+    origem_x, fim_x = x0+esq, x1-dir_
+    if origem_x < -1e-3 or fim_x > largura+1e-3:
+        raise ValueError('A largura individual ultrapassa o vao do conjunto')
+    largura = fim_x-origem_x
+    if largura < LARGURA_MIN_VAO_MM-1e-3:
+        raise ValueError('A gaveta nao deixa largura para a caixa')
     folga_lado = trilho['folga_lado']
     bx0, bx1 = folga_lado, largura - folga_lado
     if bx1 - bx0 < LARGURA_MIN_VAO_MM - 2 * folga_lado:
         raise ValueError("O vao nao deixa largura para a caixa")
     by0, by1 = inicio, inicio + comprimento
     ec, ef = ESPESSURA_CAIXA_MM, FUNDO_CAIXA_MM
-    saida = []
-    for i, (x0, x1, z0, z1) in enumerate(frentes(largura, altura, p)):
-        s0, s1 = max(0.0, z0), min(altura, z1)
-        cz0, cz1 = s0 + trilho['caixa_baixo'], s1 - FOLGA_TOPO_CAIXA_MM
-        if cz1 - cz0 < ALTURA_MIN_CAIXA_MM:
-            raise ValueError("A frente %d nao deixa altura para a caixa" % (i + 1))
-        caixa = [
-            ('FUNDO', 'Fundo', (bx0, bx1, by0, by1, cz0, cz0 + ef), 2),
-            ('LATERAL', 'Lateral Esquerda', (bx0, bx0 + ec, by0, by1, cz0 + ef, cz1), 0),
-            ('LATERAL', 'Lateral Direita', (bx1 - ec, bx1, by0, by1, cz0 + ef, cz1), 0),
-            ('CONTRAFRENTE', 'Contrafrente',
-             (bx0 + ec, bx1 - ec, by0, by0 + ec, cz0 + ef, cz1), 1),
-            ('TRASEIRA', 'Traseira',
-             (bx0 + ec, bx1 - ec, by1 - ec, by1, cz0 + ef, cz1), 1),
-        ]
-        fixos, moveis = [], []
-        if p['trilho'] == 'TELESCOPICO':
-            meio = cz0 + min(35.0, (cz1 - cz0) / 2.0)
-            t = TELESCOPICO_ESPESSURA_MM / 2.0
-            for xa, xb, xc, xd in ((0.0, t, t, 2 * t),
-                                   (largura - t, largura, largura - 2 * t, largura - t)):
-                fixos.append((xa, xb, by0, by1, meio - TELESCOPICO_ALTURA_MM / 2,
-                              meio + TELESCOPICO_ALTURA_MM / 2))
-                moveis.append((xc, xd, by0, by1, meio - 17.5, meio + 17.5))
-        else:
-            for xa in (bx0, bx1 - OCULTO_LARGURA_MM):
-                fixos.append((xa, xa + OCULTO_LARGURA_MM, by0, by1, s0 + 2.0, s0 + 12.0))
-                moveis.append((xa, xa + OCULTO_LARGURA_MM, by0, by1, s0 + 12.0, cz0))
-        saida.append({'frente': (x0, x1, fy0, fy1, z0, z1), 'caixa': caixa,
-                      'fixos': fixos, 'moveis': moveis})
-    return {'trilho_mm': comprimento, 'gavetas': saida}
+    s0, s1 = max(0.0, z0), min(altura, z1)
+    cz0, cz1 = s0 + trilho['caixa_baixo'], s1 - FOLGA_TOPO_CAIXA_MM
+    # DXF/matrizes usam float32: 40 mm pode voltar como 39,99994.
+    if cz1 - cz0 < ALTURA_MIN_CAIXA_MM - 1e-3:
+        raise ValueError("A frente nao deixa altura para a caixa")
+    caixa = [
+        ('FUNDO', 'Fundo', (bx0, bx1, by0, by1, cz0, cz0 + ef), 2),
+        ('LATERAL', 'Lateral Esquerda', (bx0, bx0 + ec, by0, by1, cz0 + ef, cz1), 0),
+        ('LATERAL', 'Lateral Direita', (bx1 - ec, bx1, by0, by1, cz0 + ef, cz1), 0),
+        ('CONTRAFRENTE', 'Contrafrente',
+         (bx0 + ec, bx1 - ec, by0, by0 + ec, cz0 + ef, cz1), 1),
+        ('TRASEIRA', 'Traseira',
+         (bx0 + ec, bx1 - ec, by1 - ec, by1, cz0 + ef, cz1), 1),
+    ]
+    fixos, moveis = [], []
+    if p['trilho'] == 'TELESCOPICO':
+        meio = cz0 + min(35.0, (cz1 - cz0) / 2.0)
+        t = TELESCOPICO_ESPESSURA_MM / 2.0
+        for xa, xb, xc, xd in ((0.0, t, t, 2 * t),
+                               (largura - t, largura, largura - 2 * t, largura - t)):
+            fixos.append((xa, xb, by0, by1, meio - TELESCOPICO_ALTURA_MM / 2,
+                          meio + TELESCOPICO_ALTURA_MM / 2))
+            moveis.append((xc, xd, by0, by1, meio - 17.5, meio + 17.5))
+    else:
+        for xa in (bx0, bx1 - OCULTO_LARGURA_MM):
+            fixos.append((xa, xa + OCULTO_LARGURA_MM, by0, by1, s0 + 2.0, s0 + 12.0))
+            moveis.append((xa, xa + OCULTO_LARGURA_MM, by0, by1, s0 + 12.0, cz0))
+    dados = {'frente': (x0, x1, fy0, fy1, z0, z1), 'caixa': caixa,
+                  'fixos': fixos, 'moveis': moveis}
+    dados['caixa'] = [(peca,nome,(a+origem_x,b+origem_x,c,d,e,f),eixo)
+                      for peca,nome,(a,b,c,d,e,f),eixo in dados['caixa']]
+    for tipo in ('fixos','moveis'):
+        dados[tipo] = [(a+origem_x,b+origem_x,c,d,e,f) for a,b,c,d,e,f in dados[tipo]]
+    dados['trilho_mm'] = comprimento
+    return dados
 
 
 # ------------------------------------------------------------ vao
@@ -240,15 +287,107 @@ def _limites(conj):
     return _portas._limites_locais_modulo(conj)
 
 
-def margens_do_vao(conj, ponto_a, ponto_b):
+def referencia(grupo):
+    valores = grupo.get(CHAVE_REFERENCIA)
+    return Matrix([valores[i:i + 3] for i in (0, 3, 6)]) if valores else Matrix.Identity(3)
+
+
+def limites_na_referencia(conj, ref, limites=None):
+    if limites is None and all((ref.col[k]-Matrix.Identity(3).col[k]).length<1e-6 for k in range(3)):
+        # Pecas modeladas inclinadas podem ter cantos imaginarios na
+        # bound_box. Na referencia original conservar os limites reais.
+        return _limites(conj)
+    if limites is None:
+        inv=ref.transposed().to_4x4() @ conj.matrix_world.inverted()
+        pts=[inv @ (o.matrix_world @ Vector(v))*1000 for o in _modulos._chapas_do_conjunto(conj)
+             if not o.get('eh_prateleira') for v in o.bound_box]
+        return (Vector(tuple(min(v[k] for v in pts) for k in range(3))),
+                Vector(tuple(max(v[k] for v in pts) for k in range(3))))
+    lo, hi = limites if limites is not None else _limites(conj)
+    pontos = [ref.transposed() @ Vector((x, y, z))
+              for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+    return (Vector(tuple(min(v[k] for v in pontos) for k in range(3))),
+            Vector(tuple(max(v[k] for v in pontos) for k in range(3))))
+
+
+def referencia_do_vao(conj, ponto_a, ponto_b, limites=None):
+    """Diagonal define a frente, em qualquer face. Recuos ate' 50 mm
+    entre referencias nao inclinam um vao ortogonal (prateleira/base)."""
+    a=_portas._local_no_modulo(conj,ponto_a)
+    b=_portas._local_no_modulo(conj,ponto_b)
+    d=b-a;d.z=0
+    if d.length<1:return Matrix.Identity(3)
+    if min(abs(d.x),abs(d.y))<=50:
+        d=Vector((1,0,0)) if abs(d.x)>=abs(d.y) else Vector((0,1,0))
+    direita=d.normalized();cima=Vector((0,0,1))
+    dentro=cima.cross(direita)
+    lo,hi=limites if limites is not None else _limites(conj)
+    if dentro.dot((lo+hi-a-b)/2)<0:
+        direita=-direita;dentro=-dentro
+    return Matrix((direita,dentro,cima)).transposed()
+
+
+def pontos_internos_do_vao(conj, pontos, nomes, ref, limites=None):
+    """Referencia sobre a chapa: o vao fica ABAIXO da de cima e ACIMA
+    da de baixo. Laterais usam a face interna, sem atravessar a madeira."""
+    mundo=conj.matrix_world @ ref.to_4x4();inv=mundo.inverted()
+    saida=[inv @ Vector(p)*1000 for p in pontos]
+    for i,nome in enumerate(nomes):
+        obj=bpy.data.objects.get(nome or '')
+        if obj is None or _chapas.MARCA_CHAPA not in obj:continue
+        n=(inv.to_3x3() @ obj.matrix_world.to_3x3().col[2]).normalized()
+        vs=[inv @ (obj.matrix_world @ Vector(v))*1000 for v in obj.bound_box]
+        if abs(n.z)>.995:
+            saida[i].z=(min if i==0 else max)(v.z for v in vs)
+        elif abs(n.x)>.995:
+            saida[i].x=(max if i==0 else min)(v.x for v in vs)
+    lo,hi=limites_na_referencia(conj,ref,limites)
+    e=float(_portas._espessura_do_vao(conj))
+    for v in saida:
+        v.x=max(lo.x+e,min(hi.x-e,v.x))
+        v.z=max(lo.z+e,min(hi.z-e,v.z))
+    return [mundo @ (v/1000) for v in saida]
+
+
+def profundidade_disponivel(conj, matriz, largura, altura, limite):
+    """Menor espaco livre ate' as costas, amostrado no vao. Ray cast
+    nativo, so' ao confirmar pontos; nao varrer vertices no arraste."""
+    direcao=matriz.to_3x3().col[1].normalized()
+    pecas=[o for o in _modulos._chapas_do_conjunto(conj)
+           if not o.get('eh_prateleira')]
+    distancias=[max(0,float(limite))]
+    for x in (.25,largura/2,largura-.25):
+        for z in (.25,altura/2,altura-.25):
+            inicio=matriz @ (Vector((x,.1,z))/1000)
+            for obj in pecas:
+                inv=obj.matrix_world.inverted();d=inv.to_3x3()@direcao
+                hit,ponto,normal,_f=obj.ray_cast(inv@inicio,d.normalized(),distance=max(0,limite)/1000*d.length)
+                if not hit:continue
+                n=(inv.to_3x3().transposed()@normal).normalized()
+                if n.dot(direcao)>-.1:continue
+                distancia=(obj.matrix_world@ponto-matriz.translation).dot(direcao)*1000
+                if distancia>.15:distancias.append(distancia)
+    return min(distancias)
+
+
+def margens_do_vao(conj, ponto_a, ponto_b, referencial=None, limites=None, limites_referencia=None):
     """(esq, dir, baixo, cima, frente) mm do vao marcado na diagonal
     (pontos de mundo), medidos da caixa do modulo."""
-    lo, hi = _limites(conj)
-    a = _portas._local_no_modulo(conj, ponto_a)
-    b = _portas._local_no_modulo(conj, ponto_b)
+    ref=referencial if referencial is not None else Matrix.Identity(3)
+    if limites_referencia is not None:
+        lo,hi=limites_referencia
+    elif limites is None:
+        lo,hi=limites_na_referencia(conj,ref)
+    else:
+        pontos=[ref.transposed()@Vector((x,y,z)) for x in (limites[0].x,limites[1].x)
+                for y in (limites[0].y,limites[1].y) for z in (limites[0].z,limites[1].z)]
+        lo=Vector(tuple(min(v[k] for v in pontos) for k in range(3)))
+        hi=Vector(tuple(max(v[k] for v in pontos) for k in range(3)))
+    a = ref.transposed()@_portas._local_no_modulo(conj, ponto_a)
+    b = ref.transposed()@_portas._local_no_modulo(conj, ponto_b)
     return (min(a.x, b.x) - lo.x, hi.x - max(a.x, b.x),
             min(a.z, b.z) - lo.z, hi.z - max(a.z, b.z),
-            max(0.0, min(a.y, b.y) - lo.y))
+            max(0.0, max(a.y, b.y) - lo.y))
 
 
 def vao(grupo):
@@ -259,12 +398,13 @@ def vao(grupo):
     if conj is None or _limites(conj) is None:
         largura, altura = grupo.get(CHAVE_VAO) or (500.0, 200.0)
         return float(largura), float(altura), grupo.matrix_basis.copy()
-    lo, hi = _limites(conj)
+    ref = referencia(grupo)
+    lo, hi = limites_na_referencia(conj, ref)
     esq, dir_, baixo, cima, frente = margens
     origem = Vector((lo.x + esq, lo.y + frente, lo.z + baixo))
     largura = hi.x - dir_ - origem.x
     altura = hi.z - cima - origem.z
-    return largura, altura, Matrix.Translation(origem / 1000.0)
+    return largura, altura, ref.to_4x4() @ Matrix.Translation(origem / 1000.0)
 
 
 def _mundo_do_vao(conj, origem_mm):
@@ -401,7 +541,15 @@ def montar(grupo):
     fracoes = {i: float(g.get(CHAVE_ABERTURA, 0.0)) for i, g in antigas.items()}
     puxadores = {i: g.get(CHAVE_PUXADOR, p['puxador']) for i, g in antigas.items()}
     ajustes_puxadores = {}
+    materiais_individuais = {}
     for i, gaveta in antigas.items():
+        contagem={}
+        for obj in gaveta.children:
+            tipo=obj.get(MARCA_PECA)
+            if tipo and tipo!='TRILHO':
+                ordinal=contagem.get(tipo,0)
+                contagem[tipo]=ordinal+1
+                materiais_individuais[i,tipo,ordinal]=[(s.link,s.material) for s in obj.material_slots]
         frente = frente_da_gaveta(gaveta)
         pux = next((o for o in frente.children if _puxadores._eh_puxador_parametrico(o)),
                    None) if frente is not None else None
@@ -423,18 +571,20 @@ def montar(grupo):
     grupo[CHAVE_TRILHO_MM] = float(dados['trilho_mm'])
     frentes_novas, caixas_novas = [], []
     for i, d in enumerate(dados['gavetas']):
+        individual = parametros_da_unidade(p,i)
         gaveta = bpy.data.objects.new('Gaveta %d' % (i + 1), None)
         _colecao(grupo).objects.link(gaveta)
         gaveta.empty_display_size = 0.02
         gaveta.hide_render = True
         gaveta[MARCA_GAVETA] = 1
         gaveta[CHAVE_INDICE] = i
+        gaveta[CHAVE_TRILHO_MM] = float(d['trilho_mm'])
         gaveta.parent = grupo
         gaveta.matrix_parent_inverse = Matrix.Identity(4)
         # frente CURVA (pedido do usuario, do gaveteiro de canto do
         # Promob): arco de flecha `frente_curva_mm` para FORA, as pontas
         # no plano da frente reta (`_chapas._malha_arco`)
-        curva = float(p.get('frente_curva_mm') or 0.0)
+        curva = float(individual.get('frente_curva_mm') or 0.0)
         frentes_novas.append(_nova_chapa(
             grupo, gaveta, 'Frente Gaveta %d' % (i + 1), d['frente'], 1, 'FRENTE',
             {'chapa_arco_mm': curva} if curva > 0.0 else None))
@@ -445,8 +595,9 @@ def montar(grupo):
             _novo_trilho(grupo, grupo, 'Trilho %s Gaveta %d' % (lado, i + 1), caixa)
         for lado, caixa in zip(('Esquerdo', 'Direito'), d['moveis']):
             _novo_trilho(grupo, gaveta, 'Corredica %s Gaveta %d' % (lado, i + 1), caixa)
-        pux = colocar_puxador(gaveta, puxadores.get(i, p['puxador']))
-        ajustes = ajustes_puxadores.get(i, {})
+        modelo=p.get('individuais',{}).get(str(i),{}).get('puxador',puxadores.get(i,p['puxador']))
+        pux = colocar_puxador(gaveta, modelo)
+        ajustes = ajustes_puxadores.get(i,{}) if modelo==puxadores.get(i,p['puxador']) else {}
         if pux is not None and any(pux.get(k) != v for k, v in ajustes.items()
                                   if k != 'puxador_comprimento_mm' or
                                   pux.get('puxador_tipo') != 'PERFIL'):
@@ -461,6 +612,19 @@ def montar(grupo):
         definir_abertura(gaveta, fracoes.get(i, 0.0))
     _pintar(frentes_novas, mat_frente)
     _pintar(caixas_novas, mat_caixa)
+    for i,gaveta in enumerate(gavetas_do_grupo(grupo)):
+        contagem={}
+        for obj in gaveta.children:
+            tipo=obj.get(MARCA_PECA)
+            ordinal=contagem.get(tipo,0)
+            contagem[tipo]=ordinal+1
+            slots=materiais_individuais.get((i,tipo,ordinal))
+            if slots is not None:
+                obj.data.materials.clear()
+                for link,mat in slots:
+                    obj.data.materials.append(mat)
+                    obj.material_slots[-1].link=link
+                    obj.material_slots[-1].material=mat
     bpy.context.view_layer.update()
     # As chapas sao refeitas, mas a selecao continua no mesmo nivel.
     if grupo_selecionado:
@@ -474,12 +638,15 @@ def montar(grupo):
             bpy.context.view_layer.objects.active = novas[indice_ativo]
 
 
-def criar_gavetas(context, conj, margens, p):
+def criar_gavetas(context, conj, margens, p, referencial=None):
     """Grupo de gavetas novo no modulo `conj`. Devolve o grupo."""
     p = dict(PARAMETROS_PADRAO, **p)
     nome = 'Gavetas %s' % conj.name
     grupo = bpy.data.objects.new(nome, None)
-    colecao = _modulos._colecao_do_modulo(conj) or context.scene.collection
+    # Presets antigos podem ter a montagem sem MARCA_COLECAO_MODULO.
+    # O sistema precisa ficar no asset, nao solto na raiz da cena.
+    colecao = (_modulos._colecao_do_modulo(conj)
+               or next(iter(conj.users_collection), context.scene.collection))
     colecao.objects.link(grupo)
     grupo.empty_display_type = 'PLAIN_AXES'
     grupo.empty_display_size = 0.05
@@ -488,6 +655,8 @@ def criar_gavetas(context, conj, margens, p):
     grupo[CHAVE_MODULO] = conj.name
     grupo[CHAVE_PARAMETROS] = p
     grupo[CHAVE_MARGENS] = [float(m) for m in margens]
+    if referencial is not None:
+        grupo[CHAVE_REFERENCIA] = [v for linha in referencial for v in linha]
     grupo.parent = conj
     try:
         montar(grupo)
@@ -518,31 +687,344 @@ def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
             matriz = grupo.matrix_world.copy()
             matriz.translation += delta
             grupo.matrix_world = matriz
+        eixos = grupo.matrix_world.to_3x3().normalized()
+        mudanca = [sum(abs(eixos.col[k][a]) * ((hi[a]-lo[a])-(hi_antes[a]-lo_antes[a]))
+                       * 1000 for a in range(3)) for k in range(3)]
+        _adaptar_espaco(grupo, mudanca)
+
+
+def _minimos(grupo):
+    p = parametros(grupo)
+    unidades = [parametros_da_unidade(p, i) for i in range(int(p['quantidade']))]
+    profundidade = max(TRILHOS[q['trilho']]['comprimentos'][0]
+                      + float(q['recuo_mm']) + FOLGA_FUNDO_MODULO_MM
+                      + (float(q['espessura_frente_mm']) if q['cobertura']=='EMBUTIDA' else 0)
+                      for q in unidades)
+    # Limite analitico da mesma caixa usada em calcular: uma falha de
+    # largura/profundidade nao deve ser confundida com falta de altura.
+    n=len(unidades)
+    pesos=list(p.get('proporcoes') or [])
+    if len(pesos)!=n or min(pesos,default=0)<=0:pesos=[1.]*n
+    _e,_d,baixo,cima=coberturas(p)
+    util=0.
+    for i,q in enumerate(unidades):
+        corte=(max(0.,baixo) if i==0 else 0.)+(max(0.,cima) if i==n-1 else 0.)
+        minimo=max(ALTURA_MIN_FRENTE_MM,ALTURA_MIN_CAIXA_MM+TRILHOS[q['trilho']]['caixa_baixo']+FOLGA_TOPO_CAIXA_MM+corte)
+        util=max(util,minimo*sum(pesos)/pesos[i])
+    altura=util+sum(folgas(p))-baixo-cima
+    atual_l,atual_a=map(float,grupo[CHAVE_VAO])
+    try:calcular(atual_l,atual_a,p)
+    except ValueError:altura=min(altura,atual_a)
+    else:
+        # Coberturas importadas podem colocar varias frentes fora dos
+        # limites Z do vao. Validar a caixa completa nesses casos.
+        lo,hi=0.,atual_a
+        for _ in range(18):
+            meio=(lo+hi)/2
+            try:calcular(atual_l,meio,p)
+            except ValueError:lo=meio
+            else:hi=meio
+        altura=hi
+    return LARGURA_MIN_VAO_MM+.01, profundidade+.01, altura+.01
+
+
+def limitar_medidas(conj, lo, hi, alvo):
+    """Nao achatar um trilho de catalogo ou cruzar duas chapas.
+    O modulo pode encolher as gavetas ate' o menor sistema que cabe.
+    """
+    saida=list(alvo)
+    for grupo in grupos_do_modulo(conj):
+        largura, altura=grupo[CHAVE_VAO]
+        dimensoes=(largura, float(parametros(grupo)['profundidade_mm']), altura)
+        minimos=_minimos(grupo)
+        eixos=grupo.matrix_world.to_3x3().normalized()
+        for k in range(3):
+            a=max(range(3),key=lambda a:abs(eixos.col[k][a]))
+            if abs(eixos.col[k][a]) < .999: continue
+            minimo=(hi[a]-lo[a])*1000-dimensoes[k]+minimos[k]
+            indice=(0,2,1)[a]
+            saida[indice]=max(saida[indice], minimo)
+    for grupo in _prateleiras.grupos_do_modulo(conj):
+        p=_prateleiras.parametros(grupo)
+        l,a,_m=_prateleiras.vao(grupo)
+        dims=(l,float(p['profundidade_mm']),a)
+        minimos=(_prateleiras.MENOR_LADO_MM+2*float(p['folga_lateral_mm']),
+                 _prateleiras.MENOR_LADO_MM+float(p['recuo_mm']),
+                 int(p['quantidade'])*float(p['espessura_mm'])+.01)
+        eixos=grupo.matrix_world.to_3x3().normalized()
+        for k in range(3):
+            a=max(range(3),key=lambda a:abs(eixos.col[k][a]))
+            if abs(eixos.col[k][a])<.999:continue
+            indice=(0,2,1)[a]
+            saida[indice]=max(saida[indice],(hi[a]-lo[a])*1000-dims[k]+minimos[k])
+    # Preset antigo com parametros internos inconsistentes nao pode
+    # CRESCER quando a pessoa pediu para diminuir.
+    atual=[(hi[k]-lo[k])*1000 for k in (0,2,1)]
+    return [min(atual[i],saida[i]) if alvo[i]<atual[i] else saida[i]
+            for i in range(3)]
+
+
+def _reencaixar_existentes(grupo, largura, altura, p):
+    """Atualiza pecas existentes. Identidades, materiais e selecao ficam;
+    o Blender transforma as malhas dos trilhos em uma unica operacao.
+    """
+    dados=calcular(largura, altura, p)
+    def trilhos(objs, caixas):
+        objs=sorted((o for o in objs if o.get(MARCA_PECA)=='TRILHO'),
+                    key=lambda o:o.matrix_basis.translation.x)
+        for o, caixa in zip(objs, caixas):
+            m, medidas=_matriz_da_caixa(caixa, 2)
+            extensao=[max(v.co[k] for v in o.data.vertices)-min(v.co[k] for v in o.data.vertices) for k in range(3)]
+            o.data.transform(Matrix.Diagonal(Vector(tuple(medidas[k]/1000/extensao[k] for k in range(3)))).to_4x4())
+            o.matrix_basis=m
+    for indice,(gaveta, d) in enumerate(zip(gavetas_do_grupo(grupo), dados['gavetas'])):
+        pecas={'FRENTE':[frente_da_gaveta(gaveta)]}
+        for o in gaveta.children:
+            tipo=o.get(MARCA_PECA)
+            if tipo and tipo not in ('FRENTE','TRILHO'):pecas.setdefault(tipo,[]).append(o)
+        for lista in pecas.values():lista.sort(key=lambda o:o.matrix_basis.translation.x)
+        for tipo, nome, caixa, eixo in [('FRENTE','Frente',d['frente'],1),*d['caixa']]:
+            o=pecas[tipo].pop(0)
+            if tipo=='FRENTE':
+                curva=float(parametros_da_unidade(p,indice).get('frente_curva_mm') or 0)
+                if curva>0:o['chapa_arco_mm']=curva
+                elif 'chapa_arco_mm' in o:
+                    del o['chapa_arco_mm']
+                    o.data.clear_geometry()   # frente parametrica que voltou a ser reta
+            m, medidas=_matriz_da_caixa(caixa,eixo)
+            o.matrix_basis=m
+            ocupado=_chapas._ocupado[0]
+            _chapas._ocupado[0]=True
+            try:o.chapa_largura_mm,o.chapa_comprimento_mm,o.chapa_espessura_mm=medidas
+            finally:_chapas._ocupado[0]=ocupado
+            _chapas.gerar_malha_chapa(o)
+        trilhos(gaveta.children,d['moveis'])
+        gaveta[CHAVE_TRILHO_MM]=float(d['trilho_mm'])
+        definir_abertura(gaveta,float(gaveta.get(CHAVE_ABERTURA,0)))
+    # Fixos ordenados primeiro pela altura, depois pelo lado.
+    fixos=sorted((o for o in grupo.children if o.get(MARCA_PECA)=='TRILHO'),
+                 key=lambda o:(round(o.matrix_basis.translation.z,5),o.matrix_basis.translation.x))
+    for i,d in enumerate(dados['gavetas']):trilhos(fixos[2*i:2*i+2],d['fixos'])
+    grupo[CHAVE_VAO]=(largura,altura)
+    grupo[CHAVE_PARAMETROS]=p
+    grupo[CHAVE_TRILHO_MM]=float(dados['trilho_mm'])
+
+
+def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False):
+    """Preserva o tamanho escolhido ate' faltar espaco; ao devolver o
+    armario, devolve tambem a escolha original (incluindo profundidades).
+    """
+    largura,altura=map(float,grupo[CHAVE_VAO]);p=parametros(grupo)
+    atual=[largura,float(p['profundidade_mm']),altura]
+    estado=grupo.get(CHAVE_ENCAIXE)
+    assinatura=repr((atual,p))
+    if not estado or estado['ultimo'] != assinatura:
+        grupo[CHAVE_ENCAIXE]=dict(desejado=atual,parametros=p,ultimo=assinatura)
+        estado=grupo[CHAVE_ENCAIXE]
+    desejado=list(estado['desejado'])
+    novo=[min(desejado[k],atual[k]+mudanca[k]) for k in range(3)]
+    if seguir_largura:novo[0]=atual[0]+mudanca[0]
+    mudou_curva=bool(curvas and any(abs(float(parametros_da_unidade(p,i).get('frente_curva_mm') or 0)-v)>.01
+                                   for i,v in curvas.items()))
+    if max(abs(a-b) for a,b in zip(novo,atual)) < .01 and not mudou_curva:return
+    parametros_novos=estado['parametros'].to_dict()
+    parametros_novos['profundidade_mm']=novo[1]
+    for q in parametros_novos.get('individuais',{}).values():
+        if 'profundidade_mm' in q:q['profundidade_mm']=min(float(q['profundidade_mm']),novo[1])
+        if 'largura_mm' in q:
+            proporcao=novo[0]/desejado[0]
+            q['largura_mm']*=proporcao
+            if 'x_mm' in q:q['x_mm']*=proporcao
+    for i,v in (curvas or {}).items():
+        parametros_novos.setdefault('individuais',{}).setdefault(str(i),{})['frente_curva_mm']=v
+    _reencaixar_existentes(grupo,novo[0],novo[2],parametros_novos)
+    grupo[CHAVE_ENCAIXE]['ultimo']=repr(([float(v) for v in novo],parametros(grupo)))
+
+
+def acompanhar_forma(conj, desloc):
+    """Plano da frente acompanha o braco; profundidade so' muda em Y
+    da propria gaveta. Nunca aplicar a deformacao vertice a vertice nela.
+    """
+    mundo=conj.matrix_world;inv=mundo.inverted()
+    planos=[]
+    for g in grupos_do_modulo(conj):
+        l,a=map(float,g[CHAVE_VAO]);p=float(parametros(g)['profundidade_mm'])
+        m=inv @ g.matrix_world;eixos=m.to_3x3().normalized()
+        frente=[m @ (Vector((x,0,0))/1000)*1000 for x in (0,l)]
+        fundo=[v+eixos.col[1]*p for v in frente]
+        planos.append((g,l,p,eixos,frente,fundo,_minimos(g)))
+    def transportar(plano,fator):
+        g,l,p,eixos,frente,fundo,_min=plano
+        fs=[v+desloc(v)*fator for v in frente]
+        direcao=fs[1]-fs[0];direcao.z=0
+        largura=direcao.length
+        x=direcao.normalized() if largura>1e-6 else eixos.col[0]
+        y=eixos.col[2].cross(x).normalized()
+        bs=[v+desloc(v)*fator for v in fundo]
+        profundidade=min((b-f).dot(y) for f,b in zip(fs,bs))
+        return fs,x,y,largura,profundidade
+    fator=1.
+    if any(transportar(pl,1)[3]<min(pl[1],pl[-1][0])-.001
+           or transportar(pl,1)[4]<min(pl[2],pl[-1][1])-.001 for pl in planos):
+        baixo,cima=0.,1.
+        for _ in range(20):
+            meio=(baixo+cima)/2
+            cabe=all((lambda d: d[3]>=min(pl[1],pl[-1][0]) and d[4]>=min(pl[2],pl[-1][1]))(transportar(pl,meio))
+                     for pl in planos)
+            if cabe:baixo=meio
+            else:cima=meio
+        fator=baixo
+    for pl in planos:
+        g,l,p,eixos,frente,_fundo,_min=pl
+        fs,x,y,largura,profundidade=transportar(pl,fator)
+        ref=Matrix((x,y,eixos.col[2])).transposed()
+        local=ref.to_4x4();local.translation=fs[0]/1000
+        g.matrix_world=mundo @ local
+        g[CHAVE_REFERENCIA]=[v for linha in ref for v in linha]
+        curvas={}
+        params=parametros(g)
+        for i in range(int(params['quantidade'])):
+            flecha=float(parametros_da_unidade(params,i).get('frente_curva_mm') or 0)
+            if flecha<=0:continue
+            centro=(frente[0]+frente[1])/2-eixos.col[1]*flecha
+            centro+=desloc(centro)*fator
+            curvas[i]=max(0.,-(centro-(fs[0]+fs[1])/2).dot(y))
+        _adaptar_espaco(g,[largura-l,profundidade-p,0],curvas,seguir_largura=True)
+    return fator
 
 
 def atualizar_gavetas_do_conjunto(conj):
     """Redimensionar a caixa nao redimensiona as gavetas internas.
     Recalcula as margens para a edicao direta partir das mesmas medidas."""
-    lo, hi = _limites(conj)
     for grupo in grupos_do_modulo(conj):
+        ref = referencia(grupo)
+        lo, hi = limites_na_referencia(conj, ref)
         largura, altura = grupo[CHAVE_VAO]
         # A origem do modulo compensa os filhos pela matrix_parent_inverse.
-        origem = (conj.matrix_world.inverted() @ grupo.matrix_world).translation * 1000.0
+        origem = ref.transposed() @ ((conj.matrix_world.inverted() @ grupo.matrix_world).translation * 1000.0)
         grupo[CHAVE_MARGENS] = (origem.x - lo.x, hi.x - origem.x - largura,
                                 origem.z - lo.z, hi.z - origem.z - altura,
                                 origem.y - lo.y)
 
 
+def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):
+    """Altura cede/recebe da vizinha; bordas do conjunto nao andam.
+    Previa muda so' parametros/contorno, sem destruir malhas no mousemove.
+    """
+    antes = parametros(grupo)
+    novo = grupo[CHAVE_PARAMETROS].to_dict()
+    largura,altura,_m = vao(grupo)
+    n = int(antes['quantidade'])
+    if not 0 <= indice < n:
+        return 'Gaveta nao encontrada'
+    fs = frentes(largura,altura,antes)
+    alturas = [f[3]-f[2] for f in fs]
+    if nome=='altura' and n==1:
+        margens=list(grupo[CHAVE_MARGENS])
+        k=2 if lado=='max' else 3
+        delta=float(valor)-alturas[0]
+        if margens[k]-delta < -1e-3:return 'A gaveta ultrapassa o vao do modulo'
+        margens[k]-=delta
+        try:calcular(largura,altura+delta,antes)
+        except ValueError as erro:return str(erro)
+        grupo[CHAVE_MARGENS]=margens
+        if not previa:montar(grupo)
+        return None
+    if nome == 'altura':
+        vizinha = indice-1 if lado=='max' else indice+1
+        if lado is None and vizinha >= n:vizinha=indice-1
+        if not 0 <= vizinha < n:
+            return 'Borda externa fixa: edite pelo lado da gaveta vizinha'
+        delta = float(valor)-alturas[indice]
+        alturas[indice] += delta
+        alturas[vizinha] -= delta
+        novo['proporcoes'] = alturas
+    elif nome in ('abaixo_mm','acima_mm'):
+        k = indice-1 if nome=='abaixo_mm' else indice
+        if not 0 <= k < n-1:return 'Esta borda pertence ao conjunto'
+        separacoes = folgas(antes)
+        delta = float(valor)-separacoes[k]
+        alturas[k if nome=='abaixo_mm' else k+1] -= delta
+        separacoes[k] = float(valor)
+        novo.update(folgas_mm=separacoes,proporcoes=alturas)
+    else:
+        q = novo.setdefault('individuais',{}).setdefault(str(indice),{})
+        if nome == 'largura':
+            q['x_mm'] = fs[indice][1]-float(valor) if lado=='max' else fs[indice][0]
+            q['largura_mm'] = float(valor)
+        elif nome in PARAMETROS_PADRAO and nome not in ('quantidade','proporcoes','individuais','folgas_mm','entre_gavetas_mm'):
+            q[nome] = valor
+            if nome in ('cobertura','folga_frontal_mm'):q['coberturas_mm']=[]
+            if nome=='profundidade_mm' and lado=='max':
+                anterior=parametros_da_unidade(antes,indice)
+                q['recuo_mm']=float(anterior['recuo_mm'])-(float(valor)-float(anterior[nome]))
+        else:return 'Parametro individual desconhecido'
+    if nome in ('altura','abaixo_mm','acima_mm') and min(alturas) < ALTURA_MIN_FRENTE_MM:
+        return 'Nao cabe: a gaveta vizinha ficaria pequena demais'
+    try:calcular(largura,altura,dict(PARAMETROS_PADRAO,**novo))
+    except ValueError as erro:return str(erro)
+    grupo[CHAVE_PARAMETROS] = novo
+    if not previa:montar(grupo)
+    return None
+
+
+def normalizar_alturas(grupo):
+    """Iguala as frentes no mesmo vao, conservando folgas e escolhas.
+    Validar ANTES: as gavetas das pontas podem ficar sem altura de caixa.
+    """
+    novo = grupo[CHAVE_PARAMETROS].to_dict()
+    novo['proporcoes'] = []
+    largura, altura, _matriz = vao(grupo)
+    try:
+        calcular(largura, altura, dict(PARAMETROS_PADRAO, **novo))
+    except ValueError as erro:
+        return str(erro)
+    grupo[CHAVE_PARAMETROS] = novo
+    montar(grupo)
+    return None
+
+
+class OBJECT_OT_normalizar_gavetas(Operator):
+    bl_idname = 'object.cabinet_normalizar_gavetas'
+    bl_label = 'Normalizar alturas'
+    bl_description = 'Iguala as alturas de todas as gavetas deste conjunto, preservando folgas e ajustes individuais'
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        grupo = grupo_de(context.object)
+        return (grupo is not None and getattr(context, 'mode', '') == 'OBJECT'
+                and int(parametros(grupo)['quantidade']) > 1)
+
+    def execute(self, context):
+        erro = normalizar_alturas(grupo_de(context.object))
+        if erro:
+            self.report({'WARNING'}, erro)
+            return {'CANCELLED'}
+        _eventos._redesenhar_viewports(context)
+        return {'FINISHED'}
+
+
 def editar(context, grupo, nome, valor):
     """Muda um parametro (aba Gavetas). Devolve o erro (e desfaz) ou None."""
     nome = nome[len('gavetas_'):] if nome.startswith('gavetas_') else nome
+    if nome.startswith('individual_'):
+        _prefixo,indice,prop = nome.split('_',2)
+        return editar_individual(context,grupo,int(indice),prop,valor)
     antes = grupo[CHAVE_PARAMETROS].to_dict()
     novo = dict(antes)
     if nome == 'quantidade':
         valor = max(1, min(MAXIMO_GAVETAS, int(valor)))
         if valor != int(antes.get('quantidade', 1)):
             novo.pop('proporcoes', None)      # outra quantidade: iguais
+            novo.pop('folgas_mm',None)
+            novo.pop('individuais',None)
     novo[nome] = valor
+    if nome=='entre_gavetas_mm':novo.pop('folgas_mm',None)
+    for q in novo.get('individuais',{}).values():
+        q.pop(nome,None)                     # no grupo, escolha vale para todas
+    if nome in ('cobertura', 'folga_frontal_mm'):
+        novo.pop('coberturas_mm', None)  # escolha manual substitui a referencia
     grupo[CHAVE_PARAMETROS] = novo
     try:
         montar(grupo)
@@ -565,6 +1047,9 @@ def trocar_puxador(context, valor):
         return 'Selecione as gavetas'
     if gaveta is not None and MARCA_GRUPO not in obj:
         colocar_puxador(gaveta, valor)
+        p=grupo[CHAVE_PARAMETROS].to_dict()
+        p.setdefault('individuais',{}).setdefault(str(int(gaveta[CHAVE_INDICE])),{})['puxador']=valor
+        grupo[CHAVE_PARAMETROS]=p
         return None
     return editar(context, grupo, 'puxador', valor)
 
@@ -572,7 +1057,7 @@ def trocar_puxador(context, valor):
 # ------------------------------------------------------------ abertura
 def curso(gaveta):
     grupo = grupo_de(gaveta)
-    return float(grupo.get(CHAVE_TRILHO_MM, 0.0)) if grupo is not None else 0.0
+    return float(gaveta.get(CHAVE_TRILHO_MM,grupo.get(CHAVE_TRILHO_MM,0))) if grupo is not None else 0.0
 
 
 def definir_abertura(gaveta, fracao):
@@ -647,9 +1132,14 @@ def cantos_hud(grupo):
     """8 quinas (mundo) da caixa do vao com a profundidade; indice
     i + 2j + 4k ao longo de X, Y (profundidade), Z."""
     largura, altura, prof = medidas(grupo)
-    m = grupo.matrix_world
+    m = matriz_hud(grupo)
     return [m @ (Vector((i * largura, j * prof, k * altura)) / 1000.0)
             for k in (0, 1) for j in (0, 1) for i in (0, 1)]
+
+
+def matriz_hud(grupo):
+    conj=modulo_do_grupo(grupo)
+    return conj.matrix_world @ vao(grupo)[2] if conj is not None else grupo.matrix_world
 
 
 def linhas_hud(grupo, chapas):
@@ -658,24 +1148,57 @@ def linhas_hud(grupo, chapas):
     cantos = cantos_hud(grupo)
     letras = {0: 'L', 1: 'P', 2: 'A'}
     linhas = []
-    for eixo, arestas in enumerate(_hud.ARESTAS_EIXO):
+    todas = grupo.select_get()
+    for eixo, arestas in enumerate(_hud.ARESTAS_EIXO if todas else ()):
         for i, j in arestas:
             linhas.append({'tipo': 'gavetas', 'objeto': grupo, 'modo': 'GAVETAS',
                            'eixo': eixo, 'letra': letras[eixo],
                            'face': (letras[eixo],), 'cantos': (i, j),
                            'chapas': chapas, 'pontos': [cantos[i], cantos[j]]})
+    p = parametros(grupo)
+    largura,altura,_m = vao(grupo)
+    matriz=matriz_hud(grupo)
+    try:dados=calcular(largura,altura,p)['gavetas']
+    except ValueError:return cantos,linhas
+    unidades={int(g[CHAVE_INDICE]):g for g in gavetas_do_grupo(grupo)}
+    if not todas:cantos=[]
+    for indice,d in enumerate(dados):
+        g = unidades.get(indice)
+        if not todas and (g is None or not g.select_get()):continue
+        q=parametros_da_unidade(p,indice)
+        x0,x1,y0,_y1,z0,z1=d['frente']
+        aberto=float(g.get(CHAVE_ABERTURA,0)) if g is not None else 0
+        deslocamento=-aberto*d['trilho_mm']
+        pontos=[matriz @ (Vector((x,y+deslocamento,z))/1000)
+                for z in (z0,z1) for y in (y0,y0+float(q['profundidade_mm'])) for x in (x0,x1)]
+        if not todas:cantos.extend(pontos)
+        for eixo,arestas in enumerate(_hud.ARESTAS_EIXO):
+            for i,j in arestas:
+                linhas.append(dict(tipo='gavetas',objeto=grupo,modo='GAVETAS',
+                    eixo=eixo,letra=letras[eixo],face=(letras[eixo],indice),
+                    cantos=(i,j),chapas=chapas,prioridade=1,pontos=[pontos[i],pontos[j]]))
+                if eixo==2 and len(dados)>1 and indice in (0,len(dados)-1):
+                    linhas[-1]['lado_fixo']='min' if indice==0 else 'max'
     return cantos, linhas
 
 
 def valor(grupo, chave):
+    if len(chave)>1:
+        largura,altura,_m=vao(grupo)
+        f=frentes(largura,altura,parametros(grupo))[chave[1]]
+        return {'L':f[1]-f[0],'A':f[3]-f[2],
+                'P':float(parametros_da_unidade(parametros(grupo),chave[1])['profundidade_mm'])}[chave[0]]
     largura, altura, prof = medidas(grupo)
     return {'L': largura, 'A': altura, 'P': prof}[chave[0]]
 
 
-def aplicar(context, grupo, chave, novo, lado=None):
+def aplicar(context, grupo, chave, novo, lado=None, previa=False):
     """Medida da HUD/aba: L e A mudam a MARGEM do lado que anda (a quina
     perto do mouse fica); P e' a profundidade."""
     letra = chave[0] if isinstance(chave, (tuple, list)) else chave
+    if isinstance(chave,(tuple,list)) and len(chave)>1:
+        nome={'L':'largura','A':'altura','P':'profundidade_mm'}[letra]
+        return editar_individual(context,grupo,chave[1],nome,novo,lado,previa)
     if letra == 'P':
         novo = max(100.0, float(novo))
         if lado != 'max':
@@ -761,7 +1284,12 @@ def _aplicar_ponto(grupo, indice, ponto_mundo):
         return 'Gavetas sem modulo'
     local = grupo.matrix_world.inverted() @ Vector(ponto_mundo) * 1000.0
     if indice == 2:
-        return editar(bpy.context, grupo, 'profundidade_mm', max(100.0, local.y))
+        largura,altura,matriz=vao(grupo)
+        ref=referencia(grupo)
+        lo,hi=limites_na_referencia(conj,ref)
+        base=ref.transposed() @ ((conj.matrix_world.inverted() @ grupo.matrix_world).translation*1000)
+        limite=profundidade_disponivel(conj,grupo.matrix_world,largura,altura,hi.y-base.y)
+        return editar(bpy.context, grupo, 'profundidade_mm', min(limite,max(100.0, local.y)))
     largura, altura, _p = medidas(grupo)
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     antes = list(margens)
@@ -910,7 +1438,9 @@ def _preparar_ancora_nativa(context, grupo, indice):
                 snap_elements={'VERTEX', 'EDGE_MIDPOINT'}, snap_target='CENTER',
                 snap_align=False, use_snap_selectable=True, release_confirm=True,
                 orient_type='GLOBAL', orient_matrix_type='GLOBAL',
-                orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3()),
+                # RNA do translate recebe os eixos em LINHAS. Mathutils
+                # guarda-os nas colunas; sem transpor, gira ao contrario.
+                orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3().transposed()),
                 constraint_axis=(True, False, True) if indice < 2 else (False, True, False))
 
 
@@ -1259,6 +1789,101 @@ def _criando():
     return _assistente_gavetas[0] is not None
 
 
+_snap_criacao = [None]
+
+
+def _estado_criacao():
+    return _assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
+
+
+def _terminar_snap_criacao():
+    s=_snap_criacao[0]
+    _snap_criacao[0]=None
+    if s:
+        cena=bpy.data.scenes.get(s['cena'])
+        if cena is not None:cena.cursor.location=s['cursor']
+        for nome,valor in s['bloqueados']:
+            obj=bpy.data.objects.get(nome)
+            if obj is not None:obj.hide_select=valor
+        for janela in bpy.context.window_manager.windows:
+            for area in janela.screen.areas:
+                if area.as_pointer()==s['area']:area.spaces.active.overlay.show_cursor=s['mostrar_cursor']
+    if bpy.app.timers.is_registered(_acompanhar_snap_criacao):bpy.app.timers.unregister(_acompanhar_snap_criacao)
+
+
+def _acompanhar_snap_criacao():
+    s=_snap_criacao[0];w=_estado_criacao()
+    if not s or w is None:return None
+    ativa=any(o.bl_idname=='OBJECT_OT_cabinet_marcar_ponto_vao'
+              for janela in bpy.context.window_manager.windows for o in janela.modal_operators)
+    if not ativa:
+        w['cancelar']=True
+        _terminar_snap_criacao()
+        return None
+    cena=bpy.data.scenes.get(s['cena'])
+    if cena is not None:
+        w['cursor']=cena.cursor.location.copy()
+        for janela in bpy.context.window_manager.windows:
+            for area in janela.screen.areas:
+                if area.as_pointer()==s['area']:area.tag_redraw()
+    return 1/60
+
+
+def _objeto_do_ponto_criacao(context, ponto):
+    area=context.area;regiao=context.region;rv3d=area.spaces.active.region_3d
+    tela=view3d_utils.location_3d_to_region_2d(regiao,rv3d,ponto)
+    if tela is not None:
+        origem=view3d_utils.region_2d_to_origin_3d(regiao,rv3d,tela)
+        direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv3d,tela)
+        hit,co,_n,_f,obj,_m=context.scene.ray_cast(context.evaluated_depsgraph_get(),origem,direcao)
+        if hit and obj is not None and (co-ponto).length<.005:return obj.original.name
+    # Quina exata pode ficar na tangente do raio. Consultar so' o modulo
+    # ativo (BVH nativo), sem ler/projetar vertices de toda a cena.
+    conj=_portas._modulo_da_chapa(context.object) if context.object is not None else None
+    if conj is not None:
+        melhor=None
+        for obj in _modulos._chapas_do_conjunto(conj):
+            inv=obj.matrix_world.inverted()
+            hit,co,_n,_f=obj.closest_point_on_mesh(inv@ponto)
+            if hit:
+                d=(obj.matrix_world@co-ponto).length
+                if d<.002 and (melhor is None or d<melhor[0]):melhor=(d,obj.name)
+        if melhor:return melhor[1]
+    return None
+
+
+class OBJECT_OT_confirmar_ponto_vao(Operator):
+    bl_idname='object.cabinet_confirmar_ponto_vao'
+    bl_label='Confirmar Ponto do Vao'
+    bl_options={'INTERNAL'}
+
+    def execute(self,context):
+        w=_estado_criacao()
+        if w is None:
+            _terminar_snap_criacao();return {'CANCELLED'}
+        try:
+            ponto=context.scene.cursor.location.copy()
+            nome=_objeto_do_ponto_criacao(context,ponto) if w['etapa']!='PROFUNDIDADE' else None
+            w['ponto_confirmado']=(ponto,nome)
+        except Exception:
+            w['cancelar']=True
+            raise
+        finally:
+            _terminar_snap_criacao()
+        return {'FINISHED'}
+
+
+class OBJECT_OT_marcar_ponto_vao(Macro):
+    bl_idname='object.cabinet_marcar_ponto_vao'
+    bl_label='Marcar Ponto do Vao'
+    bl_options={'INTERNAL'}
+
+
+def registrar_macro_criacao():
+    OBJECT_OT_marcar_ponto_vao.define('TRANSFORM_OT_translate')
+    OBJECT_OT_marcar_ponto_vao.define('OBJECT_OT_cabinet_confirmar_ponto_vao')
+
+
 class AssistenteDoVao:
     """O assistente que marca um vao do modulo: 2 cliques na diagonal ->
     scroll = quantas -> mouse = profundidade -> trilho. As PRATELEIRAS usam
@@ -1298,7 +1923,7 @@ class AssistenteDoVao:
         p['profundidade_mm'] = hi.y - lo.y
 
     def _limitar_profundidade(self, mm):
-        return max(100.0, mm)
+        return min(self._w.get('maxprof',float('inf')),max(100.0, mm))
 
     def _recado_profundidade(self, dados):
         return 'Profundidade %d mm (trilho %d) | Alt gruda | clique confirma' % (
@@ -1313,7 +1938,7 @@ class AssistenteDoVao:
         return {'RUNNING_MODAL'}
 
     def _criar_grupo(self, context, conj, margens, p):
-        return criar_gavetas(context, conj, margens, p)
+        return criar_gavetas(context, conj, margens, p,self._w.get('referencia'))
 
     def _selecionar_grupo(self, context, grupo):
         selecionar(context, grupo, 'GRUPO')
@@ -1326,17 +1951,37 @@ class AssistenteDoVao:
         return view3d_utils.location_3d_to_region_2d(self._regiao, self._rv3d, ponto)
 
     def _imantar(self, mouse):
-        melhor = None
-        for nome, vertices in self._alvos:
-            for co in vertices:
-                p = self._tela(co)
-                if p is None:
-                    continue
-                d = (p - mouse).length
-                if d <= _portas.RAIO_IMA_PX and (melhor is None or d < melhor[0]):
-                    melhor = (d, co, nome)
-        _geometria.marcar_rotulo(self._w, melhor[1] if melhor else None)
-        return (melhor[1], melhor[2]) if melhor else (None, None)
+        # A criacao usa TRANSFORM_OT_translate, assim como as ancoras.
+        # Nunca montar uma lista de vertices avaliados aqui.
+        return self._w.get('cursor'), self._w.get('cursor_obj')
+
+    def _iniciar_snap_nativo(self,context):
+        w=self._w
+        if _snap_criacao[0] is not None:return
+        with context.temp_override(area=self._area,region=self._regiao):
+            bloqueados=[]
+            for obj in context.visible_objects:
+                if (obj.type=='MESH' and _chapas.MARCA_CHAPA not in obj and 'eh_peca_curva' not in obj):
+                    bloqueados.append((obj.name,obj.hide_select));obj.hide_select=True
+            _snap_criacao[0]=dict(cena=context.scene.name,area=self._area.as_pointer(),
+                cursor=tuple(context.scene.cursor.location),mostrar_cursor=self._area.spaces.active.overlay.show_cursor,
+                bloqueados=bloqueados)
+            ponto=w.get('cursor')
+            if ponto is None:ponto=context.scene.cursor.location.copy()
+            context.scene.cursor.location=ponto
+            self._area.spaces.active.overlay.show_cursor=False
+            params=dict(cursor_transform=True,snap=True,snap_elements={'VERTEX','EDGE_MIDPOINT'},
+                        snap_target='CENTER',snap_align=False,use_snap_selectable=True)
+            if w['etapa']=='PROFUNDIDADE':
+                _d,matriz=self._dados()
+                params.update(orient_type='GLOBAL',orient_matrix_type='GLOBAL',
+                    orient_matrix=tuple(tuple(l) for l in matriz.to_3x3().transposed()),constraint_axis=(False,True,False))
+            try:
+                bpy.ops.object.cabinet_marcar_ponto_vao('INVOKE_DEFAULT',TRANSFORM_OT_translate=params)
+            except Exception:
+                _terminar_snap_criacao();raise
+        w['snap_pendente']=True
+        bpy.app.timers.register(_acompanhar_snap_criacao,first_interval=.02)
 
     def _raio(self, mouse):
         origem = view3d_utils.region_2d_to_origin_3d(self._regiao, self._rv3d, mouse)
@@ -1348,7 +1993,8 @@ class AssistenteDoVao:
         if conj is None:
             return None
         origem, direcao = self._raio(mouse)
-        normal = conj.matrix_world.to_3x3().col[1].normalized()
+        ref=self._w.get('referencia',Matrix.Identity(3))
+        normal = (conj.matrix_world.to_3x3()@ref.col[1]).normalized()
         base = self._w['pontos'][0]
         d = direcao.dot(normal)
         if abs(d) < 1e-6:
@@ -1368,8 +2014,14 @@ class AssistenteDoVao:
         conj = bpy.data.objects.get(w.get('modulo', ''))
         if conj is None or len(w['pontos']) < 2:
             return None, None
-        margens = margens_do_vao(conj, *w['pontos'][:2])
-        lo, hi = _limites(conj)
+        ref=w.get('referencia')
+        if ref is None:
+            ref=referencia_do_vao(conj,*w['pontos'][:2],limites=w.get('limites'))
+            w['referencia']=ref
+        if 'limites_ref' not in w:
+            w['limites_ref']=limites_na_referencia(conj,ref)
+        lo,hi=w['limites_ref']
+        margens = margens_do_vao(conj, *w['pontos'][:2],referencial=ref,limites_referencia=w['limites_ref'])
         largura = hi.x - margens[1] - lo.x - margens[0]
         altura = hi.z - margens[3] - lo.z - margens[2]
         origem = (lo.x + margens[0], lo.y + margens[4], lo.z + margens[2])
@@ -1377,9 +2029,25 @@ class AssistenteDoVao:
             dados = self._calcular(largura, altura, w['p'])
         except ValueError as erro:
             w['recado'] = str(erro)
-            return None, _mundo_do_vao(conj, origem)
+            return None, conj.matrix_world @ ref.to_4x4() @ Matrix.Translation(Vector(origem)/1000)
         w['vao'] = (largura, altura)
-        return dados, _mundo_do_vao(conj, origem)
+        return dados, conj.matrix_world @ ref.to_4x4() @ Matrix.Translation(Vector(origem)/1000)
+
+    def _definir_vao(self, conj):
+        w=self._w
+        ref=referencia_do_vao(conj,*w['pontos'],limites=w.get('limites'))
+        w['pontos']=pontos_internos_do_vao(conj,w['pontos'],w.get('nomes',('', '')),ref)
+        w['referencia']=ref
+        lo,hi=limites_na_referencia(conj,ref)
+        w['limites_ref']=(lo,hi)
+        margens=margens_do_vao(conj,*w['pontos'],referencial=ref,limites_referencia=(lo,hi))
+        largura=hi.x-lo.x-margens[0]-margens[1]
+        altura=hi.z-lo.z-margens[2]-margens[3]
+        origem=Vector((lo.x+margens[0],lo.y+margens[4],lo.z+margens[2]))
+        matriz=conj.matrix_world @ ref.to_4x4() @ Matrix.Translation(origem/1000)
+        w['maxprof']=profundidade_disponivel(conj,matriz,largura,altura,hi.y-origem.y)
+        w['p']['profundidade_mm']=w['maxprof']
+        if self.ITEM[0]=='gaveta' and margens[4]>.1:w['p']['cobertura']='EMBUTIDA'
 
     def _desenhar(self):
         regiao = getattr(bpy.context, 'region', None)
@@ -1393,10 +2061,13 @@ class AssistenteDoVao:
         if len(pontos) == 2 and w['etapa'] == 'CANTO2':
             conj = bpy.data.objects.get(w.get('modulo', ''))
             if conj is not None:
-                inv = conj.matrix_world.inverted()
+                ref=referencia_do_vao(conj,*pontos,limites=w.get('limites'))
+                mundo=conj.matrix_world @ ref.to_4x4()
+                inv = mundo.inverted()
                 a, b = inv @ pontos[0], inv @ pontos[1]
-                cantos = [conj.matrix_world @ Vector(c) for c in
-                          ((a.x, a.y, a.z), (b.x, a.y, a.z), (b.x, a.y, b.z), (a.x, a.y, b.z))]
+                y=max(a.y,b.y)
+                cantos = [mundo @ Vector(c) for c in
+                          ((a.x, y, a.z), (b.x, y, a.z), (b.x, y, b.z), (a.x, y, b.z))]
                 for i in range(4):
                     linhas_vao += [cantos[i], cantos[(i + 1) % 4]]
         dados, matriz = (self._dados() if w['etapa'] in ('QUANTIDADE', 'PROFUNDIDADE', 'TRILHO')
@@ -1452,15 +2123,14 @@ class AssistenteDoVao:
             self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
             return {'CANCELLED'}
         self._regiao_ptr = self._regiao.as_pointer()
-        self._alvos = [(o.name, vs) for o, vs in _portas._alvos_do_ima(context)
-                       if grupo_de(o) is None]
-        if not self._alvos:
+        if not any(o.type=='MESH' for o in context.visible_objects):
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
             return {'CANCELLED'}
         self._w = {'etapa': 'CANTO1', 'regiao': self._regiao_ptr, 'pontos': [],
                    'cursor': None, 'modulo': '', 'p': self._parametros_padrao(),
                    'botoes': [], 'bolinhas': [], 'snap_tela': None,
                    'mouse': None, 'recado': self.RECADOS['CANTO1'], 'pergunta': ''}
+        self._w['iniciar_snap']=True
         self._estado[0] = self._w
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
@@ -1468,11 +2138,16 @@ class AssistenteDoVao:
             _assistente._desenhar_assistente_2d, (self._w,), 'WINDOW', 'POST_PIXEL')
         context.window.cursor_modal_set('CROSSHAIR')
         context.window_manager.modal_handler_add(self)
+        self._timer=context.window_manager.event_timer_add(.02,window=context.window)
         self._area.header_text_set(self._w['recado'])
         _eventos._redesenhar_viewports(context)
         return {'RUNNING_MODAL'}
 
     def _encerrar(self, context):
+        _terminar_snap_criacao()
+        timer=getattr(self,'_timer',None)
+        if timer is not None:
+            context.window_manager.event_timer_remove(timer);self._timer=None
         self._estado[0] = None
         for nome in ('_handler', '_handler_2d'):
             h = getattr(self, nome, None)
@@ -1493,6 +2168,7 @@ class AssistenteDoVao:
         w['etapa'] = etapa
         w['botoes'], w['hover_botao'] = [], None
         w['recado'] = self.RECADOS[etapa]
+        if etapa in ('CANTO1','CANTO2'):w['iniciar_snap']=True
         if etapa == 'TRILHO':
             escala = max(1.0, bpy.context.preferences.system.ui_scale)
             w['botoes'] = _assistente._botoes_assistente(
@@ -1519,15 +2195,11 @@ class AssistenteDoVao:
         dados, matriz = self._dados()
         if matriz is None:
             return
-        eixo = conj.matrix_world.to_3x3().col[1].normalized()
+        eixo = matriz.to_3x3().col[1].normalized()
         base = matriz.translation
         if event.alt:
-            ponto, _nome = self._imantar(mouse)
-            if ponto is not None:
-                w['p']['profundidade_mm'] = self._limitar_profundidade(
-                    (ponto - base).dot(eixo) * 1000.0)
-                w['snap_tela'] = self._tela(ponto)
-                return
+            self._iniciar_snap_nativo(context)
+            return
         w['snap_tela'] = None
         origem, direcao = self._raio(mouse)
         w0 = base - origem
@@ -1538,7 +2210,30 @@ class AssistenteDoVao:
             w['p']['profundidade_mm'] = self._limitar_profundidade((b * e - c * d) / den * 1000.0)
 
     def modal(self, context, event):
+        try:
+            return self._modal(context,event)
+        except Exception:
+            self._encerrar(context)
+            raise
+
+    def _modal(self, context, event):
         w = self._w
+        if w.get('cancelar'):
+            self._encerrar(context);return {'CANCELLED'}
+        confirmado=w.pop('ponto_confirmado',None)
+        if confirmado is not None:
+            w['snap_pendente']=False
+            ponto,nome=confirmado
+            w['cursor'],w['cursor_obj']=ponto,nome
+            if w['etapa']=='PROFUNDIDADE':
+                self._receber_profundidade(ponto)
+                if self._dados()[0] is not None:return self._depois_da_profundidade(context)
+                return {'RUNNING_MODAL'}
+            return self._aceitar_canto(context,ponto,nome)
+        if w.pop('iniciar_snap',False):
+            self._iniciar_snap_nativo(context)
+            return {'RUNNING_MODAL'}
+        if w.get('snap_pendente'):return {'PASS_THROUGH'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             self._encerrar(context)
             return {'CANCELLED'}
@@ -1558,12 +2253,7 @@ class AssistenteDoVao:
         if event.type == 'MOUSEMOVE' or event.type in {'LEFT_ALT', 'RIGHT_ALT'}:
             w['mouse'] = mouse
             if w['etapa'] in ('CANTO1', 'CANTO2'):
-                ponto, nome = self._imantar(mouse)
-                if ponto is None and w['etapa'] == 'CANTO2':
-                    ponto = self._no_plano_da_frente(mouse)
-                elif ponto is None:
-                    ponto, nome = self._superficie(context, mouse)
-                w['cursor'], w['cursor_obj'] = ponto, nome
+                w['iniciar_snap']=True
             elif w['etapa'] == 'PROFUNDIDADE':
                 self._profundidade(context, event, mouse)
                 dados, _m = self._dados()
@@ -1582,27 +2272,7 @@ class AssistenteDoVao:
             ponto, nome = w.get('cursor'), w.get('cursor_obj')
             if ponto is None:
                 return {'RUNNING_MODAL'}
-            if w['etapa'] == 'CANTO1':
-                obj = bpy.data.objects.get(nome or '')
-                conj = _portas._modulo_da_chapa(obj) if obj is not None else None
-                if conj is None:
-                    w['recado'] = 'Marque o vao dentro de um modulo'
-                    self._area.header_text_set(w['recado'])
-                    return {'RUNNING_MODAL'}
-                w['modulo'] = conj.name
-                w['pontos'] = [ponto.copy()]
-                self._comecar_no_modulo(conj, ponto)
-                self._ir('CANTO2')
-                return {'RUNNING_MODAL'}
-            w['pontos'].append(ponto.copy())
-            dados, _m = self._dados()
-            if dados is None:
-                # nao cabe: o 2o canto se marca de novo (o recado diz o porque)
-                w['pontos'] = w['pontos'][:1]
-                self._area.header_text_set(w['recado'])
-                return {'RUNNING_MODAL'}
-            self._ir('QUANTIDADE')
-            return {'RUNNING_MODAL'}
+            return self._aceitar_canto(context,ponto,nome)
         if w['etapa'] == 'QUANTIDADE':
             dados, _m = self._dados()
             if dados is None:
@@ -1621,6 +2291,48 @@ class AssistenteDoVao:
                 return self._criar(context, trilho=chave)
         return {'RUNNING_MODAL'}
 
+    def _receber_profundidade(self,ponto):
+        _d,matriz=self._dados()
+        mm=(ponto-matriz.translation).dot(matriz.to_3x3().col[1].normalized())*1000
+        self._w['p']['profundidade_mm']=self._limitar_profundidade(mm)
+
+    def _aceitar_canto(self,context,ponto,nome):
+        w=self._w
+        if w['etapa'] == 'CANTO1':
+            obj = bpy.data.objects.get(nome or '')
+            conj = _portas._modulo_da_chapa(obj) if obj is not None else None
+            if conj is None:
+                w['recado'] = 'Marque o vao dentro de um modulo'
+                self._area.header_text_set(w['recado'])
+                w['iniciar_snap']=True
+                return {'RUNNING_MODAL'}
+            w['modulo'] = conj.name
+            w['pontos'] = [ponto.copy()]
+            w['nomes']=[nome]
+            w['limites']=_limites(conj)
+            self._comecar_no_modulo(conj, ponto)
+            self._ir('CANTO2')
+            return {'RUNNING_MODAL'}
+        conj=bpy.data.objects.get(w['modulo'])
+        if conj is None:
+            self._encerrar(context);return {'CANCELLED'}
+        w['pontos'].append(ponto.copy())
+        w['nomes'].append(nome)
+        w.pop('referencia',None)
+        self._definir_vao(conj)
+        dados, _m = self._dados()
+        if dados is None:
+            # nao cabe: o 2o canto se marca de novo (o recado diz o porque)
+            w['pontos'] = w['pontos'][:1]
+            w['nomes']=w['nomes'][:1]
+            w.pop('referencia',None)
+            w.pop('limites_ref',None)
+            self._area.header_text_set(w['recado'])
+            w['iniciar_snap']=True
+            return {'RUNNING_MODAL'}
+        self._ir('QUANTIDADE')
+        return {'RUNNING_MODAL'}
+
     def _criar(self, context, **extra):
         w = self._w
         conj = bpy.data.objects.get(w['modulo'])
@@ -1630,7 +2342,7 @@ class AssistenteDoVao:
         if conj is None:
             return {'CANCELLED'}
         try:
-            grupo = self._criar_grupo(context, conj, margens_do_vao(conj, *pontos), p)
+            grupo = self._criar_grupo(context, conj, margens_do_vao(conj, *pontos,referencial=w.get('referencia'),limites_referencia=w.get('limites_ref')), p)
         except ValueError as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
@@ -1647,6 +2359,7 @@ class OBJECT_OT_criar_gavetas(AssistenteDoVao, Operator):
 
 
 def esquecer():
+    _terminar_snap_criacao()
     _terminar_ancora_nativa()
     _arraste_slider[0] = None
     _slider_hover[0] = None

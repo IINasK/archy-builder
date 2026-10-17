@@ -5,6 +5,7 @@ adjacencia (solda) entre chapas e os operadores de criar/marcar chapa."""
 import bpy, bmesh, math, uuid
 from bpy.props import BoolProperty
 from mathutils import Matrix, Vector
+from mathutils.kdtree import KDTree
 from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
@@ -16,6 +17,8 @@ _ferragens = None
 _importacao = None
 _puxadores = None
 _solda = None
+_frentes = None
+_formas = None
 
 # Espessuras CONVENCIONAIS: so' opcoes/padrao (enum das portas). Nao
 # limitam mais o campo (pedido do usuario): qualquer espessura vale, e
@@ -78,6 +81,178 @@ CHAVE_TRAVAS_PUXADOR = "puxador_travas"     # [L, A, P]: 1 = travado
 
 _ocupado = [False]
 _havia_modal = [False]   # lembra se um operador modal estava ativo
+CHAVE_ESPESSURA = 'cabinet_secao_espessura'
+ATR_COTA_ARESTA = 'cabinet_cota_aresta'
+
+
+def _secao_espessura(malha):
+    """Pareia as duas peles pelo eixo transversal local, fora do redraw.
+
+    Uma dobra desloca a linha media, mas nao aumenta a distancia entre
+    vertices correspondentes. So' uma secao completa e uniforme decide E;
+    recortes ambiguos conservam a medida nominal, nunca o volume envolvente.
+    """
+    if malha.is_editmode or len(malha.vertices)<6:return None
+    arvore=KDTree(len(malha.vertices))
+    for v in malha.vertices:arvore.insert((v.co.x,v.co.y,0),v.index)
+    arvore.balance()
+    vistos=set();pares=[];lados=[0]*len(malha.vertices);espessuras=[]
+    grupos=[-1]*len(malha.vertices)
+    for v in malha.vertices:
+        if v.index in vistos:continue
+        ids=[i for _p,i,_d in arvore.find_range((v.co.x,v.co.y,0),.000002)]
+        zs=[malha.vertices[i].co.z for i in ids];lo,hi=min(zs),max(zs)
+        if hi-lo<.000001 or any(min(abs(z-lo),abs(z-hi))>.000002 for z in zs):return None
+        if any(i in vistos for i in ids):return None
+        vistos.update(ids);espessuras.append(hi-lo)
+        baixo=min(ids,key=lambda i:malha.vertices[i].co.z)
+        alto=max(ids,key=lambda i:malha.vertices[i].co.z)
+        grupo=len(pares)
+        pares.append((tuple(malha.vertices[baixo].co),tuple(malha.vertices[alto].co)))
+        for i in ids:grupos[i]=grupo
+        for i in ids:lados[i]=-1 if abs(malha.vertices[i].co.z-lo)<.000002 else 1
+    if len(pares)<3 or max(espessuras)-min(espessuras)>.000005:return None
+    return dict(espessura_mm=sum(espessuras)/len(espessuras)*1000,pares=pares,lados=lados,grupos=grupos)
+
+
+def _bordas_da_secao(malha, secao):
+    """Bordas das duas peles; arestas internas da triangulacao nao sao cotas.
+
+    O atributo acompanha a edicao/undo nativos. Indices de vertices servem
+    so' nesta consulta, nunca como identidade guardada pela HUD/menu.
+    """
+    grupos=secao['grupos'];lados=secao['lados'];contagens={-1:{},1:{}}
+    for face in malha.polygons:
+        ids=list(face.vertices);lado=lados[ids[0]]
+        if any(lados[i]!=lado for i in ids):continue
+        for a,b in zip(ids,ids[1:]+ids[:1]):
+            chave=tuple(sorted((grupos[a],grupos[b])))
+            contagens[lado][chave]=contagens[lado].get(chave,0)+1
+    bordas=[k for k,n in contagens[-1].items() if n==1 and contagens[1].get(k)==1]
+    if not bordas:return {}
+    atributo=malha.attributes.get(ATR_COTA_ARESTA)
+    if atributo is None:atributo=malha.attributes.new(ATR_COTA_ARESTA,'INT','EDGE')
+    pares_arestas={k:[] for k in bordas}
+    for e in malha.edges:
+        a,b=e.vertices;k=tuple(sorted((grupos[a],grupos[b])))
+        if lados[a]==lados[b] and k in pares_arestas:pares_arestas[k].append(e.index)
+    proximo=max((v.value for v in atributo.data),default=0)+1
+    usados=set();resultado={}
+    for k,ids in pares_arestas.items():
+        if len(ids)!=2:continue
+        antigos=[atributo.data[i].value for i in ids]
+        uid=next((v for v in antigos if v>0 and v not in usados),None)
+        if uid is None:uid=proximo;proximo+=1
+        usados.add(uid)
+        for i in ids:
+            if atributo.data[i].value!=uid:atributo.data[i].value=uid
+        resultado[str(uid)]=k
+    return resultado
+
+
+def preparar_espessura(obj, digital=None):
+    """Cache numerico compartilhado por medicao, resize e HUD."""
+    if obj.type!='MESH' or obj.data.is_editmode:return None
+    digital=digital or _frentes._digital(obj.data)
+    antigo=obj.data.get(CHAVE_ESPESSURA)
+    if antigo and antigo.get('digital')==digital and antigo.get('versao')==2:return antigo
+    secao=_secao_espessura(obj.data)
+    envelope=(max(v.co.z for v in obj.data.vertices)-min(v.co.z for v in obj.data.vertices))*1000 if obj.data.vertices else 0.
+    dado=dict(digital=digital,versao=2,espessura_mm=secao['espessura_mm'] if secao else 0.,
+              dobrada=bool(secao and envelope>secao['espessura_mm']+.01),
+              pares={str(i):[list(a),list(b)] for i,(a,b) in enumerate(secao['pares'])} if secao else {})
+    bordas=_bordas_da_secao(obj.data,secao) if secao and dado['dobrada'] else {}
+    dado['bordas']={uid:[list(secao['pares'][a][s]) for a in par for s in (0,1)]
+                    for uid,par in bordas.items()}
+    quinas={};incidencia={}
+    for uid,(a,b) in bordas.items():
+        incidencia.setdefault(a,[]).append((int(uid),b))
+        incidencia.setdefault(b,[]).append((int(uid),a))
+    for i,par in enumerate(secao['pares'] if secao else ()):
+        incidentes=incidencia.get(i,())
+        if len(incidentes)!=2:continue
+        (ua,a),(ub,b)=sorted(incidentes)
+        quinas[str(ua)+':'+str(ub)]=dict(face=[ua,ub],ponto=list(par[1]),
+            a=list(secao['pares'][a][1]),b=list(secao['pares'][b][1]))
+    dado['quinas']=quinas
+    centros=[(Vector(a)+Vector(b))/2 for a,b in secao['pares']] if secao else []
+    desvio=(max(p.z for p in centros)-min(p.z for p in centros))*1000 if centros else 0.
+    # Uma projecao fora da espessura e' uma medida independente da madeira.
+    dado['deslocamento_mm']=desvio
+    if centros:
+        apoio=max(centros,key=lambda p:(p.x,-p.y)).copy()
+        apoio.z=min(p.z for p in centros)
+        dado['linha_deslocamento']=[list(apoio),list(apoio+Vector((0,0,desvio/1000)))]
+    obj.data[CHAVE_ESPESSURA]=dado
+    return obj.data[CHAVE_ESPESSURA]
+
+
+def _terminar_edicao_secao(obj):
+    obj.data.update()
+    absorver_malha_editada(obj,reorientar=False)
+    _frentes.preparar(obj,forcar=True);_formas.esquecer()
+    bpy.context.view_layer.update()
+
+
+def definir_aresta(obj, uid, valor_mm, lado='min'):
+    """Uma ponta anda na direcao real da aresta; as duas peles andam juntas."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    secao=_secao_espessura(obj.data)
+    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    bordas=_bordas_da_secao(obj.data,secao)
+    par=bordas.get(str(uid))
+    if par is None:raise ValueError('A aresta nao existe mais')
+    a,b=par if lado=='min' else par[::-1]
+    pa,pb=(Vector(secao['pares'][i][0]) for i in (a,b))
+    vetor=pb-pa
+    if vetor.length<1e-8:raise ValueError('Aresta sem comprimento')
+    delta=vetor.normalized()*(max(1.,float(valor_mm))/1000-vetor.length)
+    if obj.data.users>1:obj.data=obj.data.copy()
+    for v,g in zip(obj.data.vertices,secao['grupos']):
+        if g==b:v.co+=delta
+    _terminar_edicao_secao(obj)
+
+
+def definir_angulo_arestas(obj, face, valor):
+    """Gira uma borda no plano das duas bordas reais, conservando E."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    secao=_secao_espessura(obj.data)
+    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    bordas=_bordas_da_secao(obj.data,secao)
+    ea,eb=(bordas.get(str(uid)) for uid in face)
+    comuns=set(ea or ())&set(eb or ())
+    if len(comuns)!=1:raise ValueError('A quina nao existe mais')
+    canto=comuns.pop();a=next(i for i in ea if i!=canto);b=next(i for i in eb if i!=canto)
+    p,pa,pb=(Vector(secao['pares'][i][0]) for i in (canto,a,b))
+    base=(pa-p).normalized();vetor=pb-p
+    normal=vetor-base*vetor.dot(base)
+    if normal.length<1e-8:raise ValueError('A quina nao define um plano de giro')
+    angulo=math.radians(max(.1,min(179.9,float(valor))))
+    delta=p+(base*math.cos(angulo)+normal.normalized()*math.sin(angulo))*vetor.length-pb
+    if obj.data.users>1:obj.data=obj.data.copy()
+    for v,g in zip(obj.data.vertices,secao['grupos']):
+        if g==b:v.co+=delta
+    _terminar_edicao_secao(obj)
+
+
+def definir_deslocamento(obj, valor_mm, lado='min'):
+    """Muda a flecha da linha media; cada par conserva sua propria E."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    secao=_secao_espessura(obj.data)
+    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    esp=secao['espessura_mm']/1000
+    meios=[v.co.z-lado_v*esp/2 for v,lado_v in zip(obj.data.vertices,secao['lados'])]
+    lo,hi=min(meios),max(meios)
+    if hi-lo<1e-8:raise ValueError('A chapa nao tem deslocamento transversal')
+    fixo=hi if lado=='max' else lo
+    fator=max(0.,float(valor_mm))/1000/(hi-lo)
+    if obj.data.users>1:obj.data=obj.data.copy()
+    for v,meio,lado_v in zip(obj.data.vertices,meios,secao['lados']):
+        v.co.z=fixo+(meio-fixo)*fator+lado_v*esp/2
+    obj.data.update()
+    absorver_malha_editada(obj)
+    _frentes.preparar(obj,forcar=True);_formas.esquecer()
+    bpy.context.view_layer.update()
 
 
 def _malha_e_caixa(malha):
@@ -110,19 +285,45 @@ def _esticar_malha(obj, medidas):
     vertice anda junto com a face do lado em que esta' (acima do meio,
     a face maxima; abaixo, a minima). Recortes e furos mantem o tamanho
     e a distancia ate' a borda mais proxima."""
-    vertices = obj.data.vertices
-    lo = [min(v.co[i] for v in vertices) for i in range(3)]
-    hi = [max(v.co[i] for v in vertices) for i in range(3)]
-    for v in vertices:
-        co = v.co.copy()
+    import hashlib
+    from array import array
+    _frentes.preparar(obj)
+    def digital(malha):
+        co=array('f',[0])*(3*len(malha.vertices))
+        malha.vertices.foreach_get('co',co)
+        return hashlib.sha1(co.tobytes()).hexdigest()
+    estado=obj.get('chapa_edicao')
+    if not estado or estado['ultimo']!=digital(obj.data):
+        velha=estado.get('malha') if estado else None
+        obj['chapa_edicao']=dict(malha=obj.data.copy(),ultimo='')
+        if isinstance(velha,bpy.types.Mesh) and velha.users==0:
+            bpy.data.meshes.remove(velha)
+        estado=obj['chapa_edicao']
+    _frentes.copiar_rotulos(obj.data,estado['malha'])
+    # Nao recalcular de que lado o vertice esta' depois de cruzar o meio:
+    # a referencia nativa conserva furos, recortes e indices no retorno.
+    bm=bmesh.new()
+    try:
+        bm.from_mesh(estado['malha'])
+        secao=_secao_espessura(estado['malha'])
+        lo=[min(v.co[i] for v in bm.verts) for i in range(3)]
+        hi=[max(v.co[i] for v in bm.verts) for i in range(3)]
         for i in range(3):
-            meio, meia = (lo[i] + hi[i]) / 2.0, medidas[i] / 2.0
-            if co[i] > meio:
-                co[i] += (meio + meia) - hi[i]
-            else:
-                co[i] += (meio - meia) - lo[i]
-        v.co = co
+            if i==2 and secao:
+                delta=(medidas[2]-secao['espessura_mm']/1000)/2
+                for v,lado in zip(bm.verts,secao['lados']):v.co.z+=lado*delta
+                continue
+            delta=(medidas[i]-(hi[i]-lo[i]))/2
+            meio=(lo[i]+hi[i])/2
+            mais=[v for v in bm.verts if v.co[i]>meio]
+            menos=[v for v in bm.verts if v.co[i]<=meio]
+            vetor=Vector();vetor[i]=delta
+            bmesh.ops.translate(bm,verts=mais,vec=vetor)
+            bmesh.ops.translate(bm,verts=menos,vec=-vetor)
+        bm.to_mesh(obj.data)
+    finally:bm.free()
     obj.data.update()
+    estado['ultimo']=digital(obj.data)
 
 
 def _malha_com_canais(obj, L, C, E):
@@ -244,7 +445,8 @@ def gerar_malha_chapa(obj):
     Nao existe mais "Auto-regenerar" (pedido do usuario: toda mudanca
     na chapa e' para ficar). Caixa padrao e' refeita; malha modelada no
     Modo Edicao e' ESTICADA (`_esticar_malha`), nunca substituida."""
-    if obj is None or obj.type != 'MESH' or obj.mode == 'EDIT':
+    if (obj is None or obj.type != 'MESH' or obj.mode == 'EDIT'
+            or obj.data.is_editmode):
         return
     L = obj.chapa_largura_mm / 1000.0
     C = obj.chapa_comprimento_mm / 1000.0
@@ -253,20 +455,34 @@ def gerar_malha_chapa(obj):
         # base do trilho leve: refeita COM os canais (nao e' caixa, mas
         # tambem nao foi modelada -- esticar levaria os canais junto)
         _malha_com_canais(obj, L, C, E)
+        _frentes.preparar(obj)
         return
     if obj.get('chapa_quadro_mm'):
         _malha_quadro(obj, L, C, E)
+        _frentes.preparar(obj)
         return
     if obj.get('chapa_arco_mm'):
         _malha_arco(obj, L, C, E)
+        _frentes.preparar(obj)
         return
     if not _malha_e_caixa(obj.data):
-        _esticar_malha(obj, (L, C, E))
+        # Na folha curva o Z da malha e' a FLECHA do arco, nao a
+        # espessura da madeira. Reaplicar parametros nao pode achata-la.
+        profundidade = (max(v.co.z for v in obj.data.vertices)-min(v.co.z for v in obj.data.vertices)
+                        if obj.get('porta_curva_modelada') else E)
+        _esticar_malha(obj, (L, C, profundidade))
+        _frentes.preparar(obj)
         for filho in obj.children:
             if _puxadores._eh_puxador_parametrico(filho):
                 _puxadores.posicionar_puxador(filho)
         return
     bm = bmesh.new()
+    # A caixa foi reconstruida: seus indices de faces pertencem a outra
+    # topologia. A superficie sera reconhecida geometricamente uma vez.
+    for chave in (_frentes.ATR_FACE,_frentes.ATR_BORDA):
+        atributo = obj.data.attributes.get(chave)
+        if atributo is not None:
+            obj.data.attributes.remove(atributo)
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
         v.co.x *= L
@@ -291,6 +507,7 @@ def gerar_malha_chapa(obj):
         obj['chapa_rebaixos'] = ','.join(sorted(rebaixos))
     elif 'chapa_rebaixos' in obj:
         del obj['chapa_rebaixos']
+    _frentes.preparar(obj, forcar=True)
     # puxadores parametricos acompanham a chapa nova
     for filho in obj.children:
         if _puxadores._eh_puxador_parametrico(filho):
@@ -309,6 +526,11 @@ def _espessura_da_malha(obj):
     a medida velha, necessaria para saber para que lado engrossar."""
     if obj is None or obj.type != 'MESH' or not obj.data.vertices:
         return None
+    secao=_secao_espessura(obj.data)
+    if secao:return secao['espessura_mm']
+    if not _malha_e_caixa(obj.data):
+        ref=obj.data.get(_frentes.CHAVE)
+        return float(ref['espessura'])*1000 if ref and ref.get('espessura') else None
     # sem multiplicar por scale.z: por invariante a escala em Z e'
     # descartada, entao a malha local e' o valor antigo da prop
     zs = [v.co.z for v in obj.data.vertices]
@@ -361,7 +583,8 @@ def normalizar_chapas(objs=None):
         objs = bpy.data.objects
     alvos = []
     for obj in objs:
-        if obj.type != 'MESH' or MARCA_CHAPA not in obj or obj.mode == 'EDIT':
+        if (obj.type != 'MESH' or MARCA_CHAPA not in obj or obj.mode == 'EDIT'
+                or obj.data.is_editmode):
             continue
         sx, sy, sz = obj.scale
         if abs(sx - 1) < 1e-6 and abs(sy - 1) < 1e-6 and abs(sz - 1) < 1e-6:
@@ -415,14 +638,53 @@ def absorver_edicoes_de_malha():
             saidas.append(obj)
     _chapas_em_edicao.clear()
     _chapas_em_edicao.update(agora)
+    if saidas:
+        # Mover vertices internos nao muda necessariamente L/A/E nem
+        # a contagem de vertices que participa da assinatura da planta.
+        _formas.esquecer()
     for obj in saidas:
         try:
             absorver_malha_editada(obj)
+            _frentes.preparar(obj, forcar=True)
+            for filho in obj.children:
+                if _puxadores._eh_puxador_parametrico(filho):
+                    _puxadores.posicionar_puxador(filho)
         except Exception as e:
             print("[Cabinet Creator] absorver edicao:", e)
 
 
-def absorver_malha_editada(obj):
+def _alinhar_plano_da_chapa(obj):
+    """Reexpressa uma chapa plana no seu plano real, sem mudar MUNDO.
+    AABB Z de uma chapa inclinada por Tab nao e' sua espessura. Somente
+    duas superficies paralelas permitem essa troca de referencial.
+    """
+    malha=obj.data
+    if not malha.polygons:return False
+    face=max(malha.polygons,key=lambda f:f.area)
+    normal=face.normal.copy()
+    if normal.z<0:normal.negate()
+    if normal.z<.2 or normal.z>.99999:return False
+    distancias=[v.co.dot(normal) for v in malha.vertices]
+    lo,hi=min(distancias),max(distancias)
+    if hi-lo<1e-9 or any(min(abs(d-lo),abs(d-hi))>1e-5 for d in distancias):
+        return False
+    ey=Vector((0,1,0));ey=(ey-normal*ey.dot(normal)).normalized()
+    ex=ey.cross(normal).normalized()
+    rotacao=Matrix((ex,ey,normal)).transposed().to_4x4()
+    usuarios=[o for o in bpy.data.user_map(subset={malha}).get(malha,())
+              if isinstance(o,bpy.types.Object)]
+    poses={o:o.matrix_world.copy() for o in usuarios}
+    filhos={f:f.matrix_world.copy() for o in usuarios for f in o.children}
+    malha.transform(rotacao.inverted())
+    for o,m in poses.items():o.matrix_world=m@rotacao
+    bpy.context.view_layer.update()
+    for f,m in filhos.items():f.matrix_world=m
+    malha.update()
+    for o in usuarios:_frentes.invalidar(o)
+    return True
+
+
+def absorver_malha_editada(obj, reorientar=True):
     """Caixa local da malha -> largura/comprimento/espessura; a origem
     volta ao centro da caixa SEM a peca sair do lugar no mundo.
 
@@ -430,39 +692,51 @@ def absorver_malha_editada(obj):
     tambem: a faixa do perfil e' cortada de proposito so' na malha.
     Devolve True se mudou algo.
     """
-    if (MARCA_FOLHA in obj or MARCA_MOLDURA in obj or obj.get('chapa_rebaixos')
+    if (obj.mode == 'EDIT' or obj.data.is_editmode or
+            MARCA_FOLHA in obj or MARCA_MOLDURA in obj or obj.get('chapa_rebaixos')
             or not obj.data.vertices
             or any(abs(s - 1.0) > 1e-6 for s in obj.scale)):
         return False
+    reorientada = _alinhar_plano_da_chapa(obj) if reorientar else False
     cos = [v.co for v in obj.data.vertices]
     lo = Vector([min(c[i] for c in cos) for i in range(3)])
     hi = Vector([max(c[i] for c in cos) for i in range(3)])
     tamanho = (hi - lo) * 1000.0
     centro = (lo + hi) / 2.0
-    antes = (obj.chapa_largura_mm, obj.chapa_comprimento_mm,
-             obj.chapa_espessura_mm)
-    if (all(abs(t - a) < 0.01 for t, a in zip(tamanho, antes))
+    usuarios=[o for o in bpy.data.user_map(subset={obj.data}).get(obj.data,())
+              if isinstance(o,bpy.types.Object)]
+    chapas=[o for o in usuarios if MARCA_CHAPA in o]
+    secao=_secao_espessura(obj.data)
+    espessura=(secao['espessura_mm'] if secao else
+               max(1e-6,tamanho.z) if reorientada else obj.chapa_espessura_mm)
+    medidas=(tamanho.x,tamanho.y,espessura)
+    if (not reorientada and all(all(abs(t-a)<.01 for t,a in zip(medidas,
+            (o.chapa_largura_mm,o.chapa_comprimento_mm,o.chapa_espessura_mm))) for o in chapas)
             and centro.length < 1e-7):
         return False
     if centro.length >= 1e-7:
         # Filhos (puxador importado, acessorio) ficam onde estavam; o
         # parametrico e' refeito pelas props em gerar_malha_chapa.
-        filhos = {f: f.matrix_world.copy() for f in obj.children
-                  if not _puxadores._eh_puxador_parametrico(f)}
-        mundo = obj.matrix_world.copy()
+        filhos = {f:f.matrix_world.copy() for o in usuarios for f in o.children}
+        mundos = {o:o.matrix_world.copy() for o in usuarios}
         obj.data.transform(Matrix.Translation(-centro))
-        obj.matrix_world = mundo @ Matrix.Translation(centro)
+        for o,mundo in mundos.items():o.matrix_world=mundo@Matrix.Translation(centro)
+        bpy.context.view_layer.update()
         for filho, matriz in filhos.items():
             filho.matrix_world = matriz
-    espessura = _espessura_livre(tamanho.z)
+    preparar_espessura(obj)
     _ocupado[0] = True
     try:
-        obj.chapa_largura_mm = tamanho.x
-        obj.chapa_comprimento_mm = tamanho.y
-        obj.chapa_espessura_mm = espessura
+        for o in chapas:
+            o.chapa_largura_mm = tamanho.x
+            o.chapa_comprimento_mm = tamanho.y
+            o.chapa_espessura_mm = espessura
     finally:
         _ocupado[0] = False
-    gerar_malha_chapa(obj)
+    # A geometria ja' e' a que o usuario confirmou no Edit Mode.
+    # Esse caminho nao pode reconstruir buffers que o undo nativo ainda
+    # conserva. Absorver so' atualiza medidas/referencias.
+    _frentes.invalidar(obj)
     obj.data.update()
     return True
 
@@ -483,6 +757,11 @@ def ao_atualizar_depsgraph(scene, depsgraph):
         # logo apos um undo os dados acabaram de voltar (ver
         # `_eventos._depois_de_desfazer`): nada a recalcular, e mexer aqui derrubava
         return
+    for atualizacao in depsgraph.updates if depsgraph is not None else ():
+        dado = atualizacao.id
+        if (isinstance(dado, bpy.types.Object) and dado.type == 'MESH'
+                and MARCA_CHAPA in dado and atualizacao.is_updated_geometry):
+            _frentes.invalidar(dado.original, conferir=True)
     # trocar a selecao tambem passa por aqui: o contorno acompanha na
     # hora, sem esperar o timer
     _eventos.sincronizar_contornos()
@@ -629,7 +908,12 @@ def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
         if N is C or N.type != 'MESH' or MARCA_CHAPA not in N:
             continue
         # so' considera vizinho que se sobrepoe nas outras direcoes
-        if not all(_sobrepoe(_faixa(C, w), _faixa(N, w)) for w in perp):
+        # Quinas/arestas coincidentes nao sao uma face de apoio. A regra
+        # inclusiva criava ate' quatro soldas para a mesma quina.
+        modulo = C.parent is not None and MARCA_CONJUNTO in C.parent
+        if not all((min(_faixa(C, w)[1], _faixa(N, w)[1]) -
+                    max(_faixa(C, w)[0], _faixa(N, w)[0]) > 1e-5) if modulo else
+                   _sobrepoe(_faixa(C, w), _faixa(N, w)) for w in perp):
             continue
         faces = _faixa(N, u)   # (min, max) do vizinho na direcao u
         # Ancora na face do vizinho MAIS PROXIMA da ponta.
@@ -663,11 +947,7 @@ def detectar_adjacencia(objs):
         _garantir_uid(c)
     n = 0
     for C in chapas:
-        for k in PONTAS:
-            C[f"adj_{k}"] = ""
-            C[f"adj_{k}_folga"] = 0.0
-            if f"adj_{k}_ancoras" in C:
-                del C[f"adj_{k}_ancoras"]
+        _limpar_pontas(C)  # UID antigo tambem precisa sair: nome vazio nao desliga.
         for eixo in ("x", "y"):
             for lado in ("pos", "neg"):
                 achado = _melhor_vizinho(C, eixo, lado, chapas)
@@ -675,6 +955,27 @@ def detectar_adjacencia(objs):
                     _gravar_ligacao(C, eixo, lado, *achado)
                     n += 1
     return n
+
+
+def otimizar_adjacencia(objs):
+    """Revalida soldas automaticas da montagem; conserva ancoras manuais.
+    Usado ao migrar presets, nunca no desenho nem durante um arraste.
+    """
+    chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o]
+    candidatas = [o for o in chapas if not eh_dependente(o)]
+    antes = {o.name: repr(sorted((k, str(v)) for k, v in o.items()
+                                if k.startswith('adj_'))) for o in chapas}
+    for C in chapas:
+        for ponta in PONTAS:
+            if _solda._ancoras_gravadas(C, ponta):
+                continue
+            eixo, lado = ponta.split('_')
+            achado = None if eh_dependente(C) else _melhor_vizinho(C, eixo, lado, candidatas)
+            _limpar_ponta(C, ponta)
+            if achado is not None:
+                _gravar_ligacao(C, eixo, lado, *achado)
+    return [o.name for o in chapas if antes[o.name] != repr(sorted(
+        (k, str(v)) for k, v in o.items() if k.startswith('adj_')))]
 
 
 def associar_por_distancia(C, vizinhos, alcance=None):
@@ -876,10 +1177,14 @@ def aplicar_adjacencia(objs=None):
                 alvo_pos, alvo_neg = p_pos, p_neg
 
                 N = _resolver_vizinho(C, C.get(f"adj_{eixo}_pos_uid", ""), C.get(f"adj_{eixo}_pos", ""))
+                if N is not None and N.parent!=C.parent and (N.get('eh_prateleira') or N.get('gaveta_peca')):
+                    N = None   # antiga chapa integrada nao puxa mais a caixa
                 if N is not None:
                     fp = int(C.get(f"adj_{eixo}_pos_face", 0))
                     alvo_pos = _faixa(N, u)[fp] - C.get(f"adj_{eixo}_pos_folga", 0.0)
                 N = _resolver_vizinho(C, C.get(f"adj_{eixo}_neg_uid", ""), C.get(f"adj_{eixo}_neg", ""))
+                if N is not None and N.parent!=C.parent and (N.get('eh_prateleira') or N.get('gaveta_peca')):
+                    N = None
                 if N is not None:
                     fn = int(C.get(f"adj_{eixo}_neg_face", 1))
                     alvo_neg = _faixa(N, u)[fn] + C.get(f"adj_{eixo}_neg_folga", 0.0)

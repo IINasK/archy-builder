@@ -22,6 +22,8 @@ _importacao = None
 _hud = None
 _solda = None
 _gavetas = None
+_frentes = None
+_arame = None
 
 # ======================================== PUXADORES PARAMETRICOS
 # Tres modelos prontos, montados no referencial da LINHA -- a borda da
@@ -119,9 +121,13 @@ def _malha_modelo_perfil():
         return None
     for malha in bpy.data.meshes:
         if malha.get('cabinet_origem') == dados['malha'] and not malha.library:
+            if _arame is not None:
+                _arame.preparar_modelos()
             return malha
     novas = _ferragens._anexar_sem_repetir(ARQUIVO_PUXADOR_PERFIL, 'meshes',
                                 {dados['malha']})
+    if novas and _arame is not None:
+        _arame.preparar_modelos()
     return novas[0] if novas else None
 
 
@@ -167,12 +173,63 @@ def _ajuste_do_perfil(modelo, espessura, comprimento):
     return estica, corte, recua, fator
 
 
-def _malha_perfil_do_modelo(pux, modelo, espessura, comprimento):
+def _bmesh_perfil(modelo, espessura, comprimento, chapa=None,
+                   borda='Y+', face=1):
+    """A previa e a peca usam a mesma malha derivada, sem tocar na madeira."""
     ajuste = _ajuste_do_perfil(modelo, espessura, comprimento)
     bm = bmesh.new()
-    bm.from_mesh(modelo)
+    try:
+        bm.from_mesh(modelo)
+        for v in bm.verts:
+            v.co = _deformar_perfil(v.co, *ajuste)
+        _acompanhar_borda(bm, chapa, borda, face, comprimento)
+        bm.normal_update()
+        return bm
+    except Exception:
+        bm.free()
+        raise
+
+
+def _acompanhar_borda(bm, chapa, borda, face, comprimento):
+    if (chapa is None or _frentes is None
+            or _frentes.referencia(chapa) is None or comprimento <= 0):
+        return
+    borda, _fracao = _borda_e_fracao(chapa, borda, .5)
+    centro, _ = _frentes.lugar(chapa, borda, face, .5, 0, 0, inteiro=True)
+    inicio, _ = _frentes.lugar(chapa, borda, face, 0, 0, 0)
+    fim, _ = _frentes.lugar(chapa, borda, face, 1, 0, 0)
+    sinal = (1 if (fim.translation - inicio.translation).dot(
+        centro.to_3x3().col[0]) >= 0 else -1)
+    tamanho = comprimento / 1000.0
+    cortes = set()
+    for chave in _frentes.bordas(chapa, face):
+        if chave.split('|')[0] != borda or '|' not in chave:
+            continue
+        for t in (0, 1):
+            _, fracao = _frentes.normalizar_borda(chapa, chave, t)
+            if 1e-6 < fracao < 1 - 1e-6:
+                cortes.add(sinal * (fracao - .5) * tamanho)
+    # As faces longas do asset precisam de secoes nas quinas da frente;
+    # mover so' os vertices originais deixaria a corda atravessando a curva.
+    for x in sorted(cortes):
+        bmesh.ops.bisect_plane(
+            bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces),
+            dist=1e-7, plane_co=(x, 0, 0), plane_no=(1, 0, 0))
+    inversa = centro.inverted_safe()
+    quadros = {}
     for v in bm.verts:
-        v.co = _deformar_perfil(v.co, *ajuste)
+        x, y, z = v.co
+        if x not in quadros:
+            quadro, _ = _frentes.lugar(
+                chapa, borda, face, max(0, min(1, .5 + sinal*x/tamanho)), 0, 0)
+            quadros[x] = inversa @ quadro
+        v.co = quadros[x] @ Vector((0, y, z))
+
+
+def _malha_perfil_do_modelo(pux, modelo, espessura, comprimento):
+    bm = _bmesh_perfil(modelo, espessura, comprimento, pux.parent,
+                        pux.get('puxador_borda', 'Y+'),
+                        int(pux.get('puxador_face', 1)))
     bm.to_mesh(pux.data)
     bm.free()
     pux.data.update()
@@ -314,8 +371,19 @@ def gerar_malha_puxador(pux, espessura, comprimento):
             return
         if len(pux.data.vertices):
             return      # sem a biblioteca (outro PC): fica a copia que tem
-    bm = bmesh.new()
     tipo = pux['puxador_tipo'] if pux['puxador_tipo'] != 'MODELO' else 'ALCA'
+    bm = _bmesh_caixas(tipo, espessura, comprimento, pux.parent,
+                       pux.get('puxador_borda', 'Y+'),
+                       int(pux.get('puxador_face', 1)))
+    bm.to_mesh(pux.data)
+    bm.free()
+    pux.data.update()
+    if not pux.data.materials:
+        pux.data.materials.append(_material_puxador())
+
+
+def _bmesh_caixas(tipo, espessura, comprimento, chapa=None, borda='Y+', face=1):
+    bm = bmesh.new()
     for x0, x1, y0, y1, z0, z1 in _caixas_puxador(
             tipo, espessura, comprimento or MODELOS_PUXADOR['ALCA'][1]):
         cubo = bmesh.ops.create_cube(bm, size=1.0)
@@ -323,11 +391,10 @@ def gerar_malha_puxador(pux, espessura, comprimento):
             v.co = Vector(((x0 + x1) / 2 + v.co.x * (x1 - x0),
                            (y0 + y1) / 2 + v.co.y * (y1 - y0),
                            (z0 + z1) / 2 + v.co.z * (z1 - z0))) / 1000.0
-    bm.to_mesh(pux.data)
-    bm.free()
-    pux.data.update()
-    if not pux.data.materials:
-        pux.data.materials.append(_material_puxador())
+    if tipo == 'PERFIL':
+        _acompanhar_borda(bm, chapa, borda, face, comprimento)
+    bm.normal_update()
+    return bm
 
 
 def _referencial_da_linha(chapa, borda, face):
@@ -369,18 +436,72 @@ def posicionar_puxador(pux):
         chapa, tipo, pux.get('puxador_borda', 'Y+'),
         int(pux.get('puxador_face', 1)), float(pux.get('puxador_fracao', 0.5)),
         pux.get('puxador_comprimento_mm'), pux.get('puxador_recuo_mm'))
+    if (chapa.get('porta_curva_modelada') and pux.get('puxador_curvo')
+            and not chapa.get('porta_linha_frente')
+            and (_frentes is None or _frentes.referencia(chapa) is None)):
+        # Consulta local nativa UMA vez ao posicionar, nunca varre a cena
+        # no hover. A alca deve sentar na tangente real, nao na corda.
+        vs=[v.co for v in chapa.data.vertices]
+        esquerda=pux.get('puxador_borda')=='X-'
+        x=(min(v.x for v in vs)-.1 if esquerda else max(v.x for v in vs)+.1)
+        z=max(v.z for v in vs)-float(pux.get('puxador_recuo_mm',40))/1000
+        y=(float(pux.get('puxador_fracao',.5))-.5)*chapa.chapa_comprimento_mm/1000
+        hit,ponto,normal,_f=chapa.ray_cast(Vector((x,y,z)),Vector((1 if esquerda else -1,0,0)))
+        if hit:
+            ao_longo=Vector((0,1,0))
+            dentro=normal.cross(ao_longo).normalized()
+            matriz=Matrix((ao_longo,dentro,normal)).transposed().to_4x4()
+            matriz.translation=ponto
     _ferragens._padronizar_nome(pux, "Puxador " + (
         pux.get('puxador_nome') or MODELOS_PUXADOR[tipo][0]))
+    materiais_objeto={i:slot.material for i,slot in enumerate(pux.material_slots)
+                      if slot.link=='OBJECT'}
     gerar_malha_puxador(pux, chapa.chapa_espessura_mm, comprimento)
+    # A geometria vem do fornecedor; a pintura escolhida nesta instancia
+    # pertence ao objeto e sobrevive ao refazer seus slots de malha.
+    for i,material in materiais_objeto.items():
+        if i<len(pux.material_slots):
+            pux.material_slots[i].link='OBJECT'
+            pux.material_slots[i].material=material
+    if _arame is not None:
+        # Numeros no proprio objeto sobrevivem a undo/anexar sem reter RNA.
+        pux['puxador_contorno'] = [float(c) for p in
+            _arame._contorno_malha(pux.data) for c in p]
     pux.matrix_parent_inverse = Matrix.Identity(4)
+    # Euler introduzia seno residual em 180 graus: a previa usava a matriz
+    # exata e a peca/cache acabava com outra rotacao ao avalia-la no Blender.
+    pux.rotation_mode = 'QUATERNION'
     pux.matrix_basis = matriz
     return True
+
+
+def _atualizar_madeira(chapa):
+    """Madeira modelada conserva seus vertices ao trocar o puxador."""
+    if (not _chapas._malha_e_caixa(chapa.data)
+            and not any(chapa.get(chave) for chave in
+                        ('chapa_arco_mm', 'chapa_quadro_mm', 'chapa_canais'))):
+        for filho in chapa.children:
+            if _eh_puxador_parametrico(filho):
+                posicionar_puxador(filho)
+        return
+    _chapas.gerar_malha_chapa(chapa)
 
 
 def _lugar_do_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
                       recuo=None):
     """(matriz no espaco LOCAL da chapa, comprimento em mm) do puxador
     naquela linha -- o MESMO calculo para o objeto e para a previa."""
+    # A previa recebe a chave do SEGMENTO; o objeto ja' guarda a borda
+    # normalizada. Sem isto Y+|3 era interpretado como Y- no hover.
+    borda, fracao = _borda_e_fracao(chapa, borda, fracao)
+    if _frentes is not None and _frentes.referencia(chapa) is not None:
+        return _frentes.lugar(
+            chapa, borda, face, fracao,
+            float(MODELOS_PUXADOR[tipo][1] if comprimento is None else comprimento),
+            float(MODELOS_PUXADOR[tipo][2] if recuo is None else recuo),
+            inteiro=tipo == 'PERFIL')
+    if chapa.get('porta_linha_frente') and tipo != 'PERFIL':
+        return _lugar_no_perfil(chapa,tipo,borda,face,fracao,comprimento,recuo)
     ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
         chapa, borda, int(face))
     if tipo == 'PERFIL':
@@ -394,6 +515,45 @@ def _lugar_do_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
     matriz = Matrix((ao_longo, dentro, fora)).transposed().to_4x4()
     matriz.translation = ponto + ao_longo * x + dentro * recuo
     return matriz, comprimento
+
+
+def _lugar_no_perfil(chapa,tipo,borda,face,fracao,comprimento,recuo):
+    pontos=[Vector(p) for p in chapa['porta_linha_frente']]
+    comprimento=float(MODELOS_PUXADOR[tipo][1] if comprimento is None else comprimento)
+    recuo=float(MODELOS_PUXADOR[tipo][2] if recuo is None else recuo)/1000
+    sinal=1 if borda.endswith('+') else -1
+    total=sum((b-a).length for a,b in zip(pontos,pontos[1:]))
+    if borda.startswith('X'):
+        if (pontos[0].x-pontos[-1].x)*sinal < 0:pontos.reverse()
+        distancia=min(recuo,total)
+        ao_longo=Vector((0,sinal,0))
+        livre=max(0,(chapa.chapa_comprimento_mm-comprimento)/2000)
+        y=sinal*max(-livre,min(livre,(float(fracao)-.5)*chapa.chapa_comprimento_mm/1000))
+    else:
+        distancia=max(comprimento/2000,min(total-comprimento/2000,float(fracao)*total))
+        y=sinal*(chapa.chapa_comprimento_mm/2000-recuo)
+        ao_longo=None
+    ponto=pontos[-1].copy()
+    for a,b in zip(pontos,pontos[1:]):
+        d=(b-a).length
+        if distancia <= d:
+            ponto=a+(b-a)*(distancia/max(d,1e-9));break
+        distancia-=d
+    ponto.y=y
+    # Legado ainda sem preparo: a tangente vem da linha numerica, nunca
+    # de uma consulta a' madeira durante a previa/desenho.
+    tangente = (b-a).normalized() if len(pontos) > 1 else Vector((1,0,0))
+    if tangente.x < 0:
+        tangente = -tangente
+    fora = tangente.cross(Vector((0,1,0))).normalized()
+    if face < 0:fora=-fora
+    if ao_longo is None:
+        dentro=Vector((0,-sinal,0));ao_longo=dentro.cross(fora).normalized()
+    else:
+        dentro=fora.cross(ao_longo).normalized()
+    matriz=Matrix((ao_longo,dentro,fora)).transposed().to_4x4()
+    matriz.translation=ponto
+    return matriz,comprimento
 
 
 def _rebaixos_da_chapa(chapa):
@@ -414,7 +574,7 @@ def _conferir_rebaixos():
         if gravado is None:
             continue
         if set(filter(None, gravado.split(','))) != set(_rebaixos_da_chapa(obj)):
-            _chapas.gerar_malha_chapa(obj)
+            _atualizar_madeira(obj)
 
 
 def _dados_do_tipo(pux, tipo, arquivo=''):
@@ -438,6 +598,7 @@ def _dados_do_tipo(pux, tipo, arquivo=''):
 def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
     """Puxador novo pendurado na chapa (folha ou avulsa), ja' no lugar.
     `arquivo`: o .blend do modelo do usuario (tipo 'MODELO')."""
+    borda,fracao=_borda_e_fracao(chapa,borda,fracao)
     nome = "Puxador " + (nome_do_modelo(tipo, arquivo) or 'Modelo')
     pux = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
     (chapa.users_collection[0] if chapa.users_collection
@@ -447,6 +608,9 @@ def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
     pux['puxador_borda'] = borda
     pux['puxador_face'] = 1 if face >= 0 else -1
     pux['puxador_fracao'] = max(0.0, min(1.0, float(fracao)))
+    if (_frentes is not None and _frentes.referencia(chapa) is not None
+            or chapa.get('porta_linha_frente')):
+        pux['puxador_referencia_versao'] = 1
     pux.parent = chapa
     if tipo == 'PERFIL':
         # um perfil por borda: o novo substitui o velho
@@ -455,7 +619,7 @@ def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
                       and f['puxador_tipo'] == 'PERFIL'
                       and f.get('puxador_borda') == borda]:
             bpy.data.objects.remove(velho, do_unlink=True)
-        _chapas.gerar_malha_chapa(chapa)        # corta a madeira e posiciona
+        _atualizar_madeira(chapa)        # corta a madeira e posiciona
     else:
         posicionar_puxador(pux)
     return pux
@@ -469,6 +633,35 @@ def _borda_na_direcao(folha, direcao):
     return max(eixos, key=lambda b: eixos[b].normalized().dot(direcao))
 
 
+def puxador_terminal(context, grupo):
+    """O puxador da articulada fica na ponta livre, mesmo mudando folhas."""
+    folhas = _portas._folhas_portas(grupo)
+    if not folhas:
+        return None
+    terminal = folhas[-1]
+    p = grupo.get('porta_parametros') or {}
+    puxadores = [pux for f in folhas for pux in f.children if _chapas.MARCA_PUXADOR in pux]
+    if not puxadores:
+        pux = criar_puxador(context, terminal, 'PERFIL',
+            'X-' if p.get('dobradica_lado') == 'DIREITA' else 'X+', 1)
+        pux['puxador_zigzag'] = True
+        return pux
+    antigas = set()
+    for pux in puxadores:
+        if pux.parent != terminal:
+            antigas.add(pux.parent.name)
+            pux.parent = terminal
+            pux.matrix_parent_inverse = Matrix.Identity(4)
+            if pux.get('puxador_zigzag'):
+                pux['puxador_borda'] = 'X-' if p.get('dobradica_lado') == 'DIREITA' else 'X+'
+            posicionar_puxador(pux)
+        elif pux.get('puxador_zigzag'):
+            pux['puxador_borda'] = 'X-' if p.get('dobradica_lado') == 'DIREITA' else 'X+'
+    for nome in antigas | {terminal.name}:
+        _atualizar_madeira(bpy.data.objects[nome])
+    return puxadores[0]
+
+
 def perfis_na_porta(context, grupo, posicao):
     """Um perfil por folha, na face da FRENTE: 'CIMA' (balcao), 'BAIXO'
     (aereo) ou 'LADO' (vertical, do lado oposto as dobradicas -- torre,
@@ -479,6 +672,8 @@ def perfis_na_porta(context, grupo, posicao):
     direita, frente, cima = (eixos.col[0].normalized(), -eixos.col[1].normalized(),
                              eixos.col[2].normalized())
     p = dict(grupo.get('porta_parametros') or {})
+    if p.get('abertura') == 'ZIGZAG':
+        return [puxador_terminal(context, grupo)]
     folhas = _portas._folhas_portas(grupo)
     perfis = []
     for i, folha in enumerate(folhas):
@@ -488,8 +683,11 @@ def perfis_na_porta(context, grupo, posicao):
             direcao = -cima
         else:
             lado = _ferragens._lado_da_folha(p, i, len(folhas))
-            direcao = direita if lado == 'ESQUERDA' else -direita
-        face = 1 if folha.matrix_world.to_3x3().col[2].dot(frente) >= 0 else -1
+            direita_folha = _ferragens._matriz_fechada(folha).to_3x3().col[0].normalized()
+            direcao = direita_folha if lado == 'ESQUERDA' else -direita_folha
+        # Folha nativa: +Z e' a frente, inclusive na outra perna do L.
+        # Comparar com -Y da caixa invertia o perfil perpendicular.
+        face = 1
         perfis.append(criar_puxador(context, folha, 'PERFIL',
                                     _borda_na_direcao(folha, direcao), face))
     return perfis
@@ -568,7 +766,31 @@ def _borda_mais_proxima(segmentos, mouse):
 
 def _bordas_da_face(chapa, face):
     """{borda: (ponta da fracao 0, ponta da fracao 1)} em MUNDO."""
+    if _frentes is not None and _frentes.referencia(chapa) is not None:
+        bordas = _frentes.bordas(chapa, face)
+        # Uma linha inteira conserva a chave publica antiga; segmentos
+        # continuam separados quando a borda tem mais de um trecho.
+        for nome in ('Y-', 'Y+'):
+            chaves = [c for c in bordas if c.split('|')[0] == nome]
+            if len(chaves) == 1 and '|' in chaves[0]:
+                bordas[nome] = bordas.pop(chaves[0])
+        return bordas
     mundo = chapa.matrix_world
+    if chapa.get('porta_linha_frente'):
+        ps=[Vector(p) for p in chapa['porta_linha_frente']]
+        hy=chapa.chapa_comprimento_mm/2000
+        saida={}
+        for borda in ('X-','X+'):
+            p=min((ps[0],ps[-1]),key=lambda p:p.x) if borda=='X-' else max((ps[0],ps[-1]),key=lambda p:p.x)
+            sinal=1 if borda=='X+' else -1
+            a,b=p.copy(),p.copy();a.y=-sinal*hy;b.y=sinal*hy
+            saida[borda]=(mundo@a,mundo@b)
+        for borda in ('Y-','Y+'):
+            y=-hy if borda=='Y-' else hy
+            for i,(a,b) in enumerate(zip(ps,ps[1:])):
+                a,b=a.copy(),b.copy();a.y=y;b.y=y
+                saida[borda+'|'+str(i)]=(mundo@a,mundo@b)
+        return saida
     bordas = {}
     for borda in BORDAS_CHAPA:
         ao_longo, _dentro, _fora, ponto, tamanho = _referencial_da_linha(
@@ -576,6 +798,17 @@ def _bordas_da_face(chapa, face):
         meio = ao_longo * (tamanho / 2.0)
         bordas[borda] = (mundo @ (ponto - meio), mundo @ (ponto + meio))
     return bordas
+
+
+def _borda_e_fracao(chapa,borda,fracao):
+    if _frentes is not None and _frentes.referencia(chapa) is not None:
+        return _frentes.normalizar_borda(chapa, borda, fracao)
+    if '|' not in borda:
+        return borda,fracao
+    nome,indice=borda.split('|');indice=int(indice)
+    ps=[Vector(p) for p in chapa['porta_linha_frente']]
+    ds=[(b-a).length for a,b in zip(ps,ps[1:])]
+    return nome,(sum(ds[:indice])+ds[indice]*fracao)/max(sum(ds),1e-9)
 
 
 def _face_da_chapa(chapa, normal, direcao_vista):
@@ -668,6 +901,8 @@ class OBJECT_OT_posicionar_puxador(Operator):
         tipo, arquivo = modelo_escolhido(context.scene)
         if tipo == 'MODELO':
             _malha_modelo_usuario(arquivo)      # a previa e' o arame dele
+        if _arame is not None:
+            _arame.preparar_modelos(tipo, arquivo)
         self._estado = {'regiao': self._regiao.as_pointer(), 'fase': 'LINHA',
                         'tipo': tipo, 'arquivo': arquivo,
                         'chapa': None, 'face': 1, 'borda': None,
@@ -713,7 +948,8 @@ class OBJECT_OT_posicionar_puxador(Operator):
         if chapa is not None and _chapas.MARCA_PUXADOR in chapa:
             chapa = chapa.parent        # mirou no puxador: vale a chapa dele
         if chapa is None or _chapas.MARCA_CHAPA not in chapa:
-            estado.update(chapa=None, borda=None, segmentos={})
+            estado.update(chapa=None, borda=None, segmentos={}, arame=[],
+                          chave_arame=None)
             return
         estado['chapa'] = chapa.name
         estado['face'] = _face_da_chapa(chapa, normal, direcao)
@@ -724,6 +960,26 @@ class OBJECT_OT_posicionar_puxador(Operator):
             # a previa (arame) do puxador acompanha o mouse na linha
             estado['fracao'] = _fracao_na_linha(
                 *projetados[estado['borda']], mouse, estado['n'])
+        self._preparar_arame()
+
+    def _preparar_arame(self):
+        estado = self._estado
+        chapa = bpy.data.objects.get(estado.get('chapa') or '')
+        if _arame is None or chapa is None or estado.get('borda') is None:
+            estado['arame'] = []
+            estado['chave_arame'] = None
+            return
+        chave = (chapa.name, estado['tipo'], estado['arquivo'],
+                 estado['borda'], estado['face'],
+                 None if estado['tipo'] == 'PERFIL' else estado['fracao'],
+                 tuple(v for linha in chapa.matrix_world for v in linha),
+                 (chapa.data.get(_frentes.CHAVE) or {}).get('digital')
+                 if _frentes is not None else None)
+        if estado.get('chave_arame') != chave:
+            estado['arame'] = _arame.preparar_previa(
+                chapa, estado['tipo'], estado['borda'], estado['face'],
+                estado['fracao'], estado['arquivo'])
+            estado['chave_arame'] = chave
 
     def _mover_puxador(self, mouse):
         estado = self._estado
@@ -733,7 +989,9 @@ class OBJECT_OT_posicionar_puxador(Operator):
         estado['fracao'] = _fracao_na_linha(a, b, mouse, estado['n'])
         pux = bpy.data.objects.get(estado['pux'] or '')
         if pux is not None:
-            pux['puxador_fracao'] = estado['fracao']
+            chapa=bpy.data.objects.get(estado['chapa'])
+            _borda,fracao=_borda_e_fracao(chapa,estado['borda'],estado['fracao'])
+            pux['puxador_fracao'] = fracao
             posicionar_puxador(pux)
 
     def _apagar_previa(self):
@@ -782,6 +1040,7 @@ class OBJECT_OT_posicionar_puxador(Operator):
         escolher_modelo(context.scene, tipo, arquivo)   # a proxima vem igual
         if tipo == 'MODELO':
             _malha_modelo_usuario(arquivo)
+        self._preparar_arame()
         chapa = bpy.data.objects.get(estado['chapa'] or '')
         if estado['fase'] == 'POSICAO' and chapa is not None:
             self._apagar_previa()
@@ -888,7 +1147,7 @@ def _trocar_modelo_puxador(pux, valor):
                       and f.get('puxador_borda') == pux.get('puxador_borda')]:
             bpy.data.objects.remove(velho, do_unlink=True)
     if 'PERFIL' in (antes, tipo):
-        _chapas.gerar_malha_chapa(chapa)        # corta/devolve a madeira e posiciona
+        _atualizar_madeira(chapa)        # corta/devolve a madeira e posiciona
     else:
         posicionar_puxador(pux)
 
@@ -1034,8 +1293,8 @@ class OBJECT_OT_arrastar_puxador(Operator):
                 linhas.append((a, b))
                 d = _distancia_ao_segmento(mouse, a2, b2)
                 if melhor is None or d < melhor[0]:
-                    melhor = (d, len(linhas) - 1, nome, borda, face,
-                              _fracao_na_linha(a2, b2, mouse))
+                    nome_borda,fracao=_borda_e_fracao(chapa,borda,_fracao_na_linha(a2,b2,mouse))
+                    melhor = (d, len(linhas) - 1, nome, nome_borda, face,fracao)
         estado['linhas'] = linhas
         estado['escolhida'] = melhor[1] if melhor else None
         return melhor[2:] if melhor else None
@@ -1060,8 +1319,10 @@ class OBJECT_OT_arrastar_puxador(Operator):
             if not mesma_linha:
                 # a madeira volta na chapa velha e sai na nova
                 if antiga is not None and antiga != chapa:
-                    _chapas.gerar_malha_chapa(antiga)
-                _chapas.gerar_malha_chapa(chapa)
+                    _atualizar_madeira(antiga)
+                _atualizar_madeira(chapa)
+            else:
+                posicionar_puxador(pux)
         else:
             posicionar_puxador(pux)
         context.view_layer.update()
@@ -1100,7 +1361,7 @@ class OBJECT_OT_arrastar_puxador(Operator):
                               and f.get('puxador_borda')
                               == pux.get('puxador_borda')]:
                     bpy.data.objects.remove(velho, do_unlink=True)
-                _chapas.gerar_malha_chapa(pux.parent)
+                _atualizar_madeira(pux.parent)
             self._encerrar()
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
@@ -1170,6 +1431,31 @@ def _chapa_encostada(context, pontos):
         if _chapas.MARCA_CHAPA not in chapa:
             continue
         inversa = chapa.matrix_world.inverted_safe()
+        if _frentes is not None and _frentes.referencia(chapa) is not None:
+            # Consulta nativa no comando de conversao, nunca no redraw:
+            # a caixa envolvente nao representa a face de uma frente curva.
+            c = inversa @ centro
+            acertou, contato, normal, _indice = chapa.closest_point_on_mesh(c)
+            if not acertou:
+                continue
+            normal.normalize()
+            tangencial = c-contato
+            tangencial -= normal*tangencial.dot(normal)
+            if tangencial.length > tolerancia:
+                continue
+            folga = min((inversa @ p-contato).dot(normal) for p in pontos)
+            if not -tolerancia <= folga <= tolerancia:
+                continue
+            face = 1 if normal.z >= 0 else -1
+            bordas = _frentes.bordas(chapa, face)
+            if not bordas:
+                continue
+            chave = min(bordas, key=lambda b: _distancia_ao_segmento(
+                centro, *bordas[b]))
+            borda, _fracao = _frentes.normalizar_borda(chapa, chave, .5)
+            if melhor is None or abs(folga) < melhor[0]:
+                melhor = (abs(folga), chapa, face, borda)
+            continue
         hx, hy, hz = _chapas._meias(chapa)
         c = inversa @ centro
         if abs(c.x) > hx or abs(c.y) > hy:
@@ -1193,6 +1479,20 @@ def _nome_livre_modelo(nome):
             pasta, _biblioteca._nome_arquivo_seguro(nome) + '.blend')):
         nome, n = '%s %d' % (base, n), n + 1
     return nome
+
+
+def _ancora_na_referencia(chapa, borda, face, ponto):
+    """A fracao segue a projecao comum; o recuo conserva a unidade em mm."""
+    fracao = _frentes.fracao_do_ponto(chapa, borda, face, ponto)
+    if borda.startswith('Y'):
+        quadro, _ = _frentes.lugar(chapa, borda, face, fracao, 0, 0)
+        recuo = (ponto-quadro.translation).dot(quadro.to_3x3().col[1])*1000
+    else:
+        # X: o recuo percorre a frente inteira, nao a tangente da ponta.
+        percurso = _frentes.fracao_do_ponto(chapa, 'Y-', face, ponto)
+        _, comprimento = _frentes.lugar(chapa, 'Y-', face, .5, 0, 0, inteiro=True)
+        recuo = (1-percurso if borda == 'X+' else percurso)*comprimento
+    return fracao, recuo
 
 
 def salvar_modelo_puxador(context, obj, quadro, recuo_mm):
@@ -1303,12 +1603,26 @@ class OBJECT_OT_usar_como_puxador(Operator):
         encostado = _chapa_encostada(context, pontos) if pontos else None
         if encostado is not None:
             chapa, face, borda = encostado
-            ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
-                chapa, borda, face)
             giro = chapa.matrix_world.to_3x3().normalized()
-            quadro = _quadro_do_modelo(pontos, giro @ fora, giro @ ao_longo)
-            desloc = chapa.matrix_world.inverted_safe() @ quadro.translation - ponto
-            recuo = desloc.dot(dentro) * 1000.0
+            inversa = chapa.matrix_world.inverted_safe()
+            if _frentes is not None and _frentes.referencia(chapa) is not None:
+                centro = inversa @ (sum(pontos, Vector()) / len(pontos))
+                fracao, recuo = _ancora_na_referencia(chapa, borda, face, centro)
+                linha, _ = _frentes.lugar(chapa, borda, face, fracao, 0, recuo)
+                quadro = _quadro_do_modelo(
+                    pontos, giro @ linha.to_3x3().col[2],
+                    giro @ linha.to_3x3().col[0])
+                # O centro da face de contato pode diferir da media dos
+                # vertices do asset; gravar a ancora que realmente foi salva.
+                fracao, recuo = _ancora_na_referencia(
+                    chapa, borda, face, inversa @ quadro.translation)
+            else:
+                ao_longo, dentro, fora, ponto, tamanho = _referencial_da_linha(
+                    chapa, borda, face)
+                quadro = _quadro_do_modelo(pontos, giro @ fora, giro @ ao_longo)
+                desloc = inversa @ quadro.translation - ponto
+                recuo = desloc.dot(dentro) * 1000.0
+                fracao = .5 + desloc.dot(ao_longo) / max(tamanho, 1e-9)
         elif Vector(self.normal).length > 1e-6:
             quadro = _quadro_do_modelo(pontos, -Vector(self.normal))
             local = [quadro.inverted() @ p for p in pontos]
@@ -1333,7 +1647,7 @@ class OBJECT_OT_usar_como_puxador(Operator):
                 bpy.ops.object.cabinet_posicionar_puxador('INVOKE_DEFAULT')
             return {'FINISHED'}
         pux = criar_puxador(context, chapa, 'MODELO', borda, face,
-                            0.5 + desloc.dot(ao_longo) / tamanho, arquivo)
+                            fracao, arquivo)
         pux['puxador_recuo_mm'] = round(recuo, 3)
         posicionar_puxador(pux)
         malha = obj.data

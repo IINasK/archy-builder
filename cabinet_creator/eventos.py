@@ -6,7 +6,8 @@ import bpy
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
-_ferragens = None
+_ferragens = _prateleiras = _selecao = _formas = None
+_frentes = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -44,12 +45,19 @@ def _transformando():
 
 
 def verificar_periodicamente():
+    # O timer pode vencer antes do callback que encerra o undo. A mesma
+    # guarda do depsgraph deve valer ANTES de consultar selecao/malhas.
+    if _desfazendo[0]:
+        return INTERVALO_TIMER
     sincronizar_contornos()
     if not _chapas._ocupado[0] and not _ha_modal_ativo():
         try:
+            _prateleiras.concluir_edicao()
+            _selecao.concluir_edicao_grupo(bpy.context)
             _modulos.absorver_conjuntos()
             _chapas.normalizar_chapas()
             _chapas.absorver_edicoes_de_malha()
+            _frentes.processar_pendentes()
             _puxadores._conferir_rebaixos()
             _modulos._sincronizar_medidas_ativas()
             # modulo associado: segue a parede / volta ao plano dela
@@ -186,6 +194,12 @@ def _esquecer_referencias(*_args):
     acha o alvo de novo."""
     _hud._hover_hud.clear()
     _paredes.esquecer()
+    _prateleiras.esquecer()
+    _selecao._edicao_grupo[0] = None
+    _formas.esquecer()
+    _frentes.esquecer()
+    _chapas._chapas_em_edicao.clear()
+    _chapas._havia_modal[0] = False
 
 
 # Ctrl+Z / Ctrl+Shift+Z: os dados acabaram de ser recarregados e o
@@ -198,8 +212,17 @@ _desfazendo = [False]
 
 @bpy.app.handlers.persistent
 def _antes_de_desfazer(*_args):
+    # Undo dentro do Edit Mode conserva o escopo atual (so' nomes/digitais).
+    edicao = _prateleiras._edicao[0] if bpy.context.mode == 'EDIT_MESH' else None
+    grupo = _selecao._edicao_grupo[0] if bpy.context.mode == 'EDIT_MESH' else None
+    # Refazer Tab ainda precisa medir a malha confirmada. Guardar nomes
+    # conserva essa transicao sem reter IDs que o undo vai liberar.
+    chapas = set(_chapas._chapas_em_edicao) if bpy.context.mode == 'EDIT_MESH' else set()
     _desfazendo[0] = True
     _esquecer_referencias()
+    _prateleiras._edicao[0] = edicao
+    _selecao._edicao_grupo[0] = grupo
+    _chapas._chapas_em_edicao.update(chapas)
 
 
 @bpy.app.handlers.persistent
@@ -211,6 +234,8 @@ def _depois_de_desfazer(*_args):
 
 def _fim_do_desfazer():
     _desfazendo[0] = False
+    # O depsgraph ainda pode estar copiando os IDs restaurados. As
+    # referencias pendentes voltam pelo timer normal, fora deste fecho.
     sincronizar_contornos()
     return None
 

@@ -46,7 +46,8 @@ liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
    `@unittest.expectedFailure` com `# BUG:` em cima. Consertado, tire o
    marcador e deixe um comentario "Regressao (era BUG, corrigido na N)".
 5. **Biblioteca real e' intocavel.** `test_biblioteca_blender.py` copia
-   uma AMOSTRA (`copiar_amostra`: 2 presets por categoria) para um
+   4 fixtures pequenas nos testes de indice/operadores e uma AMOSTRA
+   (`TestPresetsDeFabrica`: 2 presets por categoria) para um
    temporario e redireciona `pasta_biblioteca`/`_pasta_addon` ANTES do
    register; no fim confere por sha1 que nenhum byte da real mudou. A
    integridade de TODOS os presets reais e' lida direto da pasta real (so'

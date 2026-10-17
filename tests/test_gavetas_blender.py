@@ -10,7 +10,9 @@ O assistente (cliques, scroll, Alt) e o arraste do slider, com eventos de
 verdade, estao em `gui_interacao.py`.
 """
 import os
+import math
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -26,6 +28,161 @@ G = addon.gavetas
 
 
 class TestGavetas(unittest.TestCase):
+    def test_segundo_clique_modal_recupera_modulo_do_estado(self):
+        w=G.AssistenteDoVao()
+        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=['Tampo'],
+            limites=G._limites(self.conj),p=dict(G.PARAMETROS_PADRAO),etapa='CANTO2',
+            ponto_confirmado=(Vector((.382,-.280,.018)),'Base'))
+        w._ir=lambda e:w._w.__setitem__('etapa',e)
+        self.assertEqual(w.modal(bpy.context,SimpleNamespace(type='TIMER')),{'RUNNING_MODAL'})
+        self.assertEqual(w._w['etapa'],'QUANTIDADE')
+        self.assertAlmostEqual(w._w['vao'][0],764,places=2)
+
+    def test_confirmacao_da_macro_nativa_restaura_cursor_e_bloqueios(self):
+        cursor=bpy.context.scene.cursor;original=cursor.location.copy()
+        obj=addon.modulos._chapas_do_conjunto(self.conj)[0]
+        w={'etapa':'CANTO2'};G._assistente_gavetas[0]=w
+        antes={o.name for o in bpy.data.objects};obj.hide_select=True
+        G._snap_criacao[0]=dict(cena=bpy.context.scene.name,cursor=tuple(original),area=0,
+                              mostrar_cursor=False,bloqueados=[(obj.name,False)])
+        ponto=Vector((.382,-.280,.018));cursor.location=ponto
+        try:
+            with patch.object(G,'_objeto_do_ponto_criacao',return_value=obj.name):
+                self.assertEqual(G.OBJECT_OT_confirmar_ponto_vao.execute(None,bpy.context),{'FINISHED'})
+            self.assertLess((w['ponto_confirmado'][0]-ponto).length,1e-6)
+            self.assertEqual(w['ponto_confirmado'][1],obj.name)
+            self.assertFalse(obj.hide_select)
+            self.assertLess((cursor.location-original).length,1e-6)
+            self.assertIsNone(G._snap_criacao[0])
+            self.assertEqual(antes,{o.name for o in bpy.data.objects})
+            self.assertIn(G.OBJECT_OT_marcar_ponto_vao,addon.CLASSES)
+        finally:
+            G._assistente_gavetas[0]=None;cursor.location=original
+
+    def test_erro_modal_libera_assistente_e_cursor(self):
+        w=G.AssistenteDoVao()
+        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=['Tampo'],
+            p=dict(G.PARAMETROS_PADRAO),etapa='CANTO2',ponto_confirmado=(Vector((.382,-.280,.018)),'Base'))
+        w._handler=None;w._handler_2d=None;w._timer=None
+        w._area=SimpleNamespace(header_text_set=lambda t:None,tag_redraw=lambda:None)
+        liberados=[];contexto=SimpleNamespace(window=SimpleNamespace(cursor_modal_restore=lambda:liberados.append(True)))
+        G._assistente_gavetas[0]=w._w
+        with patch.object(w,'_definir_vao',side_effect=ValueError('Falha de teste')), \
+             patch.object(G._eventos,'_redesenhar_viewports',return_value=None):
+            with self.assertRaises(ValueError):w.modal(contexto,SimpleNamespace(type='TIMER'))
+        self.assertIsNone(G._assistente_gavetas[0])
+        self.assertEqual(liberados,[True])
+
+    def test_snap_pendente_nao_projeta_vertices_da_cena(self):
+        w=G.AssistenteDoVao();w._w=dict(etapa='CANTO2',snap_pendente=True)
+        with patch.object(addon.portas,'_alvos_do_ima',side_effect=AssertionError('Avaliou malhas')), \
+             patch.object(view3d_utils,'location_3d_to_region_2d',side_effect=AssertionError('Projetou vertices')):
+            for _ in range(100):
+                self.assertEqual(w.modal(bpy.context,SimpleNamespace(type='MOUSEMOVE')),{'PASS_THROUGH'})
+    def assistente(self, a, b, nomes=('', '')):
+        w=G.AssistenteDoVao()
+        w._w=dict(modulo=self.conj.name,pontos=[Vector(a),Vector(b)],nomes=list(nomes),
+                  limites=G._limites(self.conj),p=dict(G.PARAMETROS_PADRAO),etapa='PROFUNDIDADE')
+        w._definir_vao(self.conj)
+        return w
+
+    def test_assistente_deduz_frente_lateral_e_a_preserva_ao_editar(self):
+        # Simula preset com eixos do Empty diferentes da abertura real.
+        rot=Matrix.Rotation(1.57079632679,4,'Z')
+        for o in self.conj.children:o.matrix_world=rot@o.matrix_world
+        bpy.context.view_layer.update()
+        w=self.assistente((.280,-.382,.682),(.280,.382,.018))
+        dados,matriz=w._dados()
+        self.assertGreater(matriz.to_3x3().col[1].dot(Vector((-1,0,0))),.999)
+        self.assertAlmostEqual(w._w['vao'][0],764,places=2)
+        margens=G.margens_do_vao(self.conj,*w._w['pontos'],referencial=w._w['referencia'])
+        grupo=w._criar_grupo(bpy.context,self.conj,margens,w._w['p'])
+        gaveta=G.gavetas_do_grupo(grupo)[0]
+        frente=G.frente_da_gaveta(gaveta);antes=frente.matrix_world.translation.copy()
+        G.definir_abertura(gaveta,1);bpy.context.view_layer.update()
+        self.assertGreater((frente.matrix_world.translation-antes).normalized().dot(Vector((1,0,0))),.999)
+        G.definir_abertura(gaveta,0)
+        self.assertIsNone(G.editar(bpy.context,grupo,'entre_gavetas_mm',5))
+        self.assertGreater(grupo.matrix_world.to_3x3().col[1].dot(Vector((-1,0,0))),.999)
+
+    def test_assistente_deduz_face_oposta_e_modulo_girado(self):
+        self.conj.rotation_euler.z=.73;self.conj.location=(1,2,3)
+        bpy.context.view_layer.update()
+        mundo=self.conj.matrix_world
+        w=self.assistente(mundo@Vector((.382,.280,.682)),mundo@Vector((-.382,.280,.018)))
+        _,matriz=w._dados()
+        self.assertGreater(matriz.to_3x3().col[1].dot(-mundo.to_3x3().col[1]),.999)
+        self.assertGreater(matriz.to_3x3().determinant(),.999)
+
+    def test_assistente_gap_usa_frente_interna_e_profundidade_mais_curta(self):
+        fundo=addon.modulos.adicionar_fundo(self.conj,bpy.context)
+        pr=addon.prateleiras.criar_prateleiras(bpy.context,self.conj,(18,18,18,18,0),
+                       dict(quantidade=1,profundidade_mm=540,recuo_mm=30))
+        chapa=addon.prateleiras.prateleiras_do_grupo(pr)[0]
+        verts=[chapa.matrix_world@v.co for v in chapa.data.vertices]
+        alto=Vector((-.382,-.250,max(v.z for v in verts)))
+        baixo=Vector((.382,-.280,.018))
+        base=next(o for o in addon.modulos._chapas_do_conjunto(self.conj) if 'Base' in o.name)
+        w=self.assistente(alto,baixo,(chapa.name,base.name))
+        _,matriz=w._dados()
+        self.assertAlmostEqual(matriz.translation.y,-.250,places=4)
+        self.assertEqual(w._w['p']['cobertura'],'EMBUTIDA')
+        self.assertAlmostEqual(w._w['vao'][1],min(v.z for v in verts)*1000-18,places=2)
+        limite=min((fundo.matrix_world@v.co).y for v in fundo.data.vertices)
+        self.assertAlmostEqual(w._w['maxprof'],(limite+.250)*1000,places=2)
+        dimensoes=w._w['vao'];rotacao=matriz.to_3x3().copy()
+        w._receber_profundidade(Vector((.400,.280,.900)))
+        self.assertAlmostEqual(w._w['p']['profundidade_mm'],w._w['maxprof'],places=2)
+        _,depois=w._dados()
+        self.assertEqual(w._w['vao'],dimensoes)
+        self.assertLess((depois.translation-matriz.translation).length,1e-6)
+        for i in range(3):self.assertLess((depois.to_3x3().col[i]-rotacao.col[i]).length,1e-6)
+
+    def test_assistente_frente_diagonal_nao_usa_caixa_inflada_do_modulo(self):
+        rot=Matrix.Rotation(.78539816339,4,'Z')
+        for o in self.conj.children:o.matrix_world=rot@o.matrix_world
+        bpy.context.view_layer.update()
+        w=self.assistente(rot@Vector((-.382,-.280,.682)),rot@Vector((.382,-.280,.018)))
+        _,matriz=w._dados()
+        self.assertGreater(matriz.to_3x3().col[1].dot(rot.to_3x3().col[1]),.999)
+        self.assertAlmostEqual(w._w['maxprof'],560,places=2)
+        self.assertAlmostEqual(w._w['vao'][0],764,places=2)
+
+    def test_assistente_previa_nao_reconsulta_malhas_nem_raios(self):
+        w=self.assistente((-.382,-.280,.682),(.382,-.280,.018))
+        with patch.object(G,'_limites',side_effect=AssertionError('Malha na previa')), \
+             patch.object(G,'limites_na_referencia',side_effect=AssertionError('Caixa na previa')), \
+             patch.object(G,'profundidade_disponivel',side_effect=AssertionError('Ray cast na previa')):
+            for n in (1,2,3):
+                w._w['p']['quantidade']=n
+                self.assertIsNotNone(w._dados()[0])
+
+    def test_ancora_de_profundidade_lateral_projeta_so_no_eixo_e_para_no_fundo(self):
+        grupo=self.gavetas(quantidade=1)
+        dimensoes=G.medidas(grupo)[:2];antes=grupo.matrix_world.copy()
+        p=grupo.matrix_world@Vector((10,2,9))
+        self.assertIsNone(G._aplicar_ponto(grupo,2,p))
+        self.assertEqual(G.medidas(grupo)[:2],dimensoes)
+        self.assertLess((grupo.matrix_world.translation-antes.translation).length,1e-6)
+        self.assertLessEqual(G.medidas(grupo)[2],560+.01)
+
+    def test_translate_nativo_usa_eixo_real_da_ancora_girada(self):
+        grupo=self.gavetas(quantidade=1)
+        self.conj.rotation_euler.z=.73;bpy.context.view_layer.update()
+        cursor=bpy.context.scene.cursor;antes=cursor.location.copy()
+        contexto=SimpleNamespace(scene=bpy.context.scene,visible_objects=bpy.context.visible_objects,region=SimpleNamespace(as_pointer=lambda:1),
+                    area=SimpleNamespace(as_pointer=lambda:2),space_data=SimpleNamespace(overlay=SimpleNamespace(show_cursor=True)))
+        try:
+            params=G._preparar_ancora_nativa(contexto,grupo,2)
+            params.pop('release_confirm',None);params.pop('snap',None)
+            params.pop('snap_elements',None);params.pop('snap_target',None)
+            params.pop('snap_align',None);params.pop('use_snap_selectable',None)
+            base=cursor.location.copy()
+            bpy.ops.transform.translate(value=(0,.1,0),**params)
+            esperado=grupo.matrix_world.to_3x3().col[1].normalized()*.1
+            self.assertLess((cursor.location-base-esperado).length,1e-6)
+        finally:
+            G._terminar_ancora_nativa();cursor.location=antes
     def setUp(self):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -65,6 +222,41 @@ class TestGavetas(unittest.TestCase):
             G.calcular(764.0, 664.0, dict(p, quantidade=10, entre_gavetas_mm=40))
         with self.assertRaisesRegex(ValueError, 'menor trilho'):
             G.calcular(764.0, 664.0, dict(p, profundidade_mm=200.0))
+        limite = dict(p,quantidade=1,trilho='TELESCOPICO',coberturas_mm=[10,10,10,5])
+        self.assertEqual(len(G.calcular(764,79.99994,limite)['gavetas']),1)
+        with self.assertRaisesRegex(ValueError,'altura para a caixa'):
+            G.calcular(764,79.9,limite)
+
+    def test_sistemas_em_montagem_antiga_sobrevivem_a_reinsercao(self):
+        colecao = addon.modulos._colecao_do_modulo(self.conj)
+        del colecao[addon.modulos.MARCA_COLECAO_MODULO]
+        grupo = self.gavetas()
+        prateleiras = addon.prateleiras.criar_prateleiras(
+            bpy.context, self.conj, (18,18,18,18,0),
+            dict(quantidade=1, profundidade_mm=500))
+        self.assertIn(grupo, list(colecao.objects))
+        self.assertIn(prateleiras, list(colecao.objects))
+        bpy.context.view_layer.update()
+        antes = {o.name:[o.matrix_world @ v.co for v in o.data.vertices]
+                 for o in colecao.objects if o.type == 'MESH'}
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = os.path.join(pasta, 'Montagem.blend')
+            bpy.data.libraries.write(caminho, {colecao})
+            for obj in list(bpy.data.objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.collections.remove(colecao)
+            with bpy.data.libraries.load(caminho) as (de, para):
+                para.collections = list(de.collections)
+            bpy.context.scene.collection.children.link(para.collections[0])
+            bpy.context.view_layer.update()
+            for obj in para.collections[0].objects:
+                if obj.name in antes:
+                    self.assertTrue(all((obj.matrix_world @ v.co-co).length < 1e-5
+                                        for v,co in zip(obj.data.vertices,antes[obj.name])))
+            frentes = [o for o in para.collections[0].objects if o.get(G.MARCA_PECA)=='FRENTE']
+            self.assertEqual(len(frentes), 3)
+            self.assertTrue(G.selecionar(bpy.context,frentes[0],'GRUPO'))
+            self.assertEqual(len(G.gavetas_com_slider(bpy.context)), 3)
 
     def test_cria_frente_caixa_trilho_e_puxador_sem_mexer_no_modulo(self):
         antes = addon.modulos.medir_conjunto(self.conj)
@@ -141,6 +333,45 @@ class TestGavetas(unittest.TestCase):
         bpy.context.view_layer.update()
         self.assertLess((grupo.matrix_world.translation - origem).length, 1e-5)
         self.assertAlmostEqual(G.medidas(grupo)[1], 800.0, places=2)
+
+    def test_encolher_modulo_adapta_gavetas_e_retorno_restaura_escolhas(self):
+        grupo=self.gavetas()
+        gaveta=G.gavetas_do_grupo(grupo)[0];G.definir_abertura(gaveta,.4)
+        antes=G.medidas(grupo);objetos=list(grupo.children_recursive)
+        self.conj.conj_largura_mm=200
+        self.assertAlmostEqual(G.medidas(grupo)[0],164,delta=.05)
+        self.conj.conj_profundidade_mm=100
+        self.assertAlmostEqual(self.conj.conj_profundidade_mm,260,delta=.05)
+        self.assertAlmostEqual(G.parametros(grupo)['profundidade_mm'],260,delta=.05)
+        self.assertEqual(grupo[G.CHAVE_TRILHO_MM],250)
+        self.assertEqual(objetos,list(grupo.children_recursive))
+        self.assertAlmostEqual(gaveta[G.CHAVE_ABERTURA],.4,places=4)
+        self.conj.conj_largura_mm=800
+        self.conj.conj_profundidade_mm=560
+        for a,b in zip(antes,G.medidas(grupo)):self.assertAlmostEqual(a,b,delta=.05)
+        self.assertEqual(grupo[G.CHAVE_TRILHO_MM],550)
+
+    def test_esc_apos_reducao_do_modulo_restaura_sistema_inteiro(self):
+        grupo=self.gavetas();antes=G.parametros(grupo)
+        medidas=G.medidas(grupo);objetos=list(grupo.children_recursive)
+        alvo=dict(objeto=self.conj,tipo='medida',modo='GRUPO',eixo=1,lado='min')
+        backup=addon.hud._estado_arraste_hud(bpy.context,alvo)
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,100)
+        addon.hud._restaurar_arraste_hud(bpy.context,backup)
+        self.assertEqual(antes,G.parametros(grupo))
+        for a,b in zip(medidas,G.medidas(grupo)):self.assertAlmostEqual(a,b,delta=.01)
+        self.assertEqual(objetos,list(grupo.children_recursive))
+        self.assertNotIn(G.CHAVE_ENCAIXE,grupo)
+
+    def test_reducao_rotacionada_preserva_eixos_das_gavetas(self):
+        grupo=self.gavetas()
+        self.conj.rotation_euler.z=math.pi/2
+        bpy.context.view_layer.update();addon.modulos.sincronizar_medidas_conjunto(self.conj)
+        self.conj.conj_largura_mm=100
+        self.assertAlmostEqual(G.parametros(grupo)['profundidade_mm'],260,delta=.05)
+        self.assertAlmostEqual(self.conj.conj_largura_mm,260,delta=.05)
+        self.conj.conj_largura_mm=560
+        self.assertAlmostEqual(G.parametros(grupo)['profundidade_mm'],560,delta=.05)
 
     def test_esticar_para_baixo_leva_gavetas_sem_deformar_e_esc_devolve(self):
         # Regressao (era BUG, corrigido na 220): a base descia sozinha.
@@ -559,6 +790,180 @@ class TestGavetas(unittest.TestCase):
         bpy.context.scene.cabinet_aba = 'GAVETAS'
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]
         self.assertTrue(any(a[0] == 'medida' and a[2] == 'frente_curva_mm' for a in acoes))
+
+    def test_altura_individual_reencaixa_vizinha_sem_mudar_conjunto(self):
+        grupo=self.gavetas(proporcoes=[1,2,1])
+        G.selecionar(bpy.context,grupo,'GRUPO')
+        largura,altura,_=G.medidas(grupo)
+        antes=G.frentes(largura,altura,G.parametros(grupo))
+        self.assertIsNone(G.aplicar(bpy.context,grupo,('A',1),antes[1][3]-antes[1][2]+40,'min'))
+        depois=G.frentes(largura,altura,G.parametros(grupo))
+        self.assertEqual(antes[0],depois[0])
+        self.assertAlmostEqual(depois[1][2],antes[1][2])
+        self.assertAlmostEqual(depois[1][3],antes[1][3]+40)
+        self.assertAlmostEqual(depois[2][3],antes[2][3])
+        self.assertEqual(G.medidas(grupo),(largura,altura,560))
+        atual=G.valor(grupo,('A',1))
+        topo=depois[1][3]
+        self.assertIsNone(G.aplicar(bpy.context,grupo,('A',1),atual-25,'max'))
+        depois=G.frentes(largura,altura,G.parametros(grupo))
+        self.assertAlmostEqual(depois[1][3],topo)
+        estado=G.copia(grupo)
+        self.assertIsNotNone(G.aplicar(bpy.context,grupo,('A',1),900,'min'))
+        self.assertEqual(G.copia(grupo),estado)
+        self.assertEqual(bpy.context.object,grupo)
+
+    def test_unidade_tem_profundidade_trilho_largura_e_espacamentos_proprios(self):
+        grupo=self.gavetas()
+        tamanho=G.medidas(grupo)
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'profundidade_mm',450))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'trilho','OCULTO'))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'largura',700))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'recuo_mm',20))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'acima_mm',10))
+        dados=G.calcular(*G.vao(grupo)[:2],G.parametros(grupo))
+        self.assertEqual([d['trilho_mm'] for d in dados['gavetas']],[550,400,550])
+        self.assertEqual(G.valor(grupo,('L',1)),700)
+        self.assertEqual(G.folgas(G.parametros(grupo)),[3,10])
+        self.assertEqual(G.medidas(grupo),tamanho)
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        G.definir_abertura(gaveta,1)
+        self.assertAlmostEqual(gaveta.location.y,-.4)
+        self.assertIsNone(G.editar(bpy.context,grupo,'trilho','TELESCOPICO'))
+        self.assertEqual(G.parametros_da_unidade(G.parametros(grupo),1)['trilho'],'TELESCOPICO')
+
+    def test_hud_segmentos_individuais_hover_e_selecao_isolada(self):
+        grupo=self.gavetas()
+        G.selecionar(bpy.context,grupo,'GRUPO')
+        geometria=addon.hud._geometria_do_item(grupo,'GAVETAS',[])
+        self.assertEqual({l['face'][1] for l in geometria['linhas'] if len(l['face'])>1},{0,1,2})
+        linha=next(l for l in geometria['linhas'] if l['face']==('A',1))
+        inv=grupo.matrix_world.inverted()
+        projetar=lambda p:Vector(((inv@p).x,(inv@p).z))*1000
+        alvo=addon.hud._acertar_linhas_hud(geometria,projetar(linha['pontos'][0])+Vector((1,10)),projetar,cantos=False)
+        self.assertEqual(alvo['face'],('A',1))
+        self.assertEqual(alvo['lado'],'min')
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        G.selecionar(bpy.context,gaveta,'GAVETA')
+        geometria=addon.hud._geometria_do_item(grupo,'GAVETAS',[])
+        self.assertEqual({l['face'][1] for l in geometria['linhas']},{1})
+        self.assertEqual(len(geometria['linhas']),12)
+
+    def test_previa_individual_nao_reconstroi_e_esc_restaura(self):
+        grupo=self.gavetas()
+        G.selecionar(bpy.context,G.gavetas_do_grupo(grupo)[1],'GAVETA')
+        backup=G.copia(grupo)
+        objetos=list(grupo.children_recursive)
+        h=G.valor(grupo,('A',1))
+        with patch.object(G,'montar',side_effect=AssertionError('Previa reconstruiu')):
+            for delta in (10,20,30):
+                self.assertIsNone(G.aplicar(bpy.context,grupo,('A',1),h+delta,'min',previa=True))
+                G.linhas_hud(grupo,[])
+        self.assertEqual(objetos,list(grupo.children_recursive))
+        G.restaurar(backup)
+        self.assertEqual(G.copia(grupo),backup)
+        self.assertAlmostEqual(G.valor(grupo,('A',1)),h)
+        self.assertEqual(bpy.context.object.get(G.CHAVE_INDICE),1)
+        unica=self.gavetas(quantidade=1)
+        backup=G.copia(unica)
+        self.assertIsNone(G.aplicar(bpy.context,unica,('A',0),400,'max',previa=True))
+        self.assertAlmostEqual(G.valor(unica,('A',0)),400)
+        G.restaurar(backup)
+        self.assertEqual(G.copia(unica),backup)
+
+    def test_menu_da_unidade_mostra_medidas_e_escolhas_somente_dela(self):
+        grupo=self.gavetas(proporcoes=[1,2,1])
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        G.selecionar(bpy.context,gaveta,'GAVETA')
+        bpy.context.scene.cabinet_aba='GAVETAS'
+        acoes=[v[5] for v in addon.gaveta._widgets_gaveta(bpy.context,480,1600) if v[5]]
+        medidas={a[2]:a[4] for a in acoes if a[0]=='medida' and a[1]=='gavetas'}
+        self.assertAlmostEqual(medidas['individual_1_altura'],G.valor(grupo,('A',1)))
+        self.assertIn('individual_1_abaixo_mm',medidas)
+        self.assertIn('individual_1_acima_mm',medidas)
+        self.assertFalse(any(a[0]=='contador' and a[1]=='gavetas_quantidade' for a in acoes))
+        self.assertTrue(any(a[0]=='escolha' and a[1]=='individual_1_trilho' for a in acoes))
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(bpy.context,'gavetas',grupo.name,'individual_1_altura',.300))
+        self.assertAlmostEqual(G.valor(grupo,('A',1)),300)
+
+    def test_edicao_preserva_madeira_abertura_e_puxador_individuais(self):
+        grupo=self.gavetas()
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        G.colocar_puxador(gaveta,'ALCA')
+        G.definir_abertura(gaveta,.4)
+        material=bpy.data.materials.new('Madeira so desta gaveta')
+        frente=G.frente_da_gaveta(gaveta)
+        frente.data.materials.clear();frente.data.materials.append(material)
+        frente.material_slots[0].link='OBJECT';frente.material_slots[0].material=material
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'altura',260))
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        self.assertEqual(gaveta[G.CHAVE_PUXADOR],'ALCA')
+        self.assertAlmostEqual(gaveta[G.CHAVE_ABERTURA],.4)
+        self.assertEqual(G.frente_da_gaveta(gaveta).material_slots[0].material,material)
+        self.assertEqual(G.frente_da_gaveta(gaveta).material_slots[0].link,'OBJECT')
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'puxador','PERFIL'))
+        self.assertEqual(G.gavetas_do_grupo(grupo)[1][G.CHAVE_PUXADOR],'PERFIL')
+
+    def test_botao_normaliza_alturas_preservando_total_folgas_e_ajustes(self):
+        grupo = self.gavetas(proporcoes=[1,2,1])
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'profundidade_mm',450))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'trilho','OCULTO'))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'recuo_mm',15))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'acima_mm',7))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,1,'puxador','ALCA'))
+        gaveta = G.gavetas_do_grupo(grupo)[1]
+        G.definir_abertura(gaveta,.4)
+        material = bpy.data.materials.new('Madeira individual normalizada')
+        frente = G.frente_da_gaveta(gaveta)
+        frente.data.materials.append(material)
+        frente.material_slots[-1].link='OBJECT'
+        frente.material_slots[-1].material=material
+        G.selecionar(bpy.context,gaveta,'GAVETA')
+        bpy.context.scene.cabinet_aba='GAVETAS'
+        for largura in (180,320,540):
+            widgets=addon.gaveta._widgets_gaveta(bpy.context,largura,1600)
+            botao,=[v for v in widgets if v[5]==('operador','object.cabinet_normalizar_gavetas')]
+            self.assertEqual(botao[4],'Normalizar alturas')
+            for campo in [v for v in widgets if v[5] and v[5][0]=='medida']:
+                sobrepoe=(botao[0]<campo[0]+campo[2] and campo[0]<botao[0]+botao[2]
+                          and botao[1]<campo[1]+campo[3] and campo[1]<botao[1]+botao[3])
+                self.assertFalse(sobrepoe)
+        medidas=G.medidas(grupo)
+        parametros=G.parametros(grupo)
+        frentes=G.frentes(*G.vao(grupo)[:2],parametros)
+        self.assertIn(G.OBJECT_OT_normalizar_gavetas,addon.CLASSES)
+        self.assertEqual(bpy.ops.object.cabinet_normalizar_gavetas(),{'FINISHED'})
+        novos=G.frentes(*G.vao(grupo)[:2],G.parametros(grupo))
+        alturas=[f[3]-f[2] for f in novos]
+        self.assertLess(max(alturas)-min(alturas),1e-4)
+        self.assertEqual(G.medidas(grupo),medidas)
+        self.assertAlmostEqual(novos[0][2],frentes[0][2])
+        self.assertAlmostEqual(novos[-1][3],frentes[-1][3])
+        self.assertEqual(G.parametros(grupo)['individuais'],parametros['individuais'])
+        self.assertEqual(G.folgas(G.parametros(grupo)),G.folgas(parametros))
+        gaveta=G.gavetas_do_grupo(grupo)[1]
+        self.assertEqual(bpy.context.object,gaveta)
+        self.assertAlmostEqual(gaveta[G.CHAVE_ABERTURA],.4)
+        self.assertEqual(gaveta[G.CHAVE_PUXADOR],'ALCA')
+        self.assertEqual(G.frente_da_gaveta(gaveta).material_slots[-1].material,material)
+        G.selecionar(bpy.context,grupo,'GRUPO')
+        self.assertTrue(any(v[5]==('operador','object.cabinet_normalizar_gavetas')
+                            for v in addon.gaveta._widgets_gaveta(bpy.context,320,1400)))
+
+    def test_normalizar_que_nao_cabe_preserva_estado_e_uma_so_nao_tem_botao(self):
+        grupo = G.criar_gavetas(bpy.context,self.conj,(18,18,18,432,0),
+                               dict(quantidade=3,profundidade_mm=560,proporcoes=[1.2,1,1.2]))
+        estado=G.copia(grupo)
+        objetos=list(grupo.children_recursive)
+        self.assertIsNotNone(G.normalizar_alturas(grupo))
+        self.assertEqual(G.copia(grupo),estado)
+        self.assertEqual(list(grupo.children_recursive),objetos)
+        unica=self.gavetas(quantidade=1)
+        G.selecionar(bpy.context,unica,'GRUPO')
+        bpy.context.scene.cabinet_aba='GAVETAS'
+        self.assertFalse(G.OBJECT_OT_normalizar_gavetas.poll(bpy.context))
+        self.assertFalse(any(v[5]==('operador','object.cabinet_normalizar_gavetas')
+                             for v in addon.gaveta._widgets_gaveta(bpy.context,320,1400)))
 
 addon.register()
 suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestGavetas)

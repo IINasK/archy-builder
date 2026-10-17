@@ -24,6 +24,300 @@ class _ContextoRegiao:
 
 
 class TestHUD(unittest.TestCase):
+    def _conferir_bordas_reais(self,o,quantidade):
+        geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        bordas=[l for l in geo['linhas'] if l['tipo']=='aresta']
+        self.assertEqual(len(bordas),quantidade*2)
+        reais=[o.matrix_world@v.co for v in o.data.vertices]
+        segmentos=[(reais[e.vertices[0]],reais[e.vertices[1]]) for e in o.data.edges]
+        for linha in [l for l in geo['linhas'] if not l.get('angulo') and l['tipo']!='deslocamento']:
+            a,b=linha['pontos']
+            erro=min(min((a-p).length+(b-q).length,(a-q).length+(b-p).length) for p,q in segmentos)
+            self.assertLess(erro,1e-6,'Contorno fora da madeira: '+str(linha))
+        for linha in bordas:
+            self.assertAlmostEqual(addon.hud._valor_hud(linha),(linha['pontos'][1]-linha['pontos'][0]).length*1000,places=3)
+        return geo
+
+    def test_chapa_quadrada_torcida_nao_usa_caixa_plana(self):
+        # Regressao v267: a HUD flutuava fora da lateral real de oito vertices.
+        o=addon.chapas.nova_chapa('Lateral torcida',550,720,15,(0,0,0),(90,0,90),bpy.context)
+        for v in o.data.vertices:
+            if v.co.x<0 and v.co.y<0:v.co.z-=.194569
+        o.data.update();addon.chapas.absorver_malha_editada(o);addon.frentes.preparar(o)
+        self.assertIsNone(addon.formas.forma_do_modulo(o))
+        geo=self._conferir_bordas_reais(o,4)
+        self.assertEqual(len({l['rotulo'] for l in geo['linhas'] if l.get('rotulo')}),6)
+
+    def test_chanfro_com_desvio_usa_as_duas_peles_reais(self):
+        o=self._chapa_com_deslocamento()
+        self._conferir_bordas_reais(o,5)
+
+    def test_triangulacao_interna_nao_cria_cota_ou_diagonal(self):
+        o=self._chapa_com_deslocamento()
+        antes={chave:valor for nome,valor,chave in addon.hud.campos_cotas(o,'INDIVIDUAL',[o])}
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            bmesh.ops.triangulate(bm,faces=[f for f in bm.faces if len(f.verts)>4])
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();addon.frentes.preparar(o,forcar=True)
+        self._conferir_bordas_reais(o,5)
+        depois={chave:valor for nome,valor,chave in addon.hud.campos_cotas(o,'INDIVIDUAL',[o])}
+        self.assertEqual(antes.keys(),depois.keys())
+        for chave in antes:self.assertAlmostEqual(antes[chave],depois[chave],places=3)
+
+    def test_contorno_3D_nao_consulta_mesh_ou_forma_no_redraw(self):
+        from unittest.mock import patch
+        o=self._chapa_com_deslocamento()
+        with patch.object(addon.chapas,'_secao_espessura',side_effect=AssertionError('Mesh no redraw')),\
+             patch.object(addon.formas,'forma_do_modulo',side_effect=AssertionError('Planta no redraw')):
+            self._conferir_bordas_reais(o,5)
+
+    def test_editar_aresta_3D_move_so_um_par_e_preserva_ID_E_UV(self):
+        o=self._chapa_com_deslocamento();me=o.data
+        uv=me.uv_layers.new(name='UV preservada')
+        for i,v in enumerate(uv.data):v.uv=(i*.013,i*.017)
+        uvs=[tuple(v.uv) for v in uv.data];faces=[tuple(f.vertices) for f in me.polygons]
+        geo=self._conferir_bordas_reais(o,5)
+        alvo=next(l for l in geo['linhas'] if l['tipo']=='aresta')
+        antes=[o.matrix_world@v.co for v in me.vertices];novo=addon.hud._valor_hud(alvo)+25
+        addon.hud._aplicar_valor_hud(bpy.context,dict(alvo,lado='min'),novo)
+        self.assertAlmostEqual(addon.hud._valor_hud(alvo),novo,places=3)
+        self.assertEqual(sum((o.matrix_world@v.co-p).length>1e-6 for v,p in zip(me.vertices,antes)),2)
+        self.assertIs(o.data,me);self.assertEqual(faces,[tuple(f.vertices) for f in me.polygons])
+        self.assertEqual(uvs,[tuple(v.uv) for v in me.uv_layers['UV preservada'].data])
+        self.assertAlmostEqual(addon.chapas._secao_espessura(me)['espessura_mm'],18,places=3)
+        self._conferir_bordas_reais(o,5)
+
+    def test_angulo_3D_aceita_90_exatos_sem_mudar_E_ou_Mesh(self):
+        o=self._chapa_com_deslocamento();me=o.data
+        geo=self._conferir_bordas_reais(o,5)
+        alvo=next(l for l in geo['linhas'] if l.get('angulo') and abs(addon.hud._valor_hud(l)-90)>1)
+        antes=[o.matrix_world@v.co for v in me.vertices]
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,90)
+        self.assertAlmostEqual(addon.hud._valor_hud(alvo),90,places=3)
+        self.assertAlmostEqual(addon.chapas._secao_espessura(me)['espessura_mm'],18,places=3)
+        self.assertEqual(sum((o.matrix_world@v.co-p).length>1e-6 for v,p in zip(me.vertices,antes)),2)
+        self.assertIs(o.data,me);self._conferir_bordas_reais(o,5)
+
+    def test_aresta_real_editada_pelo_menu_aceita_undo_redo(self):
+        o=self._chapa_com_deslocamento();nome=o.name
+        campo=next(c for c in addon.hud.campos_cotas(o,'INDIVIDUAL',[o]) if c[0]=='A1')
+        addon.hud._selecionar_chapa_hud(bpy.context,o,individual=True)
+        bpy.ops.ed.undo_push(message='Antes da aresta 3D')
+        novo=campo[1]+25
+        self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
+            'EXEC_DEFAULT',dono='cota',objeto=nome,propriedade=campo[2],valor=novo/1000),{'FINISHED'})
+        bpy.ops.ed.undo_push(message='Depois da aresta 3D');o=None
+        for funcao,valor in ((bpy.ops.ed.undo,campo[1]),(bpy.ops.ed.redo,novo)):
+            funcao();bpy.context.view_layer.update();addon.eventos._fim_do_desfazer()
+            o=bpy.data.objects[nome]
+            self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,campo[2])),valor,places=3)
+            self._conferir_bordas_reais(o,5);o=None
+
+    def test_guia_de_deslocamento_fica_na_borda_baixa_sem_exceder_envelope(self):
+        o=self._chapa_com_deslocamento()
+        geo=self._conferir_bordas_reais(o,5)
+        linha=next(l for l in geo['linhas'] if l['tipo']=='deslocamento')
+        inv=o.matrix_world.inverted();a,b=[inv@p for p in linha['pontos']]
+        self.assertAlmostEqual(a.x,b.x,places=6);self.assertAlmostEqual(a.y,b.y,places=6)
+        baixo=min((o.matrix_world@v.co).z for v in o.data.vertices)
+        self.assertAlmostEqual(min(p.z for p in linha['pontos']),baixo,places=6)
+        lo=min(v.co.z for v in o.data.vertices);hi=max(v.co.z for v in o.data.vertices)
+        for p in (a,b):self.assertTrue(lo-1e-6<=p.z<=hi+1e-6)
+
+    def test_arco_3D_converte_mm_em_metros_e_fica_colado_na_quina(self):
+        from unittest.mock import patch
+        o=self._chapa_com_deslocamento()
+        with patch.object(addon.hud,'_mm_por_pixel',return_value=1.):
+            geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        escala=max(1.,bpy.context.preferences.system.ui_scale)
+        for l in geo['linhas']:
+            if not l.get('angulo'):continue
+            for p in l['pontos']:
+                self.assertAlmostEqual((p-l['vertice']).length,26*escala/1000,places=6)
+
+    def test_cancelar_angulo_3D_restaura_contorno_cotas_e_mesma_Mesh(self):
+        o=self._chapa_com_deslocamento();me=o.data
+        alvo=next(l for l in addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])['linhas'] if l.get('angulo'))
+        backup=addon.hud._estado_arraste_hud(bpy.context,alvo)
+        antes=[o.matrix_world@v.co for v in me.vertices]
+        campos=addon.hud.campos_cotas(o,'INDIVIDUAL',[o])
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,75)
+        addon.hud.restaurar_cota(bpy.context,backup,o.name)
+        self.assertIs(o.data,me)
+        self.assertLess(max((o.matrix_world@v.co-p).length for v,p in zip(me.vertices,antes)),1e-6)
+        depois=addon.hud.campos_cotas(o,'INDIVIDUAL',[o])
+        self.assertEqual([(c[0],c[2]) for c in campos],[(c[0],c[2]) for c in depois])
+        for a,b in zip(campos,depois):self.assertAlmostEqual(a[1],b[1],places=3)
+        self._conferir_bordas_reais(o,5)
+
+    def _chapa_com_deslocamento(self):
+        o=addon.chapas.nova_chapa('Chapa com deslocamento',400,300,18,(0,0,0),(0,90,0),bpy.context)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+            bmesh.ops.bevel(bm,geom=[e],offset=.08,segments=1,affect='EDGES')
+            for v in bm.verts:
+                if v.co.x>.1 and v.co.y>.05:v.co.z+=.12
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();addon.chapas.absorver_malha_editada(o);addon.frentes.preparar(o)
+        return o
+
+    def test_deslocamento_transversal_ganha_A6_com_E_independente(self):
+        o=self._chapa_com_deslocamento()
+        geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        campo=next(l for l in geo['linhas'] if l['tipo']=='deslocamento')
+        self.assertEqual(campo['rotulo'],'A6')
+        self.assertAlmostEqual(addon.hud._valor_hud(campo),120,places=3)
+        self.assertAlmostEqual((campo['pontos'][1]-campo['pontos'][0]).length,.12,places=6)
+        me=o.data;original=[v.co.copy() for v in me.vertices]
+        secao=addon.chapas._secao_espessura(me)
+        for valor in (240,60,120):
+            addon.hud._aplicar_valor_hud(bpy.context,campo,valor)
+            atual=next(l for l in addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])['linhas'] if l['tipo']=='deslocamento')
+            self.assertAlmostEqual(addon.hud._valor_hud(atual),valor,places=3)
+            self.assertAlmostEqual(o.chapa_espessura_mm,18,places=3)
+            self.assertAlmostEqual(addon.chapas._secao_espessura(me)['espessura_mm'],18,places=3)
+        self.assertIs(o.data,me)
+        self.assertLess(max((v.co-p).length for v,p in zip(me.vertices,original)),1e-6)
+        addon.hud._aplicar_valor_hud(bpy.context,campo,10)
+        self.assertFalse(any(l['tipo']=='deslocamento' for l in addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])['linhas']))
+        self.assertAlmostEqual(o.chapa_espessura_mm,18,places=3)
+
+    def test_dois_chanfros_tem_cotas_independentes_no_menu(self):
+        o=addon.chapas.nova_chapa('Dois chanfros',400,300,18,(0,0,0),(0,0,0),bpy.context)
+        pol=[(-.2,-.07),(-.12,-.15),(.12,-.15),(.2,-.07),(.2,.15),(-.2,.15)]
+        n=len(pol);vs=[(x,y,z) for z in (-.009,.009) for x,y in pol]
+        fs=[tuple(reversed(range(n))),tuple(range(n,2*n))]+[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
+        o.data.clear_geometry();o.data.from_pydata(vs,[],fs);o.data.update()
+        addon.frentes.preparar(o,forcar=True)
+        geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        diagonais=[l for l in geo['linhas'] if l['tipo']=='forma' and l['face'][0]=='R' and not l.get('angulo')]
+        self.assertEqual(len({tuple(l['face']) for l in diagonais}),2)
+        self.assertEqual(len({l['rotulo'] for l in diagonais}),2)
+        campos=addon.hud.campos_cotas(o,'INDIVIDUAL',[o])
+        for l in diagonais:
+            campo=next(c for c in campos if c[0]==l['rotulo'])
+            self.assertEqual(campo[2],addon.hud.chave_cota(l))
+
+    def test_todas_as_cotas_da_viewport_sao_editaveis_pelo_menu(self):
+        o=self._chapa_com_deslocamento()
+        campos=addon.hud.campos_cotas(o,'INDIVIDUAL',[o])
+        self.assertEqual([c[0] for c in campos],['A1','A2','A3','A4','A5','A6','E'])
+        backup=addon.hud._estado_arraste_hud(bpy.context,addon.hud.alvo_cota(o,campos[0][2]))
+        for nome,valor,chave in campos:
+            addon.hud.restaurar_cota(bpy.context,backup,o.name)
+            novo=22 if nome=='E' else valor*1.05
+            erro=addon.gaveta_eventos.aplicar_medida(bpy.context,'cota',o.name,chave,novo/1000)
+            self.assertIsNone(erro,(nome,erro))
+            self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,chave)),novo,delta=.02,msg=nome)
+            self.assertAlmostEqual(o.chapa_espessura_mm,22 if nome=='E' else 18,places=3)
+
+    def test_escape_do_campo_deslocamento_restaura_malha_e_cache(self):
+        o=self._chapa_com_deslocamento();nome=o.name
+        campo=next(c for c in addon.hud.campos_cotas(o,'INDIVIDUAL',[o]) if c[0]=='A6')
+        alvo=addon.hud.alvo_cota(o,campo[2]);me=o.data
+        backup=addon.hud._estado_arraste_hud(bpy.context,alvo)
+        antes=[o.matrix_world@v.co for v in me.vertices]
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,10)
+        operador=SimpleNamespace(_campo=dict(acao=('medida','cota',campo[2],'A6',120),
+            objeto=nome,arrastou=True,backup_cota=backup))
+        contexto=SimpleNamespace(area=SimpleNamespace(tag_redraw=lambda:None),scene=bpy.context.scene,view_layer=bpy.context.view_layer)
+        resultado=addon.gaveta_eventos.OBJECT_OT_interagir_gaveta._modal_campo(operador,contexto,SimpleNamespace(type='ESC',value='PRESS'))
+        self.assertEqual(resultado,{'CANCELLED'});self.assertIs(o.data,me)
+        self.assertLess(max((p-o.matrix_world@v.co).length for p,v in zip(antes,me.vertices)),1e-6)
+        self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,campo[2])),120,places=3)
+
+    def test_realce_do_menu_acende_a_mesma_cota_na_viewport(self):
+        o=self._chapa_com_deslocamento()
+        addon.hud._selecionar_chapa_hud(bpy.context,o,individual=True)
+        antigo=addon.hud._realce_medida[0]
+        self.addCleanup(lambda:addon.hud._realce_medida.__setitem__(0,antigo))
+        for nome,valor,chave in addon.hud.campos_cotas(o,'INDIVIDUAL',[o]):
+            addon.hud._realce_medida[0]=nome
+            alvo=addon.hud._realce_hud(_ContextoRegiao())
+            self.assertEqual(addon.hud.chave_cota(alvo),chave)
+
+    def test_edicao_de_A6_pelo_operador_aceita_undo_redo_nativo(self):
+        o=self._chapa_com_deslocamento();nome=o.name
+        campo=next(c for c in addon.hud.campos_cotas(o,'INDIVIDUAL',[o]) if c[0]=='A6')
+        addon.hud._selecionar_chapa_hud(bpy.context,o,individual=True)
+        bpy.ops.ed.undo_push(message='Antes da cota transversal')
+        self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
+            'EXEC_DEFAULT',dono='cota',objeto=nome,propriedade=campo[2],valor=.18),{'FINISHED'})
+        bpy.ops.ed.undo_push(message='Editou cota transversal');o=None
+        for funcao,esperado in ((bpy.ops.ed.undo,120),(bpy.ops.ed.redo,180)):
+            funcao();bpy.context.view_layer.update();addon.eventos._fim_do_desfazer()
+            o=bpy.data.objects[nome]
+            self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,campo[2])),esperado,places=3)
+            self.assertAlmostEqual(o.chapa_espessura_mm,18,places=3)
+            o=None
+
+    def test_cotas_numeradas_preservam_alvos_e_edicao_dos_eixos(self):
+        modulo=self.modulo()
+        geo=addon.hud._geometria_hud(bpy.context)
+        self.assertEqual({l['rotulo'] for l in geo['linhas']},{'A1','A2','A3'})
+        for linha in geo['linhas']:
+            self.assertEqual(linha['rotulo'],{'L':'A1','A':'A2','P':'A3'}[linha['letra']])
+            self.assertEqual(addon.hud._propriedade_hud(linha),('conj_largura_mm','conj_profundidade_mm','conj_altura_mm')[linha['eixo']])
+
+    def test_chapa_dobrada_oferece_E_nas_arestas_reais_sem_medir_no_redraw(self):
+        from unittest.mock import patch
+        o=addon.chapas.nova_chapa('Chapa dobrada HUD',400,300,18,(0,0,0),(0,90,0),bpy.context)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+            bmesh.ops.bevel(bm,geom=[e],offset=.08,segments=1,affect='EDGES')
+            for v in bm.verts:
+                if v.co.x>.1 and v.co.y>.05:v.co.z+=.12
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();addon.chapas.absorver_malha_editada(o);addon.frentes.preparar(o)
+        addon.formas.forma_do_modulo(o)
+        with patch.object(addon.chapas,'_secao_espessura',side_effect=AssertionError('Mediu Mesh no redraw')):
+            geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        linhas=[l for l in geo['linhas'] if l.get('letra')]
+        numeros={l['rotulo'] for l in linhas if l['letra']!='E'}
+        self.assertEqual(numeros,{'A%d'%i for i in range(1,len(numeros)+1)})
+        self.assertFalse(any(l['rotulo'] in ('L','A','P','R','L1') for l in linhas))
+        es=[l for l in linhas if l['rotulo']=='E'];self.assertEqual(len(es),5)
+        reais=[o.matrix_world@v.co for v in o.data.vertices]
+        for l in es:
+            self.assertAlmostEqual((l['pontos'][1]-l['pontos'][0]).length,.018,places=6)
+            self.assertAlmostEqual(addon.hud._valor_hud(l),18,places=4)
+            for p in l['pontos']:self.assertLess(min((p-v).length for v in reais),1e-6)
+
+    def test_correntes_proximas_da_mesma_junta_tem_um_so_controle(self):
+        a=addon.chapas.nova_chapa('A',600,400,18,(0,0,0),(0,0,0),bpy.context)
+        b=addon.chapas.nova_chapa('B',600,400,18,(0,0,0),(0,0,0),bpy.context)
+        itens=[dict(a=a,b=b,pontos=[Vector((0,0,z)),Vector((.1,0,z))],indice=i)
+               for i,z in enumerate((0,.018,.1))]
+        inversa=dict(a=b,b=a,pontos=list(reversed(itens[0]['pontos'])),indice=9)
+        resultado=addon.solda._correntes_sem_repeticao(itens+[inversa])
+        self.assertEqual([v['indice'] for v in resultado],[0,2])
+        self.assertEqual(len(itens),3)
+
+    def test_otimizacao_de_adjacencia_tira_quinas_falsas_e_preserva_ancoras_manuais(self):
+        c=addon.modulos.criar_armario(bpy.context,'Conexoes',600,700,550,fundo=False)
+        cs=addon.modulos._chapas_do_conjunto(c)
+        base=next(o for o in cs if o.name.startswith('Base'))
+        lateral=min((o for o in cs if o.name.startswith('Lateral')),key=lambda o:o.matrix_world.translation.x)
+        addon.chapas._gravar_ligacao(base,'y','neg',lateral,0,0)
+        self.assertIsNone(addon.chapas._melhor_vizinho(base,'y','neg',[lateral]))
+        addon.solda._gravar_ancoras(base,'x_neg',[('---','+++')])
+        antes=[tuple(v.co) for v in base.data.vertices]
+        addon.chapas.otimizar_adjacencia(cs)
+        self.assertIsNone(addon.solda._vizinho_da_ponta(base,'y_neg'))
+        self.assertNotIn('adj_y_neg_uid',base)
+        self.assertEqual(addon.solda._ancoras_gravadas(base,'x_neg'),[('---','+++')])
+        self.assertEqual([tuple(v.co) for v in base.data.vertices],antes)
+        self.assertFalse(addon.chapas.otimizar_adjacencia(cs))
+
     def setUp(self):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -54,6 +348,15 @@ class TestHUD(unittest.TestCase):
 
     def test_hud_nao_aceita_modo_edicao(self):
         self.assertFalse(addon.hud._contexto_hud(SimpleNamespace(mode='EDIT_MESH')))
+
+    def test_familia_selecionada_mede_envelope_so_uma_vez(self):
+        from unittest.mock import patch
+        modulo=self.modulo()
+        for o in [modulo,*modulo.children_recursive]:o.select_set(True)
+        with patch.object(addon.modulos,'pecas_do_envelope',wraps=addon.modulos.pecas_do_envelope) as medir:
+            itens=addon.hud._itens_da_selecao(bpy.context)
+        self.assertEqual(len(itens),1)
+        self.assertEqual(medir.call_count,1)
 
     def test_contorno_grupo_tem_quatro_arestas_por_eixo_e_sem_E(self):
         modulo = self.modulo()
@@ -92,39 +395,106 @@ class TestHUD(unittest.TestCase):
             self.assertEqual(atingida['tipo'], 'medida')
             self.assertEqual(atingida['eixo'], linha['eixo'])
 
-    def test_contorno_porta_e_gap_sao_distintos_do_modulo(self):
+    def _segmentos_frontais_reais(self, folha):
+        """Oraculo pela malha nativa, independente do cache de frentes/HUD."""
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(folha.data)
+            bm.normal_update()
+            frente = {f for f in bm.faces if f.normal.z > .001 and abs(f.normal.y) < .5}
+            segmentos = []
+            for aresta in bm.edges:
+                faces = [f for f in aresta.link_faces if f in frente]
+                if len(faces) == 1 or (len(faces) == 2 and
+                        faces[0].normal.dot(faces[1].normal) < math.cos(math.radians(30))):
+                    segmentos.append(tuple(folha.matrix_world@v.co for v in aresta.verts))
+            return segmentos
+        finally:
+            bm.free()
+
+    def _comparar_contorno_hud_com_malhas(self, geometria, folhas):
+        def chave(par):
+            return tuple(sorted(tuple(round(c, 6) for c in p) for p in par))
+        reais = {chave(par) for folha in folhas for par in self._segmentos_frontais_reais(folha)}
+        linhas = [l for l in geometria['linhas'] if l['tipo'] == 'contorno_porta']
+        self.assertTrue(reais)
+        self.assertEqual({chave(l['pontos']) for l in linhas}, reais)
+        return linhas
+
+    def _conferir_contorno_modelado_no_modulo(self, tipo):
+        from unittest.mock import patch
         modulo = self.modulo()
         bpy.ops.object.cabinet_portas(
-            capturado=True, ponto_a=(-0.3, -0.15, 0), ponto_b=(0.3, -0.15, 0.4),
+            capturado=True, ponto_a=(-.3, -.15, 0), ponto_b=(.3, -.15, .4),
             pai_nome=modulo.name, modulo_nome=modulo.name,
-            frente='NEG_Y', folhas=2)
-        geometria = addon.hud._geometria_hud(bpy.context)
-        self.assertEqual(sum(l['tipo'] == 'medida' for l in geometria['linhas']), 12)
-        self.assertEqual(sum(l['tipo'] == 'contorno_porta' for l in geometria['linhas']), 12)
-        gaps = [l for l in geometria['linhas'] if l['tipo'] == 'gap']
-        self.assertEqual(len(gaps), 1)
-        self.assertIn(addon.chapas.MARCA_PORTAS, gaps[0]['objeto'])
-        projetar = lambda p: Vector((300+p.x*500+p.y*100, 100+p.z*500))
-        meio = sum(gaps[0]['pontos'], Vector())/2
-        atingido = addon.hud._acertar_linhas_hud(geometria, projetar(meio), projetar)
-        self.assertEqual(atingido['tipo'], 'gap')
-        folha = addon.portas._folhas_portas(gaps[0]['objeto'])[0]
-        addon.hud._selecionar_chapa_hud(bpy.context, folha)
-        self.assertEqual(bpy.context.object, modulo)
-        # ferragens da porta (hide_select) o Blender nunca seleciona
-        self.assertEqual(set(bpy.context.selected_objects),
-                         {modulo, *(o for o in modulo.children_recursive
-                                    if addon.ferragens.CHAVE_FERRAGEM not in o)})
-        # porta ABERTA (pedido do usuario, com print): a caixa envolveria
-        # o giro inteiro e a folga nao existe -- some; fechada, volta
-        addon.ferragens._definir_abertura(bpy.context, folha, 0.5)
-        tipos = [l['tipo'] for l in addon.hud._geometria_hud(bpy.context)['linhas']]
-        self.assertEqual(tipos.count('medida'), 12)
-        self.assertNotIn('contorno_porta', tipos)
-        self.assertNotIn('gap', tipos)
-        addon.ferragens._definir_abertura(bpy.context, folha, 0.0)
-        tipos = [l['tipo'] for l in addon.hud._geometria_hud(bpy.context)['linhas']]
-        self.assertEqual(tipos.count('contorno_porta'), 12)
+            frente='NEG_Y', folhas=1)
+        grupo, = addon.portas._portas_do_conjunto(modulo)
+        folha, = addon.portas._folhas_portas(grupo)
+        if tipo == 'FACETADA':
+            hx, hy, hz = addon.chapas._meias(folha)
+            frente = [Vector((x, -hy, z)) for x,z in ((-hx,hz),(0,hz+.08),(hx,hz))]
+            tras = [p-Vector((0,0,2*hz)) for p in frente]
+            vertices = frente+tras+[p+Vector((0,2*hy,0)) for p in frente+tras]
+            faces = []
+            for i in range(2):
+                faces.extend(((i,i+1,7+i,6+i),(3+i,9+i,10+i,4+i),
+                              (i,3+i,4+i,i+1),(6+i,7+i,10+i,9+i)))
+            faces.extend(((0,6,9,3),(2,5,11,8)))
+            folha.data.clear_geometry()
+            folha.data.from_pydata(vertices, [], faces)
+            folha.data.update()
+        else:
+            if tipo == 'CURVA':
+                folha['chapa_arco_mm'] = 60.
+            else:
+                addon.portas._vestir_folha(folha, {'folha':'QUADRO'})
+            addon.chapas.gerar_malha_chapa(folha)
+        # A nova fixture tem outra topologia; o primeiro preparo deve
+        # reconhecer sua superficie sem herdar os rotulos da caixa inicial.
+        for nome in (addon.frentes.ATR_FACE, addon.frentes.ATR_BORDA):
+            atributo = folha.data.attributes.get(nome)
+            if atributo is not None:
+                folha.data.attributes.remove(atributo)
+        addon.frentes.preparar(folha, forcar=True)
+        bpy.context.view_layer.update()
+        addon.hud._selecionar_chapa_hud(bpy.context, addon.modulos._chapas_do_conjunto(modulo)[0])
+        with patch.object(bmesh,'new',side_effect=AssertionError('BMesh no redraw')),patch.object(addon.frentes,'preparar',side_effect=AssertionError('Preparo no redraw')):
+            geometria=addon.hud._geometria_hud(bpy.context)
+        self.assertEqual(sum(l['tipo']=='medida' for l in geometria['linhas']),12)
+        self.assertFalse(any(l['tipo'] in ('contorno_porta','gap') for l in geometria['linhas']))
+        self.assertTrue(all(len(l['pontos'])==2 for l in geometria['linhas']))
+        # A abertura da folha nao muda a blocagem da carcaca.
+        antes=[l['pontos'] for l in geometria['linhas']]
+        addon.ferragens._definir_abertura(bpy.context,folha,.35)
+        bpy.context.view_layer.update()
+        with patch.object(bmesh,'new',side_effect=AssertionError('BMesh no redraw aberto')):
+            aberta=addon.hud._geometria_hud(bpy.context)
+        self.assertEqual(antes,[l['pontos'] for l in aberta['linhas']])
+
+    def test_contorno_hud_modulo_segue_dobra_da_folha_sem_bmesh_no_redraw(self):
+        self._conferir_contorno_modelado_no_modulo('FACETADA')
+
+    def test_contorno_hud_modulo_segue_curva_nativa_sem_corda(self):
+        self._conferir_contorno_modelado_no_modulo('CURVA')
+
+    def test_contorno_hud_modulo_segue_quadro_e_painel_nativos(self):
+        self._conferir_contorno_modelado_no_modulo('QUADRO')
+
+    def test_contorno_porta_e_gap_sao_distintos_do_modulo(self):
+        modulo=self.modulo()
+        bpy.ops.object.cabinet_portas(capturado=True,ponto_a=(-.3,-.15,0),ponto_b=(.3,-.15,.4),
+            pai_nome=modulo.name,modulo_nome=modulo.name,frente='NEG_Y',folhas=2)
+        grupo,=addon.portas._portas_do_conjunto(modulo)
+        addon.hud._selecionar_chapa_hud(bpy.context,addon.modulos._chapas_do_conjunto(modulo)[0])
+        geometria=addon.hud._geometria_hud(bpy.context)
+        self.assertEqual(sum(l['tipo']=='medida' for l in geometria['linhas']),12)
+        self.assertFalse(any(l['tipo'] in ('contorno_porta','gap') for l in geometria['linhas']))
+        for folha in addon.portas._folhas_portas(grupo):
+            pontos,arestas=addon.portas_viewport._contorno_da_folha(folha)
+            self.assertTrue(pontos);self.assertTrue(arestas)
+        addon.ferragens._definir_abertura(bpy.context,addon.portas._folhas_portas(grupo)[0],.5)
+        self.assertEqual([l['pontos'] for l in geometria['linhas']],
+                         [l['pontos'] for l in addon.hud._geometria_hud(bpy.context)['linhas']])
 
     def test_clique_leva_a_gaveta_para_a_aba_do_item(self):
         # Pedido do usuario: clicou na porta -> aba Portas; no modulo ->
@@ -645,14 +1015,14 @@ class TestHUD(unittest.TestCase):
 
         vista(500)          # perto: o modulo ocupa centenas de pixels
         self.assertEqual({r[0] for r in addon.hud._rotulos_hud(
-            contexto, geometria, None)}, {'L', 'A', 'P'})
+            contexto, geometria, None)}, {'A1', 'A2', 'A3'})
         vista(40)           # longe: poucos pixels, as letras empilhavam
         self.assertLess(addon.hud._tamanho_na_tela(contexto, geometria),
                         addon.hud.FATOR_ROTULO_HUD * addon.opcoes._opcao('hud_tamanho_rotulo'))
         self.assertEqual(addon.hud._rotulos_hud(contexto, geometria, None), [])
         alvo = next(l for l in geometria['linhas'] if l.get('letra') == 'A')
         self.assertEqual([r[0] for r in addon.hud._rotulos_hud(
-            contexto, geometria, alvo)], ['A'])      # a acesa fica
+            contexto, geometria, alvo)], ['A2'])      # a acesa fica
         # O tamanho de hoje e' o TETO; aresta mais curta que a seta
         # (a E de 18 mm, print do usuario) leva a seta so' ate' a ponta
         # dela -- inteira: ponto e haste nunca passam da aresta.

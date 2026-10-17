@@ -83,14 +83,21 @@ Ao abreviar rotulo com contagem, use `_abreviar` **so' no nome**:
 nao tem contagem (pedido do usuario: ocupava espaco) nem limite de niveis:
 um carrossel por nivel do caminho escolhido; ramo sem preset nao aparece.
 
-HUD da forma: na diagonal (inclusive a que toma o lado inteiro), um ARCO
-em cada ponta com o angulo de DENTRO da planta em graus (esboco do
-usuario); hover acende, clicar digita, arrastar de lado gira. Ponta que
-acaba na ESPESSURA de uma chapa (prateleira da cantoneira na lateral): a
-linha para onde a peca para e o arco mede com a face da lateral. O arco e'
-PEQUENO e colado na quina (pedido do usuario: a 70 mm atravessava a peca):
-raio fixo na TELA (~26 px, como o gizmo de angulo), nunca mais que 1/4 do
-lado mais curto da quina; o numero fica logo fora dele, na bissetriz.
+HUD do MODULO: sempre uma caixa convencional com 8 cantos e 12 arestas
+nos limites do envelope; rotulos A1/A2/A3. Vale para L, diagonal, curvo e chapas
+inclinadas, inclusive depois de Tab. Nada de P1/P2/R, arcos ou inferencia
+de formato no grupo, na HUD ou no menu. A1/A2/A3 usam resize de CAIXA.
+
+CHAPA INDIVIDUAL selecionada (duplo clique): contorno/angulos da propria
+face, com cotas A1, A2... editaveis tambem no menu, pelos mesmos alvos da HUD; E mede peles correspondentes. Chapa deformada em 3D usa as bordas das duas peles reais, nunca uma planta extrudada ou caixa nominal; triangulacao interna nao vira cota. Deslocamento transversal > E ganha cota propria junto a uma borda baixa (ex.: A6). So' ela muda;
+vizinhas e modulo nao recebem propagacao angular. O arco e' pequeno e
+colado na quina, com vertice e lados reais; raio na tela (~26 px), ate'
+1/4 do lado menor. Clicar digita, arrastar gira; E/UV/recortes conservados.
+A seta consulta a aresta atual. Tab continua a edicao nativa; ao sair,
+medidas/cache atualizam. Porta selecionada conserva seu contorno proprio.
+
+Frentes curvas/facetadas: a linha de referencia do puxador acompanha cada
+segmento real da borda, inclusive no Alt; a alca usa a tangente do trecho.
 
 ## 6. Responsividade
 
@@ -99,7 +106,7 @@ logica**:
 
 | Largura logica | Campos de medida |
 |---|---|
-| >= 480 px | uma linha, todos lado a lado |
+| >= 480 px | cotas basicas em uma linha; cotas dinamicas em ate' 3 colunas |
 | >= 240 px | duas colunas |
 | < 240 px | coluna unica |
 
@@ -171,7 +178,7 @@ TODOS os itens da selecao, sem ordem de hierarquia (`_itens_da_selecao`:
 modulo com o Empty selecionado = grupo; outra chapa = individual), e
 setas e quinas valem em qualquer um deles (`_acertar_hud` pega o mais
 perto do mouse; so' o item do alvo acende). Grupo mostra
-L/A/P; E aparece SOMENTE na chapa individual, inclusive ao passar nas
+A1/A2/A3; E aparece SOMENTE na chapa individual, inclusive ao passar nas
 faces estreitas. Espessura do modulo fica no menu lateral.
 `_geometria_hud` alimenta desenho e hit-test: hover em uma aresta acende
 as quatro do eixo; o contorno da porta e o gap sao alvos separados.
@@ -179,7 +186,7 @@ Quina: arrastar move o modulo; com Ctrl (a qualquer momento do arraste)
 a quina gruda na de OUTRO armario (caixa da HUD) ou chapa ao alcance de
 `RAIO_SNAP_QUINA_HUD` px -- snap especial, so' quinas (nada de vertice,
 aresta ou grade); grudada, ganha bolinha cheia no circulo laranja.
-Linha L/A/P (e a E da chapa individual):
+Linha A1/A2/A3... (e a E da chapa individual):
 seta sai da quina mais perto (`lado`), que fica PARADA; arrastar estica,
 clicar digita (Enter/Esc). Caixa de digitar (HUD e gaveta, um nucleo so':
 `_tecla_no_texto`): abre com tudo selecionado, mas um OPERADOR continua
@@ -206,7 +213,7 @@ Portas | Gav. | Prat. | Pux.). "Criar Gavetas" laranja no topo;
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
-do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); as gavetas acompanham a face proxima (base/topo) SEM mudar as medidas ao redimensionar a caixa. Selecionadas (clique na frente = todas
+do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); as gavetas acompanham a face proxima sem crescer; quando falta espaco, frente/caixa/trilho se adaptam ate' o minimo fisico, e devolvem as medidas escolhidas ao aumentar a caixa. Selecionadas (clique na frente = todas
 do vao, duplo = uma): so' elas tem linha branca; L/A/P da HUD mudam o vao
 (a quina perto do mouse fica) e a profundidade; Alt mostra 3 bolinhas --
 as quinas de cima a' esquerda e de baixo a' direita da frente e a da
@@ -216,7 +223,14 @@ altura) e anda com ela: a gaveta aberta nunca o cobre. Na aba: Gavetas
 Entre gavetas, Recuo, Espessura, Curva), Trilho e o carrossel do Puxador -- de
 UMA gaveta (duplo clique) ou de todas. Curva = flecha do arco da frente
 (0 = reta), a do gaveteiro de canto do Promob; as alturas desiguais que a
-importacao traz somem ao mudar a quantidade.
+importacao traz somem ao mudar a quantidade. Borda de cada segmento ganha
+a seta de L/A/P (altura redistribui com a vizinha, preservando o total;
+extremidades ancoram o limite externo). Duplo clique mostra somente a
+unidade na HUD e seus campos: L/A/P, Abaixo/Acima, frente, trilho e puxador,
+sem contador do conjunto. "Normalizar alturas" abaixo de L/A/P (duas ou
+mais gavetas, grupo ou unidade selecionada): iguala as frentes do conjunto
+sem mudar o vao, espacamentos ou escolhas individuais. Arraste usa contorno de previa; confirmar refaz
+as pecas uma vez; Esc restaura parametros, materiais, abertura e selecao.
 
 **Prateleiras (aba propria, pedido do usuario).** O assistente das
 gavetas com SO' 2 pontos ("Criar Prateleiras": canto de cima a' esquerda e
@@ -615,6 +629,15 @@ nunca no handler do depsgraph. Selecionado: contorno da parede e 4 guias
 de realce; o NUMERO e' gizmo (ganha da selecao): clique digita, arrastar
 ao longo da guia muda. Solta: F3 "Desassociar da Parede".
 
+Zig-zag (pedido do usuario): o assistente oferece 1-8 folhas e filtra as
+aberturas pela quantidade; Zig-zag aceita 2-8. Escolher a borda determina
+onde comeca a cadeia. As folhas dobram alternadamente, com placas e eixo
+das dobradicas presos as folhas correspondentes. Um slider na ultima
+folha controla o conjunto; o puxador PERFIL nasce somente nessa ponta
+livre e continua nela ao mudar quantidade/lado. Os retratos incluem
+Zig-zag. Fotos da biblioteca: todas as portas FECHADAS, inclusive cantos,
+correr, basculantes e zig-zag. Fotografar nao muda lado, vao nem ferragens.
+
 ## 10. Animacao
 
 Glow e carrossel correm no MESMO timer (`_animar_realces`, 60 fps),
@@ -669,3 +692,5 @@ por solicitacao explicita do usuario. A biblioteca foi movida a uma faixa superi
 - **Voltar ao painel N com `UILayout`**: o handler de UI come o evento
   antes de qualquer keymap, o icone nao passa de 16 px e nao da' para
   fixar largura em pixels. Foi o que motivou a gaveta.
+
+Tab num grupo selecionado abre as malhas reais no Edit Mode multiobjeto nativo do Blender. Cortadores/controles do rig ficam fora; malhas compartilhadas com outros modulos sao isoladas antes. Prateleiras: escopo global propaga a todas ao concluir na MESMA Mesh (undo nativo guarda o ID); individual edita so' aquela unidade. Quantidade sempre disponivel: herda a unidade selecionada, ou pede "Selecione a prateleira de referencia" na HUD ao lado do mouse na viewport, seguindo o cursor e respeitando as bordas, se houver tipos diferentes sem selecao individual (Esc cancela). Arrastar exibe so' o numero previsto, monta ao soltar. Parametros individuais conservam as vizinhas. Porta selecionada (grupo ou folha): icone MOD_MIRROR na aba Portas e Espelhar Porta no menu contextual nativo. Inverte dobradicas/abertura e puxador; zigzag inverte a cadeia, basculante inclui pistoes, correr troca o sentido no trilho.

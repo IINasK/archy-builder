@@ -8,7 +8,7 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _gaveta = _gavetas = None
+_chapas = _portas = _gaveta = _gavetas = _formas = None
 
 # ================================================= MODULO (CONJUNTO)
 # Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
@@ -186,6 +186,10 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
     lo, hi = cx
     lo_antes, hi_antes = list(lo), list(hi)
     L, A, P = alvo_LAP_mm
+    pai = chapas[0].parent if chapas else None
+    if pai is not None and _chapas.MARCA_CONJUNTO in pai:
+        _portas.preparar_referencias_vaos(pai)
+        L,A,P = _gavetas.limitar_medidas(pai,lo,hi,(L,A,P))
     alvo_mm = (L, P, A)   # ordem dos eixos de mundo: X, Y, Z
     ancoras = ancoras or ('min', 'min', 'min')
 
@@ -534,6 +538,47 @@ def fundo_do_modulo(conj):
     return next((o for o in conj.children if _chapas.MARCA_FUNDO in o), None)
 
 
+def fundos_do_modulo(conj):
+    return [o for o in conj.children if _chapas.MARCA_FUNDO in o]
+
+
+def guardar_formato_fundo(conj, fundo):
+    """Um fundo parcial/ortogonal nao pode virar o retangulo da caixa toda."""
+    lo, hi = _caixa_local_estrutural(conj)
+    inv = conj.matrix_world.inverted()
+    vs = [inv @ (fundo.matrix_world @ v.co) * 1000 for v in fundo.data.vertices]
+    a = Vector(tuple(min(v[k] for v in vs) for k in range(3)))
+    b = Vector(tuple(max(v[k] for v in vs) for k in range(3)))
+    fundo['fundo_margens_mm'] = [d for k in range(3) for d in (a[k]-lo[k], hi[k]-b[k])]
+
+
+def _ajustar_fundo_por_formato(conj, fundo, lo, hi):
+    m = conj.matrix_world.inverted() @ fundo.matrix_world
+    eixos = [max(range(3), key=lambda k: abs(m.to_3x3().col[j][k])) for j in range(3)]
+    margens = list(fundo['fundo_margens_mm'])
+    a = Vector(tuple(lo[k]+margens[2*k] for k in range(3)))
+    b = Vector(tuple(hi[k]-margens[2*k+1] for k in range(3)))
+    normal = eixos[2]
+    recuo=float(conj.get(CHAVE_RECUO_FUNDO,RECUO_FUNDO_MM))
+    if 'fundo_recuo_base_mm' not in fundo:fundo['fundo_recuo_base_mm']=recuo
+    delta=recuo-float(fundo['fundo_recuo_base_mm'])
+    if margens[2*normal] < margens[2*normal+1]:
+        a[normal]+=delta
+        b[normal] = a[normal]+fundo.chapa_espessura_mm
+    else:
+        b[normal]-=delta
+        a[normal] = b[normal]-fundo.chapa_espessura_mm
+    _chapas._ocupado[0] = True
+    try:
+        fundo.chapa_largura_mm = max(1, b[eixos[0]]-a[eixos[0]])
+        fundo.chapa_comprimento_mm = max(1, b[eixos[1]]-a[eixos[1]])
+        m.translation = (a+b)/2000
+        fundo.matrix_world = conj.matrix_world @ m
+    finally:
+        _chapas._ocupado[0] = False
+    _chapas.gerar_malha_chapa(fundo)
+
+
 def medidas_do_fundo(L, A, E, recuo=RECUO_FUNDO_MM):
     """(largura, altura) de CORTE do fundo e o recuo, em mm: o vao interno
     mais o que entra no canal de cada lado."""
@@ -562,6 +607,11 @@ def ajustar_fundo(conj):
     if caixa is None:
         return False
     lo, hi = caixa
+    modelados = [o for o in fundos_do_modulo(conj) if 'fundo_margens_mm' in o]
+    if modelados:
+        for obj in modelados:
+            _ajustar_fundo_por_formato(conj, obj, lo, hi)
+        return True
     E = float(conj.conj_espessura_mm) or 18.0
     recuo = float(conj.get(CHAVE_RECUO_FUNDO, RECUO_FUNDO_MM))
     largura, altura, _r = medidas_do_fundo(hi.x - lo.x, hi.z - lo.z, E, recuo)
@@ -660,13 +710,13 @@ def adicionar_fundo(conj, context=None, recuo=RECUO_FUNDO_MM,
         fundo[_chapas.MARCA_FUNDO] = 1
         fundo.parent = conj
         fundo.matrix_parent_inverse = conj.matrix_world.inverted()
-        colecao = _colecao_do_modulo(conj)
+        colecao = _colecao_do_modulo(conj) or next(iter(conj.users_collection),None)
         if colecao is not None:
             _mover_para_colecao(fundo, colecao)
     else:
         _chapas._ocupado[0] = True
         try:
-            fundo.chapa_espessura_mm = espessura
+            for obj in fundos_do_modulo(conj):obj.chapa_espessura_mm = espessura
         finally:
             _chapas._ocupado[0] = False
     context.view_layer.update()
@@ -675,13 +725,14 @@ def adicionar_fundo(conj, context=None, recuo=RECUO_FUNDO_MM,
 
 
 def remover_fundo(conj):
-    fundo = fundo_do_modulo(conj)
-    if fundo is None:
+    fundos = fundos_do_modulo(conj)
+    if not fundos:
         return False
-    malha = fundo.data
-    bpy.data.objects.remove(fundo, do_unlink=True)
-    if malha is not None and malha.users == 0:
-        bpy.data.meshes.remove(malha)
+    for fundo in fundos:
+        malha = fundo.data
+        bpy.data.objects.remove(fundo, do_unlink=True)
+        if malha is not None and malha.users == 0:
+            bpy.data.meshes.remove(malha)
     if CHAVE_RECUO_FUNDO in conj:
         del conj[CHAVE_RECUO_FUNDO]
     return True
@@ -769,13 +820,36 @@ def redimensionar_conjunto(conj, ancoras=None):
     """Aplica as medidas `conj_*` ao modulo (ver `redimensionar_grupo`).
     Elas sao do ENVELOPE (com a moldura): o corpo recebe o alvo menos o
     que a moldura soma, e ela volta junto com a porta."""
-    acrescimo = _acrescimo_da_moldura(conj)
     alvo = (conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm)
+    real = medir_conjunto(conj)
+    mudam = [i for i in range(3) if abs(real[i]-alvo[i])>.01] if real else []
+    acrescimo = _acrescimo_da_moldura(conj)
+    if mudam:
+        _portas.preparar_referencias_vaos(conj)
+    if len(mudam)==1:
+        eixo=(0,2,1)[mudam[0]]
+        _formas._preparar_edicao(conj,('CAIXA',eixo),
+                                 (ancoras or ('min','min','min'))[eixo])
+        # Outros campos podem ter acompanhado a projecao de uma peca
+        # obliqua durante a reducao. Apenas o eixo pedido e' editado.
+        base=medir_conjunto(conj)
+        alvo=tuple(alvo[i] if i==mudam[0] else base[i] for i in range(3))
+        if abs(alvo[mudam[0]]-base[mudam[0]])<.01:
+            # Voltar a' referencia nao e' uma nova montagem do fundo ou
+            # da adjacencia: devolver tambem os encaixes originais.
+            _portas.atualizar_portas_do_conjunto(conj,sistemas=False)
+            sincronizar_medidas_conjunto(conj)
+            _formas.concluir_edicao(conj)
+            return
     redimensionar_grupo(_chapas_do_conjunto(conj),
                         tuple(max(20.0, a - e) for a, e in zip(alvo, acrescimo)),
                         ancoras)
     reposicionar_origem(conj)
     _portas.atualizar_portas_do_conjunto(conj)
+    real=medir_conjunto(conj)
+    if real and any(abs(a-b)>.01 for a,b in zip(real,alvo)):
+        sincronizar_medidas_conjunto(conj)
+    _formas.concluir_edicao(conj)
 
 
 def _upd_conj_espessura(self, context):

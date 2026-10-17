@@ -85,9 +85,17 @@ def _arame_dos_itens(itens):
             pecas += [(raiz @ _ferragens._matriz_calco(calco.get(
                 _ferragens.MALHAS_CALCO.get(malha), 0.0)) @ pose, malha)
                 for malha, pose in rig['pecas']]
-        elif forma in {'CAIXA', 'CAIXAS'}:
+        elif forma in {'CAIXA', 'CAIXAS', 'PRISMA'}:
             for cantos in item.get('caixas') or [item['cantos']]:
                 pontos += [p / 1000.0 for p in _arame_caixa(cantos)]
+        elif forma == 'BRACO':
+            origem = Vector(item['origem'])
+            eixo = (item['destino'] - origem).normalized()
+            x = Vector((0, 1, 0))
+            z = x.cross(eixo)
+            cantos = [origem + eixo * u + x * v + z * t
+                      for u in (0, item['comprimento']) for v in (-6, 6) for t in (-3, 3)]
+            pontos += [p / 1000 for p in _arame_caixa(cantos)]
         elif forma == 'PERFIL':         # trilho da moldura: a secao nas pontas
             x0, x1 = item['x']
             fecho = [] if item.get('aberto') else None
@@ -100,9 +108,10 @@ def _arame_dos_itens(itens):
                     pontos += [Vector((x0, ya, za)) / 1000.0,
                                Vector((x1, ya, za)) / 1000.0]
         elif forma == 'CILINDRO':          # caneco: em Z, centrado
-            meio = Vector((0.0, 0.0, item['comprimento'] / 2.0))
+            eixo = Vector((0, 1, 0) if item.get('eixo') == 'Y' else (0, 0, 1))
+            meio = eixo * (item['comprimento'] / 2)
             pontos += [p / 1000.0 for p in _arame_cilindro(
-                Vector(item['origem']) - meio, Vector((0.0, 0.0, 1.0)),
+                Vector(item['origem']) - meio, eixo,
                 item['raio'], item['comprimento'])]
         elif forma == 'HASTE' and item.get('mira') in por_id:
             origem = Vector(item['origem'])
@@ -141,22 +150,21 @@ def _modelo_perfil_carregado():
                  and not m.library), None)
 
 
-def _contorno_perfil():
-    """Contorno (pontos aos pares, espaco do modelo) do perfil do usuario,
-    se o modelo ja' foi carregado."""
+def preparar_modelos(tipo='PERFIL', arquivo=''):
+    """Extrai contornos no evento, antes de instalar o desenho."""
     if _arame_perfil[0] is None:
         modelo = _modelo_perfil_carregado()
-        if modelo is None:
-            return None
-        bm = bmesh.new()
-        bm.from_mesh(modelo)
-        pares = []
-        for e in bm.edges:
-            if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
-                    > math.radians(ANGULO_VINCO_ARAME)):
-                pares += [v.co.copy() for v in e.verts]
-        bm.free()
-        _arame_perfil[0] = pares
+        if modelo is not None:
+            _arame_perfil[0] = _contorno_malha(modelo)
+            _puxadores._corte_do_perfil(modelo)
+    if tipo == 'MODELO' and arquivo not in _puxadores._contornos_modelo:
+        malha = _puxadores._malha_modelo_usuario(arquivo, carregar=False)
+        if malha is not None:
+            _puxadores._contornos_modelo[arquivo] = _contorno_malha(malha)
+
+
+def _contorno_perfil():
+    """Somente numeros preparados; o redraw nunca extrai malha."""
     return _arame_perfil[0]
 
 
@@ -164,48 +172,110 @@ def _contorno_malha(malha):
     """Arestas de contorno (pontos aos pares, espaco da malha)."""
     bm = bmesh.new()
     bm.from_mesh(malha)
+    pares = _contorno_bmesh(bm)
+    bm.free()
+    return pares
+
+
+def _contorno_bmesh(bm):
     pares = []
     for e in bm.edges:
         if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
                 > math.radians(ANGULO_VINCO_ARAME)):
             pares += [v.co.copy() for v in e.verts]
-    bm.free()
-    return pares
+    return _ordenar_contorno(pares)
+
+
+def _ordenar_contorno(pontos):
+    """Ordem geometrica comum: BMesh e caixas nao enumeram arestas igual."""
+    def chave(p):
+        # So' a ordenacao usa tolerancia; coordenadas conservam a precisao.
+        return tuple(round(c, 7) for c in p)
+    pares = [sorted(pontos[i:i+2], key=chave) for i in range(0, len(pontos)-1, 2)]
+    pares.sort(key=lambda par: (chave(par[0]), chave(par[1])))
+    return [p for par in pares for p in par]
+
+
+def _matriz_avaliada(matriz):
+    local, rotacao, escala = matriz.decompose()
+    rotacao.normalize()  # o depsgraph normaliza o quaternion do objeto
+    return Matrix.LocRotScale(local, rotacao, escala)
 
 
 def _contorno_modelo(arquivo):
     """Contorno do modelo do usuario, se a malha ja' foi carregada (o
     posicionador carrega; no desenho nao se abre .blend)."""
-    if arquivo not in _puxadores._contornos_modelo:
-        malha = _puxadores._malha_modelo_usuario(arquivo, carregar=False)
-        if malha is None:
-            return None
-        _puxadores._contornos_modelo[arquivo] = _contorno_malha(malha)
-    return _puxadores._contornos_modelo[arquivo]
+    return _puxadores._contornos_modelo.get(arquivo)
+
+
+def preparar_previa(chapa, tipo, borda, face, fracao=.5, arquivo='',
+                     comprimento=None, recuo=None):
+    """Apenas no evento: contorno da mesma geometria que monta a peca."""
+    preparar_modelos(tipo, arquivo)
+    modelo = (_modelo_perfil_carregado() if tipo == 'PERFIL' else
+              _puxadores._malha_modelo_usuario(arquivo, carregar=False)
+              if tipo == 'MODELO' else None)
+    if tipo == 'MODELO' and modelo is not None:
+        if comprimento is None:
+            comprimento = _puxadores._comprimento_do_modelo(modelo)
+        if recuo is None and 'puxador_recuo_mm' in modelo:
+            recuo = float(modelo['puxador_recuo_mm'])
+    if tipo != 'PERFIL':
+        # Arrastar muda apenas a pose: modelo usa o contorno numerico ja'
+        # preparado e as alcas usam a mesma definicao de caixas da peca.
+        return _arame_puxador_legado(chapa,tipo,borda,face,fracao,
+                                     comprimento,recuo,arquivo)
+    borda, fracao = _puxadores._borda_e_fracao(chapa, borda, fracao)
+    matriz, comprimento = _puxadores._lugar_do_puxador(
+        chapa, tipo, borda, face, fracao, comprimento, recuo)
+    if tipo == 'PERFIL' and modelo is not None:
+        bm = _puxadores._bmesh_perfil(
+            modelo, chapa.chapa_espessura_mm, comprimento, chapa, borda, face)
+    elif tipo == 'MODELO' and modelo is not None:
+        bm = bmesh.new()
+        bm.from_mesh(modelo)
+    else:
+        bm = _puxadores._bmesh_caixas(
+            tipo if tipo != 'MODELO' else 'ALCA',
+            chapa.chapa_espessura_mm, comprimento, chapa, borda, face)
+    try:
+        # A peca guarda locacao/quaternion/escala; a previa usa a mesma
+        # recomposicao nativa, inclusive a precisao de rotacoes de 90 graus.
+        mundo = chapa.matrix_world @ _matriz_avaliada(matriz)
+        return [mundo @ p for p in _contorno_bmesh(bm)]
+    finally:
+        bm.free()
 
 
 def _arame_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
                    recuo=None, arquivo=''):
+    """Entrada de preparo para consumidores fora do callback de desenho."""
+    return preparar_previa(chapa, tipo, borda, face, fracao, arquivo,
+                            comprimento, recuo)
+
+
+def _arame_puxador_legado(chapa, tipo, borda, face, fracao, comprimento=None,
+                   recuo=None, arquivo=''):
     """Pontos (MUNDO, aos pares) do puxador como ele fica naquela linha:
     a previa do posicionador e do arraste com Alt."""
     if tipo == 'MODELO' and comprimento is None:
-        malha = _puxadores._malha_modelo_usuario(arquivo, carregar=False)
-        comprimento = _puxadores._comprimento_do_modelo(malha)
-        if recuo is None and malha is not None and 'puxador_recuo_mm' in malha:
-            recuo = float(malha['puxador_recuo_mm'])
+        pontos = _contorno_modelo(arquivo) or []
+        xs = [p.x for p in pontos]
+        comprimento = (max(xs)-min(xs))*1000 if xs else 0
     matriz, comprimento = _puxadores._lugar_do_puxador(chapa, tipo, borda, face, fracao,
                                             comprimento, recuo)
-    mundo = chapa.matrix_world @ matriz
+    mundo = chapa.matrix_world @ _matriz_avaliada(matriz)
     espessura = chapa.chapa_espessura_mm
     if tipo == 'MODELO':
         contorno = _contorno_modelo(arquivo)
         if contorno is not None:
             return [mundo @ p for p in contorno]
         tipo = 'ALCA'
-    contorno = _contorno_perfil() if tipo == 'PERFIL' else None
+    contorno = (_contorno_perfil() if tipo == 'PERFIL'
+                and _puxadores._corte_perfil[0] is not None else None)
     if contorno is not None:
         # a mesma deformacao da malha (`_malha_perfil_do_modelo`)
-        ajuste = _puxadores._ajuste_do_perfil(_modelo_perfil_carregado(), espessura,
+        ajuste = _puxadores._ajuste_do_perfil(None, espessura,
                                    comprimento)
         local = [_puxadores._deformar_perfil(p, *ajuste) for p in contorno]
     else:
@@ -213,13 +283,17 @@ def _arame_puxador(chapa, tipo, borda, face, fracao, comprimento=None,
                  in _puxadores._caixas_puxador(tipo, espessura, comprimento)
                  for p in _arame_caixa([Vector((x, y, z)) for x in (x0, x1)
                                         for y in (y0, y1) for z in (z0, z1)])]
-    return [mundo @ p for p in local]
+    return [mundo @ p for p in _ordenar_contorno(local)]
 
 
 def _arame_do_objeto_puxador(pux):
     if not _puxadores._eh_puxador_parametrico(pux) or pux.parent is None:
         return []
-    return _arame_puxador(pux.parent, pux['puxador_tipo'],
+    pontos = pux.get('puxador_contorno')
+    if pontos is not None:
+        return [pux.matrix_world @ Vector(pontos[i:i+3])
+                for i in range(0, len(pontos)-2, 3)]
+    return _arame_puxador_legado(pux.parent, pux['puxador_tipo'],
                           pux.get('puxador_borda', 'Y+'),
                           int(pux.get('puxador_face', 1)),
                           float(pux.get('puxador_fracao', 0.5)),
@@ -278,11 +352,14 @@ def _arame_do_posicionador():
     if estado['fase'] == 'POSICAO':
         return _arame_do_objeto_puxador(
             bpy.data.objects.get(estado.get('pux') or ''))
+    if 'arame' in estado:
+        return estado['arame']
+    # Estados legados ainda nao preparados: somente calculo numerico.
     chapa = bpy.data.objects.get(estado.get('chapa') or '')
     if chapa is None or estado.get('borda') is None:
         return []
-    return _arame_puxador(chapa, estado['tipo'], estado['borda'],
-                          estado['face'], estado.get('fracao', 0.5),
+    return _arame_puxador_legado(chapa, estado['tipo'], estado['borda'],
+                          estado['face'], estado.get('fracao', .5),
                           arquivo=estado.get('arquivo', ''))
 
 

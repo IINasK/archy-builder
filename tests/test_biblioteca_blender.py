@@ -57,7 +57,7 @@ DIGITAL_REAL = impressao_digital(PASTA_REAL)
 AMOSTRA_POR_CATEGORIA = 2
 
 
-def copiar_amostra(destino):
+def copiar_amostra(destino, completa=True):
     """Copia a biblioteca real com ate' AMOSTRA_POR_CATEGORIA presets por
     categoria (n1/n2/n3) e o indice so' com eles; o resto (catalogos...)
     vai inteiro."""
@@ -66,6 +66,9 @@ def copiar_amostra(destino):
         itens = json.load(f)
     contagem, escolhidos = {}, []
     for it in itens:
+        if not completa and it['arquivo'] not in ('Nicho_600x400x300.blend',
+                'Chapa_600x400x18.blend','Cube.blend','Cube_001.blend'):
+            continue
         chave = addon.biblioteca.caminho_de(it)
         if contagem.get(chave, 0) < AMOSTRA_POR_CATEGORIA:
             contagem[chave] = contagem.get(chave, 0) + 1
@@ -138,12 +141,11 @@ def ler_blend(caminho):
                                tuple(pv.image_pixels_float[0:4])
                                if pv.image_size[0] else ())
         saida.append((nome, info))
-    for c in bpy.data.collections:
-        if c not in antes_col:
-            bpy.data.collections.remove(c)
-    for o in list(bpy.data.objects):
-        if o not in antes_obj:
-            bpy.data.objects.remove(o, do_unlink=True)
+    # O lote evita recalcular vinculos para cada ID anexado; malhas ficam
+    # para a mesma purga de orfaos que ja' ocorre na limpeza da cena.
+    novos = ([c for c in bpy.data.collections if c not in antes_col]
+             + [o for o in bpy.data.objects if o not in antes_obj])
+    bpy.data.batch_remove(novos)
     return saida
 
 
@@ -191,7 +193,10 @@ class BaseBiblioteca(unittest.TestCase):
         limpar_cena()
         self.tmp = tempfile.mkdtemp(prefix="cabinet_bib_teste_")
         self.pasta = os.path.join(self.tmp, "biblioteca")
-        copiar_amostra(self.pasta)
+        # Testes de indice/operadores criam suas proprias montagens.
+        # Copiar cem armarios em cada um multiplicava o I/O por 81;
+        # a integracao real abaixo conserva a amostra de CADA categoria.
+        copiar_amostra(self.pasta, completa=getattr(self,'AMOSTRA_COMPLETA',False))
         pasta = self.pasta
         addon.biblioteca.pasta_biblioteca = lambda: pasta
         addon.biblioteca.capturar_viewport = _CAPTURAR_ORIGINAL
@@ -1041,6 +1046,21 @@ class InsercaoBase(BaseBiblioteca):
 
 
 class TestInsercao(InsercaoBase):
+    def test_append_conserva_subcolecao_sem_religa_la_na_raiz(self):
+        raiz=bpy.data.collections.new('Montagem teste')
+        filha=bpy.data.collections.new('Ferragens teste');raiz.children.link(filha)
+        objeto=bpy.data.objects.new('Auxiliar teste',None);filha.objects.link(objeto)
+        arquivo='Teste_subcolecao.blend'
+        bpy.data.libraries.write(os.path.join(self.pasta,arquivo),{raiz})
+        bpy.data.objects.remove(objeto,do_unlink=True)
+        bpy.data.collections.remove(raiz);bpy.data.collections.remove(filha)
+        novos,raizes,erro=addon.biblioteca.inserir_preset(bpy.context,self.pasta,arquivo,'modulo')
+        self.assertFalse(erro)
+        self.assertEqual(len(novos),1)
+        sub=bpy.data.collections['Ferragens teste']
+        self.assertNotIn(sub.name,bpy.context.scene.collection.children)
+        self.assertIn(sub.name,bpy.data.collections['Montagem teste'].children)
+
     def setUp(self):
         super().setUp()
         self.criar_presets_de_teste()
@@ -1138,6 +1158,30 @@ def pular_no_4x(caso):
 
 
 class TestPresetsDeFabrica(InsercaoBase):
+    AMOSTRA_COMPLETA = True
+    def test_reducao_extrema_e_retorno_preservam_chapas_dos_presets(self):
+        if bpy.app.version<(5,):self.skipTest('Presets gravados no Blender 5.x')
+        from mathutils.kdtree import KDTree
+        nomes=('Cantoneira_04_300x706x550.blend','Diagonal_03_306x703x550.blend',
+               'Gaveteiro_02_400x703x550.blend','Canto_05A_1248x706x615.blend',
+               'Canto_05B_1142x703x1142.blend')
+        for nome in nomes:
+            limpar_cena()
+            novos,rs,erro=addon.biblioteca.inserir_preset(bpy.context,PASTA_REAL,nome,'modulo')
+            self.assertFalse(erro)
+            conj=next(o for o in novos if addon.chapas.MARCA_CONJUNTO in o)
+            antes={o:[o.matrix_world @ v.co for v in o.data.vertices]
+                   for o in addon.modulos._chapas_do_conjunto(conj)}
+            for prop in ('conj_profundidade_mm','conj_altura_mm','conj_largura_mm'):
+                original=getattr(conj,prop)
+                setattr(conj,prop,100);setattr(conj,prop,original)
+            bpy.context.view_layer.update()
+            for o,vs in antes.items():
+                kd=KDTree(len(o.data.vertices))
+                for i,v in enumerate(o.data.vertices):kd.insert(o.matrix_world @ v.co,i)
+                kd.balance()
+                self.assertLess(max(kd.find(p)[2] for p in vs),.00005,msg=nome+' / '+o.name)
+
     """Os arquivos REAIS da biblioteca: a integridade de TODOS, so' lendo
     da pasta real; o que grava, na amostra (copia temporaria)."""
 

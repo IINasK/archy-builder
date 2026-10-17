@@ -44,6 +44,141 @@ DIGITAL_REAL = impressao_digital(PASTA_REAL)
 
 
 class TestArmarios(unittest.TestCase):
+    def test_arremate_vertical_promob_chega_as_quinas_sem_alongar_divisoria(self):
+        c=M.criar_armario(bpy.context,'Arremate',800,1056,350,fundo=False)
+        r=addon.chapas.nova_chapa('Ripa',1050,50,15,(-60,-200,528),(0,90,0),bpy.context)
+        r.parent=c
+        d=addon.chapas.nova_chapa('Divisoria',1020,300,15,(0,0,528),(0,90,0),bpy.context)
+        d.parent=c
+        bpy.context.view_layer.update()
+        e=r.chapa_espessura_mm
+        self.assertEqual(addon.promob.alinhar_arremates(c),[r.name])
+        self.assertAlmostEqual(r.chapa_largura_mm,1056,places=2)
+        self.assertEqual(r.chapa_espessura_mm,e)
+        self.assertAlmostEqual(d.chapa_largura_mm,1020,places=2)
+        self.assertEqual(addon.promob.alinhar_arremates(c),[])
+
+    def test_fundos_por_formato_preservam_planos_ao_redimensionar_e_remover(self):
+        conj=M.criar_armario(bpy.context,'Fundo parcial',800,700,600)
+        fundo=M.fundo_do_modulo(conj)
+        addon.chapas._ocupado[0]=True
+        try:fundo.chapa_largura_mm=650
+        finally:addon.chapas._ocupado[0]=False
+        addon.chapas.gerar_malha_chapa(fundo)
+        bpy.context.view_layer.update()
+        M.guardar_formato_fundo(conj,fundo);M.ajustar_fundo(conj)
+        conj.conj_largura_mm=900
+        self.assertAlmostEqual(fundo.chapa_largura_mm,750,places=2)
+        conj.rotation_euler.z=.7;bpy.context.view_layer.update()
+        M.ajustar_fundo(conj)
+        self.assertAlmostEqual(fundo.chapa_largura_mm,750,places=2)
+        anterior=self.caixa_local(conj,fundo)
+        M.adicionar_fundo(conj,recuo=25,espessura=6)
+        agora=self.caixa_local(conj,fundo)
+        self.assertAlmostEqual(anterior[1].y-agora[1].y,10,places=2)
+        self.assertAlmostEqual(fundo.chapa_espessura_mm,6,places=3)
+        self.assertTrue(M.remover_fundo(conj))
+        self.assertFalse(M.fundos_do_modulo(conj))
+
+    def test_contorno_da_foto_ignora_diagonais_de_triangulacao(self):
+        import bmesh
+        conj=M.criar_armario(bpy.context,'Contorno',600,720,550)
+        obj=M.fundo_do_modulo(conj)
+        bm=bmesh.new();bm.from_mesh(obj.data)
+        bmesh.ops.triangulate(bm,faces=list(bm.faces));bm.to_mesh(obj.data);bm.free()
+        self.assertEqual(len(addon.biblioteca._arestas_da_foto(obj)),12)
+
+    def test_foto_com_linhas_restaura_cor_render_e_nao_deixa_objetos(self):
+        conj=M.criar_armario(bpy.context,'Foto limpa',600,720,550)
+        objetos=[conj,*conj.children_recursive]
+        for o in objetos:o.color=(.2,.4,.6,1)
+        cores={o.name:tuple(o.color) for o in objetos}
+        antes={o.name for o in bpy.data.objects};curvas=len(bpy.data.curves)
+        cena=bpy.context.scene
+        engine=cena.render.engine;sombra=cena.display.shading.color_type
+        destino=os.path.join(_PASTA_GUARDA,'contorno.png')
+        ok,msg=addon.biblioteca.fotografar_com_camera(destino,objetos,lado=128)
+        self.assertTrue(ok,msg)
+        self.assertEqual(antes,{o.name for o in bpy.data.objects})
+        self.assertEqual(curvas,len(bpy.data.curves))
+        self.assertEqual(cena.render.engine,engine)
+        self.assertEqual(cena.display.shading.color_type,sombra)
+        self.assertEqual(cores,{o.name:tuple(o.color) for o in objetos})
+        imagem=bpy.data.images.load(destino)
+        try:
+            pixels=list(imagem.pixels)
+            self.assertGreater(sum(1 for i in range(0,len(pixels),4) if pixels[i+3]>.5 and max(pixels[i:i+3])<.3),20)
+            self.assertEqual(pixels[3],0)
+        finally:bpy.data.images.remove(imagem)
+    def test_promob_recuo_preserva_fundo_girado_espessura_material_e_uid(self):
+        conj=M.criar_armario(bpy.context,'Recuo',600,720,550)
+        fundo=M.fundo_do_modulo(conj)
+        addon.chapas._ocupado[0]=True
+        try:fundo.chapa_espessura_mm=6
+        finally:addon.chapas._ocupado[0]=False
+        conj[M.CHAVE_RECUO_FUNDO]=0
+        M.ajustar_fundo(conj)
+        conj.rotation_euler.z=.7;conj.location=(1,2,3)
+        bpy.context.view_layer.update()
+        material=bpy.data.materials.new('Madeira fundo');fundo.data.materials.append(material)
+        uid=fundo.get('chapa_uid');malha=[v.co.copy() for v in fundo.data.vertices]
+        antes=self.caixa_local(conj,fundo)
+        self.assertEqual(len(addon.promob.ajustar_recuo_fundos(conj)),1)
+        depois=self.caixa_local(conj,fundo)
+        self.assertAlmostEqual(antes[1].y-depois[1].y,15,places=2)
+        self.assertAlmostEqual(fundo.chapa_espessura_mm,6,places=3)
+        self.assertEqual(uid,fundo.get('chapa_uid'))
+        self.assertEqual(fundo.material_slots[0].material,material)
+        self.assertTrue(all((v.co-a).length<1e-6 for v,a in zip(fundo.data.vertices,malha)))
+        self.assertFalse(addon.promob.ajustar_recuo_fundos(conj))
+        conj[M.CHAVE_RECUO_FUNDO]=18;M.ajustar_fundo(conj)
+        self.assertFalse(addon.promob.fundos_a_recuar(conj))
+
+    def test_promob_fundo_parcial_recuado_nao_vira_fundo_da_torre(self):
+        conj=M.criar_armario(bpy.context,'Compartimento',600,2200,550)
+        fundo=M.fundo_do_modulo(conj)
+        conj[M.CHAVE_RECUO_FUNDO]=0;M.ajustar_fundo(conj)
+        del fundo[addon.chapas.MARCA_FUNDO]
+        addon.chapas._ocupado[0]=True
+        try:fundo.chapa_comprimento_mm=230
+        finally:addon.chapas._ocupado[0]=False
+        addon.chapas.gerar_malha_chapa(fundo)
+        self.assertEqual(len(addon.promob.ajustar_recuo_fundos(conj)),1)
+        self.assertNotIn(addon.chapas.MARCA_FUNDO,fundo)
+        self.assertAlmostEqual(fundo.chapa_comprimento_mm,230,places=2)
+        self.assertFalse(addon.promob.fundos_a_recuar(conj))
+        fundo.location.y-=.1;bpy.context.view_layer.update()
+        self.assertFalse(addon.promob.fundos_a_recuar(conj))
+
+    def test_promob_fundo_recuado_reencaixa_prateleiras_e_trilhos(self):
+        conj=M.criar_armario(bpy.context,'Internos',600,1000,550)
+        conj[M.CHAVE_RECUO_FUNDO]=0;M.ajustar_fundo(conj)
+        pr=addon.prateleiras.criar_prateleiras(bpy.context,conj,(18,18,18,18,18),
+              dict(quantidade=1,profundidade_mm=525))
+        gav=addon.gavetas.criar_gavetas(bpy.context,conj,(18,18,18,500,18),
+              dict(quantidade=2,profundidade_mm=550,recuo_mm=13))
+        pecas=addon.prateleiras.prateleiras_do_grupo(pr);uids=[o.get('chapa_uid') for o in pecas]
+        antes=[self.caixa_local(conj,o) for o in pecas]
+        frentes=[self.caixa_local(conj,addon.gavetas.frente_da_gaveta(g)) for g in addon.gavetas.gavetas_do_grupo(gav)]
+        addon.promob.ajustar_recuo_fundos(conj)
+        grupos=addon.promob.ajustar_internos_ao_fundo(conj)
+        self.assertEqual(set(grupos),{pr.name,gav.name})
+        limite=self.caixa_local(conj,M.fundo_do_modulo(conj))[0].y
+        self.assertEqual(uids,[o.get('chapa_uid') for o in pecas])
+        for o,a in zip(pecas,antes):
+            lo,hi=self.caixa_local(conj,o)
+            self.assertLessEqual(hi.y,limite+.01)
+            self.assertAlmostEqual(lo.y,a[0].y,places=2)
+            self.assertAlmostEqual(lo.z,a[0].z,places=2)
+        for g,a in zip(addon.gavetas.gavetas_do_grupo(gav),frentes):
+            b=self.caixa_local(conj,addon.gavetas.frente_da_gaveta(g))
+            self.assertLess((b[0]-a[0]).length,.01)
+            self.assertLess((b[1]-a[1]).length,.01)
+        for o in gav.children_recursive:
+            if o.type=='MESH' and addon.gavetas.MARCA_PECA in o:
+                self.assertLessEqual(self.caixa_local(conj,o)[1].y,limite+.01)
+        self.assertFalse(addon.promob.ajustar_internos_ao_fundo(conj))
+
     def setUp(self):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)

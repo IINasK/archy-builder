@@ -182,7 +182,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         return {'FINISHED'}
 
 
-def aplicar_medida(context, dono, objeto, propriedade, valor):
+def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     """Grava `valor` (METROS) no dono da medida; devolve o erro ou None.
     Serve a' digitacao e ao ARRASTE do campo (pedido do usuario: arrastar
     de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
@@ -192,6 +192,12 @@ def aplicar_medida(context, dono, objeto, propriedade, valor):
         valor = max(minimo, min(maximo, valor))
         _opcoes._definir_opcao(propriedade, int(round(valor))
                                if isinstance(minimo, int) else round(valor, 2))
+        return None
+    if dono=='cota':
+        alvo=bpy.data.objects.get(objeto)
+        if alvo is None:return 'Objeto da cota nao encontrado'
+        try:_hud._aplicar_valor_hud(context,_hud.alvo_cota(alvo,propriedade),valor*1000)
+        except (ValueError,TypeError,KeyError) as erro:return str(erro)
         return None
     if dono == 'contador':
         # campo de contador digitado (Folhas da porta): numero inteiro;
@@ -227,6 +233,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor):
     if dono == 'forma':
         # modulo em L/diagonal/curvo: 'P1:2' -> ('P1', 2)
         conj = bpy.data.objects.get(objeto)
+        if conj is None or conj.type!='MESH':
+            return 'Selecione uma chapa individual para editar seu formato'
         letra, canto = propriedade.split(':')
         if conj is None or _formas.forma_do_modulo(conj) is None:
             return 'O modulo nao tem mais esse formato'
@@ -237,6 +245,9 @@ def aplicar_medida(context, dono, objeto, propriedade, valor):
         grupo = sistema.grupo_de(bpy.data.objects.get(objeto))
         if grupo is None:
             return '%s nao encontradas' % dono.capitalize()
+        if dono=='gavetas' and propriedade.startswith('individual_'):
+            _prefixo,indice,nome=propriedade.split('_',2)
+            return _gavetas.editar_individual(context,grupo,int(indice),nome,valor*1000,previa=previa)
         if propriedade in ('largura', 'altura'):
             return sistema.aplicar(context, grupo, ('L' if propriedade == 'largura'
                                                     else 'A',), valor * 1000.0)
@@ -295,7 +306,8 @@ def _aplicar_contador(context, acao, valor):
         _assistente._editar_assistente(prop, valor)
         erro = None
     elif prop.startswith('forma_angulo_') and grupo is not None:
-        # angulo da diagonal: a frente do canto (P2) fica, P1 anda
+        if grupo.type!='MESH':
+            return 'Selecione uma chapa individual para editar seu formato'
         _formas.aplicar(context, grupo, ('ANG', int(prop.rsplit('_', 1)[1])),
                         float(valor))
         erro = None
@@ -307,8 +319,9 @@ def _aplicar_contador(context, acao, valor):
         # digitado pode vir qualquer numero: o limite e' o da abertura
         parametros = dict(grupo.get('porta_parametros') or {})
         limite = _portas.LIMITES_FOLHAS.get(parametros.get('abertura'), 1)
-        if prop == 'porta_folhas' and not 1 <= valor <= limite:
-            return 'Esta abertura aceita de 1 a %d folha(s)' % limite
+        minimo = 2 if parametros.get('abertura') == 'ZIGZAG' else 1
+        if prop == 'porta_folhas' and not minimo <= valor <= limite:
+            return 'Esta abertura aceita de %d a %d folha(s)' % (minimo, limite)
         erro = _portas._editar_parametro_porta(
             context, grupo, prop[len('porta_'):], valor) or None
     else:
@@ -489,6 +502,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     self._campo = {
                         'acao': acao, 'x0': x, 'arrastou': False,
                         'objeto': context.object.name if context.object else ''}
+                    if acao[1]=='cota':
+                        alvo=_hud.alvo_cota(context.object,acao[2])
+                        self._campo['backup_cota']=_hud._estado_arraste_hud(context,alvo)
+                    if acao[1]=='gavetas':
+                        grupo=_gavetas.grupo_de(context.object)
+                        if grupo is not None:
+                            self._campo['objeto']=grupo.name
+                            if acao[2].startswith('individual_'):
+                                self._campo['backup_gavetas']=_gavetas.copia(grupo)
                     context.window_manager.modal_handler_add(self)
                     return {'RUNNING_MODAL'}
             elif acao[0] == 'contador':
@@ -694,7 +716,10 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     dx / PX_POR_UNIDADE_CONTADOR)))
                 if valor != campo['valor']:
                     campo['valor'] = valor
-                    _aplicar_contador(context, acao, valor)
+                    if acao[1] == 'prateleiras_quantidade':
+                        _prateleiras._quantidade_previa[0] = (acao[5], valor)
+                    else:
+                        _aplicar_contador(context, acao, valor)
             else:
                 # conta desde o CLIQUE (o limiar nao come pixels); trocar
                 # Shift/Ctrl no meio rebaseia ali, sem pular
@@ -709,15 +734,25 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 valor = max(minimo, campo['base'] + campo['passo']
                             * (event.mouse_region_x - campo['x_base']))
                 campo['atual'] = valor
+                if 'backup_cota' in campo:
+                    _hud.restaurar_cota(context,campo['backup_cota'],campo['objeto'])
                 aplicar_medida(context, acao[1], campo['objeto'], acao[2],
-                               valor)
+                               valor,previa='backup_gavetas' in campo)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            _prateleiras._quantidade_previa[0] = None
             # o wizard nao vai para o undo: so' o que ja' esta' na cena
             no_wizard = acao[0] == 'medida' and acao[1] == 'assistente' or (
                 contador and acao[5] == _portas.ALVO_ASSISTENTE)
             if campo['arrastou']:
+                if contador and acao[1] == 'prateleiras_quantidade':
+                    erro = _aplicar_contador(context, acao, campo['valor'])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                if 'backup_gavetas' in campo:
+                    grupo=bpy.data.objects.get(campo['objeto'])
+                    if grupo is not None:_gavetas.montar(grupo)
                 if not no_wizard:
                     bpy.ops.ed.undo_push(message='Arrastar medida')
             elif _gaveta_desenho._eh_campo_contador(acao):
@@ -743,9 +778,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
             context.area.tag_redraw()
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            _prateleiras._quantidade_previa[0] = None
             if campo['arrastou']:       # devolve o valor de antes
-                if contador:
-                    _aplicar_contador(context, acao, acao[2])
+                if 'backup_cota' in campo:
+                    _hud.restaurar_cota(context,campo['backup_cota'],campo['objeto'])
+                elif 'backup_gavetas' in campo:
+                    _gavetas.restaurar(campo['backup_gavetas'])
+                elif contador:
+                    if acao[1] != 'prateleiras_quantidade':
+                        _aplicar_contador(context, acao, acao[2])
                 else:
                     aplicar_medida(context, acao[1], campo['objeto'], acao[2],
                                    acao[4] / 1000.0)
@@ -1005,6 +1046,7 @@ def _icone_acao_gaveta(acao):
         return 'CHECKMARK'
     if acao[0] == 'operador':
         return {'object.cabinet_agrupar': 'GROUP',
+                'object.cabinet_espelhar_porta': 'MOD_MIRROR',
                 'object.cabinet_detectar_adjacencia': 'SNAP_ON',
                 _solda.OP_CORRENTE_OBJETO: 'LINKED',
                 _solda.OP_RESETAR_DISTANCIA: 'DRIVER_DISTANCE',

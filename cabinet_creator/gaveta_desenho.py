@@ -240,7 +240,7 @@ def _medida_em_alerta(acao):
     """Campo de medida que sai em vermelho: Espessura acima do
     convencional (`_chapas.ESPESSURA_ALERTA_MM`)."""
     try:
-        return (acao[0] == 'medida' and acao[3] == 'Espessura'
+        return (acao[0] == 'medida' and (acao[3] == 'Espessura' or acao[1]=='cota' and acao[3]=='E')
                 and _chapas._espessura_em_alerta(acao[4]))
     except (IndexError, TypeError, ValueError):
         return False
@@ -511,7 +511,7 @@ def _desenhar_gaveta(tela=False):
             alerta = (_cor_alerta_gaveta() if not campo_contador
                       and _medida_em_alerta(acao) else None)
             _gaveta._texto_cabivel_gaveta(x + 7, y + h - 14,
-                                   acao[6 if campo_contador else 3], w - 14, 11,
+                                   (acao[6] if campo_contador else _hud.rotulo_medida(acao[3])), w - 14, 11,
                                    cor=alerta)
             valor = rotulo if campo_contador else _opcoes._texto_medida(acao[4])
             if editando:

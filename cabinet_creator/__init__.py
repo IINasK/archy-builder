@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (229, 0, 0),
+    "version": (267, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -57,13 +57,14 @@ from . import gavetas as _gavetas
 from . import prateleiras as _prateleiras
 from . import promob as _promob
 from . import geometria as _geometria
+from . import frentes as _frentes
 from . import painel_legado as _painel_legado
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
-            _geometria, _biblioteca_faixa, _painel_legado)
+            _geometria, _frentes, _biblioteca_faixa, _painel_legado)
 
 
 def _ligar_modulos():
@@ -111,6 +112,8 @@ CLASSES = (
     _biblioteca.OBJECT_OT_editar_modelo,
     _biblioteca.OBJECT_OT_alternar_bloqueio,
     _modulos.OBJECT_OT_agrupar_conjunto,
+    _selecao.OBJECT_OT_editar_grupo,
+    _portas.OBJECT_OT_espelhar_porta,
     _modulos.OBJECT_OT_detectar_adjacencia,
     _chapas.OBJECT_OT_criar_nicho,
     _orcamento.OBJECT_OT_exportar_orcamento,
@@ -142,11 +145,15 @@ CLASSES = (
     _gavetas.VIEW3D_GT_slider_gaveta,
     _gavetas.VIEW3D_GGT_slider_gaveta,
     _gavetas.OBJECT_OT_criar_gavetas,
+    _gavetas.OBJECT_OT_normalizar_gavetas,
     _gavetas.OBJECT_OT_abrir_gaveta,
     _gavetas.OBJECT_OT_arrastar_ponto_gaveta,
     _gavetas.OBJECT_OT_confirmar_ancora_gaveta,
+    _gavetas.OBJECT_OT_confirmar_ponto_vao,
+    _gavetas.OBJECT_OT_marcar_ponto_vao,
     _gavetas.OBJECT_OT_mover_ancora_gaveta,
     _prateleiras.OBJECT_OT_criar_prateleiras,
+    _prateleiras.OBJECT_OT_referencia_prateleira,
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,
@@ -237,7 +244,7 @@ def _larga_dados_ao_terminar(classe):
     for nome, envolver in (('invoke', _envolver_evento),
                            ('modal', _envolver_evento),
                            ('cancel', _envolver_cancel)):
-        metodo = classe.__dict__.get(nome)
+        metodo = getattr(classe,nome,None)
         if metodo is not None and not getattr(metodo, 'larga_dados', False):
             setattr(classe, nome, envolver(metodo))
     return classe
@@ -245,7 +252,7 @@ def _larga_dados_ao_terminar(classe):
 
 for _classe in CLASSES:
     if (isinstance(_classe, type) and issubclass(_classe, Operator)
-            and 'modal' in _classe.__dict__):
+            and getattr(getattr(_classe,'modal',None),'__code__',None) is not None):
         _larga_dados_ao_terminar(_classe)
 del _classe
 
@@ -304,6 +311,7 @@ def register():
     for c in CLASSES:
         bpy.utils.register_class(c)
     _gavetas.registrar_macro_ancora()
+    _gavetas.registrar_macro_criacao()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
     # POST_VIEW: a caixa vive em coordenada de MUNDO, junto da cena
@@ -340,7 +348,7 @@ def register():
     S.porta_folha = EnumProperty(name="Folha", items=_portas.ITENS_FOLHA_CORRER,
                                  default='CHAPA')
     # Dupla e' o padrao de armario; uma folha so' e' a excecao.
-    S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=4)
+    S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=8)
     for prop_ui, prop_mm, rotulo, minimo in _portas.MEDIDAS_PORTAS:
         padrao = _portas.PADRAO_MEDIDAS_PORTAS.get(prop_mm, 0.0)
         setattr(S, prop_mm, FloatProperty(name=rotulo, default=padrao,
@@ -442,6 +450,7 @@ def register():
         S, "ui_grupo_espessura", "grupo_espessura_mm", "Espessura", 1.0)
 
     _garantir_unidade_padrao_mm()
+    bpy.types.VIEW3D_MT_object_context_menu.append(_portas.menu_contexto_porta)
 
     if _chapas.ao_atualizar_depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_chapas.ao_atualizar_depsgraph)
@@ -453,6 +462,12 @@ def register():
         bpy.app.timers.register(_eventos.verificar_periodicamente, persistent=True)
     # bpy.ops nao pode rodar dentro de register(): adia por um tique
     bpy.app.timers.register(_registrar_bibliotecas_adiado, first_interval=0.5)
+    bpy.app.timers.register(_preparar_frentes_adiado, first_interval=0.0)
+
+
+def _preparar_frentes_adiado():
+    _frentes.preparar_cena()
+    return None
 
 
 def _registrar_bibliotecas_adiado():
@@ -462,6 +477,7 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_object_context_menu.remove(_portas.menu_contexto_porta)
     _solda._tecla_corrente_segurada[0] = False
     _solda._conexao_pendente[0] = None
     _solda._conexao_manual[0] = None
@@ -565,6 +581,9 @@ def unregister():
     if bpy.app.timers.is_registered(_eventos._fim_do_desfazer):
         bpy.app.timers.unregister(_eventos._fim_do_desfazer)
     _eventos._desfazendo[0] = False
+    _frentes.encerrar()
+    if bpy.app.timers.is_registered(_preparar_frentes_adiado):
+        bpy.app.timers.unregister(_preparar_frentes_adiado)
     if _chapas.ao_atualizar_depsgraph in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_chapas.ao_atualizar_depsgraph)
     for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:

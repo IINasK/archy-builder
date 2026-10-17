@@ -3,6 +3,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import bpy
 from mathutils import Vector
@@ -29,6 +30,17 @@ def malha_na_chapa(chapa):
 
 
 class TestPuxadores(unittest.TestCase):
+    def test_perfil_da_folha_perpendicular_fica_na_frente_e_na_ponta_livre(self):
+        from mathutils import Matrix
+        import math
+        conj,grupo=self.nicho_com_porta()
+        grupo.matrix_world=Matrix.Rotation(math.pi/2,4,'Z') @ grupo.matrix_world
+        bpy.context.view_layer.update()
+        puxadores=addon.puxadores.perfis_na_porta(bpy.context,grupo,'LADO')
+        for i,pux in enumerate(puxadores):
+            self.assertEqual(pux['puxador_face'],1)
+            self.assertEqual(pux['puxador_borda'],'X+' if i==0 else 'X-')
+
     def setUp(self):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -112,6 +124,28 @@ class TestPuxadores(unittest.TestCase):
         addon.puxadores.posicionar_puxador(alca)
         lo, hi = caixa_na_chapa(alca, chapa)
         self.assertGreaterEqual(lo[1], -350.0 - 1e-6)
+
+    def test_material_do_objeto_sobrevive_migracao_e_redimensionamento(self):
+        chapa=self.chapa()
+        pux=addon.puxadores.criar_puxador(bpy.context,chapa,'PERFIL','Y+',1)
+        material=bpy.data.materials.new('Pintura desta instancia')
+        pux.material_slots[0].link='OBJECT';pux.material_slots[0].material=material
+        del pux['puxador_referencia_versao']
+        addon.frentes.preparar(chapa,forcar=True)
+        self.assertEqual(pux['puxador_referencia_versao'],1)
+        self.assertEqual(pux.material_slots[0].link,'OBJECT')
+        self.assertIs(pux.material_slots[0].material,material)
+        chapa.chapa_largura_mm=800
+        self.assertEqual(pux.material_slots[0].link,'OBJECT')
+        self.assertIs(pux.material_slots[0].material,material)
+
+    def test_previa_em_movimento_reutiliza_geometria_preparada(self):
+        chapa=self.chapa()
+        addon.arame.preparar_modelos('ALCA')
+        with patch.object(addon.arame.bmesh,'new',side_effect=AssertionError('Recriou malha no hover')):
+            for tipo in ('ALCA','BORDA'):
+                for fracao in (.25,.5,.75):
+                    self.assertTrue(addon.arame.preparar_previa(chapa,tipo,'Y+',1,fracao))
 
     def test_perfil_corta_a_madeira_e_a_medida_continua_nominal(self):
         # O perfil e' o modelo de aluminio do usuario (extrair_puxador.py):

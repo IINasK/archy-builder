@@ -6,6 +6,9 @@ import bpy, bmesh, math, os, json, gpu
 from gpu_extras.batch import batch_for_shader
 from bpy.props import StringProperty
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
+
+_promob = None
 from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
@@ -60,7 +63,10 @@ NOME_MIRA_PISTAO = 'Cabinet Mira'
 
 def _lado_da_folha(p, indice, n):
     """Lado das dobradicas de UMA folha de giro (2 folhas: uma de cada)."""
-    if n > 1:
+    escolhido = p.get('dobradicas_lados_folhas', {}).get(str(indice))
+    if p.get('abertura') == 'GIRO' and escolhido in ('ESQUERDA', 'DIREITA'):
+        return escolhido
+    if n > 1 and p.get('abertura') != 'ZIGZAG':
         return 'ESQUERDA' if indice == 0 else 'DIREITA'
     lado = p.get('dobradica_lado', 'ESQUERDA')
     return lado if lado in ('ESQUERDA', 'DIREITA') else 'ESQUERDA'
@@ -122,7 +128,7 @@ def _calco_rig(cobertura):
     nao entrar na chapa: a raiz fica `cobertura - borda_porta_mm` para
     fora da face interna (a folha cobre mais que o modelo)."""
     fora = float(cobertura) - _dados_dobradica_reta()['borda_porta_mm']
-    return {peca: max(0.0, fora + x) for peca, x in FACE_PECAS_CALCO.items()}
+    return {peca: fora + x for peca, x in FACE_PECAS_CALCO.items()}
 
 
 def _matriz_calco(mm):
@@ -153,8 +159,8 @@ def _dados_dobradica_reta():
 
 
 def _usa_rig(p):
-    return (p.get('dobradica') == 'RETA'
-            and p.get('abertura') in ('GIRO', 'BASCULANTE')
+    return ((p.get('dobradica') == 'RETA' or p.get('dobradica_modelo_reta'))
+            and p.get('abertura') in ('GIRO', 'BASCULANTE', 'ZIGZAG')
             and _dados_dobradica_reta() is not None)
 
 
@@ -212,7 +218,7 @@ def _curso_correr(p, largura, n, l, x):
     inicio, fim = esq + l / 2.0, largura - dir_ - l / 2.0
     if fim < inicio:
         return x, x
-    return x, (fim if n == 1 or x < (inicio + fim) / 2.0 - 1e-6 else inicio)
+    return x, (fim if x < (inicio + fim) / 2.0 - 1e-6 else inicio)
 
 
 def _eixo_da_dobradica(p, e):
@@ -227,6 +233,29 @@ def _eixo_da_dobradica(p, e):
     return float(e) if p.get('dobradica') == 'SUPER_CURVA' else 0.0
 
 
+def _junta_zigzag(p, anterior, atual, indice):
+    """Eixo comum das duas metades, alternado entre frente e costas."""
+    ca, cb = Vector(anterior[3]), Vector(atual[3])
+    z = cb.z + (atual[2] / 2 + 4.5) * (1 if indice % 2 == 0 else -1)
+    return Vector(((ca.x + cb.x) / 2, cb.y, z))
+
+
+def _matrizes_zigzag(p, largura, folhas, fracao):
+    """Cadeia calculada uma vez: cada junta herda a pose da precedente."""
+    simples = dict(p, abertura='GIRO', folhas=1)
+    primeira = _matriz_abertura(simples, largura, 1, 0, folhas[0], fracao)
+    movimento = primeira @ Matrix.Translation(-Vector(folhas[0][3]) / 1000)
+    giro = math.atan2(movimento[0][2], movimento[0][0])
+    saida = [primeira]
+    for i in range(1, len(folhas)):
+        eixo = _junta_zigzag(p, folhas[i - 1], folhas[i], i) / 1000
+        angulo = giro * (-2 if i % 2 else 2)
+        movimento = (movimento @ Matrix.Translation(eixo)
+                     @ Matrix.Rotation(angulo, 4, 'Y') @ Matrix.Translation(-eixo))
+        saida.append(movimento @ Matrix.Translation(Vector(folhas[i][3]) / 1000))
+    return saida
+
+
 def _matriz_abertura(p, largura, n, indice, folha, fracao):
     """matrix_basis (metros, referencial do grupo) da folha `indice`
     aberta `fracao` (0..1). `folha` = (l, a, e, centro) em mm, fechada."""
@@ -237,6 +266,9 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
     if fracao <= 0.0:
         return fechada
     abertura = p.get('abertura', 'GIRO')
+    if abertura == 'ZIGZAG':
+        folhas = _portas._calcular_folhas_portas(largura, a + sum(_portas._inicios_porta(p)[2:]), p)
+        return _matrizes_zigzag(p, largura, folhas, fracao)[indice]
     if abertura == 'CORRER':
         fechado, destino = _curso_correr(p, largura, n, l, c.x)
         passo = Vector(((destino - fechado) * fracao, 0.0, 0.0))
@@ -247,7 +279,8 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
         dados = _dados_dobradica_reta()
         fundo, borda = c.z - e / 2.0 - dados['costas_mm'], dados['borda_porta_mm']
         if abertura == 'BASCULANTE':
-            dentro, origem = (0.0, -1.0), (c.x, c.y + a / 2.0 - borda, fundo)
+            sinal = -1 if p.get('basculante_invertida') else 1
+            dentro, origem = (0.0, -sinal), (c.x, c.y + sinal*(a/2.0-borda), fundo)
         elif _lado_da_folha(p, indice, n) == 'ESQUERDA':
             dentro, origem = (1.0, 0.0), (c.x - l / 2.0 + borda, c.y, fundo)
         else:
@@ -255,15 +288,24 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
         return _movimento_rig(dentro, origem, fracao) @ fechada
     eixo_z = c.z + _eixo_da_dobradica(p, e) - e / 2.0
     if abertura == 'BASCULANTE':
-        pivo = Vector((c.x, c.y + a / 2.0, eixo_z))
+        sinal = -1 if p.get('basculante_invertida') else 1
+        pivo = Vector((c.x, c.y + sinal*a/2.0, eixo_z))
         giro = Matrix.Rotation(
-            -math.radians(ABERTURA_MAX_GRAUS['BASCULANTE']) * fracao, 4, 'X')
+            -sinal*math.radians(ABERTURA_MAX_GRAUS['BASCULANTE']) * fracao, 4, 'X')
     else:
         esquerda = _lado_da_folha(p, indice, n) == 'ESQUERDA'
-        pivo = Vector((c.x - l / 2.0 if esquerda else c.x + l / 2.0,
-                       c.y, eixo_z))
-        angulo = math.radians(ABERTURA_MAX_GRAUS['GIRO']) * fracao
-        giro = Matrix.Rotation(-angulo if esquerda else angulo, 4, 'Y')
+        if p.get('dobradica_articulada'):
+            folga = float(p.get('dobradica_junta_mm', 4)) / 2
+            pivo = Vector((c.x - l / 2 - folga if esquerda else c.x + l / 2 + folga,
+                           c.y, c.z - e / 2 - 4.5))
+        else:
+            pivo = Vector((c.x - l / 2.0 if esquerda else c.x + l / 2.0, c.y, eixo_z))
+        angulo = math.radians(float(p.get('abertura_limite_graus',ABERTURA_MAX_GRAUS['GIRO']))) * fracao
+        if p.get('dobradica_articulada'):
+            angulo = math.radians(180) * fracao * float(p.get('dobradica_articulada_sinal', -1 if esquerda else 1))
+            giro = Matrix.Rotation(angulo, 4, 'Y')
+        else:
+            giro = Matrix.Rotation(-angulo if esquerda else angulo, 4, 'Y')
     pivo = pivo / 1000.0
     return (Matrix.Translation(pivo) @ giro @ Matrix.Translation(-pivo)
             @ fechada)
@@ -284,7 +326,11 @@ def _matriz_fechada(folha):
     centro = folha.get(CHAVE_CENTRO_FOLHA)
     if centro is None or folha.parent is None:
         return folha.matrix_world.copy()
-    return folha.parent.matrix_world @ Matrix.Translation(
+    grupo = folha.parent
+    apoio = grupo.get('porta_apoio_folha')
+    mundo = (_matriz_fechada(apoio) @ grupo.matrix_basis
+             if isinstance(apoio, bpy.types.Object) else grupo.matrix_world)
+    return mundo @ Matrix.Translation(
         Vector(tuple(centro)) / 1000.0)
 
 
@@ -306,8 +352,28 @@ def _definir_abertura(context, folha, fracao):
     ocupado_antes = _chapas._ocupado[0]
     _chapas._ocupado[0] = True
     try:
-        folha[CHAVE_ABERTURA] = max(0.0, min(1.0, float(fracao)))
-        _posicionar_folha(grupo, folha)
+        fracao = max(0.0, min(1.0, float(fracao)))
+        if (folha.get('porta_curva_modelada') and grupo.get('porta_limite_pendente')
+                and len(_portas._folhas_portas(grupo))==1
+                and abs(fracao-float(folha.get(CHAVE_ABERTURA,0)))>1e-6):
+            limite=_promob._limite_curvo_no_corpo(grupo,folha)
+            novos=_portas._copiar_parametros(grupo['porta_parametros'])
+            if limite is None:novos.pop('abertura_limite_graus',None)
+            else:novos['abertura_limite_graus']=limite
+            grupo['porta_parametros']=novos;grupo['porta_limite_pendente']=False
+            grupo['porta_limite_validado']=limite is not None
+        p = grupo.get('porta_parametros') or {}
+        if p.get('abertura') == 'ZIGZAG':
+            folhas = _portas._folhas_portas(grupo)
+            matrizes = _matrizes_zigzag(p, float(grupo['porta_vao_largura_mm']),
+                                       [_dados_da_folha(f) for f in folhas], fracao)
+            for f, matriz in zip(folhas, matrizes):
+                f[CHAVE_ABERTURA] = fracao
+                f.matrix_basis = matriz
+            _girar_rigs(grupo)
+        else:
+            folha[CHAVE_ABERTURA] = fracao
+            _posicionar_folha(grupo, folha)
     finally:
         _chapas._ocupado[0] = ocupado_antes
     context.view_layer.update()
@@ -324,18 +390,45 @@ def _dobradicas_da_porta(p, largura, altura, folhas):
     fracoes = {k: c / lateral for k, c in zip(_portas.COBERTURAS_LADOS, cob)}
     tipo = 'BASCULANTE' if p.get('abertura') == 'BASCULANTE' else 'GIRO'
     arestas = _portas._arestas_da_porta(largura, altura, fracoes, lateral, tipo)
-    lados = (['CIMA'] if tipo == 'BASCULANTE'
+    if tipo == 'BASCULANTE' and p.get('basculante_invertida'):
+        aresta = arestas[0]
+        arestas = [dict(aresta, lado='BAIXO', a=Vector((aresta['a'].x, 0)),
+                        b=Vector((aresta['b'].x, 0)), dentro=Vector((0, 1)), cobertura=cob[2])]
+    lado_basculante = 'BAIXO' if p.get('basculante_invertida') else 'CIMA'
+    lados = ([lado_basculante] if tipo == 'BASCULANTE'
              else [_lado_da_folha(p, i, len(folhas)) for i in range(len(folhas))])
     margem = float(p.get('dobradicas_margem_mm', _portas.MARGEM_DOBRADICAS_PADRAO))
     saida = []
     for i, lado in enumerate(lados):
         aresta = next((a for a in arestas if a['lado'] == lado), arestas[0])
+        if p.get('abertura') == 'GIRO' and str(i) in p.get('dobradicas_lados_folhas', {}):
+            l, a, _e, c = folhas[i]
+            # Uma folha parcial invertida prende na SUA borda, nunca na
+            # borda oposta do vao inteiro.
+            borda = c[0] + (-l / 2 if lado == 'ESQUERDA' else l / 2)
+            x = borda + (aresta['cobertura'] if lado == 'ESQUERDA' else -aresta['cobertura'])
+            aresta = dict(aresta, a=Vector((x, c[1]-a/2)), b=Vector((x, c[1]+a/2)))
+        if p.get('abertura') == 'ZIGZAG' and i > 0:
+            l, a, _e, c = folhas[i]
+            x = c[0] + (-l / 2 if lado == 'ESQUERDA' else l / 2)
+            aresta = dict(aresta, a=Vector((x, c[1] - a / 2)),
+                          b=Vector((x, c[1] + a / 2)))
         comprimento = (aresta['b'] - aresta['a']).length
         qtd = (int(p.get('dobradicas_qtd', 0) or 0)
                or _portas._qtd_dobradicas_padrao(comprimento))
         # vale tambem para a porta gravada antes do limite
         qtd, ajustada = _portas._ajustar_dobradicas(comprimento, qtd, margem)
-        saida.append((aresta, _portas._posicoes_ferragens(comprimento, qtd, ajustada), i))
+        referencia = p.get('dobradicas_referencia', {}).get(str(i))
+        distancias = (_portas._posicoes_ferragens(comprimento, qtd, ajustada)
+                      if referencia is None else [float(f) * comprimento for f in referencia])
+        if referencia is not None:
+            # Ao encolher demais o vao, o limite fisico ainda prevalece.
+            minimo = _portas.PASSO_MIN_DOBRADICAS_MM
+            if (any(d < _portas.MARGEM_MIN_DOBRADICAS_MM or
+                    d > comprimento - _portas.MARGEM_MIN_DOBRADICAS_MM for d in distancias)
+                    or any(b - a < minimo for a, b in zip(distancias, distancias[1:]))):
+                distancias = _portas._posicoes_ferragens(comprimento, qtd, ajustada)
+        saida.append((aresta, distancias, i))
     return saida
 
 
@@ -350,7 +443,8 @@ def _pistoes_da_porta(p, largura, altura, folhas):
     qtd = (int(p.get('pistoes_qtd', 0) or 0)
            or _portas._qtd_pistoes_padrao(folhas[0][0]))
     g = _portas._pistao_do_vao(altura, folhas[0],
-                       float(p.get('pistoes_offset_mm', 0.0) or 0.0), p)
+                       float(p.get('pistoes_offset_mm', 0.0) or 0.0),
+                       dict(p, basculante_invertida=False))
     meio = _portas.PISTAO_SUPORTE_LADO_MM / 2.0
     saida = []
     for lado in ('ESQUERDA', 'DIREITA')[:max(1, min(2, qtd))]:
@@ -381,6 +475,13 @@ def _pistoes_da_porta(p, largura, altura, folhas):
                  for dx in (-meio, meio) for dy in (-meio, meio)
                  for z in (na_folha.z, na_folha.z + _portas.PISTAO_SUPORTE_MM)]},
         ]
+    if p.get('basculante_invertida'):
+        centro = 2 * folhas[0][3][1]
+        for item in saida:
+            if 'origem' in item:
+                v = item['origem'].copy(); v.y = centro-v.y; item['origem'] = v
+            if 'cantos' in item:
+                item['cantos'] = [Vector((v.x, centro-v.y, v.z)) for v in item['cantos']]
     return saida
 
 
@@ -411,13 +512,147 @@ def _caixas_dos_itens_pistao(itens):
     return caixas
 
 
-def _ferragens_da_porta(p, largura, altura, folhas):
+def _volume_articulacao(p, folhas, i, y, sufixo):
+    """Volumetria nativa: placas, linguetas intercaladas, eixo e parafusos.
+
+    Cada metade pertence a uma folha; o eixo coincide com o da abertura.
+    E' representacao geometrica, sem importar ferragens do Promob.
+    """
+    l, a, e, c = folhas[i]
+    zig = p.get('abertura') == 'ZIGZAG'
+    sinal = 1 if _lado_da_folha(p, i, len(folhas)) == 'ESQUERDA' else -1
+    if zig:
+        q = _junta_zigzag(p, folhas[i - 1], folhas[i], i)
+        face = 1 if i % 2 == 0 else -1
+        apoio = i - 1
+        plano_apoio = folhas[apoio][3][2] + face * folhas[apoio][2] / 2
+    else:
+        gap = float(p.get('dobradica_junta_mm', 4)) / 2
+        q = Vector((c[0] - sinal * (l / 2 + gap), y, c[2] - e / 2 - 4.5))
+        face, apoio = -1, None
+        plano_apoio = float(p.get('dobradica_apoio_plano_mm', 0))
+    q.y = y
+    saida = []
+    def caixa(nome, pai, x0, x1, z0, z1, h=50):
+        lo, hi = Vector((min(x0, x1), y - h / 2, min(z0, z1))), Vector((max(x0, x1), y + h / 2, max(z0, z1)))
+        cantos = [Vector((x, yy, z)) for x in (lo.x, hi.x) for yy in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        saida.append(dict(id=sufixo + nome, nome='Dobradica Articulada ' + nome,
+                         tipo='DOBRADICA' if pai == apoio else 'CANECO',
+                         folha=pai, forma='CAIXA', cantos=cantos))
+    for nome, pai, direcao, plano, faixas in (
+            ('Apoio', apoio, -sinal, plano_apoio, ((-25, -15), (-5, 5), (15, 25))),
+            ('Folha', i, sinal, c[2] + face * e / 2, ((-14.5, -5.5), (5.5, 14.5)))):
+        # A placa encosta na madeira. O pescoco liga-a ao eixo saliente.
+        caixa('Placa ' + nome, pai, q.x + direcao * 5, q.x + direcao * 31, plano, plano + face * 3)
+        caixa('Braco ' + nome, pai, q.x, q.x + direcao * 9, plano + face * 3, q.z, 30)
+        for k, (baixo, cima) in enumerate(faixas):
+            saida.append(dict(id=sufixo + nome + str(k), nome='Dobradica Articulada No ' + nome,
+                tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='CILINDRO',
+                origem=Vector((q.x, y + (baixo + cima) / 2, q.z)),
+                raio=4.5, comprimento=cima - baixo, eixo='Y'))
+        for k, dy in enumerate((-17, 17)):
+            saida.append(dict(id=sufixo + 'Parafuso' + nome + str(k), nome='Dobradica Articulada Parafuso',
+                tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='CILINDRO',
+                origem=Vector((q.x + direcao * 23, y + dy, plano + face * 3.5)), raio=3, comprimento=1))
+    saida.append(dict(id=sufixo + 'Eixo', nome='Dobradica Articulada Eixo', tipo='DOBRADICA',
+        folha=apoio, forma='CILINDRO', origem=q, raio=2.5, comprimento=53, eixo='Y'))
+    return saida
+
+
+def _apoios_obliquos(conj, matriz, p, largura, altura, folhas):
+    """Face REAL de apoio, por dobradica. Uma quina encostada nao e' encaixe.
+
+    Ray cast nativo so' ao reconstruir; abrir pelo slider nao consulta
+    malhas. A face inteira da placa precisa caber, sem entrar na madeira.
+    """
+    if (conj is None or p.get('abertura') not in ('GIRO', 'ZIGZAG')
+            or p.get('dobradica_articulada') or _usa_rig(p)):
+        return {}
+    inversa = matriz.inverted()
+    chapas = _modulos._estruturais(_modulos._chapas_do_conjunto(conj))
+    apoios = {}
+    for aresta, ds, i in _dobradicas_da_porta(p, largura, altura, folhas):
+        if p.get('abertura') == 'ZIGZAG' and i > 0:
+            continue
+        e, centro = folhas[i][2:]
+        costas = centro[2] - e / 2
+        caixas = _portas._caixas_dobradicas(aresta, ds, costas)
+        dentro = Vector((*aresta['dentro'], 0))
+        direcao = (matriz.to_3x3() @ -dentro).normalized()
+        for k, (_, caneco) in enumerate(caixas):
+            c = sum(caneco, Vector()) / 8
+            candidatos = []
+            for obj in chapas:
+                if obj.type != 'MESH' or obj.mode != 'OBJECT':
+                    continue
+                im = obj.matrix_world.inverted()
+                dl = im.to_3x3() @ direcao
+                profundidades = (15,25,35,45,55,65,75,95) if p.get('dobradica_apoio_real') else (25,35,45,55)
+                for fundo in profundidades:
+                    origem = matriz @ (Vector((c.x, c.y, costas - fundo)) / 1000)
+                    hit, ponto, normal, face = obj.ray_cast(im @ origem,
+                        dl.normalized(), distance=.12 * dl.length)
+                    if not hit:
+                        continue
+                    nw = (im.to_3x3().transposed() @ normal).normalized()
+                    n = (matriz.to_3x3().transposed() @ nw).normalized()
+                    limite = 1.001 if p.get('dobradica_apoio_real') else .995
+                    if abs(n.y) > .02 or not .15 < n.dot(dentro) < limite:
+                        continue
+                    q = inversa @ (obj.matrix_world @ ponto) * 1000
+                    t = Vector((0, 1, 0)).cross(n).normalized()
+                    if t.z < 0:
+                        t = -t
+                    cantos = [q + t * u + Vector((0, v, 0)) + n * z
+                              for u in (-14, 14) for v in (-21, 21) for z in (0, 3)]
+                    # As quatro quinas da face encostada, nao o menor erro
+                    # entre todos os vertices (que aprovava uma ponta so').
+                    cabe = True
+                    for v in cantos[::2]:
+                        local = im @ (matriz @ (v / 1000))
+                        ok, perto, no, fi = obj.closest_point_on_mesh(local)
+                        if (not ok or (obj.matrix_world.to_3x3() @ (local - perto)).length > .00005
+                                or abs(no.dot(normal)) < .999):
+                            cabe = False
+                            break
+                    if cabe:
+                        candidatos.append((abs(fundo - 35), (q - c).length,
+                            dict(objeto=obj, ponto=q, normal=n, cantos=cantos)))
+            if candidatos:
+                apoios[i, k] = min(candidatos, key=lambda a: a[:2])[2]
+    return apoios
+
+
+def _dobradica_obliqua(apoio, caneco, i, sufixo, costas):
+    """Placa no plano da lateral e braco ligado a' folha por mira nativa."""
+    q, n = apoio['ponto'], apoio['normal']
+    copo = sum(caneco, Vector()) / 8
+    ponta = Vector((copo.x, copo.y, costas - 5))
+    origem = q + n * 4
+    return [
+        dict(id='DOBRADICA_' + sufixo, nome='Dobradica Base Angular', tipo='DOBRADICA',
+             folha=None, forma='PRISMA', cantos=apoio['cantos'], apoio=apoio['objeto']),
+        dict(id='ART_PONTA_' + sufixo, nome='Dobradica Mira Angular', tipo='DOBRADICA_PONTO',
+             folha=i, forma='PONTO', origem=ponta),
+        dict(id='ART_BRACO_' + sufixo, nome='Dobradica Braco Angular', tipo='DOBRADICA',
+             folha=None, forma='BRACO', origem=origem, comprimento=(ponta - origem).length,
+             destino=ponta, mira='ART_PONTA_' + sufixo),
+    ]
+
+
+def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
     """O que montar (mm, referencial do grupo, porta FECHADA): uma lista
     de {'id', 'tipo', 'folha' (indice; None = no grupo), 'forma', ...}."""
     saida = []
     rig = _usa_rig(p)
     for aresta, distancias, i in _dobradicas_da_porta(p, largura, altura, folhas):
         _l, _a, e, centro = folhas[i]
+        if p.get('dobradica_articulada') or (p.get('abertura') == 'ZIGZAG' and i > 0):
+            eixo = (aresta['b'] - aresta['a']).normalized()
+            for k, d in enumerate(distancias):
+                saida += _volume_articulacao(p, folhas, i, (aresta['a'] + eixo * d).y,
+                                             'ART_%d_%d_' % (i, k))
+            continue
         if rig:
             # Reta: a dobradica de verdade (asset do usuario), raiz pela
             # borda e pelas costas da folha (`_referencial_rig`)
@@ -429,7 +664,9 @@ def _ferragens_da_porta(p, largura, altura, folhas):
                                         - aresta['cobertura'])
             for k, d in enumerate(distancias):
                 ponto = aresta['a'] + eixo * d + recuo
-                saida.append({'id': 'RIG_%s_%d' % (aresta['lado'], k),
+                identificador = ('RIG_%d_%s_%d' % (i, aresta['lado'], k)
+                    if p.get('dobradicas_lados_folhas') else 'RIG_%s_%d' % (aresta['lado'], k))
+                saida.append({'id': identificador,
                               'tipo': 'DOBRADICA_RIG', 'folha': None,
                               'forma': 'RIG', 'indice_folha': i,
                               'calco': _calco_rig(aresta['cobertura']),
@@ -439,8 +676,14 @@ def _ferragens_da_porta(p, largura, altura, folhas):
         caixas = _portas._caixas_dobradicas(aresta, distancias, centro[2] - e / 2.0)
         for k, (corpo, caneco) in enumerate(caixas):
             sufixo = '%s_%d' % (aresta['lado'], k)
-            saida.append({'id': 'DOBRADICA_' + sufixo, 'tipo': 'DOBRADICA',
-                          'folha': None, 'forma': 'CAIXA', 'cantos': corpo})
+            if p.get('dobradicas_lados_folhas'):
+                sufixo = '%d_%s' % (i, sufixo)
+            apoio = (apoios or {}).get((i, k))
+            if apoio:
+                saida += _dobradica_obliqua(apoio, caneco, i, sufixo, centro[2] - e / 2)
+            else:
+                saida.append({'id': 'DOBRADICA_' + sufixo, 'tipo': 'DOBRADICA',
+                              'folha': None, 'forma': 'CAIXA', 'cantos': corpo})
             saida.append({'id': 'CANECO_' + sufixo, 'tipo': 'CANECO',
                           'folha': i, 'forma': 'CILINDRO',
                           'origem': sum(caneco, Vector()) / 8.0,
@@ -543,7 +786,7 @@ def _origem_da_ferragem(item):
     if item['forma'] == 'PERFIL':
         lo, hi = _limites_perfil(item)
         return (lo + hi) / 2.0
-    if item['forma'] == 'CAIXA':
+    if item['forma'] in {'CAIXA', 'PRISMA'}:
         return sum(item['cantos'], Vector()) / len(item['cantos'])
     if item['forma'] == 'CAIXAS':
         cantos = [v for caixa in item['caixas'] for v in caixa]
@@ -577,6 +820,19 @@ def _malha_da_ferragem(malha, item):
                     bm.faces.new(pontas[0][::-1])
                     bm.faces.new(pontas[1])
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        elif item['forma'] == 'PRISMA':
+            # Preservar os cantos orientados: uma AABB desorientava a base
+            # de 135 graus e voltava a entrar na madeira.
+            origem = _origem_da_ferragem(item)
+            vs = [bm.verts.new((v - origem) / 1000) for v in item['cantos']]
+            for face in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1),
+                         (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
+                bm.faces.new([vs[k] for k in face])
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        elif item['forma'] == 'BRACO':
+            novos = bmesh.ops.create_cube(bm, size=1)['verts']
+            bmesh.ops.scale(bm, vec=(.012, item['comprimento'] / 1000, .006), verts=novos)
+            bmesh.ops.translate(bm, vec=(0, item['comprimento'] / 2000, 0), verts=novos)
         elif item['forma'] in {'CAIXA', 'CAIXAS'}:
             # varias caixas numa malha so', em volta da origem do item
             origem = _origem_da_ferragem(item)
@@ -598,6 +854,9 @@ def _malha_da_ferragem(malha, item):
                                  matrix=Matrix.Rotation(-math.pi / 2, 3, 'X'))
                 bmesh.ops.translate(bm, vec=(0.0, fundo / 2.0, 0.0),
                                     verts=bm.verts)
+            elif item.get('eixo') == 'Y':
+                bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
+                                 matrix=Matrix.Rotation(-math.pi / 2, 3, 'X'))
         bm.to_mesh(malha)
     finally:
         bm.free()
@@ -605,7 +864,8 @@ def _malha_da_ferragem(malha, item):
 
 
 def _ferragens_portas(grupo):
-    return [o for o in grupo.children_recursive if CHAVE_FERRAGEM in o]
+    return [o for o in grupo.children_recursive
+            if CHAVE_FERRAGEM in o and _grupo_da_ferragem(o) == grupo]
 
 
 def _vivo(idb):
@@ -780,7 +1040,11 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     colecao = grupo.users_collection[0]
     feitos = {}
     cortadores = {}
-    for item in _ferragens_da_porta(parametros, largura, altura, calculadas):
+    conj = _portas._modulo_da_chapa(folhas[0]) if folhas else None
+    matriz = (_matriz_fechada(grupo.parent) @ grupo.matrix_basis
+              if grupo.get('porta_apoio_folha') else grupo.matrix_world.copy())
+    apoios = _apoios_obliquos(conj, matriz, parametros, largura, altura, calculadas)
+    for item in _ferragens_da_porta(parametros, largura, altura, calculadas, apoios):
         obj = existentes.pop(item['id'], None)
         if obj is not None and not _vivo(obj):
             obj = None
@@ -843,7 +1107,13 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         # selecionavel (duplo clique / Outliner) e editavel; arquivo
         # antigo trazia hide_select
         obj.hide_select = False
+        if item.get('apoio') is not None:
+            obj['porta_ferragem_apoio'] = item['apoio']
+        elif 'porta_ferragem_apoio' in obj:
+            del obj['porta_ferragem_apoio']
         if not ponto:
+            if obj.data.users > 1:
+                obj.data = obj.data.copy()
             _malha_da_ferragem(obj.data, item)
         indice = item['folha']
         origem = _origem_da_ferragem(item)
@@ -855,6 +1125,29 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         obj.parent = pai
         obj.matrix_parent_inverse = Matrix.Identity(4)
         obj.matrix_basis = Matrix.Translation(origem / 1000.0)
+        if (pai.get('porta_curva_modelada') and item['tipo']=='CANECO'
+                and item['forma']=='CILINDRO'):
+            # A flecha ocupa parte da espessura util sob o copo. Sentar
+            # o volume na superficie REAL, sem atravessar a face visivel.
+            # BVH nativo so' ao montar; abrir/hover nao faz estas consultas.
+            zmax=max(v.co.z for v in pai.data.vertices)+.1
+            fronts=[]
+            for j in range(16):
+                angulo=j*math.tau/16
+                x=origem.x/1000+item['raio']/1000*math.cos(angulo)
+                y=origem.y/1000+item['raio']/1000*math.sin(angulo)
+                hit,ponto,_n,_face=pai.ray_cast(Vector((x,y,zmax)),Vector((0,0,-1)))
+                if hit:fronts.append(ponto.z)
+            if fronts:
+                topo=origem.z/1000+item['comprimento']/2000
+                if topo>min(fronts)-.0005:
+                    obj.location.z-=topo-min(fronts)+.0005
+        if item['forma'] == 'BRACO':
+            y = (item['destino'] - item['origem']).normalized()
+            x = Vector((0, 1, 0))
+            pose = Matrix((x, y, x.cross(y))).transposed().to_4x4()
+            pose.translation = origem / 1000
+            obj.matrix_basis = pose
         feitos[item['id']] = (obj, item)
     for obj, item in feitos.values():
         mira = feitos.get(item.get('mira'), (None, None))[0]
@@ -863,14 +1156,25 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             for r in restricoes:
                 obj.constraints.remove(r)
             continue
-        r = restricoes[0] if restricoes else obj.constraints.new('DAMPED_TRACK')
+        tipo = 'STRETCH_TO' if item['forma'] == 'BRACO' else 'DAMPED_TRACK'
+        for r in list(restricoes):
+            if r.type != tipo:
+                obj.constraints.remove(r)
+                restricoes.remove(r)
+        r = restricoes[0] if restricoes else obj.constraints.new(tipo)
         r.name = NOME_MIRA_PISTAO
         r.target = mira
-        r.track_axis = 'TRACK_Y'
+        if tipo == 'STRETCH_TO':
+            r.rest_length = item['comprimento'] / 1000
+            r.volume = 'NO_VOLUME'
+            r.keep_axis = 'PLANE_X'
+        else:
+            r.track_axis = 'TRACK_Y'
     for obj in existentes.values():
         _remover_ferragem(obj)
     _furar_folhas(folhas, cortadores)
     _girar_rigs(grupo)
+    grupo['porta_ferragens_encaixe'] = 1
 
 
 _contagem_objetos = [-1]    # o handler so' confere quando ela muda
@@ -900,6 +1204,8 @@ def _conferir_ferragens():
                       if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')]:
             if _portas._folhas_portas(grupo) and not _ferragens_portas(grupo):
                 _refazer_ferragens(grupo)
+            elif not grupo.get('porta_ferragens_encaixe'):
+                atualizar_encaixe_antigo(grupo)
         # armario apagado (X): a Collection dele nao fica vazia na cena
         for colecao in [c for c in bpy.data.collections
                         if c.get(_modulos.MARCA_COLECAO_MODULO)
@@ -909,6 +1215,23 @@ def _conferir_ferragens():
     except Exception as e:
         print("[Cabinet Creator] ferragens:", e)
     return None
+
+
+def atualizar_encaixe_antigo(grupo):
+    """Preset/cena anterior: atualizar so' os volumes com apoio obliquo.
+    As pecas editadas de outros modelos, o rig e a abertura sobrevivem.
+    """
+    folhas = _portas._folhas_portas(grupo)
+    if not folhas or any(o.mode != 'OBJECT' for o in grupo.children_recursive):
+        return False
+    p, L, A, calculadas = _porta_calculada(grupo)
+    conj = _portas._modulo_da_chapa(folhas[0])
+    apoios = _apoios_obliquos(conj, grupo.matrix_world, p, L, A, calculadas)
+    if apoios:
+        _refazer_ferragens(grupo)
+    else:
+        grupo['porta_ferragens_encaixe'] = 1
+    return bool(apoios)
 
 
 def _refazer_ferragens(grupo):
@@ -949,7 +1272,9 @@ def _dados_ferragens_selecionadas(context):
                 # a margem que VALE (a gravada antes do limite pode passar)
                 'mm': distancias[0] if len(distancias) > 1 else float(
                     p.get('dobradicas_margem_mm', _portas.MARGEM_DOBRADICAS_PADRAO)),
-                'info': _portas.NOME_DOBRADICA.get(p.get('dobradica'), ''),
+                'info': ('Articulada' if p.get('dobradica_articulada') else
+                         'Reta' if _usa_rig(p) else
+                         _portas.NOME_DOBRADICA.get(p.get('dobradica'), '')),
                 'modelo': p.get('dobradica')}
     if 'PISTAO' in tipos and p.get('abertura') == 'BASCULANTE' and folhas:
         offset = float(p.get('pistoes_offset_mm', 0.0) or 0.0)

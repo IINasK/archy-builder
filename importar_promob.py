@@ -32,16 +32,14 @@ def main():
     try:
         for pasta, _dirs, arquivos in sorted(os.walk(raiz)):
             for nome in sorted(a for a in arquivos if a.lower().endswith('.dxf')):
-                relativo = os.path.relpath(pasta, raiz).split(os.sep)
-                ambiente = relativo[0] if relativo[0] != '.' else 'Diversos'
                 caminho = os.path.join(pasta, nome)
-                aba, categoria, prefixo = addon.importacao.categoria_promob(caminho)
+                niveis, prefixo = addon.importacao.destino_categoria_promob(caminho,raiz)
                 arqs, info = addon.importacao.importar_promob_para_biblioteca(
                     bpy.context, caminho,
-                    ('Armarios', ambiente, aba, categoria), prefixo)
+                    niveis, prefixo)
                 total += len(arqs)
                 print('[promob] %s/%s - %s: %d modulo(s) %s' % (
-                    ambiente, aba, categoria, len(arqs), info))
+                    niveis[1], '/'.join(niveis[2:-1]), niveis[-1], len(arqs), info))
     except Exception:
         traceback.print_exc()
         sys.exit(1)

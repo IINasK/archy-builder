@@ -577,6 +577,9 @@ def _medidas_gaveta(context):
                       ('Espessura', s.grupo_espessura_mm,
                        'ui_grupo_espessura')]
             return 'GRUPO', campos, 'cena'
+        cotas=_hud.campos_cotas(obj,'INDIVIDUAL',[obj])
+        if any(nome not in ('A1','A2','E') for nome,_v,_p in cotas):
+            return 'INDIVIDUAL',cotas,'cota'
         campos = [('Largura', obj.chapa_largura_mm, 'ui_chapa_largura'),
                   ('Altura', obj.chapa_comprimento_mm,
                    'ui_chapa_comprimento'),
@@ -764,6 +767,7 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
         # Campos tem 37 px de altura; afastar das abas de modo acima.
         y -= 8
         colunas = _colunas_medidas(context, largura, len(campos))
+        if dono=='cota':colunas=min(3,colunas)
         largura_campo = (w - 6 * (colunas - 1)) / colunas
         # Puxador: cadeado no fim de cada linha. Travado, a medida nao
         # muda quando a porta muda; destravado, estica junto.
@@ -774,7 +778,7 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
             linha, coluna = divmod(i, colunas)
             cx = x + coluna * (largura_campo + 6)
             itens.append((cx, y - linha * 43, largura_campo - cadeado, 37,
-                          '%s: %s' % (nome, _opcoes._texto_medida(valor)),
+                          '%s: %s' % (_hud.rotulo_medida(nome), _opcoes._texto_medida(valor)),
                           ('medida', dono, prop, nome, valor)))
             if cadeado:
                 itens.append((cx + largura_campo - cadeado + 2,
@@ -1119,7 +1123,9 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
     # Reposicionar (diagonal no vao novo) e frente EM CIMA das medidas,
     # com icone (pedido do usuario). Converter em porta/dupla sairam da
     # aba a pedido do usuario; seguem no F3.
-    topo = _botoes_gaveta(itens, x, y + 26, w, (
+    itens.append((x+w-28, y+26, 28, 28, 'Espelhar porta',
+                  ('operador', 'object.cabinet_espelhar_porta')))
+    topo = _botoes_gaveta(itens, x, y + 26, w-34, (
         ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
         ('Definir como frente', 'object.cabinet_definir_frente'))) + 28 - 4
     alvo = grupo.name
@@ -1152,7 +1158,7 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
     topo = _campos_em_linhas(
         context, itens, x, topo, w, folhas,
         compacto=(str(valores['folhas']),
-                  ('contador', 'porta_folhas', int(valores['folhas']), 1,
+                  ('contador', 'porta_folhas', int(valores['folhas']), 2 if valores['abertura'] == 'ZIGZAG' else 1,
                    _portas.LIMITES_FOLHAS.get(valores['abertura'], 1),
                    alvo, 'Folhas')))
 
@@ -1237,6 +1243,9 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
             posicoes.append([fim, ultimo[1], LARGURA_CAMPO_FOLHAS])
         campos = list(campos) + [compacto]
     for (cx, cy, largura_campo), (texto, acao) in zip(posicoes, campos):
+        if acao and acao[0]=='medida':
+            nome=acao[3]
+            if texto.startswith(nome+':'):texto=_hud.rotulo_medida(nome)+texto[len(nome):]
         itens.append((cx, cy, largura_campo, 37, texto, acao))
     return min(p[1] for p in posicoes) - 6
 
@@ -1299,17 +1308,27 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         return itens
     p = _prateleiras.parametros(grupo)
     largura_vao, altura_vao, profundidade = _prateleiras.medidas(grupo)
+    prateleira = _prateleiras.individual_ativo(context, grupo)
+    indice = int(prateleira[_prateleiras.CHAVE_INDICE]) if prateleira is not None else None
+    if indice is not None:
+        p = _prateleiras.parametros_individuais(p, indice)
+        profundidade = p['profundidade_mm']
 
     def campo(nome, rotulo, valor):
+        if indice is not None and nome in (*_prateleiras.CAMPOS_INDIVIDUAIS, 'largura'):
+            nome = 'individual_%d_%s' % (indice, 'largura_mm' if nome == 'largura' else nome)
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
                 ('medida', 'prateleiras', nome, rotulo, valor))
 
     topo = _titulo_secao(itens, x, y + 26, w, 'Prateleiras')
-    topo = _campos_em_linhas(context, itens, x, topo, w, [
-        campo('largura', 'Largura', largura_vao),
-        campo('altura', 'Altura', altura_vao),
-        campo('profundidade_mm', 'Profundidade', profundidade)],
-        compacto=(str(p['quantidade']),
+    campos = [campo('largura', 'Largura', prateleira.chapa_largura_mm if prateleira is not None else largura_vao)]
+    if prateleira is None:
+        campos.append(campo('altura', 'Altura', altura_vao))
+    campos.append(campo('profundidade_mm', 'Profundidade', profundidade))
+    previa = _prateleiras._quantidade_previa[0]
+    quantidade = previa[1] if previa and previa[0] == grupo.name else p['quantidade']
+    topo = _campos_em_linhas(context, itens, x, topo, w, campos,
+        compacto=(str(quantidade),
                   ('contador', 'prateleiras_quantidade', int(p['quantidade']), 1,
                    _prateleiras.MAXIMO_PRATELEIRAS, grupo.name, 'Prateleiras')))
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
@@ -1318,7 +1337,7 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         campo('recuo_mm', 'Recuo', p['recuo_mm']),
         campo('folga_lateral_mm', 'Folga lateral', p['folga_lateral_mm'])])
     try:
-        vaos = _prateleiras.vaos(altura_vao, p)
+        vaos = _prateleiras.vaos(altura_vao, _prateleiras.parametros(grupo))
     except ValueError as erro:
         itens.append((x, topo - 23 - ESPACO_SECOES, w, 22, str(erro), None))
         return itens
@@ -1326,7 +1345,6 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'prateleiras_espacamento',
                                  _prateleiras.OPCOES_ESPACAMENTO, p['espacamento'],
                                  alvo=grupo.name) + 23
-    prateleira = obj if _prateleiras.MARCA_PRATELEIRA in obj else None
     if prateleira is not None:
         # duplo clique: so' os vaos DELA (mexer neles anda so' ela)
         k = int(prateleira.get(_prateleiras.CHAVE_INDICE, 0))
@@ -1361,33 +1379,51 @@ def _aba_gavetas_gaveta(context, itens, x, y, w):
     p = _gavetas.parametros(grupo)
     alvo = grupo.name
     largura_vao, altura_vao, profundidade = _gavetas.medidas(grupo)
+    gaveta = obj if _gavetas.MARCA_GAVETA in obj else None
+    indice = int(gaveta[_gavetas.CHAVE_INDICE]) if gaveta is not None else None
+    if indice is not None:
+        p = _gavetas.parametros_da_unidade(p,indice)
+        largura_vao = _gavetas.valor(grupo,('L',indice))
+        altura_vao = _gavetas.valor(grupo,('A',indice))
+        profundidade = _gavetas.valor(grupo,('P',indice))
+
+    def prop(nome):
+        return 'individual_%d_%s' % (indice,nome) if indice is not None else nome
 
     def campo(nome, rotulo, valor):
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
-                ('medida', 'gavetas', nome, rotulo, valor))
+                ('medida', 'gavetas', prop(nome), rotulo, valor))
 
-    topo = _titulo_secao(itens, x, y + 26, w, 'Gavetas')
+    topo = _titulo_secao(itens, x, y + 26, w, 'Gaveta %d' % (indice+1) if indice is not None else 'Gavetas')
     topo = _campos_em_linhas(context, itens, x, topo, w, [
         campo('largura', 'Largura', largura_vao),
         campo('altura', 'Altura', altura_vao),
         campo('profundidade_mm', 'Profundidade', profundidade)],
-        compacto=(str(p['quantidade']),
+        compacto=None if indice is not None else (str(p['quantidade']),
                   ('contador', 'gavetas_quantidade', int(p['quantidade']), 1,
                    _gavetas.MAXIMO_GAVETAS, alvo, 'Gavetas')))
+    if int(p['quantidade']) > 1:
+        itens.append((x, topo - 28, w, 28, 'Normalizar alturas',
+                      ('operador', 'object.cabinet_normalizar_gavetas')))
+        topo -= 34
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Frente')
-    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'gavetas_cobertura',
+    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', prop('cobertura') if indice is not None else 'gavetas_cobertura',
                                  _gavetas.OPCOES_COBERTURA, p['cobertura'],
                                  alvo=alvo) + 23
+    espacos = ([campo('entre_gavetas_mm','Entre gavetas',p['entre_gavetas_mm'])]
+              if indice is None else [campo(nome,rotulo,_gavetas.folgas(p)[k])
+                for nome,rotulo,k in (('abaixo_mm','Abaixo',indice-1),('acima_mm','Acima',indice))
+                if 0 <= k < int(p['quantidade'])-1])
     topo = _campos_em_linhas(context, itens, x, topo, w, [
         campo('folga_frontal_mm', 'Espacamento frontal', p['folga_frontal_mm']),
-        campo('entre_gavetas_mm', 'Entre gavetas', p['entre_gavetas_mm']),
+        *espacos,
         campo('recuo_mm', 'Recuo', p['recuo_mm']),
         campo('espessura_frente_mm', 'Espessura', p['espessura_frente_mm']),
         # flecha do arco da frente (0 = reta): o gaveteiro de canto curvo
         campo('frente_curva_mm', 'Curva', float(p.get('frente_curva_mm') or 0.0))])
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Trilho %d mm' % round(
-        float(grupo.get(_gavetas.CHAVE_TRILHO_MM, 0.0))))
-    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'gavetas_trilho',
+        _gavetas.curso(gaveta) if gaveta is not None else float(grupo.get(_gavetas.CHAVE_TRILHO_MM, 0.0))))
+    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', prop('trilho') if indice is not None else 'gavetas_trilho',
                                  _gavetas.OPCOES_TRILHO, p['trilho'],
                                  alvo=alvo) + 23
     # puxador: o duplo clique isola UMA gaveta (so' ela troca); o grupo
@@ -1403,39 +1439,6 @@ def _aba_gavetas_gaveta(context, itens, x, y, w):
     except ValueError as erro:
         itens.append((x, topo - 23 - ESPACO_SECOES - 160, w, 22, str(erro), None))
     return itens
-
-
-def _secao_forma_gaveta(context, itens, x, y, w):
-    """Modulo em L, diagonal ou curvo (pedido do usuario: as medidas
-    novas no menu): P1/P2 de cada braco, o raio e o ANGULO da diagonal.
-    `y` = onde iria o titulo seguinte; devolve o novo."""
-    obj = _selecionado(context)
-    if obj is None or _chapas.MARCA_CONJUNTO not in obj:
-        return y
-    forma = _formas.forma_do_modulo(obj)
-    if forma is None:
-        return y
-    campos, vistas = [], set()
-    nomes = {'P1': 'P1', 'P2': 'P2', 'R': 'Raio'}
-    for seg in _formas.segmentos(forma):
-        chave = seg['chave']
-        if not chave or chave[0] not in nomes or chave in vistas:
-            continue
-        vistas.add(chave)
-        valor = _formas.valor(obj, chave)
-        campos.append(('%s: %s' % (nomes[chave[0]], _opcoes._texto_medida(valor)),
-                       ('medida', 'forma', '%s:%d' % chave, nomes[chave[0]], valor)))
-    compacto = None
-    for k, f in enumerate(forma['cantos']):
-        if f is not None and f['tipo'] == 'CHANFRO':
-            angulo = int(round(_formas.valor(obj, ('ANG', k))))
-            compacto = ('%d%s' % (angulo, chr(0xB0)),
-                        ('contador', 'forma_angulo_%d' % k, angulo, 5, 85,
-                         obj.name, 'Angulo'))
-            break
-    topo = _titulo_secao(itens, x, y + 23, w, 'Formato')
-    topo = _campos_em_linhas(context, itens, x, topo, w, campos, compacto=compacto)
-    return topo - 23 - 4
 
 
 def _botao_criar_puxador():
@@ -1946,7 +1949,6 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
                 and not pergunta.get('comodo') and not pergunta.get('biblioteca'))
     if nosso or de_fora:
         y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade)
-        y = _secao_forma_gaveta(context, itens, x, y, w)
     if not (nosso or pendente):
         return _secao_orcamento_gaveta(context, itens, x, y, w)
     itens.append((x, y, w, 23, 'Montagem', None))

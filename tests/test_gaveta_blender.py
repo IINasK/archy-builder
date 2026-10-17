@@ -34,6 +34,38 @@ class _Contexto:
 
 
 class TestGaveta(unittest.TestCase):
+    def test_menu_chapa_chanfrada_exibe_cotas_da_viewport_com_campos_proprios(self):
+        import bmesh
+        o=addon.chapas.nova_chapa('Cotas dinamicas no menu',400,300,18,(0,0,0),(0,90,0),bpy.context)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+            bmesh.ops.bevel(bm,geom=[e],offset=.08,segments=1,affect='EDGES')
+            for v in bm.verts:
+                if v.co.x>.1 and v.co.y>.05:v.co.z+=.12
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();addon.chapas.absorver_malha_editada(o);addon.frentes.preparar(o)
+        addon.hud._selecionar_chapa_hud(bpy.context,o,individual=True)
+        for largura in (220,320,540):
+            itens=addon.gaveta._widgets_gaveta(bpy.context,largura,1200)
+            campos=[v for v in itens if v[5] and v[5][0]=='medida']
+            self.assertEqual([v[5][3] for v in campos],['A1','A2','A3','A4','A5','A6','E'])
+            self.assertTrue(all(v[5][1]=='cota' and v[5][2] for v in campos))
+            self.assertEqual(len({v[5][2] for v in campos}),7)
+            self.assertTrue(all(v[0]>=0 and v[0]+v[2]<=largura for v in campos))
+            self.assertTrue(all(v[2]>=128 for v in campos))
+            if largura==540:self.assertEqual(len({v[1] for v in campos}),3)
+
+    def test_medidas_exibem_A1_A2_A3_sem_renomear_props_salvas(self):
+        for largura in (220,320,540):
+            itens=addon.gaveta._widgets_gaveta(bpy.context,largura,1200)
+            campos=[v for v in itens if v[5] and v[5][0]=='medida']
+            self.assertEqual({v[4].split(':')[0] for v in campos},{'A1','A2','A3'})
+            self.assertEqual({v[5][3] for v in campos},{'Largura','Altura','Profundidade'})
+        self.assertEqual(addon.hud.rotulo_medida('Espessura'),'Espessura')
+
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False)
@@ -708,10 +740,10 @@ class TestGaveta(unittest.TestCase):
         self.cena.porta_folhas = 4
         self.cena.porta_abertura = 'BASCULANTE'
         self.assertEqual(self.cena.porta_folhas, 1)
-        # no wizard a fila e' a copia da caixa: 1 | 2 (a abertura filtra
+        # no wizard a fila e' a copia da caixa: 1 a 8 (a abertura filtra
         # depois, em `_escolher`)
         self.revelar(folhas=1, abertura='BASCULANTE')
-        self.assertEqual(self.escolhas()['porta_folhas'], [1, 2])
+        self.assertEqual(self.escolhas()['porta_folhas'], list(range(1, 9)))
 
     def test_wizard_aparece_na_aba_etapa_a_etapa(self):
         # Pedido do usuario: a caixa da viewport tem copia na aba Portas;

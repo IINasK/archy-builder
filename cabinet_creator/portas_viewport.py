@@ -17,6 +17,7 @@ _puxadores = None
 _hud = None
 _solda = None
 _perguntas = None
+_frentes = None
 
 # ------------------------------------------ os 4 cantos da porta
 # Pedido do usuario: clique simples na porta mostra os fios do wizard
@@ -71,10 +72,80 @@ def _caixa_da_folha(folha):
             for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
 
 
+def _referencia_tem_perfil(ref):
+    """Caixa plana conserva o vao/coberturas do wizard, nao seus vertices."""
+    if 'plana_retangular' in ref:
+        return not ref['plana_retangular']
+    for base, topo in (('frente', 'cima_frente'), ('tras', 'cima_tras')):
+        baixo, cima = ref.get(base, ()), ref.get(topo, ())
+        if len(baixo) > 2 or len(cima) > 2:
+            return True
+        if len(baixo) < 2 or len(cima) < 2:
+            continue
+        origem = Vector(baixo[0])
+        normal = (Vector(baixo[-1])-origem).cross(Vector(cima[0])-origem)
+        if normal.length_squared <= 1e-20:
+            continue
+        normal.normalize()
+        if any(abs((Vector(p)-origem).dot(normal)) > 1e-7
+               for p in cima):
+            return True
+    return False
+
+
+def _perfil_da_folha(folha, fechada=False, interno=False):
+    """Vertices ja' referenciados na montagem, sem buscar malha no redraw."""
+    ref = _frentes.referencia(folha) if _frentes is not None else None
+    if ref is not None:
+        return (_frentes.perfil(folha, fechada=fechada, interno=interno)
+                if _referencia_tem_perfil(ref) else None)
+    pontos = folha.get('porta_linha_frente')
+    if not pontos or len(pontos) <= 2:
+        return None
+    matriz = (_ferragens._matriz_fechada(folha) if fechada else folha.matrix_world)
+    hy = folha.chapa_comprimento_mm / 2000.0
+    baixo, cima = [], []
+    for p in pontos:
+        p = Vector(p)
+        if interno:
+            p.z -= folha.chapa_espessura_mm / 1000.0
+        a, b = p.copy(), p.copy()
+        a.y, b.y = -hy, hy
+        baixo.append(matriz @ a)
+        cima.append(matriz @ b)
+    return baixo, cima
+
+
+def _contorno_da_folha(folha):
+    if _frentes is not None:
+        contorno = _frentes.contorno(folha)
+        if contorno is not None:
+            return contorno
+    perfil = _perfil_da_folha(folha)
+    if perfil is None:
+        return _caixa_da_folha(folha), _portas.ARESTAS_CAIXA
+    baixo, cima = perfil
+    m = len(baixo)
+    arestas = [(i,i+1) for i in range(m-1)]
+    arestas += [(i+m,i+m+1) for i in range(m-1)]
+    arestas += [(0,m),(m-1,2*m-1)]
+    for i in range(1,m-1):
+        # Curva lisa nao ganha listras; a quina dobrada continua legivel.
+        if (baixo[i]-baixo[i-1]).normalized().dot((baixo[i+1]-baixo[i]).normalized()) < .866:
+            arestas.append((i,i+m))
+    return baixo+cima, arestas
+
+
 def _cantos_da_porta(grupo):
     """Os 4 pontos do wizard em MUNDO, na ordem dos cliques: canto da
     porta e do vao em cima a esquerda, do vao e da porta embaixo a
     direita (o desenho do usuario)."""
+    folhas = _portas._folhas_portas(grupo)
+    if len(folhas) == 1:
+        fora = _perfil_da_folha(folhas[0], fechada=True)
+        dentro = _perfil_da_folha(folhas[0], fechada=True, interno=True)
+        if fora and dentro:
+            return [fora[1][0], dentro[1][0], dentro[0][-1], fora[0][-1]]
     p = grupo['porta_parametros']
     L = float(grupo['porta_vao_largura_mm'])
     A = float(grupo['porta_vao_altura_mm'])
@@ -135,7 +206,21 @@ def _desenho_da_porta(grupo):
     except (ValueError, KeyError, TypeError):
         return desenho
     objetos = _portas._folhas_portas(grupo)
+    if len(objetos) == 1 and _perfil_da_folha(objetos[0]) is not None:
+        folha = objetos[0]
+        baixo, cima = _perfil_da_folha(folha, fechada=True, interno=True)
+        desenho['vao'] = baixo+list(reversed(cima))
+        pontos, arestas = _contorno_da_folha(folha)
+        desenho['folhas'] = [pontos]
+        desenho['arestas_folhas'] = [arestas]
+        desenho['perfil'] = True
+        return desenho
     for i, (l, alt, e, centro) in enumerate(folhas):
+        if i < len(objetos):
+            pontos, arestas = _contorno_da_folha(objetos[i])
+            desenho['folhas'].append(pontos)
+            desenho.setdefault('arestas_folhas', []).append(arestas)
+            continue
         meia = Vector((l, alt, e)) / 2000.0
         # pela folha de verdade: o contorno abre junto com ela
         matriz = (objetos[i].matrix_world if i < len(objetos)
@@ -144,6 +229,7 @@ def _desenho_da_porta(grupo):
                                                    meia.z * sz))
                                   for sx in (-1, 1) for sy in (-1, 1)
                                   for sz in (-1, 1)])
+        desenho.setdefault('arestas_folhas', []).append(_portas.ARESTAS_CAIXA)
     return desenho
 
 
@@ -165,18 +251,21 @@ def _desenhar_cantos_porta(context):
         shader.bind()
         for folha in folhas:
             # so' a folha: sem vao, fios nem cantos (sao da porta inteira)
-            tela = [_hud._projetar_hud(context, v) for v in _caixa_da_folha(folha)]
+            pontos, arestas = _contorno_da_folha(folha)
+            tela = [_hud._projetar_hud(context, v) for v in pontos]
             if any(v is None for v in tela):
                 continue
             shader.uniform_float('color', _portas.COR_FIO_VAO)
-            for i, j in _portas.ARESTAS_CAIXA:
+            for i, j in arestas:
                 batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
                     tela[i], tela[j], 1.4 * escala)}).draw(shader)
         for grupo in portas:
             desenho = _desenho_da_porta(grupo)
-            contornos = [(caixa, _portas.ARESTAS_CAIXA, _portas.COR_FIO_VAO)
-                         for caixa in desenho['folhas']]
-            contornos.append((desenho['vao'], ((0, 1), (1, 2), (2, 3), (3, 0)),
+            contornos = [(caixa, desenho.get('arestas_folhas',
+                         [_portas.ARESTAS_CAIXA]*len(desenho['folhas']))[i], _portas.COR_FIO_VAO)
+                         for i,caixa in enumerate(desenho['folhas'])]
+            n = len(desenho['vao'])
+            contornos.append((desenho['vao'], [(i,(i+1)%n) for i in range(n)],
                               COR_LINHAS_VAO))
             for pontos, arestas, cor in contornos:
                 tela = [_hud._projetar_hud(context, v) for v in pontos]
@@ -192,6 +281,8 @@ def _desenhar_cantos_porta(context):
             if any(p is None for p in tela):
                 continue
             for i in range(3):
+                if i == 1 and desenho.get('perfil'):
+                    continue  # a diagonal do wizard atravessava a porta curva
                 shader.uniform_float('color', _portas.COR_FIO_VAO if i == 1
                                      else _portas.COR_FIO_COBERTURA)
                 batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
@@ -406,6 +497,8 @@ def _folhas_com_slider(context):
             continue
         if _porta_veio_do_modulo(grupo):
             continue        # modulo selecionado: sem sliders
+        if grupo['porta_parametros'].get('abertura') == 'ZIGZAG':
+            candidatas = _portas._folhas_portas(grupo)[-1:]
         folhas += [f for f in candidatas if f not in folhas]
     return folhas
 
@@ -514,7 +607,7 @@ def _texto_abertura(folha):
               - Vector(centro)).length
         return '%d mm' % round(mm)
     maximo = (_ferragens._giro_maximo_rig() if _ferragens._usa_rig(p)
-              else _ferragens.ABERTURA_MAX_GRAUS.get(abertura, 110.0))
+              else float(p.get('abertura_limite_graus',_ferragens.ABERTURA_MAX_GRAUS.get(abertura, 110.0))))
     return '%d%s' % (round(maximo * fracao), SIMBOLO_GRAU)
 
 

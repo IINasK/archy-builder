@@ -4,6 +4,7 @@ Asset Browser e prateleira. Mora aqui tambem o wireframe das medidas
 (usado pela gaveta e pelo painel N)."""
 
 import bpy, math, os, uuid, json, gpu, time
+_frentes = None
 import bpy.utils.previews
 from gpu_extras.batch import batch_for_shader
 from mathutils import Euler, Matrix, Vector
@@ -14,8 +15,9 @@ from bpy.types import Operator
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _selecao = _gaveta = None
-_portas = _puxadores = _ferragens = None
+_portas = _puxadores = _ferragens = _promob = None
 _biblioteca_faixa = None
+_formas = None
 
 # ================================================== BIBLIOTECA / ASSETS
 # Salva chapas e modulos na biblioteca de assets do Blender, para
@@ -754,41 +756,50 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
     if not os.path.exists(caminho):
         return [], [], "Arquivo nao encontrado: " + caminho
     antes = set(bpy.data.objects)
-    with bpy.data.libraries.load(caminho) as (de, para):
-        if tipo == "modulo" and de.collections:
-            para.collections = list(de.collections)
-        else:
-            para.objects = list(de.objects)
-    novas_cols = [c for c in bpy.data.collections
-                  if c.library is None and c.name not in
-                  [x.name for x in context.scene.collection.children]]
-    for c in novas_cols:
-        if any(o not in antes for o in c.objects):
+    colecoes_antes = set(bpy.data.collections)
+    ocupado = _chapas._ocupado[0]
+    _chapas._ocupado[0] = True
+    try:
+        with bpy.data.libraries.load(caminho) as (de, para):
+            if tipo == "modulo" and de.collections:
+                para.collections = list(de.collections)
+            else:
+                para.objects = list(de.objects)
+        novos = set(bpy.data.objects) - antes
+        novas_cols = set(bpy.data.collections) - colecoes_antes
+        filhas = {f for c in novas_cols for f in c.children}
+        # Relacionamentos ja' vieram pelo append nativo. Religar tambem
+        # cada subcolecao na raiz duplica caminhos na camada e no depsgraph.
+        for c in novas_cols - filhas:
             context.scene.collection.children.link(c)
-    for o in bpy.data.objects:
-        if o not in antes and o.name not in [x.name for c in novas_cols for x in c.objects]:
-            if o.name not in context.scene.collection.objects:
-                try:
-                    context.scene.collection.objects.link(o)
-                except Exception:
-                    pass
-    novos = [o for o in bpy.data.objects if o not in antes]
-
-    raizes = [o for o in novos if o.parent is None or o.parent not in novos]
-    desloc = context.scene.cursor.location.copy() if destino is None else destino
-    for o in raizes:
-        o.location = o.location + desloc
-
-    for o in context.selected_objects:
-        o.select_set(False)
-    for o in novos:
-        try:
-            o.select_set(True)
-        except Exception:
-            pass
-    # o "olho" das pecas auxiliares do rig e' da camada de visualizacao,
-    # nao do objeto: no .blend do preset ele nao vem
+        ligados = {o for c in novas_cols for o in c.all_objects}
+        for o in novos - ligados:
+            context.scene.collection.objects.link(o)
+        raizes = [o for o in novos if o.parent not in novos]
+        desloc = context.scene.cursor.location.copy() if destino is None else destino
+        for o in raizes:
+            o.location = o.location + desloc
+        for o in context.selected_objects:
+            o.select_set(False)
+        for o in novos:
+            try:o.select_set(True)
+            except RuntimeError:pass
+        # hide_set e' da camada, nao vem gravado no preset.
+        _ferragens.ocultar_pecas_do_rig(novos)
+    finally:
+        _chapas._ocupado[0] = ocupado
+    context.view_layer.update()
+    conjuntos=[o for o in novos if _chapas.MARCA_CONJUNTO in o]
+    for o in conjuntos:
+        _promob.corrigir_curvas_legadas(o)
+        _modulos.sincronizar_medidas_conjunto(o)
+    novos=set(bpy.data.objects)-antes
+    raizes=[o for o in novos if o.parent not in novos]
     _ferragens.ocultar_pecas_do_rig(novos)
+    for o in novos:
+        if o.type=='MESH' and _chapas.MARCA_CHAPA in o:
+            _frentes.preparar(o)
+    novos = sorted(novos, key=lambda o:o.name)
     return novos, raizes, ""
 
 
@@ -1937,6 +1948,40 @@ VISTA_FOTO = Euler((math.radians(60.0), 0.0, math.radians(45.0)),
                    'XYZ').to_quaternion()
 
 
+def _arestas_da_foto(obj):
+    """Bordas e quinas reais: triangulos coplanares nao viram riscos na foto."""
+    normais = {}
+    for face in obj.data.polygons:
+        for chave in face.edge_keys:
+            normais.setdefault(tuple(sorted(chave)), []).append(face.normal)
+    limite = math.cos(math.radians(20))
+    return [e.vertices[:] for e in obj.data.edges
+            if len(ns := normais.get(tuple(sorted(e.vertices)), [])) == 1
+            or any(a.dot(b) < limite for i, a in enumerate(ns) for b in ns[i+1:])]
+
+
+def _contornos_da_foto(objetos, raio):
+    """Linhas temporarias no render: espessura legivel ao reduzir a miniatura,
+    com ocultacao pela propria geometria (nao desenhar atraves do movel)."""
+    dados = bpy.data.curves.new('Contorno Foto Preset', 'CURVE')
+    dados.dimensions = '3D'
+    dados.bevel_depth = raio
+    dados.bevel_resolution = 0
+    for obj in objetos:
+        if obj.type != 'MESH' or obj.hide_render or _chapas.MARCA_CHAPA not in obj:
+            continue
+        for a, b in _arestas_da_foto(obj):
+            linha = dados.splines.new('POLY')
+            linha.points.add(1)
+            for ponto, indice in zip(linha.points, (a, b)):
+                co = obj.matrix_world @ obj.data.vertices[indice].co
+                ponto.co = (*co, 1)
+    contorno = bpy.data.objects.new('Contorno Foto Preset', dados)
+    bpy.context.scene.collection.objects.link(contorno)
+    contorno.color = (.045, .045, .045, 1)
+    return contorno
+
+
 def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
     """Foto do preset SEM janela: camera ortografica na vista da foto,
     render Workbench solido com fundo transparente (a viewport de
@@ -1957,12 +2002,14 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
     dados = bpy.data.cameras.new('Foto Preset')
     camera = bpy.data.objects.new('Foto Preset', dados)
     cena.collection.objects.link(camera)
+    contorno = None
+    cores = [(o, tuple(o.color)) for o in objetos]
     try:
         for o in escondidos:
             o.hide_render = True
         bpy.context.view_layer.update()
         pontos = [o.matrix_world @ Vector(c) for o in objetos
-                  if o.type == 'MESH' for c in o.bound_box]
+                  if o.type == 'MESH' and not o.hide_render for c in o.bound_box]
         if not pontos:
             return False, 'nada para fotografar'
         centro = sum(pontos, Vector()) / len(pontos)
@@ -1977,6 +2024,7 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
         profundidade = max(p.z for p in locais) + 1.0
         dados.type = 'ORTHO'
         dados.ortho_scale = max(largura, altura) * 1.12
+        contorno = _contornos_da_foto(objetos, dados.ortho_scale * .003)
         dados.clip_end = profundidade * 4 + 10.0
         camera.matrix_world = (Matrix.Translation(
             centro + rot @ (meio + Vector((0, 0, profundidade))))
@@ -1990,7 +2038,9 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
         cena.render.resolution_percentage = 100
         cena.render.film_transparent = True
         sombreamento.light = 'STUDIO'
-        sombreamento.color_type = 'SINGLE'
+        sombreamento.color_type = 'OBJECT'
+        for obj, _cor in cores:
+            obj.color = (.55, .55, .55, 1)
         sombreamento.single_color = (0.55, 0.55, 0.55)  # o cinza das fotos
         sombreamento.show_object_outline = True
         bpy.ops.render.render(write_still=True)
@@ -1998,6 +2048,12 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
     except Exception as e:
         return False, str(e)
     finally:
+        if contorno is not None:
+            curva = contorno.data
+            bpy.data.objects.remove(contorno, do_unlink=True)
+            bpy.data.curves.remove(curva)
+        for obj, cor in cores:
+            obj.color = cor
         for o in escondidos:
             try:
                 o.hide_render = False
@@ -2021,7 +2077,15 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
 # torre e roupeiro de altura inteira. Porta de giro: 1 folha ate' 500 mm
 # de largura, 2 acima; o aereo tem tambem a versao basculante.
 LARGURA_MAX_UMA_FOLHA_MM = 500
-ABERTURA_FOTO = 0.3            # fracao do slider de abertura na foto
+ABERTURA_FOTO = 0.0            # biblioteca: todas as folhas fechadas
+
+
+def preparar_abertura_foto(context, conj):
+    """Pose fechada da FOTO, sem alterar lado, vao ou ferragens."""
+    for grupo in _portas._portas_do_conjunto(conj):
+        for folha in _portas._folhas_portas(grupo):
+            _ferragens._definir_abertura(context, folha, ABERTURA_FOTO)
+    context.view_layer.update()
 # Puxador padrao dos nativos = PERFIL (pedido do usuario), na borda da
 # pratica de cozinha planejada: balcao/gabinete em cima, aereo embaixo,
 # torre/roupeiro na vertical do lado da abertura
@@ -2103,11 +2167,9 @@ def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
         arq = salvar_na_biblioteca(pecas, nome, True, niveis=niveis)
         png = os.path.join(pasta_biblioteca(),
                            os.path.splitext(os.path.basename(arq))[0] + ".png")
-        # na FOTO a porta fica entreaberta: fechadas, giro de 1 folha e
-        # basculante saiam iguais na grade (o .blend ja' foi gravado fechado)
-        for grupo in _portas._portas_do_conjunto(conj):
-            for folha in _portas._folhas_portas(grupo):
-                _ferragens._definir_abertura(context, folha, ABERTURA_FOTO)
+        # A foto segue a pose fechada pedida para toda a biblioteca.
+        preparar_abertura_foto(context, conj)
+        pecas = [conj, *conj.children_recursive]
         context.view_layer.update()
         ok, msg = fotografar_com_camera(png, pecas)
         if not ok:

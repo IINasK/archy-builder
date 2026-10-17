@@ -69,6 +69,248 @@ def ocupado():
 
 
 class TestOperadores(unittest.TestCase):
+    def test_instancia_nao_altera_mesh_que_outra_instancia_esta_editando(self):
+        from unittest.mock import patch
+        o=addon.chapas.nova_chapa('Malha compartilhada em edicao',400,300,18,(0,0,0),(0,0,0),bpy.context)
+        clone=o.copy();clone.data=o.data;bpy.context.scene.collection.objects.link(clone)
+        selecionar(o);bpy.ops.object.mode_set(mode='EDIT')
+        try:
+            self.assertEqual(clone.mode,'OBJECT');self.assertTrue(clone.data.is_editmode)
+            with patch.object(addon.chapas.bmesh,'new',side_effect=AssertionError('Substituiu Mesh em edicao')):
+                addon.chapas.gerar_malha_chapa(clone)
+                self.assertFalse(addon.chapas.absorver_malha_editada(clone))
+                clone.scale.x=2.
+                self.assertEqual(addon.chapas.normalizar_chapas([clone]),[])
+                self.assertEqual(clone.scale.x,2.)
+        finally:bpy.ops.object.mode_set(mode='OBJECT')
+
+    def test_absorver_chanfro_modelado_nao_reconstroi_malha_do_undo(self):
+        from unittest.mock import patch
+        o=addon.chapas.nova_chapa('Chapa com chanfro nativo',400,300,18,(0,0,.2),(0,90,0),bpy.context)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+            bmesh.ops.bevel(bm,geom=[e],offset=.08,segments=1,affect='EDGES')
+            for v in bm.verts:
+                if v.co.x>.1 and v.co.y>.05:v.co.z+=.08
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();me=o.data
+        uv=me.uv_layers.new(name='UV do chanfro')
+        for i,v in enumerate(uv.data):v.uv=(i/50,i/70)
+        pintura=bpy.data.materials.new('Pintura do chanfro');me.materials.append(pintura)
+        antes=[o.matrix_world@v.co for v in me.vertices]
+        faces=[tuple(f.vertices) for f in me.polygons];uvs=[tuple(v.uv) for v in uv.data]
+        with patch.object(addon.chapas,'gerar_malha_chapa',side_effect=AssertionError('Reconstruiu malha manual')):
+            self.assertTrue(addon.chapas.absorver_malha_editada(o))
+        self.assertIs(o.data,me);self.assertNotIn('chapa_edicao',o)
+        self.assertEqual(faces,[tuple(f.vertices) for f in me.polygons])
+        self.assertEqual(uvs,[tuple(v.uv) for v in me.uv_layers['UV do chanfro'].data])
+        self.assertIs(me.materials[0],pintura)
+        self.assertLess(max((p-o.matrix_world@v.co).length for p,v in zip(antes,me.vertices)),1e-6)
+
+    def test_timer_nao_consulta_cena_enquanto_undo_esta_restaurando(self):
+        from unittest.mock import patch
+        addon.eventos._desfazendo[0]=True
+        try:
+            with patch.object(addon.eventos,'sincronizar_contornos',side_effect=AssertionError('Leu selecao durante undo')):
+                self.assertEqual(addon.eventos.verificar_periodicamente(),addon.eventos.INTERVALO_TIMER)
+        finally:addon.eventos._desfazendo[0]=False
+
+    def test_fecho_do_undo_nao_escreve_malhas_e_descarta_transicao_antiga(self):
+        from unittest.mock import patch
+        addon.chapas._chapas_em_edicao.add('Chapa anterior ao undo');addon.chapas._havia_modal[0]=True
+        addon.eventos._antes_de_desfazer()
+        self.assertFalse(addon.chapas._chapas_em_edicao);self.assertFalse(addon.chapas._havia_modal[0])
+        with patch.object(addon.frentes,'preparar_cena',side_effect=AssertionError('Escreveu Mesh no fecho do undo')),patch.object(addon.eventos,'sincronizar_contornos'):
+            addon.eventos._fim_do_desfazer()
+        self.assertFalse(addon.eventos._desfazendo[0]);self.assertTrue(addon.frentes._cena_pendente[0])
+
+    def test_chanfrar_mover_tab_undo_redo_conserva_topologia_e_copia_nativa(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Regressao do chanfro undo',600,400,300)
+        o=next(o for o in conj.children if 'Direita' in o.name);nome=o.name
+        selecionar(o);bpy.ops.ed.undo_push(message='Antes do chanfro')
+        bpy.ops.object.mode_set(mode='EDIT');addon.chapas.absorver_edicoes_de_malha()
+        bpy.ops.mesh.select_all(action='DESELECT');bpy.ops.mesh.select_mode(type='EDGE')
+        bm=bmesh.from_edit_mesh(o.data)
+        e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+        e.select_set(True);bmesh.update_edit_mesh(o.data)
+        bpy.ops.mesh.bevel(offset=.08,segments=1,affect='EDGES')
+        bpy.ops.ed.undo_push(message='Chanfrou')
+        bpy.ops.transform.translate(value=(-.08,0,0));bpy.ops.ed.undo_push(message='Moveu a quina')
+        bpy.ops.object.mode_set(mode='OBJECT');bpy.ops.ed.undo_push(message='Tab antes do timer')
+        addon.chapas.absorver_edicoes_de_malha();addon.frentes.processar_pendentes()
+        self.assertEqual(len(o.data.vertices),10)
+        faces=[tuple(f.vertices) for f in o.data.polygons]
+        bm=e=o=conj=None
+        for _ in range(4):
+            bpy.ops.ed.undo();bpy.context.view_layer.update()
+            self.assertEqual(bpy.context.mode,'EDIT_MESH')
+            addon.eventos._fim_do_desfazer();addon.eventos.verificar_periodicamente()
+            bpy.ops.ed.redo();bpy.context.view_layer.update()
+            self.assertEqual(bpy.context.mode,'OBJECT')
+            addon.eventos._fim_do_desfazer();addon.eventos.verificar_periodicamente()
+            self.assertEqual(faces,[tuple(f.vertices) for f in bpy.data.objects[nome].data.polygons])
+            o=bpy.data.objects[nome]
+            reais=[(max(v.co[i] for v in o.data.vertices)-min(v.co[i] for v in o.data.vertices))*1000 for i in range(2)]
+            reais.append(addon.chapas._secao_espessura(o.data)['espessura_mm'])
+            for real,prop in zip(reais,('chapa_largura_mm','chapa_comprimento_mm','chapa_espessura_mm')):
+                self.assertAlmostEqual(real,getattr(o,prop),places=3)
+            o=None
+            copia=bpy.data.objects[nome].data.copy()
+            self.assertEqual(len(copia.vertices),10);bpy.data.meshes.remove(copia)
+
+    def test_dobra_chanfrada_mede_pele_e_resize_preserva_linha_media(self):
+        o=addon.chapas.nova_chapa('Dobra com espessura fisica',400,300,18,(0,0,0),(0,90,0),bpy.context)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data)
+            e=max((e for e in bm.edges if abs((e.verts[1].co-e.verts[0].co).normalized().z)>.99),key=lambda e:sum(v.co.x+v.co.y for v in e.verts))
+            bmesh.ops.bevel(bm,geom=[e],offset=.08,segments=1,affect='EDGES')
+            for v in bm.verts:
+                if v.co.x>.1 and v.co.y>.05:v.co.z+=.12
+            bm.to_mesh(o.data)
+        finally:bm.free()
+        o.data.update();me=o.data
+        mundo=[o.matrix_world@v.co for v in me.vertices]
+        addon.chapas.absorver_malha_editada(o)
+        self.assertAlmostEqual(o.chapa_espessura_mm,18,places=4)
+        self.assertGreater((max(v.co.z for v in me.vertices)-min(v.co.z for v in me.vertices))*1000,130)
+        # Arquivo antigo ja' recentrado e com a prop contaminada pela AABB.
+        with ocupado():o.chapa_espessura_mm=(max(v.co.z for v in me.vertices)-min(v.co.z for v in me.vertices))*1000
+        self.assertTrue(addon.chapas.absorver_malha_editada(o))
+        self.assertAlmostEqual(o.chapa_espessura_mm,18,places=4)
+        self.assertLess(max((p-o.matrix_world@v.co).length for p,v in zip(mundo,me.vertices)),1e-6)
+        original=[v.co.copy() for v in me.vertices]
+        o.chapa_largura_mm=500
+        self.assertEqual([v.co.z for v in me.vertices],[p.z for p in original])
+        o.chapa_largura_mm=400
+        for v,p in zip(me.vertices,original):self.assertLess((v.co-p).length,1e-6)
+        o.chapa_espessura_mm=25
+        self.assertAlmostEqual(addon.chapas._espessura_da_malha(o),25,places=4)
+        secao=addon.chapas._secao_espessura(me)
+        for a,b in secao['pares']:
+            par=[p for p in original if abs(p.x-a[0])<1e-6 and abs(p.y-a[1])<1e-6]
+            self.assertEqual(len(par),2)
+            self.assertAlmostEqual((a[2]+b[2])/2,sum(p.z for p in par)/2,places=6)
+        self.assertIs(o.data,me)
+
+    def test_secao_ambigua_nao_inventa_espessura_pelo_envelope(self):
+        o=addon.chapas.nova_chapa('Secao irregular',400,300,18,(0,0,0),(0,0,0),bpy.context)
+        o.data.vertices[0].co.z-=.12;o.data.update()
+        addon.chapas.absorver_malha_editada(o)
+        self.assertAlmostEqual(o.chapa_espessura_mm,18,places=4)
+
+    def test_undo_do_tab_recupera_grupo_sem_referencias_a_objetos_antigos(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Tab desfazer', 600, 700, 550)
+        nome = conj.name
+        selecionar(conj)
+        bpy.ops.ed.undo_push(message='Antes de Tab')
+        bpy.ops.object.cabinet_editar_grupo()
+        obj = bpy.context.object
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.verts[0].co.x += .005
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.ed.undo_push(message='Editou grupo')
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.ed.undo_push(message='Saiu de Tab')
+        bpy.ops.ed.undo()
+        self.assertEqual(bpy.context.mode, 'EDIT_MESH')
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.ed.redo()
+        self.assertEqual(bpy.context.mode, 'OBJECT')
+        bpy.ops.ed.undo()
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.object.cabinet_editar_grupo()
+        conj = bpy.data.objects[nome]
+        self.assertEqual(bpy.context.object, conj)
+        self.assertEqual([(o, m) for o, m, _ in addon.hud._itens_da_selecao(bpy.context)], [(conj, 'GRUPO')])
+
+    def test_tab_restaura_selecao_do_modulo_e_hud_unica(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Tab inteiro', 600, 700, 550)
+        selecionar(conj)
+        bpy.context.view_layer.objects.active = None
+        antes = limites(addon.modulos._chapas_do_conjunto(conj))
+        for _ in range(3):
+            bpy.ops.object.cabinet_editar_grupo()
+            self.assertEqual(bpy.context.mode, 'EDIT_MESH')
+            self.assertTrue(conj.select_get())
+            self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+            bpy.ops.object.cabinet_editar_grupo()
+            addon.eventos.verificar_periodicamente()
+            self.assertEqual(set(bpy.context.selected_objects), {conj})
+            self.assertEqual(bpy.context.object, conj)
+            itens = addon.hud._itens_da_selecao(bpy.context)
+            self.assertEqual([(o, modo) for o, modo, _ in itens], [(conj, 'GRUPO')])
+        self.assertEqual(antes, limites(addon.modulos._chapas_do_conjunto(conj)))
+
+    def test_saida_nativa_do_edit_mode_conserva_grupos_e_nova_selecao(self):
+        a = addon.modulos.criar_armario(bpy.context, 'Tab A', 600, 700, 550)
+        b = addon.modulos.criar_armario(bpy.context, 'Tab B', 600, 700, 550)
+        selecionar(a, b)
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        addon.eventos.verificar_periodicamente()
+        self.assertEqual(set(bpy.context.selected_objects), {a, b})
+        self.assertEqual(bpy.context.object, a)
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        peca = addon.modulos._chapas_do_conjunto(b)[0]
+        selecionar(peca)
+        addon.eventos.verificar_periodicamente()
+        self.assertEqual(set(bpy.context.selected_objects), {peca})
+        self.assertEqual(bpy.context.object, peca)
+
+    def test_tab_do_grupo_entra_no_edit_mode_nativo_das_malhas(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Editar',600,700,550)
+        addon.portas.porta_no_modulo(conj)
+        for o in bpy.context.selected_objects:o.select_set(False)
+        conj.select_set(True);bpy.context.view_layer.objects.active=conj
+        alvos=addon.selecao.malhas_para_editar(bpy.context)
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        self.assertIn('FINISHED',bpy.ops.object.cabinet_editar_grupo())
+        self.assertEqual(bpy.context.mode,'EDIT_MESH')
+        self.assertEqual(set(bpy.context.objects_in_mode),set(alvos))
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    def test_tab_de_peca_fica_nativo_e_malhas_compartilhadas_ficam_isoladas(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Unico',600,700,550)
+        obj=addon.modulos._chapas_do_conjunto(conj)[0]
+        outro=obj.copy();bpy.context.scene.collection.objects.link(outro)
+        selecionar(obj)
+        self.assertFalse(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        self.assertNotEqual(outro.data,obj.data)
+
+    def test_antiga_chapa_integrada_nao_puxa_carcaca_por_adjacencia(self):
+        c=addon.chapas.nova_chapa('Lateral',600,400,18,(0,0,0),(0,0,0),bpy.context)
+        n=addon.chapas.nova_chapa('Prateleira integrada',500,400,18,(1000,0,0),(0,0,0),bpy.context)
+        pai=bpy.data.objects.new('Sistema',None);bpy.context.scene.collection.objects.link(pai)
+        n.parent=pai;n['eh_prateleira']=1
+        c['adj_x_pos']=n.name;c['adj_x_pos_uid']=addon.chapas._garantir_uid(n)
+        antes=c.chapa_largura_mm
+        addon.chapas.aplicar_adjacencia([c])
+        self.assertEqual(c.chapa_largura_mm,antes)
+
+    def test_malha_modelada_retorna_apos_vertices_cruzarem_o_meio(self):
+        contorno=[(-.5,-.5),(.5,-.5),(.5,-.2),(.1,-.2),(.1,.5),(-.5,.5)]
+        vs=[(x,y,z) for z in (-.009,.009) for x,y in contorno]
+        fs=[tuple(range(5,-1,-1)),tuple(range(6,12))]+[(i,(i+1)%6,(i+1)%6+6,i+6) for i in range(6)]
+        m=bpy.data.meshes.new('Recorte');m.from_pydata(vs,[],fs)
+        o=bpy.data.objects.new('Recorte',m);bpy.context.scene.collection.objects.link(o)
+        o[addon.chapas.MARCA_CHAPA]=1
+        with ocupado():o.chapa_largura_mm=1000;o.chapa_comprimento_mm=1000;o.chapa_espessura_mm=18
+        faces=[tuple(f.vertices) for f in m.polygons]
+        for _ in range(3):
+            o.chapa_largura_mm=100
+            o.chapa_largura_mm=1000
+            for v,co in zip(m.vertices,vs):self.assertLess((v.co-Vector(co)).length,1e-6)
+            self.assertEqual([tuple(f.vertices) for f in m.polygons],faces)
+
     def setUp(self):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')

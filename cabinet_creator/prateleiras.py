@@ -15,6 +15,9 @@ a prateleira de cima dele (o vao seguinte cede): as outras ficam paradas.
 """
 
 import bpy
+import bmesh
+import hashlib
+from array import array
 from mathutils import Matrix, Vector
 from bpy.types import Operator
 
@@ -23,16 +26,18 @@ from . import gavetas as _gavetas
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _portas = _hud = None
+_chapas = _modulos = _portas = _hud = _eventos = _gaveta_eventos = _selecao = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_prateleiras'
 MARCA_PRATELEIRA = 'eh_prateleira'
 CHAVE_MODULO = 'prateleiras_modulo'
 CHAVE_PARAMETROS = 'prateleiras_parametros'
+CHAVE_REFERENCIA = 'prateleiras_referencia'
 CHAVE_MARGENS = 'prateleiras_margens_mm'  # esq, dir, baixo, cima, frente (do modulo)
 CHAVE_VAO = 'prateleiras_vao_mm'          # largura, altura (sem modulo)
 CHAVE_INDICE = 'prateleira_indice'
+CHAVE_ENCAIXE = 'prateleiras_encaixe'
 
 PARAMETROS_PADRAO = {
     'quantidade': 1,
@@ -69,6 +74,11 @@ def grupos_do_modulo(conj):
 
 
 def modulo_do_grupo(grupo):
+    pai = grupo.parent
+    while pai is not None:
+        if _chapas.MARCA_CONJUNTO in pai:
+            return pai
+        pai = pai.parent
     modulo = bpy.data.objects.get(grupo.get(CHAVE_MODULO, ''))
     if modulo is not None and _chapas.MARCA_CONJUNTO in modulo:
         return modulo
@@ -86,6 +96,90 @@ def parametros(grupo):
     return p
 
 
+CAMPOS_INDIVIDUAIS = ('espessura_mm', 'profundidade_mm', 'recuo_mm',
+                      'folga_lateral_mm', 'largura_mm')
+_referencia_pendente = [None]
+_quantidade_previa = [None]  # Valor exibido durante arraste, sem montar malhas.
+_edicao = [None]  # Nomes e digitais apenas: undo libera os dados da cena.
+
+
+def parametros_individuais(p, indice):
+    resultado = dict(p)
+    individuais = p.get('individuais') or ()
+    if indice < len(individuais):
+        resultado.update(individuais[indice])
+    return resultado
+
+
+def individual_ativo(context, grupo):
+    obj = context.view_layer.objects.active
+    if (obj is None or MARCA_PRATELEIRA not in obj or obj.parent != grupo
+            or not obj.select_get()):
+        return None
+    # Um Empty selecionado explicitamente determina o escopo global.
+    if any(o.type == 'EMPTY' and (o == grupo or o == modulo_do_grupo(grupo))
+           for o in context.selected_objects):
+        return None
+    estado = edicao_atual(context)
+    if estado and grupo.name in estado.get('globais', ()):
+        return None
+    if sum(MARCA_PRATELEIRA in o for o in context.selected_objects) != 1:
+        return None
+    return obj
+
+
+def _digital(obj):
+    """Comparacao so' ao entrar/sair de Tab ou adicionar, nunca no redraw."""
+    h = hashlib.sha1()
+    for itens, campo, tipo, tamanho in ((obj.data.vertices, 'co', 'f', 3),
+                                       (obj.data.edges, 'vertices', 'i', 2),
+                                       (obj.data.loops, 'vertex_index', 'i', 1),
+                                       (obj.data.polygons, 'loop_total', 'i', 1)):
+        valores = array(tipo, [0]) * (tamanho * len(itens))
+        itens.foreach_get(campo, valores)
+        h.update(valores.tobytes())
+    p = parametros_individuais(parametros(obj.parent), int(obj[CHAVE_INDICE]))
+    h.update(repr(tuple(float(p[k]) for k in CAMPOS_INDIVIDUAIS if k != 'largura_mm')).encode())
+    # Configuracao de canais/recortes tambem distingue as matrizes.
+    h.update(repr(sorted((k, str(obj[k])) for k in obj.keys()
+                         if k.startswith('chapa_') and k not in
+                         {'chapa_uid', 'chapa_edicao'})).encode())
+    h.update(repr([slot.material.name if slot.material else ''
+                   for slot in obj.material_slots]).encode())
+    for modificador in obj.modifiers:
+        valores = []
+        for prop in modificador.bl_rna.properties:
+            if prop.identifier in {'name', 'rna_type'} or prop.is_readonly:
+                continue
+            if prop.type in {'BOOLEAN', 'INT', 'FLOAT', 'STRING', 'ENUM'}:
+                valor = getattr(modificador, prop.identifier)
+                valores.append((prop.identifier, tuple(valor) if prop.is_array else valor))
+        h.update(repr((modificador.type, valores)).encode())
+    return h.digest()
+
+
+def _gravar_individual(p, indice, valores):
+    lista = [dict(v) for v in (p.get('individuais') or ())]
+    while len(lista) <= indice:
+        lista.append({})
+    lista[indice].update(valores)
+    p['individuais'] = lista
+
+
+def _copiar_prateleira(grupo, indice, fonte):
+    obj = fonte.copy()
+    obj.data = fonte.data.copy()
+    obj.name = 'Prateleira %d' % (indice + 1)
+    _gavetas._colecao(grupo).objects.link(obj)
+    obj.parent = grupo
+    for chave in list(obj.keys()):
+        if chave.startswith('adj_') or chave in ('chapa_uid', 'chapa_edicao'):
+            del obj[chave]
+    _chapas._garantir_uid(obj)
+    obj[CHAVE_INDICE] = indice
+    return obj
+
+
 def quantas_no_modulo(conj):
     """Prateleiras deste sistema no modulo (o orcamento conta)."""
     return sum(len(prateleiras_do_grupo(g)) for g in grupos_do_modulo(conj))
@@ -97,7 +191,8 @@ def vaos(altura, p):
     prateleira e, por ultimo, o de cima da mais alta."""
     n = max(1, int(p['quantidade']))
     e = float(p['espessura_mm'])
-    livre = altura - n * e
+    livre = altura - sum(float(parametros_individuais(p, i)['espessura_mm'])
+                         for i in range(n))
     if livre < -TOL_MM:
         raise ValueError("%d prateleiras de %g mm nao cabem em %d mm"
                          % (n, e, round(altura)))
@@ -115,20 +210,23 @@ def vaos(altura, p):
 
 def calcular(largura, altura, p):
     """{'prateleiras': [(x0, x1, y0, y1, z0, z1)], 'vaos': [n + 1]}."""
-    e = float(p['espessura_mm'])
-    folga = float(p['folga_lateral_mm'])
-    y0, y1 = float(p['recuo_mm']), float(p['profundidade_mm'])
-    if e <= 0.0:
-        raise ValueError("Espessura da prateleira tem de ser maior que zero")
-    if largura - 2 * folga < MENOR_LADO_MM:
-        raise ValueError("Vao estreito demais para prateleira (%d mm)" % round(largura))
-    if y1 - y0 < MENOR_LADO_MM:
-        raise ValueError("Prateleira rasa demais: %d mm" % round(y1 - y0))
     g = vaos(altura, p)
     caixas, z = [], 0.0
     for k in range(len(g) - 1):
+        unidade = parametros_individuais(p, k)
+        e = float(unidade['espessura_mm'])
+        folga = float(unidade['folga_lateral_mm'])
+        l = float(unidade.get('largura_mm', largura - 2 * folga))
+        y0, y1 = float(unidade['recuo_mm']), float(unidade['profundidade_mm'])
+        if e <= 0:
+            raise ValueError('Espessura da prateleira tem de ser maior que zero')
+        if l < MENOR_LADO_MM or l > largura + TOL_MM:
+            raise ValueError('Vao estreito demais para prateleira (%d mm)' % round(largura))
+        if y1 - y0 < MENOR_LADO_MM:
+            raise ValueError('Prateleira rasa demais: %d mm' % round(y1 - y0))
         z += g[k]
-        caixas.append((folga, largura - folga, y0, y1, z, z + e))
+        x0 = (largura - l) / 2
+        caixas.append((x0, x0 + l, y0, y1, z, z + e))
         z += e
     return {'prateleiras': caixas, 'vaos': g}
 
@@ -160,11 +258,13 @@ def vao(grupo):
     if conj is None or _gavetas._limites(conj) is None:
         largura, altura = grupo.get(CHAVE_VAO) or (500.0, 300.0)
         return float(largura), float(altura), grupo.matrix_basis.copy()
-    lo, hi = _gavetas._limites(conj)
+    valores=grupo.get(CHAVE_REFERENCIA)
+    ref=Matrix([valores[i:i+3] for i in (0,3,6)]) if valores else Matrix.Identity(3)
+    lo, hi = _gavetas.limites_na_referencia(conj,ref)
     esq, dir_, baixo, cima, frente = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     origem = Vector((lo.x + esq, lo.y + frente, lo.z + baixo))
     return (hi.x - dir_ - origem.x, hi.z - cima - origem.z,
-            Matrix.Translation(origem / 1000.0))
+            ref.to_4x4() @ Matrix.Translation(origem / 1000.0))
 
 
 def profundidade_ate_o_fundo(conj, ponto):
@@ -176,6 +276,9 @@ def profundidade_ate_o_fundo(conj, ponto):
     limite = hi.y
     for chapa in _modulos._chapas_do_conjunto(conj):
         if _chapas.MARCA_FUNDO in chapa:
+            n=(inversa @ chapa.matrix_world).to_3x3().col[2].normalized()
+            if abs(n.y)<.995:
+                continue
             ys = [(inversa @ (chapa.matrix_world @ v.co)).y * 1000.0
                   for v in chapa.data.vertices]
             if ys:
@@ -198,6 +301,8 @@ def _vestir(obj, caixa):
     matriz, (l, c, e) = _gavetas._matriz_da_caixa(caixa, 2)
     obj.matrix_parent_inverse = Matrix.Identity(4)
     obj.matrix_basis = matriz
+    mudou = not obj.data.vertices or any(abs(a - b) > .001 for a, b in zip(
+        (obj.chapa_largura_mm, obj.chapa_comprimento_mm, obj.chapa_espessura_mm), (l, c, e)))
     _chapas._ocupado[0] = True
     try:
         obj.chapa_largura_mm, obj.chapa_comprimento_mm = l, c
@@ -205,7 +310,10 @@ def _vestir(obj, caixa):
         obj.chapa_auto = True
     finally:
         _chapas._ocupado[0] = False
-    _chapas.gerar_malha_chapa(obj)
+    if mudou:
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        _chapas.gerar_malha_chapa(obj)
 
 
 def _nova_prateleira(grupo, indice, material):
@@ -220,7 +328,7 @@ def _nova_prateleira(grupo, indice, material):
     return obj
 
 
-def montar(grupo):
+def montar(grupo, referencia=None):
     """Refaz as prateleiras pelos parametros e pelo vao de hoje, nas
     MESMAS chapas (sobra apaga, falta cria com o material das outras).
     Levanta ValueError (e nao mexe em nada) se nao couber."""
@@ -238,17 +346,20 @@ def montar(grupo):
     for velha in atuais[len(dados['prateleiras']):]:
         _gavetas._remover(velha)
     for i, caixa in enumerate(dados['prateleiras']):
-        obj = atuais[i] if i < len(atuais) else _nova_prateleira(grupo, i, material)
+        obj = (atuais[i] if i < len(atuais) else
+               _copiar_prateleira(grupo, i, referencia) if referencia is not None else
+               _nova_prateleira(grupo, i, material))
         obj[CHAVE_INDICE] = i
         _vestir(obj, caixa)
     bpy.context.view_layer.update()
 
 
-def criar_prateleiras(context, conj, margens, p):
+def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
     """Grupo de prateleiras novo no modulo `conj`. Devolve o grupo."""
     p = dict(PARAMETROS_PADRAO, **p)
     grupo = bpy.data.objects.new('Prateleiras %s' % conj.name, None)
-    colecao = _modulos._colecao_do_modulo(conj) or context.scene.collection
+    colecao = (_modulos._colecao_do_modulo(conj)
+               or next(iter(conj.users_collection), context.scene.collection))
     colecao.objects.link(grupo)
     grupo.empty_display_type = 'PLAIN_AXES'
     grupo.empty_display_size = 0.05
@@ -256,9 +367,28 @@ def criar_prateleiras(context, conj, margens, p):
     grupo[MARCA_GRUPO] = 1
     grupo[CHAVE_MODULO] = conj.name
     grupo[CHAVE_PARAMETROS] = p
+    if referencial is not None:
+        grupo[CHAVE_REFERENCIA]=[v for linha in referencial for v in linha]
     grupo[CHAVE_MARGENS] = [float(m) for m in margens]
     grupo.parent = conj
     try:
+        if pecas:
+            for obj in pecas:
+                obj[MARCA_PRATELEIRA] = 1
+            largura, altura, matriz = vao(grupo)
+            dados = calcular(largura, altura, p)
+            mundo = conj.matrix_world @ matriz
+            for i, (obj, caixa) in enumerate(zip(pecas, dados['prateleiras'])):
+                nova, dims = _gavetas._matriz_da_caixa(caixa, 2)
+                # Reorientar a MESMA malha: L/curva nao pode virar caixa.
+                if obj.data.users > 1:
+                    obj.data = obj.data.copy()
+                obj.data.transform((mundo @ nova).inverted() @ obj.matrix_world)
+                obj.parent = grupo
+                obj[MARCA_PRATELEIRA] = 1
+                obj[CHAVE_INDICE] = i
+                for chave in [k for k in obj.keys() if k.startswith('adj_')]:
+                    del obj[chave]
         montar(grupo)
     except ValueError:
         for o in list(grupo.children):
@@ -273,6 +403,35 @@ def atualizar_do_conjunto(conj):
     fixas). Se nao couberem mais, ficam como estavam."""
     for grupo in grupos_do_modulo(conj):
         try:
+            p=parametros(grupo)
+            _l,altura,matriz=vao(grupo)
+            atual=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
+            estado=grupo.get(CHAVE_ENCAIXE)
+            if not estado or estado['ultimo']!=atual:
+                grupo[CHAVE_ENCAIXE]=dict(profundidade=float(p['profundidade_mm']),
+                                          vaos=list(p['vaos_mm']),ultimo=atual,
+                                          individuais=p.get('individuais', []))
+                estado=grupo[CHAVE_ENCAIXE]
+            ref=matriz.to_3x3().normalized()
+            _lo,hi=_gavetas.limites_na_referencia(conj,ref)
+            origem=ref.transposed() @ matriz.translation*1000
+            p['profundidade_mm']=max(float(p['recuo_mm'])+MENOR_LADO_MM,
+                                     min(float(estado['profundidade']),hi.y-origem.y))
+            for i, unidade in enumerate(estado.get('individuais') or ()):
+                modelo = _como_dict(unidade)
+                if 'profundidade_mm' in modelo:
+                    modelo['profundidade_mm'] = max(
+                        float(modelo.get('recuo_mm', p['recuo_mm'])) + MENOR_LADO_MM,
+                        min(float(modelo['profundidade_mm']), hi.y - origem.y))
+                _gravar_individual(p, i, modelo)
+            if p['espacamento']=='LIVRE' and len(estado['vaos'])==int(p['quantidade']):
+                desejados=list(estado['vaos'])
+                livre=max(0,altura-sum(float(parametros_individuais(p, i)['espessura_mm'])
+                                      for i in range(int(p['quantidade']))))
+                fator=min(1,livre/max(sum(desejados),.001))
+                p['vaos_mm']=[v*fator for v in desejados]
+            grupo[CHAVE_PARAMETROS]=p
+            grupo[CHAVE_ENCAIXE]['ultimo']=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
             montar(grupo)
         except ValueError as erro:
             print("[Cabinet Creator] prateleiras de %s: %s" % (conj.name, erro))
@@ -315,18 +474,258 @@ def _parametros_editados(grupo, nome, valor):
     return p
 
 
-def editar(context, grupo, nome, valor):
+def editar(context, grupo, nome, valor, referencia=None):
     """Muda um parametro (aba Prateleiras). Devolve o erro (e desfaz) ou None."""
+    estado = edicao_atual(context)
+    global_ = estado and grupo.name in estado['globais']
+    if context.mode == 'EDIT_MESH':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    concluir_edicao()
     nome = nome[len('prateleiras_'):] if nome.startswith('prateleiras_') else nome
     antes = parametros(grupo)
+    fonte = referencia or (None if global_ else individual_ativo(context, grupo))
+    if nome.startswith('individual_'):
+        _prefixo, indice, campo = nome.split('_', 2)
+        return editar_individual(context, grupo, int(indice), campo, valor)
+    if nome in CAMPOS_INDIVIDUAIS and fonte is not None:
+        return editar_individual(context, grupo, int(fonte[CHAVE_INDICE]), nome, valor)
+    if nome == 'quantidade' and int(valor) > int(antes['quantidade']):
+        atuais = prateleiras_do_grupo(grupo)
+        if fonte is None and len({_digital(o) for o in atuais}) > 1:
+            _referencia_pendente[0] = dict(grupo=grupo.name, quantidade=int(valor),
+                                         regiao=None, mouse=None)
+            if not bpy.app.background and not bpy.app.timers.is_registered(_abrir_referencia):
+                bpy.app.timers.register(_abrir_referencia, first_interval=0.01)
+            return None
+        fonte = fonte or (atuais[0] if atuais else None)
     try:
-        grupo[CHAVE_PARAMETROS] = _parametros_editados(grupo, nome, valor)
-        montar(grupo)
+        p = _parametros_editados(grupo, nome, valor)
+        if nome in CAMPOS_INDIVIDUAIS:
+            for unidade in p.get('individuais') or ():
+                unidade.pop(nome, None)
+        if nome == 'quantidade':
+            quantidade = int(p['quantidade'])
+            p['individuais'] = list(p.get('individuais') or ())[:quantidade]
+            if fonte is not None:
+                modelo = parametros_individuais(antes, int(fonte[CHAVE_INDICE]))
+                for i in range(int(antes['quantidade']), quantidade):
+                    _gravar_individual(p, i, {k: modelo[k] for k in CAMPOS_INDIVIDUAIS
+                                              if k in modelo})
+            if p['espacamento'] == 'LIVRE':
+                try:
+                    vaos(vao(grupo)[1], p)
+                except ValueError:
+                    # A espessura da matriz pode diferir do padrao do
+                    # grupo: repartir de novo quando os vaos nao couberem.
+                    p.update(espacamento='IGUAL', vaos_mm=[])
+        grupo[CHAVE_PARAMETROS] = p
+        montar(grupo, referencia=fonte)
     except ValueError as erro:
         grupo[CHAVE_PARAMETROS] = antes
         montar(grupo)
         return str(erro)
     return None
+
+
+def editar_individual(context, grupo, indice, nome, valor):
+    if nome not in CAMPOS_INDIVIDUAIS:
+        return 'Parametro individual desconhecido'
+    antes = parametros(grupo)
+    if not 0 <= indice < int(antes['quantidade']):
+        return 'Prateleira nao encontrada'
+    p = parametros(grupo)
+    if nome == 'largura_mm':
+        largura = vao(grupo)[0]
+        if not MENOR_LADO_MM <= float(valor) <= largura + TOL_MM:
+            return 'Largura fora do vao da prateleira'
+        nome, valor = 'folga_lateral_mm', max(0., (largura - float(valor)) / 2)
+    _gravar_individual(p, indice, {nome: max(0., float(valor))})
+    if nome == 'espessura_mm':
+        altura = vao(grupo)[1]
+        g = vaos(altura, antes)
+        g[indice + 1] -= float(valor) - float(parametros_individuais(antes, indice)[nome])
+        if min(g) < -TOL_MM:
+            return 'Nao cabe: falta espaco acima da prateleira'
+        p.update(espacamento='LIVRE', vaos_mm=g[:-1])
+    try:
+        calcular(*vao(grupo)[:2], p)
+        grupo[CHAVE_PARAMETROS] = p
+        montar(grupo)
+    except ValueError as erro:
+        grupo[CHAVE_PARAMETROS] = antes
+        return str(erro)
+    return None
+
+
+def resolver_referencia(context, obj):
+    pedido = _referencia_pendente[0]
+    if (not pedido or obj is None or MARCA_PRATELEIRA not in obj
+            or obj.parent is None or obj.parent.name != pedido['grupo']):
+        return 'Selecione uma prateleira deste grupo'
+    grupo = obj.parent
+    quantidade = pedido['quantidade']
+    _referencia_pendente[0] = None
+    return editar(context, grupo, 'quantidade', quantidade, referencia=obj)
+
+
+def iniciar_edicao(context, malhas, global_):
+    """O Blender faz a edicao multiobjeto; propagar uma vez ao sair.
+    Conservar os IDs de Mesh e' necessario para o undo de Edit Mode.
+    """
+    registros, globais = {}, []
+    for obj in malhas:
+        grupo = grupo_de(obj)
+        if grupo is not None and MARCA_PRATELEIRA in obj:
+            registros.setdefault(grupo.name, {})[obj.name] = _digital(obj)
+    for nome in registros:
+        if global_:
+            globais.append(nome)
+    if registros:
+        _edicao[0] = dict(grupos=registros, globais=globais,
+                          ativo=context.view_layer.objects.active.name)
+
+
+def edicao_atual(context):
+    """Undo pode voltar ao Edit Mode com o Empty novamente selecionado.
+    Recuperar da selecao NATIVA e medir uma vez a malha ja' restaurada;
+    nao reaplicar a referencia de uma sessao de edicao posterior.
+    """
+    if _edicao[0]:
+        return _edicao[0]
+    if context.mode == 'EDIT_MESH':
+        editando = list(context.objects_in_mode)
+        if not any(MARCA_PRATELEIRA in o for o in editando):
+            return None
+        malhas = _selecao.malhas_para_editar(context)
+        for obj in editando:
+            obj.update_from_editmode()
+        iniciar_edicao(context, malhas or editando, bool(malhas))
+    return _edicao[0]
+
+
+def concluir_edicao():
+    if not edicao_atual(bpy.context) or bpy.context.mode == 'EDIT_MESH':
+        return
+    estado, _edicao[0] = _edicao[0], None
+    for nome, digitais in estado['grupos'].items():
+        grupo = bpy.data.objects.get(nome)
+        if grupo is None:
+            continue
+        atuais = prateleiras_do_grupo(grupo)
+        alteradas = [o for o in atuais if o.name in digitais and _digital(o) != digitais[o.name]]
+        if not alteradas:
+            continue
+        for obj in alteradas:
+            _chapas.absorver_malha_editada(obj)
+        fonte = next((o for o in alteradas if o.name == estado['ativo']), alteradas[0])
+        alvos = atuais if nome in estado['globais'] else alteradas
+        p = parametros(grupo)
+        largura = vao(grupo)[0]
+        for obj in alvos:
+            if nome in estado['globais'] and obj != fonte:
+                # Nao trocar o datablock: o undo nativo ainda o referencia.
+                bm = bmesh.new()
+                try:
+                    bm.from_mesh(fonte.data)
+                    bm.to_mesh(obj.data)
+                finally:
+                    bm.free()
+                obj.data.update()
+                for chave in list(obj.keys()):
+                    if chave.startswith('chapa_') and chave != 'chapa_uid':
+                        del obj[chave]
+                for chave in fonte.keys():
+                    if chave.startswith('chapa_') and chave not in ('chapa_uid', 'chapa_edicao'):
+                        valor = fonte[chave]
+                        obj[chave] = valor.to_dict() if hasattr(valor, 'to_dict') else valor
+                _chapas.absorver_malha_editada(obj)
+            k = int(obj[CHAVE_INDICE])
+            modelo = parametros_individuais(p, int(fonte[CHAVE_INDICE]) if nome in estado['globais'] else k)
+            _gravar_individual(p, k, dict(espessura_mm=float(obj.chapa_espessura_mm),
+                profundidade_mm=float(modelo['recuo_mm']) + obj.chapa_comprimento_mm,
+                recuo_mm=float(modelo['recuo_mm']),
+                folga_lateral_mm=max(0., (largura - obj.chapa_largura_mm) / 2)))
+        if nome not in estado['globais']:
+            # Tab local conserva as posicoes das demais mesmo se a
+            # espessura foi modelada; nao redistribuir vaos IGUAIS depois.
+            g, topo = [], 0.
+            for obj in atuais:
+                base = obj.matrix_basis.translation.z * 1000 - obj.chapa_espessura_mm / 2
+                g.append(max(0., base - topo))
+                topo = base + obj.chapa_espessura_mm
+            p.update(espacamento='LIVRE', vaos_mm=g)
+        grupo[CHAVE_PARAMETROS] = p
+
+
+def _abrir_referencia():
+    if _referencia_pendente[0] and not bpy.app.background:
+        bpy.ops.object.cabinet_referencia_prateleira('INVOKE_DEFAULT')
+    return None
+
+
+def atualizar_aviso_referencia(context, event):
+    pedido = _referencia_pendente[0]
+    if pedido is None:
+        return
+    pedido.update(mouse=None, regiao=None)
+    # Coordenadas da JANELA: o modal nasce no menu, mas o aviso pertence
+    # a' viewport sob o cursor. Nao guardar areas/regioes RNA no estado.
+    if _gaveta_eventos._gaveta_sob_evento(context, event) is None:
+        for area in context.screen.areas:
+            if area.type != 'VIEW_3D':
+                continue
+            regiao = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if regiao is None:
+                continue
+            x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
+            if 0 <= x < regiao.width and 0 <= y < regiao.height:
+                pedido.update(mouse=Vector((x, y)), regiao=regiao.as_pointer(),
+                              recado=OBJECT_OT_referencia_prateleira.bl_label)
+                break
+    _eventos._redesenhar_viewports(context)
+
+
+class OBJECT_OT_referencia_prateleira(Operator):
+    """Escolhe na viewport a matriz das novas prateleiras"""
+    bl_idname = 'object.cabinet_referencia_prateleira'
+    bl_label = 'Selecione a prateleira de referencia'
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def invoke(self, context, event):
+        if not _referencia_pendente[0]:
+            return {'CANCELLED'}
+        atualizar_aviso_referencia(context, event)
+        context.workspace.status_text_set('Selecione a prateleira de referencia | Esc cancela')
+        context.window_manager.modal_handler_add(self)
+        _eventos._redesenhar_viewports(context)
+        return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        _referencia_pendente[0] = None
+        context.workspace.status_text_set(None)
+        _eventos._redesenhar_viewports(context)
+
+    def modal(self, context, event):
+        if not _referencia_pendente[0] or event.type in {'ESC', 'RIGHTMOUSE'}:
+            self.cancel(context)
+            return {'CANCELLED'}
+        if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+            atualizar_aviso_referencia(context, event)
+            return {'PASS_THROUGH'}
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            obj = bpy.data.objects.get(_gaveta_eventos._objeto_sob_mouse(context, event))
+            try:
+                erro = resolver_referencia(context, obj)
+            except Exception:
+                self.cancel(context)
+                raise
+            if erro:
+                self.report({'WARNING'}, erro)
+                if _referencia_pendente[0]:
+                    return {'RUNNING_MODAL'}
+            self.cancel(context)
+            return {'CANCELLED'} if erro else {'FINISHED'}
+        return {'PASS_THROUGH'}
 
 
 def entre(grupo):
@@ -511,7 +910,7 @@ class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
         return self._criar(context)
 
     def _criar_grupo(self, context, conj, margens, p):
-        return criar_prateleiras(context, conj, margens, p)
+        return criar_prateleiras(context, conj, margens, p,referencial=self._w.get('referencia'))
 
     def _selecionar_grupo(self, context, grupo):
         selecionar(context, grupo, 'GRUPO')
@@ -519,3 +918,10 @@ class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
 
 def esquecer():
     _assistente_prateleiras[0] = None
+    _quantidade_previa[0] = None
+    if _referencia_pendente[0] and bpy.context.workspace is not None:
+        bpy.context.workspace.status_text_set(None)
+    _referencia_pendente[0] = None
+    _edicao[0] = None
+    if bpy.app.timers.is_registered(_abrir_referencia):
+        bpy.app.timers.unregister(_abrir_referencia)

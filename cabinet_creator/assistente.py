@@ -31,21 +31,32 @@ def _botoes_assistente(ancora, opcoes, escala, tamanho=None, pergunta=''):
     ela vai para a esquerda do mouse; embaixo/em cima, ela sobe/desce."""
     largura, altura, vao = 150 * escala, 26 * escala, 6 * escala
     x, y = ancora.x + 18 * escala, ancora.y - 14 * escala
+    colunas, linhas = 1, len(opcoes)
     if tamanho is not None:
         margem = MARGEM_CAIXA_ASSISTENTE * escala
+        cabecalho = (8 + 12 + 4) * escala if pergunta else 0
+        if len(opcoes) > 4:
+            # Com oito folhas, uma viewport baixa exige varias colunas.
+            disponivel = max(1, tamanho[0] - 2 * margem)
+            cabem = max(1, int((tamanho[1] - 2 * margem - cabecalho + vao) / (altura + vao)))
+            colunas = min((len(opcoes) + cabem - 1) // cabem,
+                          max(1, int((disponivel + vao) / (72 * escala + vao))))
+            linhas = (len(opcoes) + colunas - 1) // colunas
+            largura = min(largura, (disponivel - vao * (colunas - 1)) / colunas)
+            altura = min(altura, max(1, (tamanho[1] - 2 * margem - cabecalho - vao * (linhas - 1)) / linhas))
         # o texto da pergunta pode ser mais largo que os botoes
-        bloco = max(largura, (len(pergunta) * PX_CARACTERE_ASSISTENTE + 8)
-                    * escala)
+        bloco = min(tamanho[0] - 2 * margem, max(colunas * largura + (colunas - 1) * vao,
+                     (len(pergunta) * PX_CARACTERE_ASSISTENTE + 8) * escala))
         if x + bloco > tamanho[0] - margem:
             x = ancora.x - 18 * escala - bloco
         x = max(margem, min(x, tamanho[0] - margem - bloco))
-        fundo = y - (len(opcoes) - 1) * (altura + vao)
+        fundo = y - (linhas - 1) * (altura + vao)
         topo = y + altura + ((8 + 12 + 4) * escala if pergunta else 0)
         if fundo < margem:
             y += margem - fundo
         elif topo > tamanho[1] - margem:
             y -= topo - (tamanho[1] - margem)
-    return [((x, y - i * (altura + vao), largura, altura), chave, texto)
+    return [((x + (i // linhas) * (largura + vao), y - (i % linhas) * (altura + vao), largura, altura), chave, texto)
             for i, (chave, texto) in enumerate(opcoes)]
 
 
@@ -274,6 +285,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                               coberturas=dict(coberturas), embutida=embutida,
                               costas=centro[2] - e / 2.0,
                               folha=(_l, _a, e, tuple(centro)),
+                              modulo_nome=modulo.name if modulo else '',
                               parametros=dict(parametros))
         caixas = []
         for l, alt, e, centro in folhas:
@@ -386,8 +398,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if w.get('pistoes'):
             p.update(pistoes_qtd=w['pqtd'], pistoes_offset_mm=w['poffset'])
         try:
+            conj = bpy.data.objects.get(w.get('modulo_nome', ''))
+            apoios = _ferragens._apoios_obliquos(conj, w['matriz'], p,
+                w['largura'], w['altura'], w['folhas']) if conj else {}
             itens = _ferragens._ferragens_da_porta(p, w['largura'], w['altura'],
-                                        w['folhas'])
+                                        w['folhas'], apoios)
         except (ValueError, KeyError, TypeError):
             return [], [], []
         if not w.get('pistoes'):
@@ -602,7 +617,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             escolhas['folhas'] = int(chave)
             opcoes = _portas.TIPOS_EMBUTIDA if w['embutida'] else _portas.TIPOS_SOBREPOSTA
             w['tipos'] = tuple(t for t in opcoes
-                               if _portas.LIMITES_FOLHAS[t[0]] >= escolhas['folhas'])
+                               if (2 if t[0] == 'ZIGZAG' else 1) <= escolhas['folhas'] <= _portas.LIMITES_FOLHAS[t[0]])
             if len(w['tipos']) == 1:
                 # uma opcao so': nada a perguntar
                 return self._escolher_abertura(context, w['tipos'][0][0])
@@ -1048,7 +1063,7 @@ class OBJECT_OT_portas_parametricas(Operator):
                ('POS_Z', "+Z (em cima)", "Exterior em +Z")])
     abertura: EnumProperty(name="Abertura", items=_portas.ITENS_ABERTURA,
                            default='GIRO', update=_portas._limitar_folhas_portas)
-    folhas: IntProperty(name="Folhas", default=1, min=1, max=4,
+    folhas: IntProperty(name="Folhas", default=1, min=1, max=8,
                         update=_portas._limitar_folhas_portas)
     dobradica: EnumProperty(name="Dobradica / posicionamento",
                             items=_portas.ITENS_DOBRADICA, default='RETA')
@@ -1186,6 +1201,18 @@ class OBJECT_OT_portas_parametricas(Operator):
             grupo = (bpy.data.objects.get(self.grupo_nome) if self.grupo_nome
                      else _portas._grupo_portas(bpy.context.object))
             guardados = (grupo.get('porta_parametros') or {}) if grupo else {}
+            copia = _portas._copiar_parametros(guardados)
+            if all(p.get(k) == copia.get(k) for k in
+                   ('dobradicas_qtd', 'dobradicas_margem_mm', 'dobradica_lado', 'folhas', 'abertura')):
+                if 'dobradicas_referencia' in copia:
+                    p['dobradicas_referencia'] = copia['dobradicas_referencia']
+            if (p['abertura'] == 'GIRO' and p['dobradica'] == copia.get('dobradica')
+                    and copia.get('dobradica_articulada')):
+                p['dobradica_articulada'] = True
+                p['dobradica_apoio_plano_mm'] = copia['dobradica_apoio_plano_mm']
+                for nome in ('dobradica_articulada_sinal', 'dobradica_junta_mm'):
+                    if nome in copia:
+                        p[nome] = copia[nome]
             for nome in ('espessura_mm', 'lateral_mm'):
                 if nome in guardados:
                     p[nome] = float(guardados[nome])
@@ -1338,8 +1365,9 @@ class OBJECT_OT_portas_parametricas(Operator):
                 # do vao novo (o modulo dele, se houver).
                 for chave in [k for k in grupo.keys()
                               if k.startswith('porta_ancora_')
+                              or k.startswith('porta_vao_')
                               or k in {_portas.CHAVE_MODULO_PORTA, _portas.CHAVE_FOLGAS_PORTA,
-                                       _portas.CHAVE_RECUO_PORTA}]:
+                                       _portas.CHAVE_RECUO_PORTA, 'porta_apoio_folha'}]:
                     del grupo[chave]
                 if grupo.parent != pai:
                     grupo.parent = pai

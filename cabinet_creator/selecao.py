@@ -18,6 +18,7 @@ _solda = None
 _portas_viewport = None
 _gavetas = None
 _prateleiras = None
+_formas = None
 
 # ====================================================== SELECAO
 # 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
@@ -303,6 +304,113 @@ class OBJECT_OT_selecionar(Operator):
         return r
 
 
+def malhas_para_editar(context):
+    """So' grupos selecionados explicitamente ampliam a edicao nativa.
+    Duplo clique numa chapa continua entrando apenas naquela peca.
+    """
+    marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
+              _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO)
+    grupos = [o for o in context.selected_objects if o.type == 'EMPTY'
+              and any(m in o for m in marcas)]
+    return list(dict.fromkeys(o for g in grupos for o in g.children_recursive
+                if o.type == 'MESH' and not o.hide_render
+                and o.get('cabinet_peca') not in _ferragens.PECAS_OCULTAS_RIG))
+
+
+_edicao_grupo = [None]  # So' nomes: undo/abrir arquivo liberam os objetos.
+
+
+def recuperar_edicao_grupo(context):
+    if _edicao_grupo[0] is not None or not malhas_para_editar(context):
+        return
+    # Undo pode devolver Edit Mode sem o estado Python. Os Empties que
+    # o Blender conservou selecionados ainda identificam o escopo.
+    ativo, alvo = context.object, None
+    while ativo is not None:
+        if ativo.type == 'EMPTY' and ativo.select_get():
+            alvo = ativo
+        ativo = ativo.parent
+    if alvo is not None:
+        nomes = [o.name for o in context.selected_objects]
+        _edicao_grupo[0] = dict(selecao=nomes, durante=nomes, ativo=alvo.name)
+
+
+def concluir_edicao_grupo(context):
+    if context.mode != 'OBJECT' or _edicao_grupo[0] is None:
+        return
+    estado, _edicao_grupo[0] = _edicao_grupo[0], None
+    _formas.esquecer()
+    # Sair pelo seletor de modo tambem chega aqui no timer. Se o usuario
+    # ja' mudou a selecao, essa nova escolha tem prioridade.
+    atuais = {o.name for o in context.selected_objects}
+    if atuais != set(estado['durante']):
+        return
+    for obj in context.selected_objects:
+        obj.select_set(obj.name in estado['selecao'])
+    for nome in estado['selecao']:
+        obj = context.view_layer.objects.get(nome)
+        if obj is not None:
+            obj.select_set(True)
+    ativo = context.view_layer.objects.get(estado['ativo'])
+    if ativo is not None and ativo.select_get():
+        context.view_layer.objects.active = ativo
+    _hud._hover_hud.clear()
+
+
+class OBJECT_OT_editar_grupo(Operator):
+    """Abre as malhas do grupo no Edit Mode original do Blender"""
+    bl_idname = 'object.cabinet_editar_grupo'
+    bl_label = 'Editar Malhas do Grupo'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode == 'EDIT_MESH':
+            prateleiras = _prateleiras.edicao_atual(context)
+            recuperar_edicao_grupo(context)
+            return (_edicao_grupo[0] is not None or bool(malhas_para_editar(context))
+                    or prateleiras is not None)
+        return context.mode == 'OBJECT' and (bool(malhas_para_editar(context)) or
+            (context.object is not None and _prateleiras.MARCA_PRATELEIRA in context.object))
+
+    def execute(self, context):
+        if context.mode == 'EDIT_MESH':
+            bpy.ops.object.mode_set(mode='OBJECT')
+            _prateleiras.concluir_edicao()
+            concluir_edicao_grupo(context)
+            return {'FINISHED'}
+        _prateleiras.concluir_edicao()
+        concluir_edicao_grupo(context)
+        malhas = malhas_para_editar(context)
+        global_ = bool(malhas)
+        ativo = context.view_layer.objects.active or next(iter(context.selected_objects), None)
+        if not malhas and ativo is not None and _prateleiras.MARCA_PRATELEIRA in ativo:
+            malhas = [ativo]
+        if not malhas:
+            return {'CANCELLED'}
+        selecionados = [o.name for o in context.selected_objects]
+        for o in context.selected_objects:
+            # O Empty selecionado e' o escopo do modulo. O Blender o
+            # conserva no Edit Mode e no undo; remove-lo espalhava a HUD
+            # por todas as chapas ao sair do Tab.
+            if o.type != 'EMPTY':
+                o.select_set(False)
+        for o in malhas:
+            # A ferragem compartilha a malha com outros modulos. Editar
+            # esta montagem nunca deve alterar outra copia na cena.
+            if o.data.users > 1:
+                o.data = o.data.copy()
+            o.hide_set(False)
+            o.hide_select = False
+            o.select_set(True)
+        context.view_layer.objects.active = ativo if ativo in malhas else malhas[0]
+        _prateleiras.iniciar_edicao(context, malhas, global_)
+        _edicao_grupo[0] = dict(selecao=selecionados, ativo=ativo.name,
+                               durante=[o.name for o in context.selected_objects])
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'FINISHED'}
+
+
 _keymaps = []
 
 # DIAGNOSTICO TEMPORARIO do clique duplo (remover depois): grava cada
@@ -405,6 +513,9 @@ def registrar_keymaps():
     # mora la' (e esse keymap vem antes do "3D View"); fora de modulo o
     # operador devolve o evento e o menu abre como sempre.
     km_obj = kc.keymaps.new(name="Object Mode", space_type='EMPTY')
+    km_modo = kc.keymaps.new(name='Object Non-modal', space_type='EMPTY')
+    kmi = km_modo.keymap_items.new('object.cabinet_editar_grupo', 'TAB', 'PRESS', head=True)
+    _keymaps.append((km_modo, kmi))
     kmi = km_obj.keymap_items.new("object.cabinet_arrastar_na_parede",
                                   'RIGHTMOUSE', 'PRESS', head=True)
     _keymaps.append((km_obj, kmi))
@@ -425,6 +536,7 @@ def registrar_keymaps():
 
 
 def remover_keymaps():
+    _edicao_grupo[0] = None
     for km, kmi in _keymaps:
         try:
             km.keymap_items.remove(kmi)

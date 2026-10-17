@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import bpy
 import bmesh
@@ -41,6 +42,259 @@ def relativo(bloco):
 
 
 class TestPortas(unittest.TestCase):
+    def _porta_curva_torcida(self):
+        p = addon.portas._parametros_portas_da_cena(bpy.context.scene, numerico=True)
+        p.update(abertura='GIRO', folhas=1, dobradica='CURVA',
+                 dobradica_lado='ESQUERDA', espessura_mm=15, lateral_mm=15,
+                 folga_mm=0, afastamento_mm=0, dobradicas_qtd=2,
+                 cobertura_esq_e=0, cobertura_dir_e=0,
+                 cobertura_baixo_e=0, cobertura_cima_e=0, respiro_original=True)
+        g = addon.portas._aplicar_portas(bpy.context, None, Matrix.Identity(4),
+                                        None, 320, 700, p)
+        f, = addon.portas._folhas_portas(g)
+        n = 17
+        pontos = []
+        # Uma pequena torcao deixa o centro medio do quad fora dos seus
+        # triangulos, como a folha real exportada pelo Promob.
+        for y in (-.35, .35):
+            for raio in (.3, .315):
+                for i in range(n):
+                    t = i * math.pi / 32
+                    x, z = -.16 + raio * math.sin(t), .3075 - raio * math.cos(t)
+                    pontos.append((x + y * z * .001, y, z + y * x * .001))
+        faces = []
+        for i in range(n - 1):
+            faces.extend(((i, i+1, 2*n+i+1, 2*n+i),
+                          (n+i, 3*n+i, 3*n+i+1, n+i+1),
+                          (i, n+i, n+i+1, i+1),
+                          (2*n+i, 2*n+i+1, 3*n+i+1, 3*n+i)))
+        faces.extend(((0, 2*n, 3*n, n), (n-1, 2*n-1, 4*n-1, 3*n-1)))
+        f.data.clear_geometry()
+        f.data.from_pydata(pontos, [], faces)
+        f.data.update()
+        f['porta_curva_modelada'] = 1
+        for chave in (addon.frentes.ATR_FACE, addon.frentes.ATR_BORDA):
+            atributo = f.data.attributes.get(chave)
+            if atributo is not None:
+                f.data.attributes.remove(atributo)
+        addon.frentes.preparar(f, forcar=True)
+        return g, f, n
+
+    # Regressao (era BUG): o raio acertava o proprio quad torcido.
+    def test_curva_torcida_reconhece_superficies_inteiras(self):
+        g, f, n = self._porta_curva_torcida()
+        ref = addon.frentes.referencia(f)
+        for chave, inicio in (('frente', 0), ('tras', n),
+                              ('cima_frente', 2*n), ('cima_tras', 3*n)):
+            self.assertEqual(len(ref[chave]), n, chave)
+            for atual, v in zip(ref[chave], list(f.data.vertices)[inicio:inicio+n]):
+                self.assertLess((Vector(atual) - v.co).length, 1e-6)
+
+    # Regressao (era BUG): rotulos e cache truncados sobreviviam ao preparo.
+    def test_curva_recupera_cache_antigo_truncado_sem_recriar_mesh(self):
+        g, f, n = self._porta_curva_torcida()
+        malha = f.data
+        for i, valor in enumerate(malha.attributes[addon.frentes.ATR_FACE].data):
+            valor.value = 1 if i == 0 else -1 if i == 1 else 0
+        rotulos = {frozenset((0, 1)): 1, frozenset((2*n, 2*n+1)): 2,
+                   frozenset((n, n+1)): 3, frozenset((3*n, 3*n+1)): 4}
+        for aresta, valor in zip(malha.edges, malha.attributes[addon.frentes.ATR_BORDA].data):
+            valor.value = rotulos.get(frozenset(aresta.vertices), 0)
+        # Simula a referencia antiga valida pelo hash, mas incompleta.
+        antigo = addon.frentes.referencia(f)
+        antigo.pop('amostragem_triangular', None)
+        antigo['frente'] = antigo['frente'][:2]
+        malha[addon.frentes.CHAVE] = antigo
+        antes = [v.co.copy() for v in malha.vertices]
+        ref = addon.frentes.preparar(f)
+        self.assertEqual(len(ref['frente']), n)
+        self.assertEqual(len(ref['tras']), n)
+        self.assertEqual(f.data, malha)
+        for v, esperado in zip(malha.vertices, antes):
+            self.assertEqual(v.co, esperado)
+        with patch.object(addon.frentes, '_faces_opostas', side_effect=AssertionError('Reextraiu cache valido')):
+            self.assertEqual(addon.frentes.preparar(f), ref)
+
+    # Regressao (era BUG): transporte aberto herdava o contorno truncado.
+    def test_reancorar_curva_torcida_aberta_preserva_madeira_e_dados(self):
+        g, f, n = self._porta_curva_torcida()
+        malha = f.data
+        uv = malha.uv_layers.new(name='UV modelada')
+        for i, dado in enumerate(uv.data):
+            dado.uv = (i % 7 / 7, i % 11 / 11)
+        material = bpy.data.materials.new('Madeira curva teste')
+        malha.materials.append(material)
+        f.modifiers.new('Acabamento preservado', 'BEVEL').width = .0002
+        topologia = [tuple(p.vertices) for p in malha.polygons]
+        uvs = [tuple(dado.uv) for dado in uv.data]
+        addon.ferragens._definir_abertura(bpy.context, f, .216251716)
+        fechada = addon.ferragens._matriz_fechada(f)
+        # Deformacao radial conhecida, independente do solver de formas.
+        centro = Vector((-.16, 0, .3075))
+        pontos = []
+        for v in malha.vertices:
+            radial = v.co - centro
+            radial.y = 0
+            pontos.append(fechada @ (v.co + radial.normalized() * .02))
+        addon.portas.adotar_contorno_modelado(bpy.context, g, pontos)
+        nova = addon.ferragens._matriz_fechada(f)
+        self.assertEqual(f.data, malha)
+        self.assertEqual([tuple(p.vertices) for p in malha.polygons], topologia)
+        self.assertEqual([tuple(dado.uv) for dado in malha.uv_layers['UV modelada'].data], uvs)
+        self.assertEqual(list(malha.materials), [material])
+        self.assertEqual(f.modifiers['Acabamento preservado'].type, 'BEVEL')
+        self.assertAlmostEqual(f[addon.ferragens.CHAVE_ABERTURA], .216251716, places=6)
+        for v, esperado in zip(malha.vertices, pontos):
+            self.assertLess((nova @ v.co - esperado).length, 1e-6)
+        frente = addon.frentes.perfil(f, fechada=True)[0]
+        self.assertEqual(len(frente), n)
+        for atual, esperado in zip(frente, pontos[:n]):
+            self.assertLess((atual - esperado).length, 1e-6)
+        # O caneco fica atras da face fisica, tambem com a folha aberta.
+        copos = [o for o in f.children if o.get(addon.ferragens.CHAVE_FERRAGEM) == 'CANECO']
+        self.assertEqual(len(copos), 2)
+        zmax = max(v.co.z for v in malha.vertices) + .1
+        for copo in copos:
+            contatos = 0
+            for v in copo.data.vertices:
+                p = copo.matrix_basis @ v.co
+                hit, co, _normal, _face = f.ray_cast(Vector((p.x, p.y, zmax)), Vector((0, 0, -1)))
+                if hit:
+                    contatos += 1
+                    self.assertLessEqual(p.z, co.z + .0001)
+            self.assertGreater(contatos, 0)
+
+    def test_espelhar_correr_inverte_curso_e_duas_vezes_devolve_posicao(self):
+        c=addon.modulos.criar_armario(bpy.context,'Correr espelhada',1000,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c,abertura='CORRER')
+        f=addon.portas._folhas_portas(g)[0]
+        x=addon.ferragens._dados_da_folha(f)[3][0]
+        addon.ferragens._definir_abertura(bpy.context,f,1)
+        self.assertGreater(f.matrix_basis.translation.x*1000,x)
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        novo=addon.ferragens._dados_da_folha(f)[3][0]
+        self.assertGreater(novo,x)
+        self.assertLess(f.matrix_basis.translation.x*1000,novo)
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        self.assertAlmostEqual(addon.ferragens._dados_da_folha(f)[3][0],x,places=3)
+
+    def test_espelhar_basculante_inverte_dobradicas_pistoes_e_puxador(self):
+        c=addon.modulos.criar_armario(bpy.context,'Basculante espelhada',600,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c,abertura='BASCULANTE')
+        f=addon.portas._folhas_portas(g)[0]
+        pux=addon.puxadores.perfis_na_porta(bpy.context,g,'BAIXO')[0]
+        p=addon.portas._copiar_parametros(g['porta_parametros'])
+        calc=[addon.ferragens._dados_da_folha(f)]
+        origens={i['id']:i['origem'].copy() for i in addon.ferragens._pistoes_da_porta(p,g['porta_vao_largura_mm'],g['porta_vao_altura_mm'],calc) if 'origem' in i}
+        addon.ferragens._definir_abertura(bpy.context,f,.5)
+        antes=f.matrix_basis[2][1]
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        p=addon.portas._copiar_parametros(g['porta_parametros'])
+        self.assertTrue(p['basculante_invertida'])
+        self.assertLess(antes*f.matrix_basis[2][1],0)
+        self.assertEqual(pux['puxador_borda'],'Y+')
+        aresta=addon.ferragens._dobradicas_da_porta(p,g['porta_vao_largura_mm'],g['porta_vao_altura_mm'],calc)[0][0]
+        self.assertEqual(aresta['lado'],'BAIXO')
+        for item in addon.ferragens._pistoes_da_porta(p,g['porta_vao_largura_mm'],g['porta_vao_altura_mm'],calc):
+            if 'origem' in item:self.assertAlmostEqual(item['origem'].y+origens[item['id']].y,2*calc[0][3][1],places=3)
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        self.assertEqual(pux['puxador_borda'],'Y-')
+
+    def test_espelhar_porta_preserva_vao_malha_e_fracao_de_abertura(self):
+        c=addon.modulos.criar_armario(bpy.context,'Espelhar',600,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c)
+        f=addon.portas._folhas_portas(g)[0]
+        f.data.vertices[0].co.y += .015
+        antes=[tuple(v.co) for v in f.data.vertices]
+        fechada=addon.ferragens._matriz_fechada(f).copy()
+        lado=addon.ferragens._lado_da_folha(g['porta_parametros'],0,1)
+        addon.ferragens._definir_abertura(bpy.context,f,.65)
+        for o in bpy.context.selected_objects:o.select_set(False)
+        g.select_set(True);bpy.context.view_layer.objects.active=g
+        self.assertIn('FINISHED',bpy.ops.object.cabinet_espelhar_porta())
+        self.assertNotEqual(addon.ferragens._lado_da_folha(g['porta_parametros'],0,1),lado)
+        self.assertEqual(f[addon.ferragens.CHAVE_ABERTURA],.65)
+        self.assertTrue(all((v.co-Vector(co)).length<1e-6 for v,co in zip(f.data.vertices,antes)))
+        self.assertLess(max(abs(a-b) for la,lb in zip(fechada,addon.ferragens._matriz_fechada(f)) for a,b in zip(la,lb)),1e-6)
+        self.assertIn('FINISHED',bpy.ops.object.cabinet_espelhar_porta())
+        self.assertEqual(addon.ferragens._lado_da_folha(g['porta_parametros'],0,1),lado)
+        self.assertEqual(bpy.context.object,g)
+
+    def test_espelhar_folha_dupla_muda_so_ela_e_usa_a_sua_borda(self):
+        c=addon.modulos.criar_armario(bpy.context,'Dupla espelhada',800,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c,folhas=2)
+        f0,f1=addon.portas._folhas_portas(g)
+        for o in bpy.context.selected_objects:o.select_set(False)
+        f1.select_set(True);bpy.context.view_layer.objects.active=f1
+        self.assertIn('FINISHED',bpy.ops.object.cabinet_espelhar_porta())
+        p=addon.portas._copiar_parametros(g['porta_parametros'])
+        self.assertEqual([addon.ferragens._lado_da_folha(p,i,2) for i in range(2)],['ESQUERDA','ESQUERDA'])
+        calc=addon.portas._calcular_folhas_portas(g['porta_vao_largura_mm'],g['porta_vao_altura_mm'],p)
+        aresta=addon.ferragens._dobradicas_da_porta(p,g['porta_vao_largura_mm'],g['porta_vao_altura_mm'],calc)[1][0]
+        self.assertGreater(aresta['a'].x,200)
+        self.assertLess(aresta['a'].x,g['porta_vao_largura_mm']-200)
+        self.assertEqual(bpy.context.object,f1)
+        self.assertEqual(addon.portas.alvos_para_espelhar(bpy.context),{g:{1}})
+        raizes=[o for o in g.children_recursive if o.get('cabinet_peca')=='raiz']
+        self.assertEqual({int(o['porta_ferragem_folha']) for o in raizes},{0,1})
+        self.assertEqual(len({o[addon.ferragens.CHAVE_ID_FERRAGEM] for o in raizes}),len(raizes))
+        self.assertFalse(addon.portas._editar_parametro_porta(bpy.context,g,'espessura_mm',20))
+        c.conj_largura_mm=900
+        c.conj_largura_mm=800
+        self.assertEqual(g['porta_parametros']['dobradicas_lados_folhas']['1'],'ESQUERDA')
+
+    def test_espelhar_grupo_e_folha_tem_icone_e_menu_contextual(self):
+        c=addon.modulos.criar_armario(bpy.context,'Menu',600,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c)
+        for o in bpy.context.selected_objects:o.select_set(False)
+        g.select_set(True);bpy.context.view_layer.objects.active=g
+        bpy.context.scene.cabinet_aba='PORTAS'
+        for largura in (190,320,564):
+            acoes=[w[5] for w in addon.gaveta._widgets_gaveta(bpy.context,largura,1400)]
+            self.assertIn(('operador','object.cabinet_espelhar_porta'),acoes)
+        self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(('operador','object.cabinet_espelhar_porta')),'MOD_MIRROR')
+        chamadas=[]
+        menu=SimpleNamespace(layout=SimpleNamespace(separator=lambda:None,
+            operator=lambda nome,**kw:chamadas.append((nome,kw))))
+        addon.portas.menu_contexto_porta(menu,bpy.context)
+        self.assertEqual(chamadas,[('object.cabinet_espelhar_porta',{'icon':'MOD_MIRROR'})])
+        c.select_set(True)
+        self.assertFalse(addon.portas.OBJECT_OT_espelhar_porta.poll(bpy.context))
+
+    def test_espelhar_puxador_nativo_muda_lado_e_duas_vezes_restaura(self):
+        c=addon.modulos.criar_armario(bpy.context,'Puxador espelhado',600,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c)
+        pux=addon.puxadores.perfis_na_porta(bpy.context,g,'LADO')[0]
+        borda=pux['puxador_borda']
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        self.assertNotEqual(pux['puxador_borda'],borda)
+        self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+        self.assertEqual(pux['puxador_borda'],borda)
+
+    def test_espelhar_zigzag_mantem_folhas_fechadas_e_puxador_na_ultima(self):
+        c=addon.modulos.criar_armario(bpy.context,'Zigzag espelhada',900,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c,folhas=3,abertura='ZIGZAG')
+        fs=addon.portas._folhas_portas(g)
+        antes={f:addon.ferragens._matriz_fechada(f).translation.copy() for f in fs}
+        for _ in range(2):
+            self.assertEqual(addon.portas.espelhar_porta(bpy.context,g),'')
+            novas=addon.portas._folhas_portas(g)
+            for f in novas:self.assertLess((addon.ferragens._matriz_fechada(f).translation-antes[f]).length,1e-6)
+            pux=[p for f in novas for p in f.children if addon.chapas.MARCA_PUXADOR in p]
+            self.assertEqual({p.parent for p in pux},{novas[-1]})
+
+    def test_modulo_real_prevalece_sobre_nome_antigo_do_preset(self):
+        c=addon.modulos.criar_armario(bpy.context,'Origem',600,700,550,fundo=False)
+        g=addon.portas.porta_no_modulo(c)
+        outro=addon.modulos.criar_armario(bpy.context,'Copia',600,700,550,fundo=False)
+        # Como no append: o Blender renomeia o pai, mas nao uma string.
+        g[addon.portas.CHAVE_MODULO_PORTA]=outro.name
+        self.assertEqual(addon.portas._portas_do_conjunto(c),[g])
+        self.assertEqual(addon.portas._portas_do_conjunto(outro),[])
+        antes=float(g['porta_vao_largura_mm'])
+        c.conj_largura_mm=800
+        self.assertAlmostEqual(float(g['porta_vao_largura_mm'])-antes,200,delta=.05)
+
     def setUp(self):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -126,7 +380,7 @@ class TestPortas(unittest.TestCase):
         for abertura, limite in addon.portas.LIMITES_FOLHAS.items():
             for n in range(0, 6):
                 with self.subTest(abertura=abertura, folhas=n):
-                    if 1 <= n <= limite:
+                    if (2 if abertura == 'ZIGZAG' else 1) <= n <= limite:
                         self.assertEqual(len(addon.portas._calcular_folhas_portas(
                             600, 800, parametros(abertura=abertura, folhas=n))), n)
                     else:
@@ -2782,11 +3036,248 @@ class TestPortas(unittest.TestCase):
             self.assertEqual(len(folha.data.vertices), 8)
             self.assertNotIn('chapa_quadro_mm', folha)
 
-addon.register()
-suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPortas)
-resultado = unittest.TextTestRunner(verbosity=2).run(suite)
-addon.unregister()
-addon.register()
-addon.unregister()
+    def test_zigzag_espelha_a_cadeia_e_mantem_eixos_coincidentes(self):
+        f = addon.ferragens
+        for lado in ('ESQUERDA', 'DIREITA'):
+            for n in (3, 4, 8):
+                p = parametros(abertura='ZIGZAG', folhas=n, dobradica_lado=lado)
+                folhas = addon.portas._calcular_folhas_portas(1200, 800, p)
+                for fracao in (0, .5, 1):
+                    poses = f._matrizes_zigzag(p, 1200, folhas, fracao)
+                    for i in range(1, n):
+                        junta = f._junta_zigzag(p, folhas[i-1], folhas[i], i) / 1000
+                        a = poses[i-1] @ Matrix.Translation(-Vector(folhas[i-1][3]) / 1000)
+                        b = poses[i] @ Matrix.Translation(-Vector(folhas[i][3]) / 1000)
+                        self.assertLess((a @ junta - b @ junta).length, 1e-6)
+                        ang_a = math.atan2(a[0][2], a[0][0])
+                        ang_b = math.atan2(b[0][2], b[0][0])
+                        self.assertAlmostEqual(ang_a, -ang_b, places=5)
+
+    def test_zigzag_puxador_ultima_folha_abertura_e_edicao(self):
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj, folhas=3, abertura='ZIGZAG')
+        self.assertEqual(grupo.name, 'Porta Zig-zag')
+        for quantidade in (3, 5, 2):
+            self.assertEqual(addon.portas._editar_parametro_porta(bpy.context, grupo, 'folhas', quantidade), '')
+            folhas = addon.portas._folhas_portas(grupo)
+            puxadores = [c for folha in folhas for c in folha.children if addon.chapas.MARCA_PUXADOR in c]
+            self.assertEqual(len(puxadores), 1)
+            self.assertEqual(puxadores[0].parent, folhas[-1])
+            addon.ferragens._definir_abertura(bpy.context, folhas[-1], .7)
+            self.assertTrue(all(abs(f.get(addon.ferragens.CHAVE_ABERTURA) - .7) < 1e-6 for f in folhas))
+            fechado = addon.ferragens._matriz_fechada(folhas[-1])
+            self.assertGreater((folhas[-1].matrix_world.translation - fechado.translation).length, .01)
+        addon.portas._editar_parametro_porta(bpy.context, grupo, 'dobradica_lado', 'DIREITA')
+        self.assertEqual(puxadores[0]['puxador_borda'], 'X-')
+        addon.hud._selecionar_porta_hud(bpy.context, folhas[0], 'PORTA')
+        self.assertEqual(addon.portas_viewport._folhas_com_slider(bpy.context), folhas[-1:])
+
+    def test_zigzag_volumes_presos_as_duas_folhas(self):
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj, folhas=3, abertura='ZIGZAG')
+        folhas = addon.portas._folhas_portas(grupo)
+        ferragens = addon.ferragens._ferragens_portas(grupo)
+        self.assertTrue(any(o.get('cabinet_peca') == 'base' for o in ferragens))
+        for i in (1, 2):
+            itens = [o for o in ferragens if o.get('porta_ferragem_id', '').startswith('ART_%d_' % i)]
+            self.assertTrue(any('Eixo' in o.name for o in itens))
+            self.assertTrue(any(o.parent == folhas[i-1] for o in itens))
+            self.assertTrue(any(o.parent == folhas[i] for o in itens))
+            for o in itens:
+                self.assertGreater(len(o.data.vertices), 0)
+        meshes = {o.name: o.data.as_pointer() for o in ferragens if o.type == 'MESH'}
+        addon.ferragens._definir_abertura(bpy.context, folhas[-1], 1)
+        self.assertEqual(meshes, {o.name: o.data.as_pointer() for o in ferragens if o.type == 'MESH'})
+
+    def test_assistente_oferece_zigzag_tres_folhas(self):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        chamadas = []
+        op = SimpleNamespace(_w=dict(etapa='FOLHAS', escolhas={}, embutida=False),
+                             _ir=chamadas.append)
+        tipo._escolher(op, bpy.context, '3')
+        self.assertIn(('ZIGZAG', 'Zig-zag'), op._w['tipos'])
+        self.assertEqual(chamadas, ['TIPO'])
+
+    def test_oito_folhas_cabem_na_caixa_de_viewport_baixa(self):
+        for tamanho in ((190, 180), (320, 200), (564, 800)):
+            botoes = addon.assistente._botoes_assistente(Vector((185, 20)),
+                addon.portas.OPCOES_FOLHAS, 1, tamanho, 'Quantas folhas?')
+            self.assertEqual(len(botoes), 8)
+            for (x, y, w, h), chave, texto in botoes:
+                self.assertGreaterEqual(x, 10)
+                self.assertGreaterEqual(y, 10)
+                self.assertLessEqual(x + w, tamanho[0] - 10 + 1e-6)
+                self.assertLessEqual(y + h + 24, tamanho[1] - 10 + 1e-6)
+
+    def test_foto_de_canto_fecha_todas_as_folhas(self):
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj, folhas=2)
+        original = addon.formas.forma_do_modulo
+        try:
+            addon.formas.forma_do_modulo = lambda c: {'cantos': [dict(tipo='RECORTE')]}
+            for f in addon.portas._folhas_portas(grupo):addon.ferragens._definir_abertura(bpy.context,f,.7)
+            addon.biblioteca.preparar_abertura_foto(bpy.context, conj)
+            self.assertEqual([f[addon.ferragens.CHAVE_ABERTURA] for f in addon.portas._folhas_portas(grupo)], [0, 0])
+            addon.formas.forma_do_modulo = lambda c: {'cantos': [None] * 4}
+            addon.biblioteca.preparar_abertura_foto(bpy.context, conj)
+            self.assertEqual([f[addon.ferragens.CHAVE_ABERTURA] for f in addon.portas._folhas_portas(grupo)], [0, 0])
+        finally:
+            addon.formas.forma_do_modulo = original
+
+    def test_foto_fecha_tambem_correr_basculante_e_zigzag(self):
+        for abertura in ('GIRO','CORRER','BASCULANTE','ZIGZAG'):
+            conj=addon.modulos.criar_armario(bpy.context,'Foto',600,700,550,fundo=False)
+            grupo=addon.portas.porta_no_modulo(conj,folhas=2,abertura=abertura)
+            folhas=addon.portas._folhas_portas(grupo)
+            for f in folhas:addon.ferragens._definir_abertura(bpy.context,f,.8)
+            quantidade=len(bpy.data.objects)
+            addon.biblioteca.preparar_abertura_foto(bpy.context,conj)
+            self.assertEqual(len(bpy.data.objects),quantidade)
+            self.assertTrue(all(f[addon.ferragens.CHAVE_ABERTURA]==0 for f in folhas))
+
+    def test_foto_fecha_porta_sem_alterar_lado_nem_preset_original(self):
+        import tempfile,os
+        conj=self.nicho()
+        grupo=self.porta_de_giro(conj,dobradica_lado='DIREITA')
+        caminho=os.path.join(tempfile.mkdtemp(),'Foto.blend')
+        bpy.data.libraries.write(caminho,{conj,*conj.children_recursive})
+        addon.biblioteca.preparar_abertura_foto(bpy.context,conj)
+        self.assertEqual(grupo['porta_parametros']['dobradica_lado'],'DIREITA')
+        folha,=addon.portas._folhas_portas(grupo)
+        self.assertEqual(folha[addon.ferragens.CHAVE_ABERTURA],0)
+        with bpy.data.libraries.load(caminho) as (de,para):para.objects=list(de.objects)
+        original,=[o for o in para.objects if addon.chapas.MARCA_PORTAS in o]
+        self.assertEqual(original['porta_parametros']['dobradica_lado'],'DIREITA')
+        self.assertTrue(all(f.get(addon.ferragens.CHAVE_ABERTURA,0)==0 for f in addon.portas._folhas_portas(original)))
+
+    def test_padrao_esquerdo_preserva_alturas_material_uid_e_puxador(self):
+        conj=self.nicho();grupo=self.porta_de_giro(conj,dobradica_lado='DIREITA')
+        p=addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p['dobradicas_referencia']={'0':[.16,.77]}
+        addon.portas._reaplicar_portas(bpy.context,grupo,p)
+        folha,=addon.portas._folhas_portas(grupo)
+        material=bpy.data.materials.new('Porta madeira');folha.data.materials.append(material)
+        uid=folha.get('chapa_uid');fechada=addon.ferragens._matriz_fechada(folha)
+        pux=addon.puxadores.criar_puxador(bpy.context,folha,'PERFIL','X-',1)
+        self.assertTrue(addon.portas.preferir_abertura_esquerda(bpy.context,grupo))
+        self.assertEqual(grupo['porta_parametros']['dobradica_lado'],'ESQUERDA')
+        self.assertEqual(list(grupo['porta_parametros']['dobradicas_referencia']['0']),[.16,.77])
+        self.assertEqual(folha.get('chapa_uid'),uid)
+        self.assertEqual(folha.material_slots[0].material,material)
+        self.assertEqual(pux.get('puxador_borda'),'X+')
+        self.assertLess((addon.ferragens._matriz_fechada(folha).translation-fechada.translation).length,1e-6)
+        self.assertFalse(addon.portas.preferir_abertura_esquerda(bpy.context,grupo))
+
+    def test_padrao_esquerdo_nao_cria_dobradica_sem_lateral_de_apoio(self):
+        conj=self.nicho();grupo=self.porta_de_giro(conj,dobradica_lado='DIREITA')
+        laterais=[o for o in addon.modulos._chapas_do_conjunto(conj) if abs(addon.chapas._eixos(o)[2].x)>.9]
+        esquerda=min(laterais,key=lambda o:o.matrix_world.translation.x)
+        bpy.data.objects.remove(esquerda,do_unlink=True);bpy.context.view_layer.update()
+        self.assertFalse(addon.portas.preferir_abertura_esquerda(bpy.context,grupo))
+        self.assertEqual(grupo['porta_parametros']['dobradica_lado'],'DIREITA')
+
+    def _canto_135(self, lado):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, dobradica='CURVA', dobradica_lado=lado)
+        p = addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p['dobradica'] = 'CURVA'
+        addon.portas._reaplicar_portas(bpy.context, grupo, p)
+        L, A, P, E = addon.portas._caixa_do_modulo(conj)
+        esquerda = lado == 'ESQUERDA'
+        laterais = [o for o in addon.modulos._chapas_do_conjunto(conj) if abs(addon.chapas._eixos(o)[2].x) > .9]
+        suporte = (min if esquerda else max)(laterais, key=lambda o: o.matrix_world.translation.x)
+        q = conj.matrix_world @ (Vector((-L / 2 + E if esquerda else L / 2 - E, -P / 2, 0)) / 1000)
+        suporte.matrix_world = (Matrix.Translation(q) @ Matrix.Rotation(math.radians(45 if esquerda else -45), 4, 'Z')
+                                @ Matrix.Translation(-q) @ suporte.matrix_world)
+        bpy.context.view_layer.update()
+        addon.ferragens._refazer_ferragens(grupo)
+        bpy.context.view_layer.update()
+        return conj, grupo, suporte
+
+    def test_dobradica_de_135_encosta_com_a_face_inteira_sem_penetrar(self):
+        # Regressao v232: minimo de distancia aprovava uma quina so'.
+        for lado in ('ESQUERDA', 'DIREITA'):
+            self.setUp()
+            conj, grupo, suporte = self._canto_135(lado)
+            bases = [o for o in addon.ferragens._ferragens_portas(grupo) if 'porta_ferragem_apoio' in o]
+            self.assertEqual(len(bases), 2)
+            im = suporte.matrix_world.inverted()
+            for base in bases:
+                self.assertEqual(base['porta_ferragem_apoio'], suporte)
+                contatos, distancias = [], []
+                for v in base.data.vertices:
+                    local = im @ (base.matrix_world @ v.co)
+                    hit, ponto, normal, face = suporte.closest_point_on_mesh(local)
+                    self.assertTrue(hit)
+                    delta = suporte.matrix_world.to_3x3() @ (local - ponto)
+                    distancias.append(delta.length)
+                    if delta.length < .00005:
+                        contatos.append(base.matrix_world @ v.co)
+                    self.assertGreaterEqual((local - ponto).dot(normal), -.00005)
+                self.assertEqual(len(contatos), 4)
+                self.assertLess(max(distancias), .0031)
+                # Quatro vertices cobrem uma area, nao um segmento.
+                self.assertGreater((contatos[1] - contatos[0]).cross(contatos[2] - contatos[0]).length, .001)
+
+    def test_braco_angular_segue_o_copo_sem_refazer_malhas(self):
+        conj, grupo, suporte = self._canto_135('DIREITA')
+        folha, = addon.portas._folhas_portas(grupo)
+        bracos = [o for o in addon.ferragens._ferragens_portas(grupo) if 'Braco Angular' in o.name]
+        self.assertEqual(len(bracos), 2)
+        meshes = [o.data.as_pointer() for o in bracos]
+        for fracao in (0, .5, 1):
+            addon.ferragens._definir_abertura(bpy.context, folha, fracao)
+            for braco in bracos:
+                r, = [c for c in braco.constraints if c.type == 'STRETCH_TO']
+                self.assertEqual(r.target.parent, folha)
+                ponta = braco.matrix_world @ Vector((0, r.rest_length, 0))
+                self.assertLess((ponta - r.target.matrix_world.translation).length, 1e-5)
+        self.assertEqual(meshes, [o.data.as_pointer() for o in bracos])
+
+    def test_prisma_angular_e_arame_preservam_o_plano_real(self):
+        conj, grupo, suporte = self._canto_135('ESQUERDA')
+        p, L, A, folhas = addon.ferragens._porta_calculada(grupo)
+        apoios = addon.ferragens._apoios_obliquos(conj, grupo.matrix_world, p, L, A, folhas)
+        itens = addon.ferragens._ferragens_da_porta(p, L, A, folhas, apoios)
+        _, pontos = addon.arame._arame_dos_itens(itens)
+        self.assertTrue(pontos)
+        for item in [i for i in itens if i['forma'] == 'PRISMA']:
+            obj = next(o for o in grupo.children if o.get('porta_ferragem_id') == item['id'])
+            vs = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            for ponto in item['cantos']:
+                mundo = grupo.matrix_world @ (ponto / 1000)
+                self.assertLess(min((v - mundo).length for v in vs), 1e-6)
+        # Inclinar ainda mais o apoio refaz o encaixe pela geometria atual.
+        suporte.location.y += .01
+        bpy.context.view_layer.update()
+        addon.ferragens._refazer_ferragens(grupo)
+        bpy.context.view_layer.update()
+        self.assertEqual(len([o for o in grupo.children if 'porta_ferragem_apoio' in o]), 2)
+
+    def test_atualiza_preset_antigo_sem_alterar_porta_puxador_ou_abertura(self):
+        conj, grupo, suporte = self._canto_135('ESQUERDA')
+        folha, = addon.portas._folhas_portas(grupo)
+        puxador = addon.puxadores.criar_puxador(bpy.context, folha, 'PERFIL', 'X+', 1)
+        addon.ferragens._definir_abertura(bpy.context, folha, .6)
+        bpy.context.view_layer.update()
+        antes = (folha.matrix_world.copy(), folha.data.as_pointer(), puxador.as_pointer(), folha[addon.ferragens.CHAVE_ABERTURA])
+        del grupo['porta_ferragens_encaixe']
+        addon.ferragens._conferir_ferragens()
+        bpy.context.view_layer.update()
+        self.assertEqual(grupo['porta_ferragens_encaixe'], 1)
+        self.assertEqual((folha.data.as_pointer(), puxador.as_pointer(), folha[addon.ferragens.CHAVE_ABERTURA]), antes[1:])
+        self.assertLess(max(abs(a - b) for r, s in zip(folha.matrix_world, antes[0]) for a, b in zip(r, s)), 1e-6)
+
+with tempfile.TemporaryDirectory(prefix='cabinet_portas_') as pasta:
+    with patch.object(addon.biblioteca, 'pasta_biblioteca', return_value=pasta), \
+         patch.object(addon.opcoes, '_pasta_addon', return_value=pasta):
+        addon.register()
+        try:
+            suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPortas)
+            resultado = unittest.TextTestRunner(verbosity=2).run(suite)
+        finally:
+            addon.unregister()
+        addon.register()
+        addon.unregister()
 if not resultado.wasSuccessful():
     raise RuntimeError('Falha nos testes de portas')

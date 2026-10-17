@@ -172,7 +172,30 @@ def _correntes_hud(context):
                               'assinatura': assinatura, 'pontos': [p, q],
                               'indice': k, 'ancora': ancora,
                               'meio': _hud._projetar_hud(context, (p + q) / 2)})
-    return correntes
+    return _correntes_sem_repeticao(correntes)
+
+
+def _correntes_sem_repeticao(correntes):
+    """Uma alca por quina fisica da junta, incluindo o par da espessura.
+    As soldas continuam independentes; so' controles coincidentes somem.
+    """
+    unicas, por_par = [], {}
+    for corrente in correntes:
+        a, b = corrente['a'], corrente['b']
+        p, q = corrente['pontos']
+        chave = tuple(sorted((a.name, b.name)))
+        proximas = por_par.setdefault(chave, [])
+        repetida = False
+        for outra in proximas:
+            r, s = outra['pontos'] if a == outra['a'] else reversed(outra['pontos'])
+            raio = min(.025, max(a.chapa_espessura_mm, b.chapa_espessura_mm) / 1000) + .00005
+            if (p-r).length <= raio and (q-s).length <= raio:
+                repetida = True
+                break
+        if not repetida:
+            unicas.append(corrente)
+            proximas.append(corrente)
+    return unicas
 
 
 RAIO_BOLINHA_PX = 9.0
