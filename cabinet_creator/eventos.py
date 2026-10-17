@@ -7,7 +7,7 @@ import bpy
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
 _ferragens = _prateleiras = _selecao = _formas = None
-_frentes = None
+_frentes = _solda = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -198,6 +198,7 @@ def _esquecer_referencias(*_args):
     _selecao._edicao_grupo[0] = None
     _formas.esquecer()
     _frentes.esquecer()
+    _solda._cache_ancoras[0].clear()
     _chapas._chapas_em_edicao.clear()
     _chapas._havia_modal[0] = False
 

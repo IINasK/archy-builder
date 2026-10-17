@@ -930,8 +930,9 @@ def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
 
 
 def _gravar_ligacao(C, eixo, lado, N, folga, face):
-    if f"adj_{eixo}_{lado}_ancoras" in C:
-        del C[f"adj_{eixo}_{lado}_ancoras"]   # solda nova: ancoras de fabrica
+    for sufixo in ('_ancoras','_origens'):
+        if f"adj_{eixo}_{lado}{sufixo}" in C:
+            del C[f"adj_{eixo}_{lado}{sufixo}"]   # solda nova: nao herda a origem anterior
     C[f"adj_{eixo}_{lado}"] = N.name
     C[f"adj_{eixo}_{lado}_uid"] = _garantir_uid(N)
     C[f"adj_{eixo}_{lado}_folga"] = float(folga)
@@ -1010,7 +1011,7 @@ def _limpar_ponta(C, ponta):
     """Tira a solda de UMA ponta (ela deixa de puxar vizinho)."""
     C[f"adj_{ponta}"] = ""
     C[f"adj_{ponta}_folga"] = 0.0
-    for sufixo in ("_uid", "_face", "_ancoras"):
+    for sufixo in ("_uid", "_face", "_ancoras", "_origens"):
         if f"adj_{ponta}{sufixo}" in C:
             del C[f"adj_{ponta}{sufixo}"]
 
@@ -1312,7 +1313,7 @@ class OBJECT_OT_marcar_como_chapa(Operator):
                     vizinho = _resolver_vizinho(
                         chapa, chapa.get(base + '_uid', ''), chapa.get(base, ''))
                     if chapa == obj or vizinho == obj:
-                        for sufixo in ('', '_uid', '_folga', '_face'):
+                        for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens'):
                             if base + sufixo in chapa:
                                 del chapa[base + sufixo]
             _ocupado[0] = True

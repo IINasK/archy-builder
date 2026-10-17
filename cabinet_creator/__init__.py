@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (267, 0, 0),
+    "version": (270, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -477,10 +477,12 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    _solda.encerrar_conexao_nativa()
     bpy.types.VIEW3D_MT_object_context_menu.remove(_portas.menu_contexto_porta)
     _solda._tecla_corrente_segurada[0] = False
     _solda._conexao_pendente[0] = None
     _solda._conexao_manual[0] = None
+    _solda._cache_ancoras[0].clear()
     _solda._desagregar_pendente[0] = None
     _solda._pergunta_reset[0] = ''
     _perguntas._pergunta_atual[0] = None

@@ -37,7 +37,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (267).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (270).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -86,8 +86,9 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   ou selecionada (ARAME da peca real): clique = todas do tipo (Shift soma o
   outro), Alt = controlador, duplo = a PECA (nativa: Tab/G/X). PUXADOR: Alt
   arrasta a ancora a outra borda SO' do grupo dele (snap de linha). Clique no puxador = SO' ele e suas funcoes, inclusive nas gavetas; trilhos das gavetas ficam com elas. Tab no Empty do grupo = Edit Mode MULTIOBJETO nativo, so' malhas reais (sem cortadores/controles); tornar malhas compartilhadas unicas antes. Conservar Empties selecionados no Edit Mode (escopo nativo/undo), restaurar selecao/ativo ao sair e invalidar planta; estado SO' nomes. Peca isolada conserva Tab nativo.
+- Solda manual usa o translate/snap NATIVO compartilhado e identifica MeshVertex por KDTree nativa, sem cantos nominais. Ancorar/Juntar preserva a posicao atual e registra o afastamento 3D por par no referencial do destino (`adj_<ponta>_origens`); Resetar volta a esse gap, nunca o zera. Trocar a ancora por Alt conserva a origem cadastrada da junta.
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo DESVIO (> 5 mm
-  na viewport, qualquer um no botao). Regua: chapa ativa se move (pergunta se mudar medida);
+  na viewport, qualquer um no botao). Corrente e regua escolhem a MESMA peca pela selecao, nunca pelo lado que grava o vinculo. Regua: chapa ativa se move (pergunta se mudar medida);
   modulo ativo se adapta. Modulos: solda automatica exige area de apoio positiva (quina/aresta nao basta); chapas soltas mantem fecho legado. Limpar nome E UID da ponta; otimizar_adjacencia preserva ancoras manuais. HUD agrupa controles da mesma junta por espessura, sem apagar vinculos. Ctrl+D numa chapa: sem soldas (UID novo); F3 "Recalcular Ancoragem".
 - Ancoras da solda: com Alt, arrastar a bolinha branca so' TROCA o vertice soldado
   (`adj_<ponta>_ancoras`); a geometria vai na regua: a ativa (de qualquer lado) anda pelas soldas

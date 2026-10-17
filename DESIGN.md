@@ -295,7 +295,7 @@ chapa unica ativa = ELA se move ate' todas as soldas voltarem
 Modulo ativo = o MODULO se adapta a chapa: as pontas soldadas esticam
 ate' ela (`resetar_ponta`) e o modulo se redimensiona. Na viewport a
 regua passa a peca da linha (a ativa, ou a que se afastou:
-`_peca_afastada`) e volta todas as soldas dela.
+`_peca_afastada`) e volta todas as soldas dela. Corrente e regua usam essa MESMA peca: chapa individual ativa, ou a que se afastou quando o grupo esta' selecionado. A ponta que guarda o registro nao decide quem sai; desagregar a lateral retira ela do pai/colecao e dos limites/vaos do modulo, sem soltar base/tampo por engano.
 Bolinhas brancas nas pontas das linhas (Alt) sao as ANCORAS: arrastar
 uma ate' outro vertice das duas pecas (ima por tela; na malha modelada,
 qualquer vertice dela -- o chanfro --, gravado como `v<indice>`) so' grava qual
@@ -314,10 +314,9 @@ que esvazia e' apagado, `desagregar_grupo`). Peca solta sozinha -> modo
 "selecionar vertice" direto. Alvo(s) primeiro e a peca de fora POR
 ULTIMO (o ativo): conecta por distancia ate' 5 mm
 (`ALCANCE_CONEXAO_AUTOMATICA`), so' com os alvos; mais longe, o mesmo
-"selecionar vertice", so' nos cantos dos alvos -- canto da peca,
+"selecionar vertice", so' nos vertices REAIS dos alvos -- vertice da peca,
 depois o canto alvo, repetindo; Enter ou "Confirmar" no pe' -> "Juntar
-ao modulo?". Sim puxa a peca ate' os alvos (`_puxar_por_pares`: a
-ponta puxada estica, o alvo fica PARADO), entra no modulo e associa
+ao modulo?". Usa o translate/snap NATIVO compartilhado para marcar vertices, nao cantos de uma caixa. Sim entra no modulo sem mover a madeira. Cada par de vertices conserva o afastamento 3D atual no referencial local do destino (`adj_<ponta>_origens`), que acompanha o giro do modulo. Resetar recupera esse gap cadastrado; o valor zero deixou de ser o destino automatico. Uma translacao compativel com todas as soldas conserva a malha inteira; restricoes distintas conservam os pares de E. Juntas antigas continuam usando a folga escalar. Associa
 sem zerar as ligacoes dos outros (`associar_por_distancia`). Pop-ups
 aqui sao pedido explicito. O botao dispara no SOLTAR
 (`OPERADORES_NO_SOLTAR`): no PRESS o pop-up nascia sob o mouse e o

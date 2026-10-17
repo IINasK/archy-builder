@@ -1793,7 +1793,8 @@ _snap_criacao = [None]
 
 
 def _estado_criacao():
-    return _assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
+    return (_assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
+            or (_solda._conexao_manual[0] if (_solda._conexao_manual[0] or {}).get('snap_nativo') else None))
 
 
 def _terminar_snap_criacao():
@@ -1863,7 +1864,7 @@ class OBJECT_OT_confirmar_ponto_vao(Operator):
             _terminar_snap_criacao();return {'CANCELLED'}
         try:
             ponto=context.scene.cursor.location.copy()
-            nome=_objeto_do_ponto_criacao(context,ponto) if w['etapa']!='PROFUNDIDADE' else None
+            nome=_objeto_do_ponto_criacao(context,ponto) if w['etapa'] not in ('PROFUNDIDADE','SOLDA') else None
             w['ponto_confirmado']=(ponto,nome)
         except Exception:
             w['cancelar']=True
@@ -1961,7 +1962,8 @@ class AssistenteDoVao:
         with context.temp_override(area=self._area,region=self._regiao):
             bloqueados=[]
             for obj in context.visible_objects:
-                if (obj.type=='MESH' and _chapas.MARCA_CHAPA not in obj and 'eh_peca_curva' not in obj):
+                if (obj.name not in w['alvos_snap'] if 'alvos_snap' in w else
+                    obj.type=='MESH' and _chapas.MARCA_CHAPA not in obj and 'eh_peca_curva' not in obj):
                     bloqueados.append((obj.name,obj.hide_select));obj.hide_select=True
             _snap_criacao[0]=dict(cena=context.scene.name,area=self._area.as_pointer(),
                 cursor=tuple(context.scene.cursor.location),mostrar_cursor=self._area.spaces.active.overlay.show_cursor,
@@ -1970,8 +1972,9 @@ class AssistenteDoVao:
             if ponto is None:ponto=context.scene.cursor.location.copy()
             context.scene.cursor.location=ponto
             self._area.spaces.active.overlay.show_cursor=False
-            params=dict(cursor_transform=True,snap=True,snap_elements={'VERTEX','EDGE_MIDPOINT'},
+            params=dict(cursor_transform=True,snap=True,snap_elements=set(w.get('elementos_snap',('VERTEX','EDGE_MIDPOINT'))),
                         snap_target='CENTER',snap_align=False,use_snap_selectable=True)
+            if w.get('soltar_confirma'):params['release_confirm']=True
             if w['etapa']=='PROFUNDIDADE':
                 _d,matriz=self._dados()
                 params.update(orient_type='GLOBAL',orient_matrix_type='GLOBAL',

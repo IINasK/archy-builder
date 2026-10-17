@@ -13,7 +13,7 @@ import bmesh
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-_chapas = _ferragens = _eventos = _puxadores = None
+_chapas = _ferragens = _eventos = _puxadores = _solda = None
 CHAVE = 'cabinet_frente_referencia'
 ATR_FACE = 'cabinet_frente_face'
 ATR_BORDA = 'cabinet_frente_borda'
@@ -328,6 +328,7 @@ def preparar(chapa, forcar=False):
         _sem_referencia(malha,_digital(malha))
         return None
     digital = _digital(malha)
+    _solda.preparar_ancoras(chapa,digital)
     if _chapas.MARCA_CHAPA in chapa:
         _chapas.preparar_espessura(chapa,digital)
     anterior = malha.get(CHAVE)

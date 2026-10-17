@@ -1486,7 +1486,7 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
             botao.matrix_basis[1][3] = centro.y
             if tipo == 'corrente':
                 op = botao.target_set_operator('object.cabinet_desassociar')
-                op.chapa = corrente['a'].name
+                op.chapa = corrente['movel'].name
             else:
                 op = botao.target_set_operator(_solda.OP_RESETAR_DISTANCIA)
                 op.chapa = corrente['movel'].name

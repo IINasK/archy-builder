@@ -1,10 +1,11 @@
 """Correntes da solda (adjacencia): desagregar, conectar, ancoras,
 regua (resetar distancia) e o nome do grupo que a Corrente cria."""
 
-import bpy, math, json, gpu
+import bpy, bmesh, math, json, gpu
 from gpu_extras.batch import batch_for_shader
 from bpy.props import BoolProperty, StringProperty, IntProperty
 from mathutils import Vector
+from mathutils.kdtree import KDTree
 from bpy_extras import view3d_utils
 from bpy.types import Operator
 
@@ -26,6 +27,53 @@ _hud = None
 _perguntas = None
 _portas_viewport = None
 _gaveta_desenho = None
+_frentes = None
+_formas = None
+_cache_ancoras = [{}]  # nomes/numeros/KDTree nativa, nunca RNA
+_timer_conexao = [None]
+_handler_conexao = [None]
+
+
+def encerrar_conexao_nativa(context=None):
+    context=context or bpy.context
+    estado=_conexao_manual[0]
+    if estado and estado.get('snap_nativo'):_gavetas._terminar_snap_criacao()
+    if _timer_conexao[0] is not None:
+        context.window_manager.event_timer_remove(_timer_conexao[0]);_timer_conexao[0]=None
+    if _handler_conexao[0] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_handler_conexao[0],'WINDOW');_handler_conexao[0]=None
+    if estado:
+        for janela in context.window_manager.windows:
+            for area in janela.screen.areas:
+                if any(r.as_pointer()==estado.get('regiao') for r in area.regions):area.header_text_set(None)
+    _conexao_manual[0]=None
+    return estado
+
+
+def preparar_ancoras(P, digital=None):
+    if P.type!='MESH' or P.data.is_editmode:return None
+    digital=digital or _frentes._digital(P.data)
+    antigo=_cache_ancoras[0].get(P.data.name)
+    if antigo and antigo['digital']==digital:return antigo
+    arvore=KDTree(len(P.data.vertices)) if P.data.vertices else None
+    assinaturas={};caixa=_chapas._malha_e_caixa(P.data)
+    for v in P.data.vertices:
+        arvore.insert(v.co,v.index)
+        assinaturas[v.index]=(_assinatura_canto(P,P.matrix_world@v.co) if caixa else 'v%d'%v.index)
+    if arvore:arvore.balance()
+    pontas={}
+    for i in (0,1):
+        for lado,funcao in (('neg',min),('pos',max)):
+            extremo=funcao((v.co[i] for v in P.data.vertices),default=0.)
+            pontas[str(i)+lado]=[v.index for v in P.data.vertices if abs(v.co[i]-extremo)<1e-5]
+    dado=dict(digital=digital,n=len(P.data.vertices),arvore=arvore,pontas=pontas,assinaturas=assinaturas)
+    _cache_ancoras[0][P.data.name]=dado
+    return dado
+
+
+def _dados_ancoras(P):
+    dado=_cache_ancoras[0].get(P.data.name)
+    return dado if dado and dado['n']==len(P.data.vertices) else preparar_ancoras(P)
 
 # ------------------------------------------- correntes de adjacencia
 # A adjacencia (a SOLDA) liga a PONTA de uma chapa a FACE de outra e
@@ -81,11 +129,24 @@ def _pares_da_ligacao(C, u, extremo, N):
     """Os 2 pares (vertice de C, vertice de N, assinatura) da ligacao:
     cada canto da ponta de C com o canto mais perto de N; ficam os dois
     mais curtos (de um lado e do outro da junta)."""
-    ponta = [p for p in _chapas._cantos(C) if abs(p.dot(u) - extremo) < 1e-5]
-    cantos_n = _chapas._cantos(N)
-    pares = [(p, min(cantos_n, key=lambda q: (q - p).length)) for p in ponta]
+    dc,dn=_dados_ancoras(C),_dados_ancoras(N)
+    if not dc or not dn or dn['arvore'] is None:return []
+    local=C.matrix_world.to_3x3().transposed()@u
+    eixo=max((0,1),key=lambda i:abs(local[i]));lado='pos' if extremo>C.matrix_world.translation.dot(u) else 'neg'
+    inversa=N.matrix_world.inverted();pares=[]
+    for i in dc['pontas'][str(eixo)+lado]:
+        p=C.matrix_world@C.data.vertices[i].co
+        _co,j,_d=dn['arvore'].find(inversa@p)
+        q=N.matrix_world@N.data.vertices[j].co
+        pares.append((p,q,dc['assinaturas'][i],dn['assinaturas'][j]))
     pares.sort(key=lambda par: (par[1] - par[0]).length)
-    return [(p, q, _assinatura_canto(C, p)) for p, q in pares[:2]]
+    escolhidos=[];locais=[]
+    for par in pares:
+        p=C.matrix_world.inverted()@par[0]
+        if any((p.xy-q.xy).length<1e-5 for q in locais):continue
+        escolhidos.append(par);locais.append(p)
+        if len(escolhidos)==2:break
+    return escolhidos
 
 
 def _vizinho_da_ponta(C, ponta):
@@ -138,11 +199,9 @@ def _ligacoes_adjacencia(chapas_item, limiar=None):
             # Com ancoras gravadas cada par tem o SEU desvio: o que ja'
             # encostou some (a print do usuario: ele ficava desenhado em
             # cima do vertice, sobrepondo bolinha e botoes)
-            sentido = u if ponta.endswith('pos') else -u
-            memorizada = float(C.get('adj_%s_folga' % ponta, 0.0))
-            soltos = ([(q - sentido * memorizada - p).length >= limiar
-                       for p, q, _s in pares]
-                      if _ancoras_gravadas(C, ponta) else [True] * len(pares))
+            gravadas=_ancoras_gravadas(C,ponta)
+            soltos = ([_desvio_ancora(C,ponta,N,gravadas.index((sc,sn)),sc,sn).length >= limiar
+                       for sc,sn in ancoras] if gravadas else [True] * len(pares))
             ligacoes.append({'a': C, 'b': N, 'ponta': ponta,
                              'folga': folga, 'desvio': desvio,
                              'ancoras': ancoras, 'pares': pares,
@@ -309,7 +368,7 @@ def desassociar(a, b):
             if _vizinho_da_ponta(C, ponta) != N:
                 continue
             base = 'adj_' + ponta
-            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras'):
+            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens'):
                 if base + sufixo in C:
                     del C[base + sufixo]
             n += 1
@@ -374,54 +433,56 @@ def desagregar_grupo(pecas):
 
 
 def _puxar_por_pares(C, pares):
-    """Leva os cantos de C aos destinos: [(assinatura em C, ponto alvo)].
+    """Uma ancora translada a peca inteira; varias impoem pontos exatos.
 
-    Em cada eixo da chapa (largura, comprimento) a ponta que tem cantos
-    puxados vai ate' a media dos alvos -- a outra ponta fica, e a chapa
-    estica; sem canto puxado naquele eixo ela so' translada. A espessura
-    nunca estica: translada. O alvo nao se mexe (a peca e' que vai a ele).
+    A origem do Object nao participa do encaixe. A malha nativa conserva
+    topologia/UV; cada vertice move junto com seu parceiro da espessura.
     """
-    if not pares:
-        return
-    eixos = _chapas._eixos(C)
-    meias = _chapas._meias(C)
-    centro = _chapas._centro(C)
-    deslocamento = Vector((0, 0, 0))
-    medidas = [C.chapa_largura_mm, C.chapa_comprimento_mm]
-    for i in range(3):
-        u, h = eixos[i], meias[i]
-        c = centro.dot(u)
-        mais = [alvo.dot(u) for s, alvo in pares if s[i] == '+']
-        menos = [alvo.dot(u) for s, alvo in pares if s[i] == '-']
-        if i < 2 and (mais or menos):
-            novo_mais = sum(mais) / len(mais) if mais else c + h
-            novo_menos = sum(menos) / len(menos) if menos else c - h
-            if novo_mais - novo_menos > 0.001:
-                medidas[i] = (novo_mais - novo_menos) * 1000.0
-                deslocamento += u * ((novo_mais + novo_menos) / 2 - c)
-                continue
-        media = sum((alvo - _canto_da_assinatura(C, s)).dot(u)
-                    for s, alvo in pares) / len(pares)
-        deslocamento += u * media
-    _chapas._ocupado[0] = True
-    try:
-        C.chapa_largura_mm, C.chapa_comprimento_mm = medidas
-    finally:
-        _chapas._ocupado[0] = False
-    _chapas._definir_centro(C, centro + deslocamento)
-    _chapas.gerar_malha_chapa(C)
+    if not pares:return
+    if C.mode=='EDIT' or C.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    inversa=C.matrix_world.inverted().to_3x3();deltas={}
+    for s,q in pares:
+        ids=_indices_da_assinatura(C,s)
+        if not ids:raise ValueError('O vertice de origem nao existe mais')
+        i=ids[0];d=inversa@(Vector(q)-C.matrix_world@C.data.vertices[i].co)
+        if i in deltas and (deltas[i]-d).length>1e-6:
+            raise ValueError('O mesmo vertice recebeu destinos diferentes')
+        deltas[i]=d
+    primeiro=next(iter(deltas.values()))
+    if all((d-primeiro).length<1e-6 for d in deltas.values()):
+        mundo=C.matrix_world.copy();mundo.translation+=C.matrix_world.to_3x3()@primeiro
+        C.matrix_world=mundo
+    else:
+        movimentos={}
+        for i,d in deltas.items():
+            parceiro=_indices_da_assinatura(C,_parceiro_espessura(C,'v%d'%i))
+            for j in {i,*parceiro}:
+                if j in movimentos and (movimentos[j]-d).length>1e-6:
+                    raise ValueError('As ancoras exigem alterar a espessura da chapa')
+                movimentos[j]=d
+        # Deslocamento transversal comum move todas as peles, sem inclinar
+        # a chapa por uma translacao igual pedida nas duas quinas.
+        comum_z=primeiro.z if all(abs(d.z-primeiro.z)<1e-6 for d in deltas.values()) else 0.
+        if C.data.users>1:C.data=C.data.copy()
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(C.data);bm.verts.ensure_lookup_table()
+            bmesh.ops.translate(bm,verts=list(bm.verts),vec=Vector((0,0,comum_z)))
+            for i,d in movimentos.items():
+                bmesh.ops.translate(bm,verts=[bm.verts[i]],vec=d-Vector((0,0,comum_z)))
+            bm.to_mesh(C.data)
+        finally:bm.free()
+        C.data.update();_chapas.absorver_malha_editada(C,reorientar=False)
+    _frentes.preparar(C,forcar=True);_formas.esquecer()
     bpy.context.view_layer.update()
 
 
-def juntar_conexao(C, alvos, pecas, juntar):
-    """Fim de uma associacao. alvos = [(assinatura do canto de C, ponto
-    alvo)], pecas = as pecas alvo. `juntar` (resposta do "Juntar ao
-    modulo?"): puxa os cantos de C ate' os alvos -- o alvo fica PARADO --,
-    entra no modulo do alvo e associa. Sem juntar, so' associa o que ja'
-    estiver ao alcance, sem mover nada."""
+def juntar_conexao(C, alvos, pecas, juntar, pares_reais=None):
+    """Associa na posicao atual; juntar apenas muda a filiacao ao modulo.
+    A origem e' o afastamento cadastrado, nunca um encaixe forcado."""
     pecas = {N for N in pecas if N is not None and N is not C}
+    plano=_plano_ancoras_reais(C,pares_reais) if pares_reais else None
     if juntar and alvos:
-        _puxar_por_pares(C, alvos)
         modulo = next((m for m in (_portas._modulo_da_chapa(N) for N in pecas)
                        if m is not None), None)
         if modulo is not None and _portas._modulo_da_chapa(C) != modulo:
@@ -432,9 +493,47 @@ def juntar_conexao(C, alvos, pecas, juntar):
             pecas |= set(_modulos._chapas_do_conjunto(modulo))
             bpy.context.view_layer.update()
             _chapas.associar_por_distancia(C, pecas)
-            _atualizar_modulo(modulo)
-            return
+            _modulos._mover_para_colecao(C,_modulos._colecao_do_modulo(modulo))
+            _modulos.reposicionar_origem(modulo)
+            _modulos.sincronizar_medidas_conjunto(modulo)
+        else:_chapas.associar_por_distancia(C, pecas)
+        if plano:_registrar_pares_reais(C,plano)
+        return
     _chapas.associar_por_distancia(C, pecas)
+    if plano:_registrar_pares_reais(C,plano)
+
+
+def _plano_ancoras_reais(C, pares):
+    """Valida todas as referencias antes de mover, sem sobrescrever vizinhos."""
+    vizinhos={}
+    for sc,nome,sn in pares:
+        N=bpy.data.objects.get(nome)
+        if N is None or N is C:raise ValueError('A chapa de destino nao existe mais')
+        ids=_indices_da_assinatura(C,sc)
+        if not ids or not _indices_da_assinatura(N,sn):raise ValueError('O vertice da ancora nao existe mais')
+        vizinhos.setdefault(nome,[]).append((sc,sn))
+    if len(vizinhos)>len(_chapas.PONTAS):raise ValueError('A chapa ja possui quatro destinos nesta conexao')
+    limites=[(min(v.co[i] for v in C.data.vertices),max(v.co[i] for v in C.data.vertices)) for i in (0,1)]
+    grupos={};ocupadas=set()
+    for nome,ancoras in vizinhos.items():
+        pontos=[C.data.vertices[_indices_da_assinatura(C,sc)[0]].co for sc,_sn in ancoras]
+        _d,ponta=min((sum(abs(p[i]-b) for p in pontos),('x','y')[i]+'_'+lado)
+                    for i in (0,1) for b,lado in zip(limites[i],('neg','pos'))
+                    if ('x','y')[i]+'_'+lado not in ocupadas)
+        ocupadas.add(ponta);grupos[ponta,nome]=ancoras
+    return grupos
+
+
+def _registrar_pares_reais(C, grupos):
+    """Conserva o afastamento de C a N no referencial de N: gira com o modulo."""
+    for (ponta,nome),ancoras in grupos.items():
+        N=bpy.data.objects[nome];eixo,lado=ponta.split('_')
+        _chapas._gravar_ligacao(C,eixo,lado,N,0.,0 if lado=='pos' else 1)
+        C['adj_%s_folga'%ponta]=_folga_com_sinal(C,ponta,N)[0]
+        _gravar_ancoras(C,ponta,ancoras)
+        inversa=N.matrix_world.inverted().to_3x3()
+        C['adj_%s_origens'%ponta]=json.dumps([tuple(inversa@(
+            _vertice_da_assinatura(C,sc)-_vertice_da_assinatura(N,sn))) for sc,sn in ancoras])
 
 
 def _alvos_por_distancia(C, candidatos=None):
@@ -453,10 +552,10 @@ def _alvos_por_distancia(C, candidatos=None):
             N, folga, _face = achado
             pecas.add(N)
             u = eixos[i] * (1 if lado == "pos" else -1)
-            for p in _chapas._cantos(C):
-                s = _assinatura_canto(C, p)
-                if s[i] == ('+' if lado == "pos" else '-'):
-                    alvos.append((s, p + u * folga))
+            dados=_dados_ancoras(C)
+            for indice in dados['pontas'][str(i)+lado]:
+                p=C.matrix_world@C.data.vertices[indice].co
+                alvos.append((dados['assinaturas'][indice],p+u*folga))
     return alvos, pecas | _chapas._vizinhos_por_distancia(C, candidatos=candidatos)
 
 
@@ -537,7 +636,9 @@ class OBJECT_OT_clique_corrente(Operator):
                 esperar_soltar=True)
             _eventos._redesenhar_viewports(context)
             return {'FINISHED'}
-        desagregar(corrente['a'])
+        # O registro e' direcional: a base pode guardar a solda da lateral.
+        # A selecao decide a peca que sai, como ja' decide a peca da regua.
+        desagregar(_peca_da_regua(context,corrente['a'],corrente['b']))
         _eventos._redesenhar_viewports(context)
         return {'FINISHED'}
 
@@ -773,10 +874,11 @@ class OBJECT_OT_digitar_nome_grupo(Operator):
         return {'RUNNING_MODAL'}
 
 
-def _perguntar_juntar(context, origem, alvos, pecas, na_gaveta=None):
+def _perguntar_juntar(context, origem, alvos, pecas, na_gaveta=None, pares=None):
     _conexao_pendente[0] = {'origem': origem.name,
                             'alvos': [(s, tuple(q)) for s, q in alvos],
-                            'pecas': sorted(o.name for o in pecas)}
+                            'pecas': sorted(o.name for o in pecas),
+                            'pares':list(pares or ())}
     op = 'object.cabinet_juntar_modulo'
     _perguntas._perguntar(context, 'Juntar ao modulo?',
                [('Sim, juntar', 'CHECKMARK', op, {'juntar': True}),
@@ -906,7 +1008,7 @@ class OBJECT_OT_recalcular_ancoragem(Operator):
 
 
 class OBJECT_OT_juntar_modulo(Operator):
-    """Resposta do "Juntar ao modulo?": puxa a peca ate' o alvo (que fica parado)"""
+    """Registra a ancoragem atual e, ao juntar, filia a peca sem move-la"""
     bl_idname = 'object.cabinet_juntar_modulo'
     bl_label = 'Juntar ao Modulo'
     bl_options = {'REGISTER', 'UNDO'}
@@ -921,11 +1023,17 @@ class OBJECT_OT_juntar_modulo(Operator):
         if chapa is None:
             return {'CANCELLED'}
         pecas = {bpy.data.objects.get(n) for n in pendente['pecas']}
-        juntar_conexao(chapa, [(s, Vector(q)) for s, q in pendente['alvos']],
-                       pecas, self.juntar)
+        try:
+            pares=pendente.get('pares')
+            alvos=([(sc,_vertice_da_assinatura(bpy.data.objects.get(nome),sn)) for sc,nome,sn in pares]
+                   if pares else [(s,Vector(q)) for s,q in pendente['alvos']])
+            juntar_conexao(chapa,alvos,pecas,self.juntar,pares)
+        except ValueError as erro:
+            self.report({'WARNING'},str(erro));return {'CANCELLED'}
         if self.juntar:
             conj = _agrupar_soltas(context, chapa, pecas)
             if conj is not None:
+                if pares:_registrar_pares_reais(chapa,_plano_ancoras_reais(chapa,pares))
                 _pedir_nome_grupo(context, conj)
         _eventos._redesenhar_viewports(context)
         return {'FINISHED'}
@@ -986,14 +1094,14 @@ def _desenhar_conexao_manual():
             alvo = bpy.data.objects.get(nome)
             if origem is None or alvo is None:
                 continue
-            a = tela(_canto_da_assinatura(origem, s))
-            b = tela(_canto_da_assinatura(alvo, sn))
+            a = tela(_vertice_da_assinatura(origem, s))
+            b = tela(_vertice_da_assinatura(alvo, sn))
             if a is not None and b is not None:
                 shader.uniform_float('color', realce)
                 batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
                     a, b, 2.0 * escala)}).draw(shader)
-                bolinha(_canto_da_assinatura(origem, s), 6 * escala, realce)
-                bolinha(_canto_da_assinatura(alvo, sn), 6 * escala, realce)
+                bolinha(_vertice_da_assinatura(origem, s), 6 * escala, realce)
+                bolinha(_vertice_da_assinatura(alvo, sn), 6 * escala, realce)
         if estado.get('escolhido'):
             bolinha(estado['escolhido'][1], 7 * escala, realce)
         if estado.get('hover'):
@@ -1003,6 +1111,11 @@ def _desenhar_conexao_manual():
 
 
 def _candidatos_conexao(estado):
+    if 'candidatos' not in estado:_preparar_candidatos_conexao(estado)
+    return [(bpy.data.objects[n],s,Vector(p)) for n,s,p in estado.get('candidatos',()) if n in bpy.data.objects]
+
+
+def _preparar_candidatos_conexao(estado):
     """[(objeto, assinatura, ponto)] clicaveis na fase atual: os cantos da
     chapa de origem, ou os das outras chapas (o destino)."""
     origem = bpy.data.objects.get(estado['origem'])
@@ -1016,7 +1129,26 @@ def _candidatos_conexao(estado):
         pecas = [o for o in (bpy.data.objects if destinos is None else destinos)
                  if o is not origem and o.type == 'MESH' and _chapas.MARCA_CHAPA in o
                  and o.visible_get()]
-    return [(o, _assinatura_canto(o, p), p) for o in pecas for p in _chapas._cantos(o)]
+    pontos=[(o.name,'v%d'%v.index,tuple(o.matrix_world@v.co)) for o in pecas for v in o.data.vertices]
+    arvore=KDTree(len(pontos)) if pontos else None
+    if arvore:
+        for i,(_n,_s,p) in enumerate(pontos):arvore.insert(p,i)
+        arvore.balance()
+    estado.update(candidatos=pontos,arvore=arvore,alvos_snap=[o.name for o in pecas],
+                  iniciar_snap=not estado.get('aguardar_novo_par',False))
+
+
+def _vertice_do_snap(estado, ponto):
+    """O Blender escolheu o ponto; KDTree nativa recupera seu MeshVertex."""
+    arvore=estado.get('arvore')
+    if arvore is None:return None
+    _p,i,d=arvore.find(ponto)
+    if d>1e-5:return None
+    nome,s,p=estado['candidatos'][i];obj=bpy.data.objects.get(nome)
+    if obj is None:return None
+    ids=_indices_da_assinatura(obj,s)
+    if not ids or (obj.matrix_world@obj.data.vertices[ids[0]].co-Vector(p)).length>1e-6:return None
+    return obj,s,Vector(p)
 
 
 class OBJECT_OT_conectar_vertices(Operator):
@@ -1031,7 +1163,7 @@ class OBJECT_OT_conectar_vertices(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT' and _conexao_manual[0] is None
+        return context.mode == 'OBJECT' and _conexao_manual[0] is None and _gavetas._estado_criacao() is None
 
     def invoke(self, context, event):
         chapa = (bpy.data.objects.get(self.origem) if self.origem
@@ -1048,23 +1180,22 @@ class OBJECT_OT_conectar_vertices(Operator):
                               'destinos': self.destinos,
                               'fase': 'origem', 'escolhido': None,
                               'hover': None, 'confirmar': False,
-                              'regiao': self._regiao.as_pointer()}
-        self._handler = bpy.types.SpaceView3D.draw_handler_add(
+                              'regiao': self._regiao.as_pointer(),'snap_nativo':True,
+                              'etapa':'SOLDA','elementos_snap':('VERTEX',)}
+        self._w=_conexao_manual[0]
+        _preparar_candidatos_conexao(self._w)
+        _timer_conexao[0]=context.window_manager.event_timer_add(.03,window=context.window)
+        _handler_conexao[0] = bpy.types.SpaceView3D.draw_handler_add(
             _desenhar_conexao_manual, (), 'WINDOW', 'POST_PIXEL')
         self._area.header_text_set(
             "Selecionar vertice: canto da chapa, depois onde ela gruda | "
-            "Enter: confirmar | Botao direito: desfazer | Esc: cancelar")
+            "Snap nativo de vertice | Enter: confirmar | Esc: cancelar")
         context.window_manager.modal_handler_add(self)
         _eventos._redesenhar_viewports(context)
         return {'RUNNING_MODAL'}
 
     def _encerrar(self, context):
-        try:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handler, 'WINDOW')
-        except Exception:
-            pass
-        self._area.header_text_set(None)
-        estado, _conexao_manual[0] = _conexao_manual[0], None
+        estado=encerrar_conexao_nativa(context)
         _eventos._redesenhar_viewports(context)
         return estado
 
@@ -1073,39 +1204,51 @@ class OBJECT_OT_conectar_vertices(Operator):
         return 0 <= dx < self._regiao.width and 0 <= dy < self._regiao.height
 
     def _sob_mouse(self, event):
-        mouse = Vector((event.mouse_x - self._regiao.x,
-                        event.mouse_y - self._regiao.y))
-        raio = RAIO_VERTICE_PX * max(1.0, bpy.context.preferences.system.ui_scale)
-        melhor = None
-        for obj, s, ponto in _candidatos_conexao(_conexao_manual[0]):
-            p = view3d_utils.location_3d_to_region_2d(self._regiao, self._rv3d,
-                                                      ponto)
-            if p is None:
-                continue
-            d = (p - mouse).length
-            if d <= raio and (melhor is None or d < melhor[0]):
-                melhor = (d, (obj, s, ponto))
-        return melhor[1] if melhor else None
+        estado=_conexao_manual[0]
+        ponto=estado.get('cursor')
+        return _vertice_do_snap(estado,ponto) if ponto is not None else None
 
     def _terminar(self, context):
         estado = self._encerrar(context)
         origem = bpy.data.objects.get(estado['origem'])
         if origem is None or not estado['pares']:
             return {'CANCELLED'}
-        alvos = [(s, _canto_da_assinatura(bpy.data.objects[nome], sn))
+        alvos = [(s, _vertice_da_assinatura(bpy.data.objects[nome], sn))
                  for s, nome, sn in estado['pares']
                  if nome in bpy.data.objects]
         pecas = {bpy.data.objects.get(nome) for _s, nome, _sn in estado['pares']}
         _perguntar_juntar(context, origem, alvos, pecas,
-                          estado.get('pela_gaveta', False))
+                          estado.get('pela_gaveta', False),estado['pares'])
         return {'FINISHED'}
 
     def modal(self, context, event):
+        try:return self._modal(context,event)
+        except Exception:
+            self._encerrar(context);raise
+
+    def _modal(self, context, event):
         estado = _conexao_manual[0]
         if estado is None:
             return {'CANCELLED'}
-        if estado.get('confirmar'):
+        if estado.get('cancelar') or context.mode!='OBJECT':
+            self._encerrar(context);return {'CANCELLED'}
+        confirmado=estado.pop('ponto_confirmado',None)
+        if confirmado is not None:
+            estado['snap_pendente']=False
+            if estado.get('confirmar'):return self._terminar(context)
+            alvo=_vertice_do_snap(estado,confirmado[0])
+            if alvo is not None:
+                obj,s,ponto=alvo
+                if estado['fase']=='origem':estado.update(fase='destino',escolhido=(s,ponto),aguardar_novo_par=False,soltar_confirma=False)
+                else:
+                    estado['pares'].append((estado['escolhido'][0],obj.name,s))
+                    estado.update(fase='origem',escolhido=None,aguardar_novo_par=True)
+                _preparar_candidatos_conexao(estado)
+            else:estado['iniciar_snap']=True
+            self._area.tag_redraw();return {'RUNNING_MODAL'}
+        if estado.get('confirmar') and not estado.get('snap_pendente'):
             return self._terminar(context)
+        if estado.get('snap_pendente'):return {'PASS_THROUGH'}
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
         if event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
@@ -1116,28 +1259,22 @@ class OBJECT_OT_conectar_vertices(Operator):
         if not self._na_viewport(event):
             return {'PASS_THROUGH'}     # a gaveta (Confirmar) segue viva
         if event.type == 'MOUSEMOVE':
-            estado['hover'] = self._sob_mouse(event)
+            if estado.pop('iniciar_snap',False):
+                _gavetas.AssistenteDoVao._iniciar_snap_nativo(self,context)
+            estado['hover'] = None
             self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type=='LEFTMOUSE' and event.value=='PRESS' and estado.get('aguardar_novo_par'):
+            estado.update(aguardar_novo_par=False,soltar_confirma=True)
+            _gavetas.AssistenteDoVao._iniciar_snap_nativo(self,context)
             return {'RUNNING_MODAL'}
         if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
             if estado['fase'] == 'destino':
                 estado.update(fase='origem', escolhido=None)
             elif estado['pares']:
                 estado['pares'].pop()
+            _preparar_candidatos_conexao(estado)
             self._area.tag_redraw()
-            return {'RUNNING_MODAL'}
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            alvo = self._sob_mouse(event)
-            if alvo is not None:
-                obj, s, ponto = alvo
-                if estado['fase'] == 'origem':
-                    estado.update(fase='destino', escolhido=(s, ponto))
-                else:
-                    estado['pares'].append((estado['escolhido'][0],
-                                            obj.name, s))
-                    estado.update(fase='origem', escolhido=None)
-                estado['hover'] = None
-                self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         return {'RUNNING_MODAL'}
 
@@ -1367,11 +1504,12 @@ def _ancoras_da_ligacao(C, ponta, N, u=None, extremo=None):
     """[(assinatura em C, assinatura em N)]: as gravadas ou as de fabrica."""
     gravadas = _ancoras_gravadas(C, ponta)
     if gravadas:
-        return gravadas
+        return [(sc,sn) for sc,sn in gravadas if _indices_da_assinatura(C,sc) and _indices_da_assinatura(N,sn)]
     if u is None:
-        _folga, u, extremo = _folga_com_sinal(C, ponta, N)
-    return [(sc, _assinatura_canto(N, q))
-            for _p, q, sc in _pares_da_ligacao(C, u, extremo, N)]
+        i=0 if ponta.startswith('x') else 1
+        u=_chapas._eixos(C)[i]
+        extremo=_chapas._centro(C).dot(u)+_chapas._meias(C)[i]*(1 if ponta.endswith('pos') else -1)
+    return [(sc,sn) for _p,q,sc,sn in _pares_da_ligacao(C,u,extremo,N)]
 
 
 def _parceiro_espessura(P, assinatura):
@@ -1383,6 +1521,11 @@ def _parceiro_espessura(P, assinatura):
     if not indices:
         return assinatura
     co = P.data.vertices[indices[0]].co
+    secao=_chapas._secao_espessura(P.data)
+    if secao:
+        grupo=secao['grupos'][indices[0]];lado=secao['lados'][indices[0]]
+        parceiro=next((i for i,g in enumerate(secao['grupos']) if g==grupo and secao['lados'][i]!=lado),None)
+        if parceiro is not None:return 'v%d'%parceiro
     opostos = [v for v in P.data.vertices if v.co.z * co.z < 0]
     if not opostos:
         return assinatura
@@ -1403,6 +1546,27 @@ def _ancoras_da_malha(P):
 
 def _gravar_ancoras(C, ponta, ancoras):
     C['adj_%s_ancoras' % ponta] = ['%s|%s' % a for a in ancoras]
+
+
+def _origens_ancoras(C, ponta):
+    """Dados numericos persistidos; juntas antigas conservam a folga escalar."""
+    try:
+        valores=json.loads(C.get('adj_%s_origens'%ponta,'null'))
+        if valores is None or len(valores)!=len(_ancoras_gravadas(C,ponta) or []):return None
+        if not all(len(v)==3 and all(math.isfinite(float(x)) for x in v) for v in valores):return None
+        return [Vector(v) for v in valores]
+    except (ValueError,TypeError):return None
+
+
+def _desvio_ancora(C, ponta, N, indice, sc, sn):
+    """Diferenca ate' a origem cadastrada, compartilhada pela HUD e pelo reset."""
+    origens=_origens_ancoras(C,ponta)
+    if origens is not None:
+        afastamento=N.matrix_world.to_3x3()@origens[indice]
+    else:
+        u=_chapas._eixos(C)[0 if ponta.startswith('x') else 1]
+        afastamento=u*(-1 if ponta.endswith('pos') else 1)*float(C.get('adj_%s_folga'%ponta,0.))
+    return _vertice_da_assinatura(N,sn)+afastamento-_vertice_da_assinatura(C,sc)
 
 
 # Cada vertice da caixa guarda o canto de ORIGEM num atributo: deformada
@@ -1463,10 +1627,7 @@ def _vertice_da_assinatura(P, assinatura):
     """O vertice REAL (mundo) da ancora: a chapa deformada pelas ancoras
     sai do canto nominal das props."""
     indices = _indices_da_assinatura(P, assinatura)
-    if not indices:
-        if assinatura.startswith('v'):
-            return P.matrix_world.translation.copy()   # vertice sumiu
-        return _canto_da_assinatura(P, assinatura)
+    if not indices:raise ValueError('O vertice da ancora nao existe mais')
     return P.matrix_world @ P.data.vertices[indices[0]].co
 
 
@@ -1481,8 +1642,9 @@ def _medida_solda(C, ponta, N):
     if not ancoras:
         return folga - memorizada, []
     sentido = u if ponta.endswith('pos') else -u
-    itens = [(sc, _vertice_da_assinatura(N, sn) - sentido * memorizada
-              - _vertice_da_assinatura(C, sc)) for sc, sn in ancoras]
+    itens = [(sc, _desvio_ancora(C,ponta,N,k,sc,sn)) for k,(sc, sn) in enumerate(ancoras)
+              if _indices_da_assinatura(C,sc) and _indices_da_assinatura(N,sn)]
+    if not itens:return 0.,[]
     delta = sum(d.dot(sentido) for _s, d in itens) / len(itens)
     return delta, [(sc, d - sentido * delta) for sc, d in itens]
 
@@ -1499,21 +1661,18 @@ def _deformar_ancoras(C, ponta, N, lado='a'):
     ancoras = _ancoras_gravadas(C, ponta)
     if not ancoras:
         return False
-    _folga, u, _e = _folga_com_sinal(C, ponta, N)
-    sentido = u if ponta.endswith('pos') else -u
-    memorizada = float(C.get('adj_%s_folga' % ponta, 0.0))
     peca = C if lado == 'a' else N
     if peca.data.attributes.get(ATRIBUTO_CANTO) is None:
         _gravar_cantos(peca)        # malha de versao antiga: marca antes
     inversa = peca.matrix_world.inverted().to_3x3()
     mudou = False
-    for sc, sn in ancoras:
-        vc = _vertice_da_assinatura(C, sc)
-        vn = _vertice_da_assinatura(N, sn)
+    for k,(sc, sn) in enumerate(ancoras):
+        if not _indices_da_assinatura(C,sc) or not _indices_da_assinatura(N,sn):continue
+        desvio=_desvio_ancora(C,ponta,N,k,sc,sn)
         if lado == 'a':
-            assinatura, d = sc, vn - sentido * memorizada - vc
+            assinatura, d = sc, desvio
         else:
-            assinatura, d = sn, vc + sentido * memorizada - vn
+            assinatura, d = sn, -desvio
         if d.length < TOL_RESET_DISTANCIA:
             continue
         local = inversa @ d
@@ -1536,6 +1695,13 @@ def resetar_ponta(C, ponta):
     N = _vizinho_da_ponta(C, ponta)
     if N is None:
         return False
+    if _origens_ancoras(C,ponta) is not None:
+        alvos=[(sc,_vertice_da_assinatura(C,sc)+_desvio_ancora(C,ponta,N,k,sc,sn))
+               for k,(sc,sn) in enumerate(_ancoras_gravadas(C,ponta))
+               if _indices_da_assinatura(C,sc) and _indices_da_assinatura(N,sn)]
+        if not alvos or all((p-_vertice_da_assinatura(C,s)).length<TOL_RESET_DISTANCIA for s,p in alvos):return False
+        _puxar_por_pares(C,alvos)
+        return True
     eixo, lado = ponta.split('_')
     _folga, u, extremo = _folga_com_sinal(C, ponta, N)
     delta, residuos = _medida_solda(C, ponta, N)
@@ -1620,9 +1786,26 @@ def _plano_reset_chapa(M):
     voltar as soldas a origem, ou None se ja' estao todas nela. Lados
     opostos pedindo deslocamentos diferentes = esticar (muda a medida);
     a espessura nunca estica: ali vale a media."""
+    # Afastamentos 3D iguais pedem uma translacao rigida, inclusive no eixo
+    # tangente a solda. A folga escalar antiga nao representava esse movimento.
     restricoes, fora = _restricoes_reset(M)
-    if not fora:
-        return None
+    if not fora:return None
+    vetores=[]
+    for C in bpy.data.objects:
+        if C.type!='MESH' or _chapas.MARCA_CHAPA not in C:continue
+        for ponta in _chapas.PONTAS:
+            N=_vizinho_da_ponta(C,ponta)
+            if N is None or M not in (C,N):continue
+            if _origens_ancoras(C,ponta) is None:continue
+            vetores.extend(_desvio_ancora(C,ponta,N,k,sc,sn)*(1 if M is C else -1)
+                for k,(sc,sn) in enumerate(_ancoras_gravadas(C,ponta))
+                if _indices_da_assinatura(C,sc) and _indices_da_assinatura(N,sn))
+    if vetores and all((v-vetores[0]).length<1e-6 for v in vetores):
+        d=sum(vetores,Vector())/len(vetores)
+        eixos=_chapas._eixos(M)
+        if all(ancorada or abs(d.dot(eixos[i])-valor)<TOL_RESET_DISTANCIA
+               for i,_lado,valor,ancorada in restricoes):
+            return {'lados':[(d.dot(u),d.dot(u)) for u in eixos],'muda_medida':False}
     lados, muda = [], False
     def do_lado(i, qual):
         # Num mesmo lado, as soldas NORMAIS mandam no movimento inteiro; as
@@ -1667,7 +1850,7 @@ def _aplicar_reset_chapa(M, plano):
     finally:
         _chapas._ocupado[0] = False
     _chapas._definir_centro(M, centro)
-    _chapas.gerar_malha_chapa(M)
+    if plano['muda_medida']:_chapas.gerar_malha_chapa(M)
     bpy.context.view_layer.update()
     # o que as ancoras pedem e a translacao nao resolve: DEFORMA a peca
     # que se move -- a ponta dela, ou a face dela se ela e' o vizinho
