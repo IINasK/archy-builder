@@ -34,7 +34,7 @@ PISO = {
     'importacao': 77, 'puxadores': 20, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
     'biblioteca': 81, 'cobertura': 4, 'gui_interacao': 54,
     'orcamento': 10, 'paredes': 12, 'armarios': 17, 'formas': 62, 'gavetas': 50,
-    'geometria': 9, 'prateleiras': 27,
+    'geometria': 9, 'prateleiras': 27, 'migracoes': 8,
     'biblioteca_faixa': 23, 'gui_biblioteca_faixa': 7,
 }
 LIMITE_SEGUNDOS = 300

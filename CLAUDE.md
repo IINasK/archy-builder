@@ -37,7 +37,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (271).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (272).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
