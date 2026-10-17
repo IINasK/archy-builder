@@ -4,6 +4,8 @@ __pycache__/
 dist/
 *.blend1
 *.blend2
+# Relatorios locais dos comandos de teste e migracao.
+/*.log
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
