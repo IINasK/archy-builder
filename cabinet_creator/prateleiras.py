@@ -185,11 +185,61 @@ def quantas_no_modulo(conj):
     return sum(len(prateleiras_do_grupo(g)) for g in grupos_do_modulo(conj))
 
 
+def sincronizar_exclusoes(grupo):
+    """Absorve exclusoes/desvinculos nativos sem montar nem mover madeira.
+
+    Os indices antigos identificam os ajustes sobreviventes; compactar
+    antes de copia-los atribuiria o modelo apagado a outra prateleira.
+    """
+    if (_eventos._desfazendo[0] or bpy.context.mode != 'OBJECT'):
+        return False
+    atuais = prateleiras_do_grupo(grupo)
+    p = parametros(grupo)
+    indices = [int(o.get(CHAVE_INDICE, 0)) for o in atuais]
+    if int(p['quantidade']) == len(atuais) and indices == list(range(len(atuais))):
+        return False
+    inversa = grupo.matrix_world.inverted_safe()
+    individuais, g, topo = [], [], 0.0
+    for obj, indice in zip(atuais, indices):
+        individuais.append(dict((p.get('individuais') or ())[indice])
+                            if indice < len(p.get('individuais') or ()) else {})
+        # A caixa nativa e' medida no referencial do vao, inclusive
+        # depois de mover a prateleira ou girar o modulo inteiro.
+        matriz = inversa @ obj.matrix_world
+        zs = [(matriz @ Vector(c)).z * 1000.0 for c in obj.bound_box]
+        baixo, cima = min(zs), max(zs)
+        g.append(max(0.0, baixo - topo))
+        topo = cima
+    p.update(quantidade=len(atuais), espacamento='LIVRE', vaos_mm=g,
+             individuais=individuais)
+    grupo[CHAVE_PARAMETROS] = p
+    for indice, obj in enumerate(atuais):
+        if obj.get(CHAVE_INDICE) != indice:
+            obj[CHAVE_INDICE] = indice
+    # O encaixe anterior ainda guarda vaos/ajustes da unidade excluida.
+    if CHAVE_ENCAIXE in grupo:
+        del grupo[CHAVE_ENCAIXE]
+    return True
+
+
+def sincronizar_exclusoes_da_cena():
+    """So' no timer estavel: undo e Edit Mode nao permitem escrever IDs."""
+    if (_eventos._desfazendo[0] or _chapas._ocupado[0]
+            or bpy.context.mode != 'OBJECT'):
+        return
+    mudou = False
+    for grupo in bpy.data.objects:
+        if MARCA_GRUPO in grupo:
+            mudou = sincronizar_exclusoes(grupo) or mudou
+    if mudou:
+        _eventos._redesenhar_viewports(bpy.context)
+
+
 # ------------------------------------------------------------ calculo
 def vaos(altura, p):
     """[n + 1] vaos em mm, de baixo para cima: o de baixo de cada
     prateleira e, por ultimo, o de cima da mais alta."""
-    n = max(1, int(p['quantidade']))
+    n = max(0, int(p['quantidade']))
     e = float(p['espessura_mm'])
     livre = altura - sum(float(parametros_individuais(p, i)['espessura_mm'])
                          for i in range(n))
@@ -202,7 +252,7 @@ def vaos(altura, p):
         if topo < -TOL_MM:
             raise ValueError("As prateleiras passam do topo do vao em %d mm"
                              % round(-topo))
-        if min(gravados) < -TOL_MM:
+        if gravados and min(gravados) < -TOL_MM:
             raise ValueError("Vao negativo entre as prateleiras")
         return gravados + [max(0.0, topo)]
     return [max(0.0, livre) / (n + 1)] * (n + 1)
@@ -403,6 +453,7 @@ def atualizar_do_conjunto(conj):
     fixas). Se nao couberem mais, ficam como estavam."""
     for grupo in grupos_do_modulo(conj):
         try:
+            sincronizar_exclusoes(grupo)
             p=parametros(grupo)
             _l,altura,matriz=vao(grupo)
             atual=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
@@ -442,8 +493,8 @@ def _parametros_editados(grupo, nome, valor):
     n = int(p['quantidade'])
     _largura, altura, _m = vao(grupo)
     if nome == 'quantidade':
-        valor = max(1, min(MAXIMO_PRATELEIRAS, int(valor)))
-        if valor != n and p['espacamento'] == 'LIVRE':
+        valor = max(0, min(MAXIMO_PRATELEIRAS, int(valor)))
+        if valor != n and n and p['espacamento'] == 'LIVRE':
             # o mesmo espacamento entre todas continua (se couber); os
             # vaos diferentes de cada uma nao tem como seguir: iguais
             baixo = vaos(altura, p)[:n]
@@ -481,6 +532,7 @@ def editar(context, grupo, nome, valor, referencia=None):
     if context.mode == 'EDIT_MESH':
         bpy.ops.object.mode_set(mode='OBJECT')
     concluir_edicao()
+    sincronizar_exclusoes(grupo)
     nome = nome[len('prateleiras_'):] if nome.startswith('prateleiras_') else nome
     antes = parametros(grupo)
     fonte = referencia or (None if global_ else individual_ativo(context, grupo))
@@ -735,7 +787,28 @@ def entre(grupo):
         baixo = vaos(altura, parametros(grupo))[:-1]
     except ValueError:
         return 0.0
-    return sum(baixo) / len(baixo)
+    return sum(baixo) / len(baixo) if baixo else 0.0
+
+
+class OBJECT_OT_alinhar_prateleiras(Operator):
+    bl_idname = 'object.cabinet_alinhar_prateleiras'
+    bl_label = 'Centralizar espacamento'
+    bl_description = 'Distribui as prateleiras com vaos iguais, incluindo abaixo da primeira e acima da ultima'
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        grupo = grupo_de(context.object)
+        return (grupo is not None and getattr(context, 'mode', '') == 'OBJECT'
+                and bool(prateleiras_do_grupo(grupo)))
+
+    def execute(self, context):
+        erro = editar(context, grupo_de(context.object), 'espacamento', 'IGUAL')
+        if erro:
+            self.report({'WARNING'}, erro)
+            return {'CANCELLED'}
+        _eventos._redesenhar_viewports(context)
+        return {'FINISHED'}
 
 
 # ------------------------------------------------------------ selecao
@@ -822,6 +895,7 @@ def valor(grupo, chave):
 def aplicar(context, grupo, chave, novo, lado=None):
     """Medida da HUD/aba: V = um vao; L e A mudam a MARGEM do lado que
     anda (a quina perto do mouse fica); P e' a profundidade."""
+    sincronizar_exclusoes(grupo)
     chave = tuple(chave) if isinstance(chave, (tuple, list)) else (chave,)
     letra = chave[0]
     if letra == 'V':

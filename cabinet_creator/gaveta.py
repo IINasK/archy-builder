@@ -1217,18 +1217,25 @@ def _titulo_secao(itens, x, topo, w, texto):
     return topo - 31
 
 
-def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
+def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None,
+                      colunas_uniformes=False):
     """Campos de valor (37 px, passo 43) a partir do TOPO, numa GRADE: a
     das medidas da porta (L/A/E: 3, 2 ou 1 coluna pela largura), a mesma
     em todas as categorias -- as colunas se alinham de uma secao a outra e
     campo sozinho nao estica (auditoria visual: "Entre planos" virava uma
     faixa de 460 px). `compacto` = (texto, acao) do campo estreito
     (LARGURA_CAMPO_FOLHAS) logo DEPOIS do ultimo; sem lugar na linha (uma
-    coluna so'), o vizinho cede o espaco. Devolve o topo do que vem embaixo."""
+    coluna so'), o vizinho cede o espaco. `colunas_uniformes` reparte a
+    largura entre as medidas ANTES de reservar o contador; em mais de
+    uma linha, conserva a grade sem espremer a ultima medida.
+    Devolve o topo do que vem embaixo."""
     if not campos and compacto is None:
         return topo
     colunas = _colunas_medidas(context, w + 24, 3)
     coluna = (w - 6 * (colunas - 1)) / colunas
+    if compacto is not None and colunas_uniformes and 0 < len(campos) <= colunas:
+        colunas = len(campos)
+        coluna = (w - LARGURA_CAMPO_FOLHAS - 6 * colunas) / colunas
     posicoes = [[x + (i % colunas) * (coluna + 6), topo - 37 - (i // colunas) * 43,
                  coluna] for i in range(len(campos))]
     if compacto is not None:
@@ -1237,10 +1244,15 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None):
         else:
             ultimo = posicoes[-1]
             fim = ultimo[0] + ultimo[2] + 6
-            if x + w - fim < LARGURA_CAMPO_FOLHAS:
-                ultimo[2] -= LARGURA_CAMPO_FOLHAS + 6
-                fim = ultimo[0] + ultimo[2] + 6
-            posicoes.append([fim, ultimo[1], LARGURA_CAMPO_FOLHAS])
+            if x + w - fim < LARGURA_CAMPO_FOLHAS - 1e-6:
+                if colunas_uniformes:
+                    posicoes.append([x, ultimo[1] - 43, LARGURA_CAMPO_FOLHAS])
+                else:
+                    ultimo[2] -= LARGURA_CAMPO_FOLHAS + 6
+                    fim = ultimo[0] + ultimo[2] + 6
+                    posicoes.append([fim, ultimo[1], LARGURA_CAMPO_FOLHAS])
+            else:
+                posicoes.append([fim, ultimo[1], LARGURA_CAMPO_FOLHAS])
         campos = list(campos) + [compacto]
     for (cx, cy, largura_campo), (texto, acao) in zip(posicoes, campos):
         if acao and acao[0]=='medida':
@@ -1297,7 +1309,7 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     """Como a aba Gavetas (pedido do usuario): nada selecionado = so' o
     "Criar Prateleiras"; criando = o recado da etapa; selecionadas
     (clique = todas do vao, duplo = uma) = o vao, a chapa e os VAOS --
-    todos de baixo para cima, ou so' os dois da prateleira escolhida."""
+    todos de baixo para cima, E1..En+1, tambem na selecao individual."""
     assistente = _prateleiras._assistente_prateleiras[0]
     if assistente is not None:
         itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
@@ -1328,8 +1340,9 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     previa = _prateleiras._quantidade_previa[0]
     quantidade = previa[1] if previa and previa[0] == grupo.name else p['quantidade']
     topo = _campos_em_linhas(context, itens, x, topo, w, campos,
+        colunas_uniformes=True,
         compacto=(str(quantidade),
-                  ('contador', 'prateleiras_quantidade', int(p['quantidade']), 1,
+                  ('contador', 'prateleiras_quantidade', int(p['quantidade']), 0,
                    _prateleiras.MAXIMO_PRATELEIRAS, grupo.name, 'Prateleiras')))
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
     topo = _campos_em_linhas(context, itens, x, topo, w, [
@@ -1342,19 +1355,10 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         itens.append((x, topo - 23 - ESPACO_SECOES, w, 22, str(erro), None))
         return itens
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Espacamento')
-    topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', 'prateleiras_espacamento',
-                                 _prateleiras.OPCOES_ESPACAMENTO, p['espacamento'],
-                                 alvo=grupo.name) + 23
-    if prateleira is not None:
-        # duplo clique: so' os vaos DELA (mexer neles anda so' ela)
-        k = int(prateleira.get(_prateleiras.CHAVE_INDICE, 0))
-        campos = [campo('vao_%d' % k, 'Abaixo', vaos[k]),
-                  campo('acima_%d' % k, 'Acima', vaos[k + 1])]
-    else:
-        # o mesmo entre todas e, embaixo, o de cada uma (1 = o de baixo;
-        # o ultimo e' o de cima da mais alta)
-        campos = [campo('entre_mm', 'Entre prateleiras', _prateleiras.entre(grupo))]
-        campos += [campo('vao_%d' % k, 'Vao %d' % (k + 1), v) for k, v in enumerate(vaos)]
+    itens.append((x, topo - 37, w, 37, 'Centralizar espacamento',
+                  ('operador', 'object.cabinet_alinhar_prateleiras')))
+    topo -= 43
+    campos = [campo('vao_%d' % k, 'E%d' % (k + 1), v) for k, v in enumerate(vaos)]
     _campos_em_linhas(context, itens, x, topo, w, campos)
     return itens
 

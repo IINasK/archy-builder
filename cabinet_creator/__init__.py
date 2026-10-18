@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (272, 0, 0),
+    "version": (280, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -154,6 +154,7 @@ CLASSES = (
     _gavetas.OBJECT_OT_mover_ancora_gaveta,
     _prateleiras.OBJECT_OT_criar_prateleiras,
     _prateleiras.OBJECT_OT_referencia_prateleira,
+    _prateleiras.OBJECT_OT_alinhar_prateleiras,
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,

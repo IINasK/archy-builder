@@ -11,7 +11,7 @@ import blf
 from bpy.types import Operator
 from bpy.props import StringProperty, IntProperty
 
-_gaveta = _gaveta_eventos = _biblioteca = _materiais = _perguntas = None
+_gaveta = _gaveta_eventos = _gaveta_desenho = _biblioteca = _materiais = _perguntas = None
 CHAVE_AREA = 'cabinet_biblioteca_area'
 CHAVE_CENA = 'cabinet_viewport_area'
 CHAVE_LAYOUT = 'cabinet_layout'
@@ -23,9 +23,10 @@ _alturas = [{}]
 ALTURA_INICIAL = 180
 ALTURA_CATEGORIA = 18
 PASSO_CATEGORIA = 20
-TOPO_CATEGORIA = 23
+TOPO_CATEGORIA = 26
 ALTURA_COMPACTA = 160
-INTERVALO_NIVEIS = 24
+INTERVALO_NIVEIS = 12
+MARGEM_CATEGORIA = 3
 
 
 def area_da_faixa(screen):
@@ -206,7 +207,7 @@ def _linha(context, itens, x, y, w, valores, nivel, selecionado, pai=None,
     chave = '%s_%d_%s' % (prefixo, nivel, str(pai))
     if len(chave.encode('utf-8')) > 63:
         chave = prefixo + '_' + hashlib.sha1(chave.encode('utf-8')).hexdigest()[:24]
-    ordenados = sorted(valores, key=str.casefold)
+    ordenados = list(valores) if nivel == 0 else sorted(valores, key=str.casefold)
     blf.size(0, 10)
     def cabem(inicio, espaco, inverso=False):
         fatia, usado = [], 0
@@ -233,8 +234,11 @@ def _linha(context, itens, x, y, w, valores, nivel, selecionado, pai=None,
         itens.append((x + w - 14, y, 14, ALTURA_CATEGORIA, '', ('rolar_nivel', chave, 1, limite)))
     bx = x + 17 if rola else x
     for valor, bw in fatia:
+        acao = (('biblioteca', dict((nome, modo) for modo, nome in _gaveta.MODOS_BIBLIOTECA)[valor],
+                 valor == selecionado) if nivel == 0 else
+                ('navegar', nivel, valor, chave, limite, valor == selecionado))
         itens.append((bx, y, bw, ALTURA_CATEGORIA, valor,
-                      ('navegar', nivel, valor, chave, limite, valor == selecionado)))
+                      acao))
         bx += bw + 2
 
 
@@ -302,7 +306,9 @@ def catalogo(context):
 
 
 def _subcategorias_em_linha(context, itens, linhas, largura, y, prefixo):
-    """Cada nivel conserva seu carrossel; o vao separa os grupos de abas."""
+    """Uma caixa por nivel, incluindo o seletor Modulos/Materiais.
+    As abas e os alvos de hover compartilham os mesmos retangulos.
+    """
     if not linhas:
         return
     livre = largura - 12 - INTERVALO_NIVEIS * (len(linhas) - 1)
@@ -314,10 +320,16 @@ def _subcategorias_em_linha(context, itens, linhas, largura, y, prefixo):
             usado += (2 if usado else 0) + max(32, blf.dimensions(0, nome)[0] + 12)
             if usado >= livre:
                 break
-        desejadas.append(max(50, min(livre, usado)))
+        desejadas.append(max(56, min(livre, usado + 2 * MARGEM_CATEGORIA)))
     tamanhos = [0] * len(linhas)
     pendentes = list(range(len(linhas)))
     restante = livre
+    if linhas[0][0] == 0:
+        # Conservar os dois modos inteiros quando os niveis couberem;
+        # em faixa estreita, o carrossel continua dando acesso a ambos.
+        tamanhos[0] = min(desejadas[0], max(56, livre - 56 * (len(linhas) - 1)))
+        restante -= tamanhos[0]
+        pendentes.remove(0)
     # Os niveis curtos nao desperdicam uma coluna inteira; a sobra fica
     # para os que precisam rolar, sem esmagar o nivel vizinho.
     while pendentes:
@@ -334,10 +346,39 @@ def _subcategorias_em_linha(context, itens, linhas, largura, y, prefixo):
     x = 6
     for i, ((nivel, filhos, escolhido, pai), w) in enumerate(zip(linhas, tamanhos)):
         if i:
-            itens.append((x - INTERVALO_NIVEIS / 2, y + 3, 1,
-                          ALTURA_CATEGORIA - 6, '', ('separador',)))
-        _linha(context, itens, x, y, w, filhos, nivel, escolhido, pai, prefixo)
+            itens.append((x - INTERVALO_NIVEIS / 2 - 1, y - 1, 2,
+                          ALTURA_CATEGORIA + 2, '', ('separador', 'biblioteca')))
+        chave = hashlib.sha1(repr((prefixo, nivel, pai)).encode('utf-8')).hexdigest()[:20]
+        itens.append((x, y - MARGEM_CATEGORIA, w,
+                      ALTURA_CATEGORIA + 2 * MARGEM_CATEGORIA, '',
+                      ('fundo', 'categoria_biblioteca', chave)))
+        _linha(context, itens, x + MARGEM_CATEGORIA, y, w - 2 * MARGEM_CATEGORIA,
+               filhos, nivel, escolhido, pai, prefixo)
         x += w + INTERVALO_NIVEIS
+
+
+def caixa_categoria(acao):
+    return bool(acao and acao[:2] == ('fundo', 'categoria_biblioteca'))
+
+
+def retangulos_filhos(caixa, itens):
+    """O fundo recebe hover so' no espaco que nao pertence a uma aba."""
+    x, y, w, h = caixa[:4]
+    return [v[:4] for v in itens if v[5] and not caixa_categoria(v[5])
+            and v[5][0] != 'separador'
+            and x <= v[0] and v[0] + v[2] <= x + w + .01
+            and y <= v[1] and v[1] + v[3] <= y + h + .01]
+
+
+def realces_das_categorias(itens, acesos):
+    chave = _gaveta_desenho._chave_widget
+    for caixa in itens:
+        if caixa_categoria(caixa[5]):
+            # O contorno pertence ao hover das ABAS, nao ao fundo vazio.
+            acesos.discard(chave(caixa[5]))
+            filhos = retangulos_filhos(caixa, itens)
+            if any(v[:4] in filhos and chave(v[5]) in acesos for v in itens):
+                acesos.add(chave(caixa[5]))
 
 
 def widgets(context, largura, altura):
@@ -346,10 +387,11 @@ def widgets(context, largura, altura):
     w, h = largura / escala, altura / escala
     itens = []
     s = context.scene
-    for i, (modo, nome) in enumerate(_gaveta.MODOS_BIBLIOTECA):
-        itens.append((6 + i * 64, h - TOPO_CATEGORIA, 61, ALTURA_CATEGORIA, nome,
-                      ('biblioteca', modo, s.cabinet_bib_modo == modo)))
     recolhida = bool(context.screen.get(CHAVE_RECOLHIDA))
+    if recolhida:
+        for i, (modo, nome) in enumerate(_gaveta.MODOS_BIBLIOTECA):
+            itens.append((6 + i * 64, h - TOPO_CATEGORIA, 61, ALTURA_CATEGORIA, nome,
+                          ('biblioteca', modo, s.cabinet_bib_modo == modo)))
     itens.append((max(6, w - 66), h - TOPO_CATEGORIA, 60, ALTURA_CATEGORIA,
                   'Expandir' if recolhida else 'Recolher',
                   ('operador', 'object.cabinet_recolher_biblioteca')))
@@ -357,25 +399,26 @@ def widgets(context, largura, altura):
         return [(x * escala, y * escala, bw * escala, bh * escala, nome, acao)
                 for x, y, bw, bh, nome, acao in itens]
     linhas, daqui, prefixo = catalogo(context)
-    compacto = h < ALTURA_COMPACTA
     capacidade = _capacidade_niveis(h, w)
     chave_niveis = _chave_niveis(context)
     limite_niveis = max(0, len(linhas) - 1 - capacidade)
     inicio_niveis = max(0, min(limite_niveis, int(context.screen.get(chave_niveis, limite_niveis))))
     visiveis = linhas[:1] + linhas[1 + inicio_niveis:1 + inicio_niveis + capacidade]
-    for i, (nivel, filhos, escolhido, pai) in enumerate(visiveis[:1] if compacto else visiveis):
-        y = h - TOPO_CATEGORIA - PASSO_CATEGORIA * i
-        x = 140 if i == 0 else 6
-        disponivel = w - x - (74 + 21 * len(_gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo])
-                               if i == 0 else 6)
-        _linha(context, itens, x, y, disponivel, filhos, nivel, escolhido, pai, prefixo)
-    if compacto:
-        _subcategorias_em_linha(context, itens, visiveis[1:], w,
-                               h - TOPO_CATEGORIA - PASSO_CATEGORIA, prefixo)
-    filas = min(2, len(visiveis)) if compacto else len(visiveis)
-    y = h - 27 - PASSO_CATEGORIA * (max(1, filas) - 1)
+    modos = [nome for _modo, nome in _gaveta.MODOS_BIBLIOTECA]
+    escolhido = dict(_gaveta.MODOS_BIBLIOTECA)[s.cabinet_bib_modo]
+    grupos = [(0, modos, escolhido, None), *visiveis]
+    ferramentas = 74 + 21 * len(_gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo])
+    _subcategorias_em_linha(context, itens, grupos, w - ferramentas,
+                           h - TOPO_CATEGORIA, prefixo)
+    y = h - 35
     material = s.cabinet_bib_modo == 'MATERIAIS'
-    lado = min(68 + (s.chapa_tam_bloco - 2) * 14, max(0, y - (53 if material else 29)))
+    reserva = 53 if material else 29
+    disponivel = max(0, y - reserva)
+    referencia = ALTURA_INICIAL - 35 - reserva
+    tamanho = (68 + (s.chapa_tam_bloco - 2) * 14) * disponivel / referencia
+    # A proporcao segue a altura da area. A largura ainda precisa caber
+    # junto das setas, inclusive numa biblioteca alta e estreita.
+    lado = min(tamanho, disponivel, max(0, w - (74 if len(daqui) > 1 else 22)))
     if lado < 12:
         daqui = []   # faixa quase recolhida: nao criar alvos fora da area
     bw, bh = lado + 10, lado + 27
@@ -384,8 +427,8 @@ def widgets(context, largura, altura):
         else (s.cabinet_mat_n1, s.cabinet_mat_n2, s.cabinet_mat_n3))
     chave = 'cabinet_faixa_itens_' + s.cabinet_bib_modo + '_' + hashlib.sha1(
         caminho.encode('utf-8')).hexdigest()[:20]
-    rola = len(daqui) > max(1, int((w - 12 + 8) // (bw + 8)))
-    n = max(1, int((w - (64 if rola else 12) + 8) // (bw + 8)))
+    rola = len(daqui) > max(1, int((w - 12 + 8 + 1e-6) // (bw + 8)))
+    n = max(1, int((w - (64 if rola else 12) + 8 + 1e-6) // (bw + 8)))
     limite = max(0, len(daqui) - n)
     inicio = max(0, min(limite, int(context.screen.get(chave, 0))))
     by = y - bh
@@ -428,6 +471,9 @@ def interativos(context):
         itens = respostas + ([fundo] if fundo else []) + [v for v in itens if not (
             v == pergunta or v in respostas or
             v[0] < x + w and x < v[0] + v[2] and v[1] < y + h and y < v[1] + v[3])]
+    # O fundo nao intercepta o clique de uma aba. O gizmo dele atende
+    # apenas o espaco vazio, e o operador tambem o trata por ultimo.
+    itens = [v for v in itens if not caixa_categoria(v[5])] + [v for v in itens if caixa_categoria(v[5])]
     return [v for v in itens if v[1] >= 0 and v[1] + v[3] <= context.region.height
             and v[0] >= 0 and v[0] + v[2] <= context.region.width]
 
@@ -455,6 +501,13 @@ def rolar(context, event):
                  and v[0] <= event.mouse_region_x <= v[0] + v[2]
                  and v[1] <= event.mouse_region_y <= v[1] + v[3]), None)
     if alvo is None:
+        caixa = next((v for v in itens if caixa_categoria(v[5])
+                      and v[0] <= event.mouse_region_x <= v[0] + v[2]
+                      and v[1] <= event.mouse_region_y <= v[1] + v[3]), None)
+        filhos = retangulos_filhos(caixa, itens) if caixa else []
+        alvo = next((v[5] for v in itens if v[:4] in filhos
+                     and v[5] and v[5][0] in ('navegar', 'rolar_nivel')), None)
+    if alvo is None:
         # Sobre a foto ou o vao entre fotos, rola a galeria inteira.
         alvo = next((v[5] for v in itens if v[5] and v[5][0] == 'rolar_nivel'
                      and 'faixa_itens' in v[5][1]
@@ -475,8 +528,8 @@ def _chave_niveis(context):
 
 
 def _capacidade_niveis(altura, largura=None):
-    if altura < ALTURA_COMPACTA and largura is not None:
-        return max(1, int((largura - 12 + INTERVALO_NIVEIS) // (80 + INTERVALO_NIVEIS)))
+    if largura is not None:
+        return max(1, int((largura - 137 - 12 - 112) // (56 + INTERVALO_NIVEIS)) - 1)
     # Reserva uma foto e o nome; materiais ainda tem Editar/Apagar abaixo.
     return max(1, int((altura - 112) // PASSO_CATEGORIA))
 

@@ -74,6 +74,8 @@ def _acao_da_gaveta(context, event, area, regiao):
     x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
     with context.temp_override(area=area, region=regiao):
         for wx, wy, w, h, _rotulo, acao in _gaveta._widgets_interativos(context):
+            if _biblioteca_faixa.caixa_categoria(acao):
+                continue
             if acao and wx <= x <= wx + w and wy <= y <= wy + h:
                 return acao
     return None
@@ -1142,9 +1144,13 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 raio = min(13.0 * escala, min(w, h) / 2) if _biblioteca_faixa.eh_faixa(context) else 13.0 * escala
                 icone = _centro_icone(x, y, w, h, acao) + (raio,)
             _hud._campos_gaveta[campo.as_pointer()] = (x, y, w, h, icone)
+            if _biblioteca_faixa.caixa_categoria(acao):
+                _hud._campos_gaveta[campo.as_pointer()] += (
+                    _biblioteca_faixa.retangulos_filhos((x, y, w, h, _rotulo, acao), alvos),)
             if campo.is_highlight:
                 acesos.add(_gaveta_desenho._chave_widget(acao))
 
+        _biblioteca_faixa.realces_das_categorias(alvos, acesos)
         # Edicao aberta manda mais que o mouse: com o campo em foco o
         # usuario ja' esta' digitando aquela medida, ainda que o cursor
         # tenha saido de cima dele.

@@ -52,6 +52,7 @@ def verificar_periodicamente():
     sincronizar_contornos()
     if not _chapas._ocupado[0] and not _ha_modal_ativo():
         try:
+            _prateleiras.sincronizar_exclusoes_da_cena()
             _prateleiras.concluir_edicao()
             _selecao.concluir_edicao_grupo(bpy.context)
             _modulos.absorver_conjuntos()

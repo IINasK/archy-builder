@@ -1160,6 +1160,259 @@ class TestPortas(unittest.TestCase):
         addon.ferragens._conferir_ferragens()
         self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o for o in bpy.data.objects))
 
+    def _apagar_malhas_modulo(self, conj):
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in conj.children_recursive:
+            if o.type == 'MESH' and not o.hide_get():
+                o.select_set(True)
+        bpy.ops.object.delete()
+
+    # Regressao (era BUG, corrigido na 279): Empty e rig ocultos
+    # sobreviviam ao Delete e impediam a limpeza da pasta do modulo.
+    def test_delete_pecas_limpa_rig_empties_e_pasta(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        nome, pasta = conj.name, conj.users_collection[0].name
+        self.assertTrue(any(o.type == 'ARMATURE' for o in grupo.children_recursive))
+        self._apagar_malhas_modulo(conj)
+        self.assertIn(nome, bpy.data.objects)
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.objects)
+        self.assertNotIn(pasta, bpy.data.collections)
+        self.assertEqual(len(bpy.data.objects), 0)
+
+    def test_delete_so_folha_limpa_rig_e_preserva_carcaca(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        antes = {o.name: (o.data.as_pointer(), o.matrix_world.copy())
+                 for o in addon.modulos._chapas_do_conjunto(conj)}
+        for o in addon.portas._folhas_portas(grupo):
+            bpy.data.objects.remove(o, do_unlink=True)
+        addon.ferragens._conferir_ferragens()
+        self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o
+                             for o in bpy.data.objects))
+        self.assertIn(conj.name, bpy.data.collections)
+        for nome, (malha, pose) in antes.items():
+            self.assertEqual(bpy.data.objects[nome].data.as_pointer(), malha)
+            self.assertEqual(bpy.data.objects[nome].matrix_world, pose)
+
+    def test_delete_pai_deixa_subgrupos_mas_limpeza_remove_pasta(self):
+        conj = self.nicho()
+        self.porta_de_giro(conj)
+        pasta = conj.users_collection[0].name
+        self._apagar_malhas_modulo(conj)
+        bpy.data.objects.remove(conj, do_unlink=True)
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(pasta, bpy.data.collections)
+        self.assertEqual(len(bpy.data.objects), 0)
+
+    def test_delete_parcial_preserva_porta_e_dobradicas(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        nomes = {o.name for o in grupo.children_recursive}
+        bpy.data.objects.remove(addon.modulos._chapas_do_conjunto(conj)[0],
+                                do_unlink=True)
+        addon.ferragens._conferir_ferragens()
+        self.assertTrue(nomes <= set(bpy.data.objects.keys()))
+        self.assertIn(conj.name, bpy.data.collections)
+
+    def test_limpeza_preserva_objeto_comum_na_pasta_e_grupo(self):
+        conj = self.nicho()
+        pasta = conj.users_collection[0]
+        livre = bpy.data.objects.new('Referencia do usuario', None)
+        pasta.objects.link(livre)
+        livre.parent = conj
+        self._apagar_malhas_modulo(conj)
+        addon.ferragens._conferir_ferragens()
+        self.assertIs(livre.parent, conj)
+        self.assertIn(pasta.name, bpy.data.collections)
+        livre.parent = None
+        addon.ferragens._conferir_ferragens()
+        self.assertIn(livre.name, bpy.data.objects)
+        self.assertIn(pasta.name, bpy.data.collections)
+
+    def test_limpeza_rig_preserva_filho_comum_e_dados_compartilhados(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        rig = next(o for o in grupo.children_recursive
+                   if o.get('cabinet_peca') == 'armacao')
+        livre = bpy.data.objects.new('Referencia do rig', None)
+        bpy.context.collection.objects.link(livre)
+        livre.parent = rig
+        malha = next(o.data for o in grupo.children_recursive if o.type == 'MESH')
+        copia = bpy.data.objects.new('Copia independente', malha)
+        bpy.context.collection.objects.link(copia)
+        nome = rig.name
+        for o in addon.portas._folhas_portas(grupo):
+            bpy.data.objects.remove(o, do_unlink=True)
+        addon.ferragens._conferir_ferragens()
+        self.assertEqual(livre.parent.name, nome)
+        self.assertIs(copia.data, malha)
+        self.assertGreater(malha.users, 0)
+
+    def test_limpeza_so_remove_pastas_marcadas_e_comodos_vazios(self):
+        conj = self.nicho()
+        nome = conj.name
+        comodo = bpy.data.collections.new('Comodo de teste')
+        comodo[addon.orcamento.MARCA_COLECAO_COMODO] = 1
+        bpy.context.scene.collection.children.link(comodo)
+        comodo.children.link(conj.users_collection[0])
+        comum = bpy.data.collections.new('Pasta comum vazia')
+        bpy.context.scene.collection.children.link(comum)
+        self._apagar_malhas_modulo(conj)
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.collections)
+        self.assertNotIn('Comodo de teste', bpy.data.collections)
+        self.assertIn(comum.name, bpy.data.collections)
+        bpy.data.collections.remove(comum)
+
+    # Regressao (era BUG, corrigido na 280): a embalagem do asset
+    # tinha a tag nativa, mas nao a marca da Collection do modulo.
+    def test_append_delete_limpa_embalagem_asset_legada_com_fake_user(self):
+        conj = self.nicho()
+        arquivo = addon.biblioteca.salvar_na_biblioteca(
+            [conj, *conj.children_recursive], 'Embalagem legada teste', True)
+        with open(arquivo, 'rb') as f:
+            antes = f.read()
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        addon.ferragens._conferir_ferragens()
+        novos, _raizes, erro = addon.biblioteca.inserir_preset(
+            bpy.context, os.path.dirname(arquivo), os.path.basename(arquivo), 'modulo')
+        self.assertFalse(erro)
+        embalagem = next(c for c in bpy.data.collections if c.asset_data)
+        self.assertNotIn(addon.modulos.MARCA_COLECAO_MODULO, embalagem)
+        self.assertTrue(embalagem.use_fake_user)
+        self.assertIsNotNone(embalagem.asset_data.tags.get('chapa-g3'))
+        nome = embalagem.name
+        # Renomear a pasta nao pode inutilizar a identificacao do asset.
+        embalagem.name = 'Pasta renomeada pelo usuario'
+        nome = embalagem.name
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in novos:
+            o.select_set(True)
+        bpy.ops.object.delete()
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.collections)
+        with open(arquivo, 'rb') as f:
+            self.assertEqual(f.read(), antes)
+
+    def _embalagem_asset_teste(self, nome):
+        c = bpy.data.collections.new(nome)
+        bpy.context.scene.collection.children.link(c)
+        c.asset_mark()
+        c.asset_data.tags.new('chapa-g3')
+        c.use_fake_user = True
+        return c
+
+    def test_embalagem_asset_nao_vazia_e_assets_alheios_sao_preservados(self):
+        nossa = self._embalagem_asset_teste('Modulo da biblioteca')
+        objeto = bpy.data.objects.new('Referencia independente', None)
+        nossa.objects.link(objeto)
+        comum = bpy.data.collections.new('Armario vazio do usuario')
+        bpy.context.scene.collection.children.link(comum)
+        alheia = self._embalagem_asset_teste('Asset de outro addon')
+        alheia.asset_data.tags.remove(alheia.asset_data.tags.get('chapa-g3'))
+        nomes = {c.name for c in (nossa, comum, alheia)}
+        addon.ferragens._conferir_ferragens()
+        self.assertTrue(nomes <= set(bpy.data.collections.keys()))
+        self.assertIn(objeto.name, bpy.data.objects)
+        for c in (nossa, comum, alheia):
+            bpy.data.collections.remove(c)
+
+    def test_embalagens_asset_aninhadas_limpam_de_dentro_para_fora(self):
+        externa = self._embalagem_asset_teste('Embalagem externa')
+        interna = self._embalagem_asset_teste('Embalagem interna')
+        externa.children.link(interna)
+        nomes = (externa.name, interna.name)
+        addon.ferragens._conferir_ferragens()
+        for nome in nomes:
+            self.assertNotIn(nome, bpy.data.collections)
+        externa = self._embalagem_asset_teste('Embalagem com pasta comum')
+        comum = bpy.data.collections.new('Organizacao independente')
+        externa.children.link(comum)
+        addon.ferragens._conferir_ferragens()
+        self.assertIn(externa.name, bpy.data.collections)
+        self.assertIn(comum.name, externa.children)
+        bpy.data.collections.remove(comum)
+        bpy.data.collections.remove(externa)
+
+    def test_undo_redo_restaura_embalagem_asset_e_sua_identificacao(self):
+        conj = self.nicho()
+        embalagem = self._embalagem_asset_teste('Embalagem undo teste')
+        for o in [conj, *conj.children_recursive]:
+            embalagem.objects.link(o)
+        nome = embalagem.name
+        bpy.ops.ed.undo_push(message='Antes do Delete com asset')
+        self._apagar_malhas_modulo(conj)
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.collections)
+        bpy.ops.ed.undo_push(message='Delete com limpeza do asset')
+        conj = embalagem = None
+        bpy.ops.ed.undo()
+        addon.eventos._fim_do_desfazer()
+        addon.ferragens._conferir_ferragens()
+        c = bpy.data.collections[nome]
+        self.assertTrue(c.use_fake_user)
+        self.assertIsNotNone(c.asset_data.tags.get('chapa-g3'))
+        self.assertGreater(len(c.all_objects), 0)
+        c = None
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.collections)
+
+    def test_limpeza_adiada_em_undo_edicao_ocupado_e_modal(self):
+        conj = self.nicho()
+        nome = conj.name
+        self._apagar_malhas_modulo(conj)
+        for estado in (addon.eventos._desfazendo, addon.chapas._ocupado):
+            with self.subTest(estado=id(estado)), patch.object(
+                    addon.eventos, '_ha_modal_ativo', return_value=False):
+                estado[0] = True
+                try:
+                    self.assertEqual(addon.ferragens._conferir_ferragens(), .2)
+                    self.assertIn(nome, bpy.data.objects)
+                finally:
+                    estado[0] = False
+        with patch.object(addon.eventos, '_ha_modal_ativo', return_value=True):
+            self.assertEqual(addon.ferragens._conferir_ferragens(), .2)
+        peca = addon.chapas.nova_chapa('Em edicao', 100, 100, 18,
+                                      (0, 0, 0), (0, 0, 0), bpy.context)
+        bpy.context.view_layer.objects.active = peca
+        peca.select_set(True)
+        bpy.ops.object.mode_set(mode='EDIT')
+        try:
+            self.assertEqual(addon.ferragens._conferir_ferragens(), .2)
+            self.assertIn(nome, bpy.data.objects)
+        finally:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.objects)
+
+    def test_delete_undo_redo_restauram_modulo_e_pasta(self):
+        conj = self.nicho()
+        self.porta_de_giro(conj)
+        nome = conj.name
+        nomes = set(bpy.data.objects.keys())
+        bpy.ops.ed.undo_push(message='Modulo antes do Delete')
+        self._apagar_malhas_modulo(conj)
+        addon.ferragens._conferir_ferragens()
+        bpy.ops.ed.undo_push(message='Delete e limpeza')
+        bpy.ops.ed.undo()
+        bpy.context.view_layer.update()
+        self.assertEqual(set(bpy.data.objects.keys()), nomes)
+        self.assertIn(nome, bpy.data.collections)
+        # No background o event loop nao chama o tique que libera undo.
+        addon.eventos._fim_do_desfazer()
+        addon.ferragens._conferir_ferragens()
+        self.assertEqual(set(bpy.data.objects.keys()), nomes)
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome, bpy.data.objects)
+        self.assertNotIn(nome, bpy.data.collections)
+
     def test_placa_da_reta_fica_na_face_interna(self):
         # print do usuario: a placa base da Reta entrava ~3 mm na lateral
         # (o modelo cobre 12,75 mm, a Reta de 18 cobre 16). Como o

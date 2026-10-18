@@ -137,13 +137,17 @@ no sentido que ainda tem itens ocultos; sem setas, categorias/fotos usam
 a largura liberada. Resize recalcula a necessidade (inclusive offsets
 antigos). Roda e setas rolam a fila apontada; Shift+roda percorre os niveis
 profundos sem empurrar as fotos para fora. Perguntas longas rolam na faixa. Recolher/Expandir libera altura sem fechar o menu. Altura
-ajustavel pela fronteira nativa entre areas. Abaixo de 160 px LOGICOS,
-subcategorias ficam LADO A LADO numa unica linha abaixo do cabecalho:
-24 px entre niveis + divisor do tema (2 px continuam entre irmaos).
-Cada nivel tem seu proprio carrossel; roda usa X E Y para nao rolar
-o vizinho. Shift+roda percorre niveis que nao couberem na largura.
-Miniaturas encolhem com a altura; sem alvos fora da faixa. Ao aumentar,
-volta a uma linha por nivel. Tema e escala do usuario.
+ajustavel pela fronteira nativa entre areas. Modulos/Materiais E todos os
+niveis ficam numa unica linha em QUALQUER altura: caixas separadas por
+divisorias CINZA CLARO de 2 px (derivadas do tema) em TODAS as
+juntas, inclusive os primeiros grupos. Cada caixa realca inteira no hover
+de uma das abas; o contorno cinza claro fica OCULTO fora desse hover. SEM halo nos
+botoes de navegacao, sem capturar o clique das abas. Intervalo 12 px
+entre caixas, 2 px entre irmaos. Cada nivel conserva carrossel/roda; Shift+
+roda percorre os niveis que nao couberem na largura. Miniaturas crescem
+PROPORCIONALMENTE a' altura da area, limitadas tambem pela largura para
+caberem com as setas; o ajuste de tamanho conserva sua proporcao da faixa.
+Sem alvos fora da faixa. Tema e escala do usuario.
 Menu esquerdo: so' as abas e os controles da selecao, sem biblioteca nem
 divisoria interna. Layout antigo ainda pode ser lido, mas e' migrado ao
 reconectar/abrir. Os cliques da faixa nunca chegam a' cena. Perguntas da
@@ -240,10 +244,11 @@ da frente e' o Recuo da aba. Selecionadas (clique = todas do vao, duplo = uma): 
 L/A/P do vao e uma linha por VAO entre as prateleiras, no meio da largura,
 com o VALOR ao lado (sao varios; uma letra so' nao diria qual). Arrastar ou
 clicar e digitar um vao anda SO' a prateleira de cima dele. Na aba:
-Prateleiras (L/A/P + contador), Chapa (Espessura, Recuo, Folga lateral) e
-Espacamento: Igual | Livre, "Entre prateleiras" (o mesmo em todas) e
-Vao 1..n+1 de baixo para cima; com UMA selecionada, so' Abaixo e Acima dela
-(os dois andam so' ela).
+Prateleiras (L/A/P + contador), Chapa (Espessura, Recuo, Folga lateral).
+Na largura padrao, A1/A2/A3 tem a MESMA largura com o contador ao lado; estreita conserva colunas iguais, movendo o contador para outra linha se necessario.
+Espacamento: botao de 37 px com simbolo proprio (seta para esquerda, barra vertical, seta para direita; GPU, excecao pedida pelo usuario) e texto "Centralizar espacamento" a' direita; abaixo, campos E1..En+1 de baixo para cima, tambem com UMA selecionada. Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
+Excluir uma unidade atualiza quantidade/vaos sem mover as demais; centralizar e' explicito, sem botao ao lado do contador.
+Editar um campo E anda so' a prateleira correspondente (o vao do topo anda a ultima).
 
 **Porta de correr: a folha.** Na porta de correr selecionada, uma fila
 Chapa | Quadro de aluminio (depois do trilho, com ou sem moldura). Quadro =

@@ -37,7 +37,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (272).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (280).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -125,7 +125,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - Gaveta sem redundancia (sem nome do item, Sincronizar, Auto-regenerar); Montagem =
   Corrente e Resetar distancia (resto: F3). Campo: ARRASTAR de lado muda; clicar digita.
 - Biblioteca: Modulos | Materiais na FAIXA no TOPO, acima do menu E da viewport (`biblioteca_faixa`); menu so' edita. Niveis SEM LIMITE (`niveis` no indice),
-  Abas compactas (18/20 px, fonte 10, intervalo 2); altura <160: subniveis na mesma linha (vao 24 + divisor), roda por X/Y; Setas SO' com overflow, no sentido dos ocultos; SEM contagem, ramo vazio some; fotos so' visiveis, cache RGBA8 de 64 MiB e indice invalidavel. Material = COR SOLIDA no slot do OBJETO. Esfera: 1 clique NADA;
+  Abas compactas (18 px, fonte 10, intervalo 2); modos E niveis numa unica linha em qualquer altura, cada grupo em caixa CINZA; contorno cinza claro SO' no hover de uma ABA, divisorias cinza claro em todas as juntas (vao 12); SEM halo na navegacao. Fundo nao rouba o clique; roda por X/Y. Setas SO' com overflow, no sentido dos ocultos; SEM contagem, ramo vazio some; fotos so' visiveis, proporcionais a' altura da area e limitadas pela largura, cache RGBA8 de 64 MiB e indice invalidavel. Material = COR SOLIDA no slot do OBJETO. Esfera: 1 clique NADA;
   duplo = SELECAO; arrastada = o de baixo; DIREITO = pintura rapida (comodo -> parte). Areas: Screen `cabinet_layout=2`, biblioteca/menu/cena; reconecta/migra. Shift+roda percorre niveis profundos; chaves de rolagem com hash (63 bytes).
 - PAREDE (Promob): DIREITO segurado no modulo, solto numa FACE vertical nao-movel
   (realcada) = costas nela, ASSOCIADO A' FACE (anda c/ ela; G/R desliza). Guias editaveis.
@@ -136,8 +136,8 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   Alt = 3 pontos (2 quinas da frente + profundidade), snap NATIVO (translate do cursor; Esc restaura cursor e alvos). Modulo selecionado absorve os filhos;
   redimensionar move pela face proxima sem crescer; faltando espaco, adapta caixa/frente/trilho ate' o minimo fisico e devolve as escolhas ao aumentar. Edicao direta preserva selecao; Esc restaura medidas. Vinculo = PAI real (nome antigo do preset nao manda). Frente CURVA e alturas em PROPORCAO. Borda de CADA gaveta: altura cede/recebe da vizinha, total fixo (externa ancora o limite); uma so' usa seu vao. Duplo = campos individuais L/A/P, Abaixo/Acima, frente/trilho/recuo/puxador; grupo = todas. Previa SO' parametros/contorno, montar uma vez no confirmar; curso e material por unidade.
 - PRATELEIRAS (aba propria): o assistente das GAVETAS (`AssistenteDoVao`) com SO' 2 cliques + scroll;
-  profundidade ate' o FUNDO, folga da frente = RECUO. Espacamento IGUAL | LIVRE (vao ABAIXO de cada uma; o de cima sobra); mudar UM vao
-  anda SO' uma prateleira (o vizinho cede). Clique = todas, duplo = uma (Abaixo/Acima dela); HUD:
+  profundidade ate' o FUNDO, folga da frente = RECUO. Menu: campos E1..En+1 de baixo para cima, inclusive unidade; sem Igual/Livre, Entre prateleiras ou Abaixo/Acima. Botao "Centralizar espacamento" na secao Espacamento, simbolo seta esquerda/barra/seta direita, altura 37; nao junto ao contador.
+  Excluir atualiza quantidade/vaos sem mover sobreviventes; so' o botao redistribui. Mudar UM vao anda SO' uma prateleira (o vizinho cede). Clique = todas, duplo = uma; HUD:
   L/A/P do vao + o VALOR de cada vao. Mesmas chapas; Tab no grupo propaga a todas ao concluir (multiobjeto nativo), individual isola a malha. NUNCA trocar o ID de Mesh ao concluir: BMesh.to_mesh na MESMA malha (undo nativo guarda o ID). Undo que volta ao Edit Mode recupera escopo da selecao nativa. Quantidade herda geometria/parametros/material/modificadores da unidade selecionada; tipos diferentes sem unidade ativa pedem "Selecione a prateleira de referencia" ao lado do mouse na viewport, acompanhando o cursor e respeitando as bordas (Esc cancela sem adicionar). Parametros individuais nao movem vizinhas; arrastar quantidade so' exibe previa, monta ao soltar.
 - FORMA: MODULO selecionado = sempre CAIXA convencional de 8 cantos/12 cotas nos limites do envelope. Rotulos de medidas = A1, A2... (inclui segmentos da chapa); E so' espessura. L/A/P/R continuam identificadores INTERNOS, nunca rotulos. E da chapa vem de peles correspondentes no eixo transversal local; dobra/flecha NAO vira espessura. Secao ambigua conserva E nominal; resize conserva linha media. Nao inferir forma/angulos do grupo; resize CAIXA. Eventos antigos de formato do grupo recusados, inclusive hover anterior.
   Angulos/contorno real SO' na CHAPA INDIVIDUAL selecionada, pelo plano local da face. Menu e HUD usam as MESMAS cotas editaveis A1...An/E, por chave semantica (nao numero A). Deslocamento transversal da linha media MAIOR que E ganha cota propria (ex.: A6), sem engrossar a madeira; arraste/Esc conserva referencia original. Outra chapa/porta/modulo nao acompanha a edicao individual. Mesh compartilhada isolada antes. Tab nativo; ao sair atualiza medidas/caches, undo invalida. Sem deformacao radial; solver antigo do grupo so' por API, nunca automatico.

@@ -34,6 +34,8 @@ def _chave_widget(acao):
     """
     if not acao:
         return None
+    if _biblioteca_faixa.caixa_categoria(acao):
+        return 'categoria:' + acao[2]
     verbo = acao[0]
     if verbo in {'wireframe', 'separador', 'slider', 'fundo', 'pergunta'}:
         return None
@@ -105,9 +107,12 @@ class VIEW3D_GT_campo_gaveta(Gizmo):
         alvo = _hud._campos_gaveta.get(self.as_pointer())
         if not alvo:
             return -1
-        x, y, w, h, icone = alvo
+        x, y, w, h, icone = alvo[:5]
         px, py = location
         if not (x <= px <= x + w and y <= py <= y + h):
+            return -1
+        if len(alvo) > 5 and any(bx <= px <= bx + bw and by <= py <= by + bh
+                                 for bx, by, bw, bh in alvo[5]):
             return -1
         if icone is not None:
             cx, cy, raio = icone
@@ -287,6 +292,34 @@ def _desenhar_divisa_gaveta(context, largura, meio, acao, cores):
                           (*cor, 0.55 + 0.45 * realce))
 
 
+def _segmentos_igualar_vaos(x, y, w, h):
+    """Simbolo pedido pelo usuario: duas setas para fora e barra central.
+    Coordenadas locais ao botao, compartilhadas com a auditoria visual.
+    """
+    cx, cy, lado = x + w / 2, y + h / 2, min(w, h)
+    segmentos = [(0, -.28), (0, .28)]
+    for sinal in (-1, 1):
+        segmentos.extend(((sinal * .12, 0), (sinal * .36, 0),
+                          (sinal * .24, -.12), (sinal * .36, 0),
+                          (sinal * .24, .12), (sinal * .36, 0)))
+    return [(cx + px * lado, cy + py * lado) for px, py in segmentos]
+
+
+def _desenhar_igualar_vaos(x, y, w, h, cor):
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+    shader.bind()
+    shader.uniform_float('viewportSize', gpu.state.viewport_get()[2:])
+    shader.uniform_float('lineWidth', max(1.5, min(w, h) / 18.5))
+    shader.uniform_float('color', cor)
+    batch_for_shader(shader, 'LINES', {'pos': _segmentos_igualar_vaos(x, y, w, h)}).draw(shader)
+
+
+def _cor_contorno_categorias(cores):
+    """Cinza do tema: a navegacao nao herda a cor azul de selecao."""
+    tom = sum(.7 * t + .3 * b for t, b in zip(cores.text[:3], cores.outline[:3])) / 3
+    return (tom, tom, tom, 1)
+
+
 def _desenhar_gaveta(tela=False):
     context = bpy.context
     if context.region is None or context.region.type != 'WINDOW':
@@ -383,7 +416,20 @@ def _desenhar_gaveta(tela=False):
         if y + h < 0 or y > altura:
             continue
         if acao and acao[0] == 'separador':
-            _gaveta._retangulo_gaveta(x, y, w, h, (*cores.outline[:3], 1))
+            cor = _cor_contorno_categorias(cores) if acao == ('separador', 'biblioteca') else (*cores.outline[:3], 1)
+            _gaveta._retangulo_gaveta(x, y, w, h, cor)
+            continue
+        if _biblioteca_faixa.caixa_categoria(acao):
+            realce = _gaveta._valor_realce(context, _chave_widget(acao))
+            borda = (*_cor_contorno_categorias(cores)[:3], realce)
+            tom = sum(c + (t - c) * (.18 + .45 * realce)
+                      for c, t in zip(fundo[:3], cores.inner[:3])) / 3
+            cor = (tom, tom, tom)
+            gpu.state.blend_set('ALPHA')
+            _gaveta._retangulo_arredondado_gaveta(x, y, w, h, 4 * escala_faixa, borda)
+            margem = escala_faixa
+            _gaveta._retangulo_arredondado_gaveta(x + margem, y + margem,
+                max(0, w - 2 * margem), max(0, h - 2 * margem), 3 * escala_faixa, (*cor, 1))
             continue
         if acao and acao[0] in {'fundo', 'suspenso', 'faixa', 'cor'}:
             chave = _chave_widget(acao)
@@ -484,7 +530,7 @@ def _desenhar_gaveta(tela=False):
         # O halo vai ANTES do corpo do botao, como na alca: por cima
         # ele lavaria o texto em vez de circundar o widget.
         chave = _chave_widget(acao)
-        if chave:
+        if chave and not (faixa_biblioteca and acao[0] in {'navegar', 'biblioteca', 'rolar_nivel'}):
             _gaveta._glow_gaveta(x, y, w, h, 4, _gaveta._valor_realce(context, chave),
                          cores.text)
         apagado = bool(acao and acao[0] in _gaveta.BOTOES_CRIAR and len(acao) > 4
@@ -543,6 +589,11 @@ def _desenhar_gaveta(tela=False):
             largura_texto = min(blf.dimensions(0, rotulo)[0], w - 8)
             _gaveta._texto_cabivel_gaveta(x + (w - largura_texto) / 2, y + 5,
                                           rotulo, w - 8, 11)
+        elif acao == ('operador', 'object.cabinet_alinhar_prateleiras'):
+            _desenhar_igualar_vaos(x, y, h, h,
+                (*cores.text[:3], .4 if apagado else 1.0))
+            _gaveta._texto_cabivel_gaveta(x + h + 4, y + (h - 12) / 2,
+                rotulo, w - h - 13, cor=(*cores.text[:3], .4) if apagado else None)
         elif _gaveta_eventos._icone_ao_lado(acao):
             # o icone (gizmo) na ponta esquerda, o texto depois dele
             _gaveta._texto_cabivel_gaveta(

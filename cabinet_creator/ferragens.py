@@ -1185,6 +1185,11 @@ def _conferir_ferragens():
     porta nao a leva. Ferragem sem porta sai; porta sem
     nenhuma (duplicada, ou de antes da Fase 3) ganha as dela. De quebra,
     Empty de amarracao de arquivo/preset antigo fica invisivel."""
+    # O timer agendado pelo depsgraph pode sobreviver ao inicio de Tab,
+    # undo ou de outro operador: adiar, sem perder a limpeza pendente.
+    if (_eventos._desfazendo[0] or _chapas._ocupado[0]
+            or bpy.context.mode != 'OBJECT' or _eventos._ha_modal_ativo()):
+        return _eventos.INTERVALO_TIMER
     try:
         for o in bpy.data.objects:
             if (o.type == 'EMPTY'
@@ -1192,25 +1197,36 @@ def _conferir_ferragens():
                                              CHAVE_FERRAGEM))
                     and o.empty_display_size > _chapas.TAMANHO_EMPTY_OCULTO * 1.5):
                 _chapas._ocultar_empty(o)
-        for o in [o for o in bpy.data.objects if CHAVE_FERRAGEM in o]:
-            if not _vivo(o):
-                continue        # saiu junto com a raiz do rig
-            dono = o.parent
-            while dono is not None and _chapas.MARCA_PORTAS not in dono:
-                dono = dono.parent
-            if dono is None:
-                _remover_ferragem(o)
+        portas_vivas = {g.name for g in bpy.data.objects
+                        if _chapas.MARCA_PORTAS in g and _portas._folhas_portas(g)}
+        residuos = set()
+        for o in bpy.data.objects:
+            if (CHAVE_FERRAGEM not in o or o.library is not None
+                    or o.override_library is not None):
+                continue
+            dono = _grupo_da_ferragem(o)
+            if dono is None or dono.name not in portas_vivas:
+                residuos.add(o)
+        # Nunca levar junto um filho comum do usuario. Conserva tambem
+        # seus pais, para nao alterar a transformacao de quem fica.
+        protegidos = {o for o in residuos if any(c not in residuos for c in o.children)}
+        for o in list(protegidos):
+            pai = o.parent
+            while pai in residuos:
+                protegidos.add(pai)
+                pai = pai.parent
+        for o in residuos - protegidos:
+            dados, colecao = o.data, DADOS_POR_TIPO.get(o.type)
+            bpy.data.objects.remove(o, do_unlink=True)
+            if dados is not None and colecao and dados.users == 0:
+                getattr(bpy.data, colecao).remove(dados)
         for grupo in [o for o in bpy.data.objects
                       if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')]:
             if _portas._folhas_portas(grupo) and not _ferragens_portas(grupo):
                 _refazer_ferragens(grupo)
             elif not grupo.get('porta_ferragens_encaixe'):
                 atualizar_encaixe_antigo(grupo)
-        # armario apagado (X): a Collection dele nao fica vazia na cena
-        for colecao in [c for c in bpy.data.collections
-                        if c.get(_modulos.MARCA_COLECAO_MODULO)
-                        and not c.all_objects and not c.children]:
-            bpy.data.collections.remove(colecao)
+        _modulos.limpar_organizacao_vazia()
         _orcamento._limpar_comodos_vazios()
     except Exception as e:
         print("[Cabinet Creator] ferragens:", e)

@@ -8,7 +8,7 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _gaveta = _gavetas = _formas = None
+_chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = None
 
 # ================================================= MODULO (CONJUNTO)
 # Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
@@ -990,6 +990,60 @@ def _colecao_do_modulo(conj):
         return None
     return next((c for c in conj.users_collection
                  if c.get(MARCA_COLECAO_MODULO)), None)
+
+
+def _colecao_de_organizacao(colecao):
+    """O append conserva a tag nativa, inclusive nos presets legados.
+
+    A pasta que empacota o asset e' diferente da Collection da montagem;
+    nao precisa ganhar a identidade desta para ser limpa quando vazia.
+    """
+    asset = colecao.asset_data
+    return (colecao.library is None and colecao.override_library is None
+            and (bool(colecao.get(MARCA_COLECAO_MODULO))
+                 or (asset is not None and asset.tags.get('chapa-g3') is not None)))
+
+
+def limpar_organizacao_vazia():
+    """Delete nativo pode deixar os Empties ocultos da montagem.
+
+    So' grupos conhecidos sem nenhuma peca sobrevivente sao residuos;
+    ate' um Empty comum do usuario conserva sua montagem e sua pasta.
+    """
+    marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
+              _gavetas.MARCA_GRUPO, _gavetas.MARCA_GAVETA,
+              _prateleiras.MARCA_GRUPO)
+
+    def organizacao(o):
+        return (o.type == 'EMPTY' and o.library is None
+                and o.override_library is None and any(m in o for m in marcas))
+
+    candidatos = {o.name for o in bpy.data.objects
+                  if _chapas.MARCA_CONJUNTO in o and organizacao(o)}
+    # Se o Delete levou tambem o pai, os subgrupos podem ficar na pasta.
+    # Um grupo de prateleiras vazio num modulo vivo continua editavel.
+    for c in bpy.data.collections:
+        if (_colecao_de_organizacao(c)
+                and all(organizacao(o) for o in c.all_objects)):
+            candidatos.update(o.name for o in c.all_objects)
+    for nome in candidatos:
+        modulo = bpy.data.objects.get(nome)
+        if modulo is None:
+            continue
+        familia = list(modulo.children_recursive)
+        if all(organizacao(o) for o in familia):
+            for o in reversed(familia):
+                bpy.data.objects.remove(o, do_unlink=True)
+            bpy.data.objects.remove(modulo, do_unlink=True)
+    # Da pasta mais interna para fora; nao se apagam pastas comuns.
+    while True:
+        vazias = [c for c in bpy.data.collections
+                  if _colecao_de_organizacao(c) and not c.all_objects
+                  and not c.children]
+        if not vazias:
+            break
+        for c in vazias:
+            bpy.data.collections.remove(c)
 
 
 def _garantir_colecao_modulo(cena, conj):

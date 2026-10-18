@@ -280,7 +280,7 @@ def test_arrastar_borda_para_cima_alinha_subcategorias(janela, m):
         assert {v[5][1] for v in grupos} == set(range(2, len(CAMINHO) + 1))
         assert len({v[1] for v in grupos}) == 1
         assert any(v[5] and v[5][0] == 'preset' for v in widgets), 'fotos fora da faixa'
-        assert sum(v[5] == ('separador',) for v in widgets) == len(CAMINHO) - 2
+        assert sum(v[5] == ('separador', 'biblioteca') for v in widgets) == len(CAMINHO)
         bpy.ops.screen.screenshot(filepath=os.path.join(PASTA, 'faixa-baixa-229.png'))
     print('FOTO_FAIXA_BAIXA', os.path.join(PASTA, 'faixa-baixa-229.png'))
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'navegar' and v[5][1] == len(CAMINHO))
