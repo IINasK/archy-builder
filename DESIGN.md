@@ -211,9 +211,7 @@ A nas quinas. Recorte < 100 mm (quina de tras aberta) nao muda o desenho.
 Na aba Modulos o mesmo modulo ganha a secao FORMATO (P1, P2, Raio e o
 Angulo da diagonal, que deixa a frente do canto parada).
 
-**Gavetas (aba propria, pedido do usuario).** Cabecalho com 5 abas
-(Modulos | Portas | Gavetas | Prateleiras | Puxadores; estreita: Mod. |
-Portas | Gav. | Prat. | Pux.). "Criar Gavetas" laranja no topo;
+**Gavetas (aba propria, pedido do usuario).** Cabecalho com 6 abas (Modulos | Portas | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Gav. | Prat. | Div. | Pux.). Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
@@ -249,6 +247,8 @@ Na largura padrao, A1/A2/A3 tem a MESMA largura com o contador ao lado; estreita
 Espacamento: botao de 37 px com simbolo proprio (seta para esquerda, barra vertical, seta para direita; GPU, excecao pedida pelo usuario) e texto "Centralizar espacamento" a' direita; abaixo, campos E1..En+1 de baixo para cima, tambem com UMA selecionada. Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
 Excluir uma unidade atualiza quantidade/vaos sem mover as demais; centralizar e' explicito, sem botao ao lado do contador.
 Editar um campo E anda so' a prateleira correspondente (o vao do topo anda a ultima).
+
+**Divisorias (aba propria).** "Criar Divisorias" no topo; dois cantos e scroll (quantidade), mesmos snap e cancelamento nativos das prateleiras. Chapas verticais segmentam os sistemas que atravessam o vao: 3 gavetas viram 6 com uma divisoria central; prateleiras sao partidas sem mudar a altura. Aba: A1/A2/A3 do vao, Espessura/Recuo, E1..En+1 da esquerda para direita. Os dois lados continuam editaveis nas abas de origem. Clique seleciona divisorias, duplo isola a chapa; Tab/G nativos.
 
 **Porta de correr: a folha.** Na porta de correr selecionada, uma fila
 Chapa | Quadro de aluminio (depois do trilho, com ou sem moldura). Quadro =

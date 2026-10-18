@@ -8,7 +8,7 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = None
+_chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = _divisorias = None
 
 # ================================================= MODULO (CONJUNTO)
 # Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
@@ -1012,7 +1012,7 @@ def limpar_organizacao_vazia():
     """
     marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
               _gavetas.MARCA_GRUPO, _gavetas.MARCA_GAVETA,
-              _prateleiras.MARCA_GRUPO)
+              _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
 
     def organizacao(o):
         return (o.type == 'EMPTY' and o.library is None

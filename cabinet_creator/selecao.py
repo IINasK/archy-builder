@@ -18,6 +18,7 @@ _solda = None
 _portas_viewport = None
 _gavetas = None
 _prateleiras = None
+_divisorias = None
 _formas = None
 
 # ====================================================== SELECAO
@@ -63,6 +64,8 @@ def _aba_da_selecao(obj):
         return 'GAVETAS'
     if _prateleiras.grupo_de(obj) is not None:
         return 'PRATELEIRAS'
+    if _divisorias.grupo_de(obj) is not None:
+        return 'DIVISORIAS'
     if _chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj:
         return 'PORTAS'
     if _chapas.MARCA_CONJUNTO in obj or _chapas.MARCA_CHAPA in obj:
@@ -199,6 +202,11 @@ class OBJECT_OT_selecionar(Operator):
             _gavetas.selecionar(context, atingido[0],
                                 'GAVETA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
                                 somar=self.toggle or self.extend)
+            return {'FINISHED'}
+        if atingido is not None and _divisorias.grupo_de(atingido[0]) is not None:
+            _divisorias.selecionar(context, atingido[0],
+                'INDIVIDUAL' if self.modo == 'INDIVIDUAL' else 'GRUPO',
+                somar=self.toggle or self.extend)
             return {'FINISHED'}
         if atingido is not None and _prateleiras.grupo_de(atingido[0]) is not None:
             # PRATELEIRAS, como as gavetas: clique = todas do vao, duplo =

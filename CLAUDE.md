@@ -16,7 +16,7 @@ area (o `__init__` so' carrega, liga e registra): chapas, modulos
 (conjunto), opcoes, biblioteca, materiais, eventos, selecao, portas, assistente
 (wizard), ferragens, portas_viewport, puxadores, arame, importacao, promob (DXF ->
 sistemas), solda (correntes), perguntas, hud, gaveta (layout), biblioteca_faixa (topo), paredes, formas, gavetas
-(do MOVEL: a "gaveta" e' o menu), prateleiras (internas), geometria (quinas/area),
+(do MOVEL: a "gaveta" e' o menu), prateleiras (internas), divisorias (segmentacao), geometria (quinas/area),
 gaveta_desenho, gaveta_eventos, orcamento, frentes (referencia comum), painel_legado (fora de CLASSES).
 Entre modulos, SEMPRE `_modulo.nome` (apelido ligado por `_ligar_modulos`;
 `from . import` no topo so' do que se usa AO CARREGAR). Teste troca funcao
@@ -37,7 +37,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
   (`tests/FUNCIONALIDADES.md`). Regras em `tests/CLAUDE.md`.
 - `--gui` ABRE o Blender: so' com o usuario dizendo que o PC esta' livre AGORA.
 - Falha em `test_estrutura_blender.py` = "era de proposito": confirme antes.
-- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (280).
+- Testes nunca escrevem na biblioteca real. Cada entrega: `bl_info["version"]` +1 (281).
 
 ## Invariantes — NAO quebrar
 1. Chapa: X = largura, Y = comprimento, Z = espessura. Orientacao por
@@ -74,6 +74,7 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 16. `sincronizar_contornos` so' religa o overlay que ELE desligou.
 
 ## Decisoes do usuario (nao "melhorar")
+- DIVISORIAS: mesmo AssistenteDoVao/SNAP nativo das prateleiras, na vertical. Segmenta gavetas/prateleiras atravessadas, tambem criadas depois, descontando E; apoios por UID da chapa real (sem modulo novo). Validar TODOS os vaos antes de mutar. Prateleira usa bisect/cap BMesh na mesma Mesh, preservando altura/material/recortes; grupos resultantes editaveis e independentes. Excluir apoio conserva ultimo limite, sem fundir sistemas editados. Conjunto de gavetas exige divisoria atravessando altura/profundidade inteiras; prateleiras permitem selecao parcial do grupo.
 - Nao delegar automaticamente a subagentes; usar colaboracao multiagente so' mediante pedido explicito do usuario para a tarefa atual.
 - Curvatura de PORTA pertence ao controle explicito do add-on (inclui adocao na importacao). Curvar/deformar uma malha pelo Tab nativo NAO a converte em curva parametrica, nem autoriza solver/reencaixe de curva. Ler contorno real para medidas/puxador nao ativa esse sistema. Conservar a modelagem manual; nao apagar a regressao de resize de portas curvas controladas pelo add-on.
 - SNAP: reutilizar SEMPRE o motor nativo do Blender em novas ferramentas quando aplicavel;
@@ -196,5 +197,4 @@ blender --background --factory-startup --python tests/rodar_testes.py [-- --gui]
 - FUNDO (5 mm, canal a 15, entra 7) e TRAVESSAS: dependentes. Promob: recuo MINIMO 15; fundos parciais/ortogonais guardam margens por PLANO, nunca expandir pela caixa toda. Base/tampo deslocados: alongar a divisoria que ENCOSTAVA na face real, fechando a nova fresta. Ilhas: frente unica (+X/-Y da foto), oposta vira fundo; cantos ficam. Migracoes: ajustar_fundos_portas_promob.py / refinar_cantos_promob.py, backup/preparo validado.
 
 ## Git e residuos
-- Commit em pt (3a pessoa), so' a pedido; fora: dist/ *.blend1 __pycache__.
-  Nome antigo "Chapa G3" (tag `chapa-g3`); props de Object/Scene ficam.
+- Commit em pt (3a pessoa), so' a pedido; fora: dist/ *.blend1 __pycache__. Nome antigo "Chapa G3" (tag `chapa-g3`); props de Object/Scene ficam.

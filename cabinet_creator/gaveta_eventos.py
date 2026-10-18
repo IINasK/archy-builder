@@ -25,6 +25,7 @@ _gaveta_desenho = None
 _materiais = None
 _gavetas = None
 _prateleiras = None
+_divisorias = None
 _formas = None
 _biblioteca_faixa = None
 
@@ -242,8 +243,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
             return 'O modulo nao tem mais esse formato'
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
-    if dono in ('gavetas', 'prateleiras'):
-        sistema = _gavetas if dono == 'gavetas' else _prateleiras
+    if dono in ('gavetas', 'prateleiras', 'divisorias'):
+        sistema = {'gavetas': _gavetas, 'prateleiras': _prateleiras, 'divisorias': _divisorias}[dono]
         grupo = sistema.grupo_de(bpy.data.objects.get(objeto))
         if grupo is None:
             return '%s nao encontradas' % dono.capitalize()
@@ -288,7 +289,7 @@ PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
-                      'prateleiras'}
+                      'prateleiras', 'divisorias'}
 
 
 def _passo_do_arraste(event):
@@ -513,6 +514,10 @@ class OBJECT_OT_interagir_gaveta(Operator):
                             self._campo['objeto']=grupo.name
                             if acao[2].startswith('individual_'):
                                 self._campo['backup_gavetas']=_gavetas.copia(grupo)
+                    if acao[1] == 'divisorias':
+                        grupo = _divisorias.grupo_de(context.object)
+                        self._campo['objeto'] = grupo.name
+                        self._campo['backup_divisorias'] = _divisorias.copia(grupo)
                     context.window_manager.modal_handler_add(self)
                     return {'RUNNING_MODAL'}
             elif acao[0] == 'contador':
@@ -588,6 +593,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'prateleiras':
                 if not acao[2]:
                     bpy.ops.object.cabinet_criar_prateleiras('INVOKE_DEFAULT')
+            elif acao[0] == 'divisorias':
+                if not acao[2]:
+                    bpy.ops.object.cabinet_criar_divisorias('INVOKE_DEFAULT')
             elif acao[0] == 'portas':
                 if acao[3]:
                     self.report({'WARNING'}, acao[3])
@@ -786,6 +794,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     _hud.restaurar_cota(context,campo['backup_cota'],campo['objeto'])
                 elif 'backup_gavetas' in campo:
                     _gavetas.restaurar(campo['backup_gavetas'])
+                elif 'backup_divisorias' in campo:
+                    _divisorias.restaurar(campo['backup_divisorias'])
                 elif contador:
                     if acao[1] != 'prateleiras_quantidade':
                         _aplicar_contador(context, acao, acao[2])

@@ -28,6 +28,7 @@ _perguntas = None
 _gaveta_desenho = None
 _gavetas = None
 _prateleiras = None
+_divisorias = None
 _formas = None
 
 class OBJECT_OT_modo_medidas(Operator):
@@ -1263,7 +1264,7 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None,
 
 
 # botoes LARANJA do topo das abas: Criar Portas e Criar Puxador
-BOTOES_CRIAR = ('portas', 'gavetas', 'prateleiras', 'criar_puxador')
+BOTOES_CRIAR = ('portas', 'gavetas', 'prateleiras', 'divisorias', 'criar_puxador')
 COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # laranja
 COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 
@@ -1303,6 +1304,34 @@ def _botao_criar_prateleiras():
     criando = _prateleiras._criando()
     return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Prateleiras'),
             ('prateleiras', False, criando, '', False))
+
+
+def _aba_divisorias_gaveta(context, itens, x, y, w):
+    assistente = _divisorias._assistente_divisorias[0]
+    if assistente is not None:
+        itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
+        return itens
+    grupo = _divisorias.grupo_de(context.object)
+    if grupo is None:
+        return itens
+    p = _divisorias.parametros(grupo)
+    l, a, prof = _divisorias.medidas(grupo)
+    def campo(nome, rotulo, valor):
+        return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
+                ('medida', 'divisorias', nome, rotulo, valor))
+    topo = _titulo_secao(itens, x, y + 26, w, 'Divisorias')
+    topo = _campos_em_linhas(context, itens, x, topo, w,
+        [campo('largura', 'A1', l), campo('altura', 'A2', a),
+         campo('profundidade_mm', 'A3', prof)], colunas_uniformes=True)
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
+    topo = _campos_em_linhas(context, itens, x, topo, w,
+        [campo('espessura_mm', 'Espessura', p['espessura_mm']),
+         campo('recuo_mm', 'Recuo', p['recuo_mm'])])
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Espacamento')
+    g = _divisorias.calcular(l, a, p)['vaos']
+    _campos_em_linhas(context, itens, x, topo, w,
+        [campo('vao_%d' % i, 'E%d' % (i + 1), v) for i, v in enumerate(g)])
+    return itens
 
 
 def _aba_prateleiras_gaveta(context, itens, x, y, w):
@@ -1557,6 +1586,7 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
                ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras', 'Prat.', 'PRATELEIRAS'),
+               ('Divisorias', 'Div.', 'DIVISORIAS'),
                ('Puxadores', 'Pux.', 'PUXADORES'))
 # As correntes entre as abas (porta no modulo, puxador na folha) foram
 # DESCONTINUADAS a pedido do usuario: o cabecalho e' so' as tres abas.
@@ -1905,12 +1935,13 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     # correntes entre elas foram descontinuadas)
     aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
     cx = x
+    blf.size(0, 11)
     for rotulo, curto, acao in ABAS_GAVETA:
         itens.append((cx, altura - 40, aba_w, 29,
-                      rotulo if aba_w >= 74 else curto, ('aba', acao)))
+                      rotulo if blf.dimensions(0, rotulo)[0] + 12 <= aba_w else curto, ('aba', acao)))
         cx += aba_w + 4
     y = altura - 105 + _rolagem
-    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PRATELEIRAS', 'PUXADORES'}:
+    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
         # antes morava no pe' fixo ao lado da engrenagem. O "Criar
@@ -1919,6 +1950,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                         if s.cabinet_aba == 'PORTAS'
                         else _botao_criar_gavetas() if s.cabinet_aba == 'GAVETAS'
                         else _botao_criar_prateleiras() if s.cabinet_aba == 'PRATELEIRAS'
+                        else ('Marcando o vao... (Esc cancela)' if _divisorias._criando() else 'Criar Divisorias',
+                              ('divisorias', False, _divisorias._criando(), '', False)) if s.cabinet_aba == 'DIVISORIAS'
                         else _botao_criar_puxador())
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
@@ -1933,6 +1966,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
         return _aba_gavetas_gaveta(context, itens, x, y, w)
     if s.cabinet_aba == 'PRATELEIRAS':
         return _aba_prateleiras_gaveta(context, itens, x, y, w)
+    if s.cabinet_aba == 'DIVISORIAS':
+        return _aba_divisorias_gaveta(context, itens, x, y, w)
     return _aba_modulos_gaveta(context, itens, x, y, w, largura, metade)
 
 

@@ -711,7 +711,7 @@ class TestPrateleiras(unittest.TestCase):
         cena.cabinet_aba = 'PRATELEIRAS'
         widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
         self.assertTrue(any(v[5] and v[5][0] == 'prateleiras' for v in widgets))
-        self.assertIn('Prateleiras', [v[4] for v in widgets if v[5] and v[5][0] == 'aba'])
+        self.assertIn(('aba', 'PRATELEIRAS'), [v[5] for v in widgets if v[5]])
         grupo = self.prateleiras()
         P.selecionar(bpy.context, grupo, 'GRUPO')
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]

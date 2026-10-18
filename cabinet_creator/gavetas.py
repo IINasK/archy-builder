@@ -25,7 +25,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _portas = _puxadores = _hud = _assistente = None
 _eventos = _gaveta = _solda = _portas_viewport = _selecao = None
-_geometria = _prateleiras = None
+_geometria = _prateleiras = _divisorias = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_gavetas'
@@ -404,7 +404,8 @@ def vao(grupo):
     origem = Vector((lo.x + esq, lo.y + frente, lo.z + baixo))
     largura = hi.x - dir_ - origem.x
     altura = hi.z - cima - origem.z
-    return largura, altura, ref.to_4x4() @ Matrix.Translation(origem / 1000.0)
+    matriz = ref.to_4x4() @ Matrix.Translation(origem / 1000.0)
+    return _divisorias.limitar_vao(grupo, largura, altura, matriz)
 
 
 def _mundo_do_vao(conj, origem_mm):
@@ -660,7 +661,10 @@ def criar_gavetas(context, conj, margens, p, referencial=None):
     grupo.parent = conj
     try:
         montar(grupo)
+        _divisorias.particionar_grupo(grupo)
     except ValueError:
+        for o in list(reversed(grupo.children_recursive)):
+            _remover(o)
         _remover(grupo)
         raise
     return grupo
@@ -1794,6 +1798,7 @@ _snap_criacao = [None]
 
 def _estado_criacao():
     return (_assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
+            or _divisorias._assistente_divisorias[0]
             or (_solda._conexao_manual[0] if (_solda._conexao_manual[0] or {}).get('snap_nativo') else None))
 
 

@@ -26,7 +26,7 @@ from . import gavetas as _gavetas
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _portas = _hud = _eventos = _gaveta_eventos = _selecao = None
+_chapas = _modulos = _portas = _hud = _eventos = _gaveta_eventos = _selecao = _divisorias = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_prateleiras'
@@ -275,7 +275,9 @@ def calcular(largura, altura, p):
         if y1 - y0 < MENOR_LADO_MM:
             raise ValueError('Prateleira rasa demais: %d mm' % round(y1 - y0))
         z += g[k]
-        x0 = (largura - l) / 2
+        x0 = float(unidade.get('x_mm', (largura - l) / 2))
+        if x0 < -TOL_MM or x0 + l > largura + TOL_MM:
+            raise ValueError('A prateleira ultrapassa a largura do vao')
         caixas.append((x0, x0 + l, y0, y1, z, z + e))
         z += e
     return {'prateleiras': caixas, 'vaos': g}
@@ -313,8 +315,8 @@ def vao(grupo):
     lo, hi = _gavetas.limites_na_referencia(conj,ref)
     esq, dir_, baixo, cima, frente = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     origem = Vector((lo.x + esq, lo.y + frente, lo.z + baixo))
-    return (hi.x - dir_ - origem.x, hi.z - cima - origem.z,
-            ref.to_4x4() @ Matrix.Translation(origem / 1000.0))
+    return _divisorias.limitar_vao(grupo, hi.x - dir_ - origem.x,
+        hi.z - cima - origem.z, ref.to_4x4() @ Matrix.Translation(origem / 1000.0))
 
 
 def profundidade_ate_o_fundo(conj, ponto):
@@ -440,6 +442,8 @@ def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
                 for chave in [k for k in obj.keys() if k.startswith('adj_')]:
                     del obj[chave]
         montar(grupo)
+        if not pecas:
+            _divisorias.particionar_grupo(grupo)
     except ValueError:
         for o in list(grupo.children):
             _gavetas._remover(o)

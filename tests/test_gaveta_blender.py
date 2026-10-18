@@ -1166,7 +1166,7 @@ class TestGaveta(unittest.TestCase):
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertIn("acao[0] in _gaveta.BOTOES_CRIAR and acao[2]", fonte)
         self.assertEqual(addon.gaveta.BOTOES_CRIAR,
-                         ('portas', 'gavetas', 'prateleiras', 'criar_puxador'))
+                         ('portas', 'gavetas', 'prateleiras', 'divisorias', 'criar_puxador'))
 
     def test_motivo_portas_reflete_a_aba(self):
         self.assertEqual(addon.portas._motivo_portas(self.cena), '')

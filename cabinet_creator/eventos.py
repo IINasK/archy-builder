@@ -6,7 +6,7 @@ import bpy
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
-_ferragens = _prateleiras = _selecao = _formas = None
+_ferragens = _prateleiras = _selecao = _formas = _divisorias = None
 _frentes = _solda = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
@@ -56,6 +56,7 @@ def verificar_periodicamente():
             _prateleiras.concluir_edicao()
             _selecao.concluir_edicao_grupo(bpy.context)
             _modulos.absorver_conjuntos()
+            _divisorias.atualizar_dependentes()
             _chapas.normalizar_chapas()
             _chapas.absorver_edicoes_de_malha()
             _frentes.processar_pendentes()

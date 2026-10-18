@@ -644,7 +644,7 @@ class TestGavetas(unittest.TestCase):
         cena.cabinet_aba = 'GAVETAS'
         widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
         self.assertTrue(any(v[5] and v[5][0] == 'gavetas' for v in widgets))
-        self.assertIn('Gavetas', [v[4] for v in widgets if v[5] and v[5][0] == 'aba'])
+        self.assertIn(('aba', 'GAVETAS'), [v[5] for v in widgets if v[5]])
         grupo = self.gavetas()
         G.selecionar(bpy.context, grupo, 'GRUPO')
         widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
