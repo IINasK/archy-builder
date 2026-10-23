@@ -1,5 +1,20 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Cadastro automatico do orcamento (300): medidas da geometria avaliada nos
+eixos do modulo, quantidades reais de folhas/gavetas, tipos de dobradica e
+materiais usados nas faces. Sem contagens persistentes nem mudanca no 3D;
+porta aberta nao aumenta dimensoes. Material ausente/parcial e dobradica
+nao identificada geram pendencias. Slots sem faces e ferragens ficam fora.
+`test_orcamento_blender.py`: 16 testes, seis novos para medidas/edicoes,
+rotacao e leitura sem alteracoes, exclusao, dobradicas e materiais mistos.
+Validacao 300 (2026-10-21): 174 testes dirigidos aprovados em 4.2/5.2.
+Harness completo: 1985 testes contabilizados, 46/48 execucoes aprovadas;
+bancada curva 5.2 continua falhando e biblioteca 5.2 excedeu 300 segundos.
+Registro: `D:/Blender/Backups/CabinetCreator/orcamento300-completo.log`.
+A repeticao isolada da biblioteca 5.2 aprovou a refiliacao, mas tambem
+excedeu 300 segundos, agora na regeneracao de previews. Sem reduzir o piso
+ou aumentar o limite: `D:/Blender/Backups/CabinetCreator/orcamento300-biblioteca.log`.
+
 Divisorias (281): aba propria e `OBJECT_OT_criar_divisorias` reutilizam AssistenteDoVao/snap nativos. Particao valida os vaos antes de mutar, desconta E e produz gavetas/prateleiras independentes, inclusive apos criar a divisoria; apoios por UID acompanham espacamentos e resize. BMesh conserva Mesh/material/E/altura/recortes de prateleiras. `test_divisorias_blender.py`: exemplo 3->6/maleiro, multiplas, prateleiras parcialmente atingidas, outro modulo/giro, parametros/abertura/puxadores, vao invalido, campos/limites, restaurar/Esc e undo/redo.
 
 Limpeza de embalagens de assets legados (280): tag nativa `chapa-g3` identifica a Collection do preset mesmo sem a marca da montagem, renomeada e com fake user. Delete limpa pastas aninhadas de dentro para fora; objetos/pastas comuns e assets de terceiros permanecem. Arquivo da biblioteca intocado; undo/redo preservam asset/tag/fake user. `test_append_delete_limpa_embalagem_asset_legada_com_fake_user`, `test_embalagem_asset_nao_vazia_e_assets_alheios_sao_preservados`, `test_embalagens_asset_aninhadas_limpam_de_dentro_para_fora`, `test_undo_redo_restaura_embalagem_asset_e_sua_identificacao` (portas).

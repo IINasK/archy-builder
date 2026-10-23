@@ -11,7 +11,7 @@ from bpy_extras.io_utils import ExportHelper
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _eventos = _portas = _solda = _perguntas = None
-_prateleiras = None
+_prateleiras = _gavetas = _materiais = None
 
 # ======================================================== ORCAMENTO
 # O add-on e' vendido: nada de "ERP" na tela. O botao "Gerar orcamento"
@@ -57,6 +57,8 @@ PALAVRAS_PORTA = {
     'GIRO': ('porta', 'portas'),
 }
 PALAVRAS_PUXADOR = {'PERFIL': 'perfil', 'ALCA': 'al\u00e7a', 'BORDA': 'borda'}
+NOMES_DOBRADICA = {'RETA': 'reta', 'CURVA': 'curva',
+                  'SUPER_CURVA': 'super curva', 'ARTICULADA': 'articulada'}
 
 
 def _modulo_do_objeto(obj):
@@ -254,21 +256,90 @@ def _pecas_internas(conj):
             entre(posicoes[0]))
 
 
-def _detalhes_do_modulo(conj, puxadores):
-    """O 3o andar do orcamento: so' o que o modelo 3D TEM."""
-    detalhes = []
-    portas = {}
-    for grupo in _portas._portas_do_conjunto(conj):
+def cadastro_do_modulo(conj):
+    """Ficha atual do 3D, sem gravar contagens que envelhecem no preset."""
+    bpy.context.view_layer.update()
+    dep = bpy.context.evaluated_depsgraph_get()
+    inversa = conj.matrix_world.to_quaternion().inverted().to_matrix()
+    origem = conj.matrix_world.translation
+    # O referencial tira so' a rotacao: escala real e edicoes da malha
+    # entram na medida, sem incluir portas/gavetas abertas ou ferragens.
+    pontos = []
+    for peca in _modulos.pecas_do_envelope(conj):
+        avaliada = peca.evaluated_get(dep)
+        matriz = avaliada.matrix_world
+        pontos.extend(inversa @ (matriz @ v.co - origem)
+                      for v in avaliada.data.vertices)
+    medidas = (tuple((max(p[i] for p in pontos) - min(p[i] for p in pontos))
+                     * 1000.0 for i in (0, 2, 1)) if pontos else None)
+    portas, dobradicas = {}, set()
+    dobradicas_pendentes = False
+    grupos = _portas._portas_do_conjunto(conj)
+    for grupo in grupos:
+        folhas = _portas._folhas_portas(grupo)
+        if not folhas:
+            continue
         p = grupo.get('porta_parametros') or {}
-        tipo = p.get('abertura', 'GIRO')
-        if tipo == 'GIRO' and p.get('dobradica') == 'SUPER_CURVA':
-            tipo = 'EMBUTIDA'
-        portas[tipo] = portas.get(tipo, 0) + len(_portas._folhas_portas(grupo))
-    for tipo, n in portas.items():
+        abertura = p.get('abertura', 'GIRO')
+        tipo = ('EMBUTIDA' if abertura == 'GIRO'
+                and p.get('dobradica') == 'SUPER_CURVA' else abertura)
+        portas[tipo] = portas.get(tipo, 0) + len(folhas)
+        if abertura != 'CORRER':
+            dobradica = p.get('dobradica')
+            if dobradica in NOMES_DOBRADICA:
+                dobradicas.add(dobradica)
+            else:
+                dobradicas_pendentes = True
+            if p.get('dobradica_articulada') or (abertura == 'ZIGZAG' and len(folhas) > 1):
+                dobradicas.add('ARTICULADA')
+    gavetas = sum(1 for grupo in _gavetas.grupos_do_modulo(conj)
+                  for gaveta in _gavetas.gavetas_do_grupo(grupo)
+                  if any(_chapas.MARCA_CHAPA in o for o in gaveta.children_recursive))
+    materiais, sem_material = set(), 0
+    for peca in _materiais.pecas_dos_alvos([conj, *grupos]):
+        # Slots guardados sem faces nao representam material utilizado.
+        indices = {p.material_index for p in peca.data.polygons}
+        faltando = not indices
+        for i in indices:
+            mat = peca.material_slots[i].material if i < len(peca.material_slots) else None
+            if mat is None:
+                faltando = True
+                continue
+            chave = mat.get(_materiais.CHAVE_MATERIAL, '')
+            partes = chave.split('/') if isinstance(chave, str) else []
+            nome = ('%s %s' % (partes[0], partes[-1])
+                    if len(partes) >= 2 and partes[0] and partes[-1] else mat.name)
+            materiais.add(nome)
+        sem_material += int(faltando)
+    prateleiras, divisorias = _pecas_internas(conj)
+    return dict(medidas_mm=medidas, portas=portas,
+                dobradicas=sorted(dobradicas), dobradicas_pendentes=dobradicas_pendentes,
+                gavetas=gavetas, materiais=sorted(materiais, key=str.casefold),
+                pecas_sem_material=sem_material,
+                prateleiras=prateleiras, divisorias=divisorias)
+
+
+def _detalhes_do_modulo(conj, puxadores, cadastro=None):
+    """O 3o andar do orcamento: so' o que o modelo 3D TEM."""
+    cadastro = cadastro if cadastro is not None else cadastro_do_modulo(conj)
+    medidas = cadastro['medidas_mm']
+    detalhes = [('Medidas gerais (largura x altura x profundidade): %s mm'
+                 % ' x '.join(format(round(v, 2), '.2f').rstrip('0').rstrip('.')
+                              for v in medidas)) if medidas else 'Medidas gerais nao identificadas']
+    for tipo, n in cadastro['portas'].items():
         if n:
             detalhes.append(_quantos(n, PALAVRAS_PORTA.get(
                 tipo, PALAVRAS_PORTA['GIRO'])))
-    prateleiras, divisorias = _pecas_internas(conj)
+    if not cadastro['portas']:
+        detalhes.append('Sem portas')
+    dobradicas = [NOMES_DOBRADICA[t] for t in cadastro['dobradicas']]
+    if cadastro['dobradicas_pendentes']:
+        dobradicas.append('nao identificada')
+    detalhes.append('Dobradicas: ' + ', '.join(dobradicas) if dobradicas else 'Sem dobradicas')
+    n = cadastro['gavetas']
+    detalhes.append(_quantos(n, ('gaveta interna', 'gavetas internas'))
+                    if n else 'Sem gavetas internas')
+    prateleiras, divisorias = cadastro['prateleiras'], cadastro['divisorias']
     detalhes.append(_quantos(prateleiras, ('prateleira interna',
                                            'prateleiras internas'))
                     if prateleiras else 'Sem prateleiras internas')
@@ -279,6 +350,11 @@ def _detalhes_do_modulo(conj, puxadores):
         palavra = PALAVRAS_PUXADOR.get(tipo, '')
         detalhes.append(_quantos(n, ('puxador ' + palavra, 'puxadores '
                                      + palavra)).strip())
+    materiais = cadastro['materiais']
+    detalhes.append('Materiais: ' + ', '.join(materiais) if materiais else 'Material nao identificado')
+    if materiais and cadastro['pecas_sem_material']:
+        detalhes.append(_quantos(cadastro['pecas_sem_material'],
+                                 ('peca sem material', 'pecas sem material')))
     return detalhes
 
 
@@ -318,8 +394,14 @@ def orcamento_da_cena(cena):
                               'm\u00f3dulo ficou fora do or\u00e7amento.'
                               % nome)
             continue
+        cadastro = cadastro_do_modulo(conj)
+        if cadastro['pecas_sem_material']:
+            pendencias.append('- %s, %s: material nao identificado em %s.' % (
+                comodo, nome, _quantos(cadastro['pecas_sem_material'], ('peca', 'pecas'))))
+        if cadastro['dobradicas_pendentes']:
+            pendencias.append('- %s, %s: tipo de dobradica nao identificado.' % (comodo, nome))
         por_comodo.setdefault(comodo, []).append(
-            (nome, _detalhes_do_modulo(conj, puxadores.get(conj.name, {}))))
+            (nome, _detalhes_do_modulo(conj, puxadores.get(conj.name, {}), cadastro)))
     soltas = [o for o in objetos if _chapas.MARCA_CHAPA in o and _chapas.MARCA_FOLHA not in o
               and _portas._modulo_da_chapa(o) is None]
     if soltas:

@@ -44,7 +44,13 @@ class TestOrcamento(unittest.TestCase):
         conj = bpy.context.object
         self.assertIn(addon.chapas.MARCA_CONJUNTO, conj)
         bpy.context.view_layer.update()
+        addon.materiais.aplicar(addon.materiais.pecas_dos_alvos([conj]), self.material())
         return conj
+
+    def material(self):
+        mat = bpy.data.materials.get('MDF Branco TX') or bpy.data.materials.new('MDF Branco TX')
+        mat[addon.materiais.CHAVE_MATERIAL] = 'MDF/Unicolores//Branco TX'
+        return mat
 
     def porta(self, conj, **kwargs):
         L, A = conj.conj_largura_mm, conj.conj_altura_mm
@@ -60,7 +66,9 @@ class TestOrcamento(unittest.TestCase):
                              for v in linha),
             pai_nome=conj.name, modulo_nome=conj.name, **opcoes)
         self.assertEqual(resultado, {'FINISHED'})
-        return addon.portas._portas_do_conjunto(conj)[-1]
+        grupo = addon.portas._portas_do_conjunto(conj)[-1]
+        addon.materiais.aplicar(addon.materiais.pecas_dos_alvos([grupo]), self.material())
+        return grupo
 
     def comodo(self, conj, nome):
         self.assertEqual(addon.orcamento.definir_comodo(bpy.context.scene, [conj], nome), 1)
@@ -94,10 +102,14 @@ class TestOrcamento(unittest.TestCase):
             '',
             '### Cozinha',
             '- ' + INFERIOR,
+            '  - Medidas gerais (largura x altura x profundidade): 600 x 400 x 300 mm',
             '  - 2 portas',
+            '  - Dobradicas: reta',
+            '  - Sem gavetas internas',
             '  - 1 prateleira interna',
             '  - 1 divis\u00f3ria interna',
             '  - 2 puxadores perfil',
+            '  - Materiais: MDF Branco TX',
             '',
             '## Outros',
             '',
@@ -135,15 +147,16 @@ class TestOrcamento(unittest.TestCase):
                 self.porta(conj, **opcoes)
                 self.comodo(conj, 'Sala')
                 bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
-                self.assertIn('### Sala\n- Superior %d\n  - %s\n'
-                              '  - Sem prateleiras internas\n' % (i, esperado),
-                              bloco)
+                self.assertIn('### Sala\n- Superior %d\n' % i, bloco)
+                self.assertIn('  - %s\n' % esperado, bloco)
+                self.assertIn('  - Sem prateleiras internas\n', bloco)
         self.setUp()
         conj = self.nicho('Nicho')
         self.comodo(conj, '\u00c1rea de servi\u00e7o')
         bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
-        self.assertIn('### \u00c1rea de servi\u00e7o\n- Nicho\n'
-                      '  - Sem prateleiras internas\n\n', bloco)
+        self.assertIn('### \u00c1rea de servi\u00e7o\n- Nicho\n', bloco)
+        self.assertIn('  - Sem portas\n  - Sem dobradicas\n', bloco)
+        self.assertIn('  - Sem prateleiras internas\n', bloco)
 
     def test_comodos_na_ordem_e_modulo_girado(self):
         # Cozinha antes da Sala (ordem fixa), e o modulo girado 90 graus
@@ -159,7 +172,103 @@ class TestOrcamento(unittest.TestCase):
         self.assertEqual(addon.orcamento._pecas_internas(cozinha), (1, 0))
         bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
         self.assertLess(bloco.index('### Cozinha'), bloco.index('### Sala'))
-        self.assertIn('- Torre\n  - 1 prateleira interna\n', bloco)
+        self.assertIn('- Torre\n', bloco)
+        self.assertIn('  - 1 prateleira interna\n', bloco)
+
+    def test_cadastro_mede_geometria_girada_sem_mudar_cena(self):
+        conj = self.nicho('Gabinete')
+        porta = self.porta(conj)
+        folha = addon.portas._folhas_portas(porta)[0]
+        addon.ferragens._definir_abertura(bpy.context, folha, 0.7)
+        conj.rotation_euler = (0.0, 0.0, 0.646)
+        conj.location = (2.0, -3.0, 1.0)
+        bpy.context.view_layer.update()
+        antes = {o.name: (tuple(v for linha in o.matrix_world for v in linha),
+                          tuple(tuple(v.co) for v in o.data.vertices) if o.type == 'MESH' else ())
+                 for o in bpy.context.scene.objects}
+        ficha = addon.orcamento.cadastro_do_modulo(conj)
+        for obtido, esperado in zip(ficha['medidas_mm'], (600, 400, 300)):
+            self.assertAlmostEqual(obtido, esperado, places=2)
+        depois = {o.name: (tuple(v for linha in o.matrix_world for v in linha),
+                           tuple(tuple(v.co) for v in o.data.vertices) if o.type == 'MESH' else ())
+                  for o in bpy.context.scene.objects}
+        self.assertEqual(antes, depois)
+
+    def test_cadastro_mede_edicao_real_sem_confiar_no_campo_antigo(self):
+        conj = self.nicho('Editado')
+        direita = max(addon.modulos._chapas_do_conjunto(conj),
+                      key=lambda o: o.matrix_world.translation.x)
+        direita.location.x += .1234
+        bpy.context.view_layer.update()
+        antigo = conj.conj_largura_mm
+        ficha = addon.orcamento.cadastro_do_modulo(conj)
+        self.assertAlmostEqual(ficha['medidas_mm'][0], 723.4, places=2)
+        self.assertAlmostEqual(conj.conj_largura_mm, antigo)
+
+    def test_contagens_atuais_ignoram_parametros_e_pecas_excluidas(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Gaveteiro', 800, 700, 560, 18)
+        grupo = addon.gavetas.criar_gavetas(bpy.context, conj, (18,18,18,18,0),
+                                           dict(quantidade=3, profundidade_mm=400))
+        portas = self.porta(conj)
+        self.assertEqual(addon.orcamento.cadastro_do_modulo(conj)['gavetas'], 3)
+        unidade = addon.gavetas.gavetas_do_grupo(grupo)[-1]
+        for o in reversed(list(unidade.children_recursive)):
+            bpy.data.objects.remove(o, do_unlink=True)
+        folha = addon.portas._folhas_portas(portas)[-1]
+        for o in reversed(list(folha.children_recursive)):
+            bpy.data.objects.remove(o, do_unlink=True)
+        bpy.data.objects.remove(folha, do_unlink=True)
+        ficha = addon.orcamento.cadastro_do_modulo(conj)
+        self.assertEqual(ficha['gavetas'], 2)
+        self.assertEqual(ficha['portas'], {'GIRO': 1})
+        self.assertEqual(grupo[addon.gavetas.CHAVE_PARAMETROS]['quantidade'], 3)
+        detalhes = addon.orcamento._detalhes_do_modulo(conj, {}, ficha)
+        self.assertIn('2 gavetas internas', detalhes)
+
+    def test_tipos_de_dobradica_e_correr_sem_dobradica(self):
+        for tipo in ('RETA', 'CURVA', 'SUPER_CURVA'):
+            with self.subTest(tipo=tipo):
+                self.setUp()
+                conj = self.nicho('Portas')
+                self.porta(conj, dobradica=tipo)
+                self.assertEqual(addon.orcamento.cadastro_do_modulo(conj)['dobradicas'], [tipo])
+        self.setUp()
+        conj = self.nicho('Correr')
+        self.porta(conj, abertura='CORRER')
+        ficha = addon.orcamento.cadastro_do_modulo(conj)
+        self.assertEqual(ficha['dobradicas'], [])
+        self.assertFalse(ficha['dobradicas_pendentes'])
+
+    def test_materiais_usados_incluem_portas_e_ignoram_slots_sem_faces(self):
+        conj = self.nicho('Colorido')
+        grupo = self.porta(conj)
+        mat = bpy.data.materials.new('Apelido .001')
+        mat[addon.materiais.CHAVE_MATERIAL] = 'MDP/Madeirados//Freijo'
+        folhas = addon.portas._folhas_portas(grupo)
+        addon.materiais.aplicar([folhas[0]], mat)
+        folhas[0].data.materials.append(bpy.data.materials.new('Slot nao utilizado'))
+        nativo = bpy.data.materials.new('Laca especial')
+        addon.materiais.aplicar([folhas[1]], nativo)
+        ficha = addon.orcamento.cadastro_do_modulo(conj)
+        self.assertEqual(ficha['materiais'], ['Laca especial', 'MDF Branco TX', 'MDP Freijo'])
+        self.assertEqual(ficha['pecas_sem_material'], 0)
+
+    def test_material_e_dobradica_ausentes_viram_pendencia(self):
+        conj = self.nicho('Incompleto')
+        grupo = self.porta(conj)
+        p = dict(grupo['porta_parametros'])
+        p.pop('dobradica')
+        grupo['porta_parametros'] = p
+        peca = addon.modulos._chapas_do_conjunto(conj)[0]
+        peca.data.materials.clear()
+        self.comodo(conj, 'Cozinha')
+        texto, n, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
+        self.assertEqual(n, 1)
+        self.assertIn('  - 1 peca sem material\n', texto)
+        self.assertIn('  - Dobradicas: nao identificada\n', texto)
+        self.assertEqual(pendencias, [
+            '- Cozinha, Incompleto: material nao identificado em 1 peca.',
+            '- Cozinha, Incompleto: tipo de dobradica nao identificado.'])
 
     def test_pendencias_do_que_ficou_pela_metade(self):
         # Sem comodo o modulo fica fora (todo item mora num comodo); nome
