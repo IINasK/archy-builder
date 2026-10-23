@@ -586,6 +586,15 @@ def normalizar_chapas(objs=None):
         if (obj.type != 'MESH' or MARCA_CHAPA not in obj or obj.mode == 'EDIT'
                 or obj.data.is_editmode):
             continue
+        pai = obj.parent
+        while pai is not None:
+            if MARCA_CONJUNTO in pai and any(abs(s-1)>1e-6 for s in pai.scale):
+                break
+            pai = pai.parent
+        if pai is not None:
+            # Escala do modulo com internos ainda aguarda o timer. Nao
+            # incorporar a escala herdada em cada chapa antes do encaixe.
+            continue
         sx, sy, sz = obj.scale
         if abs(sx - 1) < 1e-6 and abs(sy - 1) < 1e-6 and abs(sz - 1) < 1e-6:
             continue
@@ -777,14 +786,7 @@ def ao_atualizar_depsgraph(scene, depsgraph):
         if surgiu and not bpy.app.timers.is_registered(_separar_copias_no_timer):
             bpy.app.timers.register(_separar_copias_no_timer, first_interval=0.0)
 
-    modal_ativo = False
-    try:
-        for win in bpy.context.window_manager.windows:
-            if len(win.modal_operators) > 0:
-                modal_ativo = True
-                break
-    except Exception:
-        modal_ativo = False
+    modal_ativo = _eventos._ha_modal_ativo()
 
     if modal_ativo:
         _havia_modal[0] = True     # arraste em andamento: nao tocar

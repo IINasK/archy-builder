@@ -334,6 +334,49 @@ class TestGavetas(unittest.TestCase):
         self.assertLess((grupo.matrix_world.translation - origem).length, 1e-5)
         self.assertAlmostEqual(G.medidas(grupo)[1], 800.0, places=2)
 
+    def test_reducao_com_folga_preserva_gavetas_ate_faltar_espaco(self):
+        grupo = G.criar_gavetas(bpy.context, self.conj, (18,382,18,382,0),
+                                dict(quantidade=1, profundidade_mm=400))
+        antes = G.medidas(grupo)
+        for largura in (1000,900,700,600):
+            self.conj.conj_largura_mm = largura
+            bpy.context.view_layer.update()
+            self.assertAlmostEqual(G.medidas(grupo)[0], antes[0], delta=.05)
+        self.conj.conj_altura_mm = 600
+        self.assertAlmostEqual(G.medidas(grupo)[1], antes[1], delta=.05)
+        self.conj.conj_profundidade_mm = 500
+        self.assertAlmostEqual(G.medidas(grupo)[2], antes[2], delta=.05)
+        self.conj.conj_largura_mm = 400
+        self.assertAlmostEqual(G.medidas(grupo)[0], 364, delta=.05)
+        self.conj.conj_largura_mm = 800
+        self.assertAlmostEqual(G.medidas(grupo)[0], antes[0], delta=.05)
+
+    def test_escala_nativa_conserva_internos_ate_faltar_espaco(self):
+        grupo = G.criar_gavetas(bpy.context,self.conj,(18,382,18,382,0),
+                                dict(quantidade=1,profundidade_mm=400))
+        p = addon.prateleiras
+        prateleiras = p.criar_prateleiras(bpy.context,self.conj,(18,382,350,18,0),
+                                         dict(quantidade=1,profundidade_mm=400))
+        for alvo,esperado in [(1000,400),(900,400),(450,400),(400,364),(800,400)]:
+            atual=addon.modulos.medir_conjunto(self.conj)[0]
+            self.conj.scale.x=alvo/atual
+            bpy.context.view_layer.update()
+            addon.eventos.verificar_periodicamente()
+            bpy.context.view_layer.update()
+            self.assertAlmostEqual(G.medidas(grupo)[0],esperado,delta=.1)
+            self.assertAlmostEqual(p.medidas(prateleiras)[0],esperado,delta=.1)
+            chapa=p.prateleiras_do_grupo(prateleiras)[0]
+            xs=[(chapa.matrix_world@v.co).x for v in chapa.data.vertices]
+            self.assertAlmostEqual((max(xs)-min(xs))*1000,esperado,delta=.1)
+
+    def test_gaveta_individual_menor_nao_encolhe_junto_com_o_vao(self):
+        grupo=G.criar_gavetas(bpy.context,self.conj,(18,382,18,382,0),
+                              dict(quantidade=1,profundidade_mm=400))
+        self.assertIsNone(G.editar_individual(bpy.context,grupo,0,'largura',250))
+        for alvo in (400,350,800):
+            self.conj.conj_largura_mm=alvo
+            self.assertAlmostEqual(float(G.parametros_da_unidade(G.parametros(grupo),0)['largura_mm']),250,delta=.05)
+
     def test_encolher_modulo_adapta_gavetas_e_retorno_restaura_escolhas(self):
         grupo=self.gavetas()
         gaveta=G.gavetas_do_grupo(grupo)[0];G.definir_abertura(gaveta,.4)

@@ -23,12 +23,15 @@ _gaveta = None
 _solda = None
 _portas_viewport = None
 _paredes = None
+_paredes_edicao = None
 _gaveta_desenho = None
 _formas = None
 _gavetas = None
 _prateleiras = None
+_divisorias = None
 _geometria = None
 _assistente = None
+_hud_volume = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -81,7 +84,7 @@ COR_REALCE_HUD = (1.0, 0.35, 0.05, 1.0)   # padrao; a cor vem das opcoes
 def _contexto_hud(context):
     """Onde a HUD existe. Durante G/R/S ela some inteira -- linhas,
     letras, seta e hover -- e volta quando o gesto termina."""
-    if _eventos._transformando():
+    if _eventos._transformando() and not _hud_volume._estado[0]:
         _hover_hud.clear()
         return False
     return (context.mode == 'OBJECT' and context.area is not None
@@ -286,6 +289,12 @@ def _itens_hud(context):
     contorno (pedido do usuario: com dois modulos so' o ultimo aparecia).
     Porta e folha ativas se editam pela gaveta: L/A de uma folha mexida
     na HUD seria apagado no proximo recalculo das folhas."""
+    nativo = _hud_volume._estado[0]
+    if nativo and nativo.get('modo') == 'INDIVIDUAL':
+        # ONLY_SELECTABLE tira a chapa do snap destino e da selecao nativa.
+        # O escopo visual fica no item que iniciou o gesto ate' confirmar/Esc.
+        obj = bpy.data.objects.get(nativo['objeto'])
+        return [(obj, 'INDIVIDUAL', [obj])] if obj is not None else []
     obj = context.object
     if (obj is not None and obj.select_get()
             and (_chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj)):
@@ -386,6 +395,12 @@ def _itens_da_selecao(context):
             if ('M', pai.name) not in chaves:
                 somar(pai, 'GRUPO', _modulos.pecas_do_envelope(pai))
             continue
+        divisorias = _divisorias.grupo_de(o)
+        if divisorias is not None:
+            if ('D', divisorias.name) not in chaves:
+                chaves.add(('D', divisorias.name))
+                itens.append((divisorias, 'DIVISORIAS', []))
+            continue
         prateleiras = _prateleiras.grupo_de(o)
         if prateleiras is not None:
             # prateleiras (o grupo ou uma, pelo duplo): as linhas do vao
@@ -428,11 +443,17 @@ def _itens_da_selecao(context):
     return itens
 
 
+def _sistema_hud(tipo):
+    """Mesmo dono para desenho, valor, edicao e cancelamento da cota."""
+    return {'gavetas': _gavetas, 'prateleiras': _prateleiras,
+            'divisorias': _divisorias}.get(tipo.lower()) if isinstance(tipo, str) else None
+
+
 def _geometria_do_item(obj, modo, chapas):
     """A geometria da HUD de UM item -- o ativo ou, na edicao de varios
     itens, cada modulo/chapa que entra na conta."""
-    if modo in ('GAVETAS', 'PRATELEIRAS'):
-        dono = _gavetas if modo == 'GAVETAS' else _prateleiras
+    dono = _sistema_hud(modo)
+    if dono is not None:
         cantos, linhas = dono.linhas_hud(obj, chapas)
         _numerar_cotas(linhas)
         return {'objeto': obj, 'modo': modo, 'chapas': chapas,
@@ -760,6 +781,12 @@ def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True):
     so' medidas interessam, nunca mover o modulo."""
     mouse = Vector(mouse)
     obj = geometria['objeto']
+    if cantos:
+        centros = [(c, projetar(c['pontos'][1])) for c in _hud_volume.controles(geometria)]
+        perto = [(c, (mouse-p).length) for c, p in centros
+                 if p is not None and (mouse-p).length <= 8 * escala]
+        if perto:
+            return min(perto, key=lambda par: par[1])[0]
     if cantos and geometria['modo'] == 'GRUPO' and _chapas.MARCA_CONJUNTO in obj:
         cantos = [(i, projetar(p)) for i, p in enumerate(geometria['cantos'])]
         proximos = [(mouse-p).length for i, p in cantos if p is not None]
@@ -821,7 +848,8 @@ def _face_espessura_hud(context, posicao, chapas):
 
 def _distancia_alvo_hud(alvo, mouse, projetar):
     """Pixels do mouse ate' o alvo (quina ou linha) -- desempata itens."""
-    pontos = [projetar(p) for p in alvo['pontos'][:2]]
+    pontos = [projetar(p) for p in (alvo['pontos'][1:2]
+              if alvo.get('controle_face') else alvo['pontos'][:2])]
     if any(p is None for p in pontos):
         return float('inf')
     if len(pontos) == 1:
@@ -832,7 +860,7 @@ def _distancia_alvo_hud(alvo, mouse, projetar):
 def _acertar_hud(context, posicao):
     """Quina ou linha mais perto do mouse entre TODOS os itens da
     selecao; quina antes de linha, como dentro de um item."""
-    if not _contexto_hud(context):
+    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
         return None
     geometrias = _geometrias_hud(context)
     if not geometrias:
@@ -892,6 +920,12 @@ def _realce_hud(context):
     alvo = _hover_hud.get(chave)
     if alvo is not None and not _alvo_vivo(alvo):
         _hover_hud.pop(chave, None)
+        return None
+    if (alvo and not _opcoes._opcao('hud_setas_quinas')
+            and not alvo.get('controle_face')
+            and (alvo.get('lado') or alvo['tipo']=='ancora')):
+        return None
+    if alvo and alvo.get('controle_face') and not _opcoes._opcao('hud_pontos_apoio'):
         return None
     return alvo
 
@@ -1002,7 +1036,7 @@ def _espessura_principal_hud(espessura):
 
 
 def _desenhar_hud_3d(context):
-    if not _contexto_hud(context):
+    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
         return
     normais, acesos, pendentes, principais = [], {}, [], []
     desenhos = _desenhos_hud(context)
@@ -1080,7 +1114,7 @@ def _tamanho_na_tela(context, geometria):
     """Maior aresta de medida do item, em pixels de tela."""
     maior = 0.0
     for linha in geometria['linhas']:
-        if linha['tipo'] not in ('medida', 'forma', 'aresta', 'gavetas', 'prateleiras'):
+        if linha['tipo'] not in ('medida', 'forma', 'aresta') and _sistema_hud(linha['tipo']) is None:
             continue
         a = _projetar_hud(context, linha['pontos'][0])
         b = _projetar_hud(context, linha['pontos'][-1])
@@ -1189,7 +1223,7 @@ def _rotulos_hud(context, geometria, alvo):
 
 def _desenhar_hud_texto():
     context = bpy.context
-    if not _contexto_hud(context):
+    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
         return
     if _prateleiras._referencia_pendente[0]:
         _assistente._desenhar_assistente_2d(_prateleiras._referencia_pendente[0])
@@ -1215,6 +1249,7 @@ def _desenhar_hud_texto():
         edicao['caixas'] = []
     try:
         for geometria, alvo in desenhos:
+            _desenhar_controles_volume(context, geometria, alvo)
             for letra, ponto, aceso in _rotulos_hud(context, geometria, alvo):
                 blf.size(0, tamanho)
                 # o ponto e' o CENTRO da letra (ja' fora da peca)
@@ -1236,6 +1271,15 @@ def _desenhar_hud_texto():
                         tamanho, escala)
             if alvo and alvo.get('lado'):
                 _desenhar_seta_hud(context, alvo, geometria)
+            if nesta and edicao.get('nativo') and alvo:
+                ponto = _projetar_hud(context, alvo['pontos'][1])
+                if ponto is not None:
+                    texto = '%s: %s' % (alvo.get('rotulo', alvo.get('letra', '')),
+                        _opcoes._numero_na_unidade(_valor_hud(alvo, context)))
+                    if (_hud_volume._estado[0] or {}).get('erro'):
+                        texto += ' (limite)'
+                    _caixa_texto_hud(ponto.x + 12 * escala, ponto.y + 12 * escala,
+                                      texto, tamanho, escala)
         _solda._desenhar_bolinhas_correntes(context)
         alvo = _realce_hud(context)
         if alvo and alvo['tipo'] == 'ancora':
@@ -1257,6 +1301,27 @@ def _desenhar_hud_texto():
         gpu.state.line_width_set(1)
         gpu.state.point_size_set(1)
         gpu.state.blend_set('NONE')
+
+
+def _desenhar_controles_volume(context, geometria, alvo):
+    escala = context.preferences.system.ui_scale
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    gpu.state.blend_set('ALPHA')
+    gpu.state.line_width_set(1.0)
+    for controle in _hud_volume.controles(geometria):
+        ponto = _projetar_hud(context, controle['pontos'][1])
+        if ponto is None:
+            continue
+        aceso = (alvo and alvo.get('controle_face')
+                  and _identidade_hud(alvo) == _identidade_hud(controle)
+                  and alvo['lado'] == controle['lado'])
+        cor = _cor_realce_hud() if aceso else _cor_linhas_hud(context)
+        raio = (3 if aceso else 2) * escala
+        circulo = [(ponto.x + raio * math.cos(i*math.tau/24),
+                    ponto.y + raio * math.sin(i*math.tau/24)) for i in range(25)]
+        shader.bind()
+        shader.uniform_float('color', cor)
+        batch_for_shader(shader, 'LINE_STRIP', {'pos': circulo}).draw(shader)
 
 
 def _cor_tema_linha():
@@ -1333,6 +1398,8 @@ def _desenhar_seta_hud(context, alvo, geometria):
     pontos guardados no hover: estes ficam para tras quando o movel
     muda de tamanho ou de lugar.
     """
+    if not _opcoes._opcao('hud_setas_quinas'):
+        return
     if (not alvo.get('cantos') and not alvo.get('seta_real')) or alvo['objeto'] != geometria['objeto']:
         return
     linha=next((l for l in geometria['linhas'] if
@@ -1527,10 +1594,9 @@ def _valor_hud(alvo, context=None):
         return _angulo_da_ponta(alvo)
     if alvo['tipo'] == 'forma':
         return _formas.valor(alvo['objeto'], alvo['face'],alvo.get('plano','XY'))
-    if alvo['tipo'] == 'gavetas':
-        return _gavetas.valor(alvo['objeto'], alvo['face'])
-    if alvo['tipo'] == 'prateleiras':
-        return _prateleiras.valor(alvo['objeto'], alvo['face'])
+    dono = _sistema_hud(alvo['tipo'])
+    if dono is not None:
+        return dono.valor(alvo['objeto'], alvo['face'])
     if alvo['tipo'] == 'gap':
         return float(alvo['objeto']['porta_parametros']['entre_folhas_mm'])
     propriedade = _propriedade_hud(alvo)
@@ -1584,8 +1650,8 @@ def _aplicar_valor_hud(context, alvo, valor):
     if alvo['tipo'] == 'forma':
         _formas.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'),plano=alvo.get('plano','XY'))
         return
-    if alvo['tipo'] in ('gavetas', 'prateleiras'):
-        dono = _gavetas if alvo['tipo'] == 'gavetas' else _prateleiras
+    dono = _sistema_hud(alvo['tipo'])
+    if dono is not None:
         extras = {'previa':True} if alvo['tipo']=='gavetas' and (_edicao_hud[0] or {}).get('previa_gavetas') else {}
         erro = dono.aplicar(context, obj, alvo['face'], valor, alvo.get('lado'),**extras)
         if erro:
@@ -1627,7 +1693,7 @@ def _aplicar_valor_hud(context, alvo, valor):
         if pai is not None and _chapas.MARCA_CONJUNTO in pai:
             _modulos.reposicionar_origem(pai)
             _modulos.sincronizar_medidas_conjunto(pai)
-            _portas.atualizar_portas_do_conjunto(pai)
+            _modulos.atualizar_sistemas_do_conjunto(pai)
         if context.object in chapas:
             _modulos.sincronizar_grupo(context)          # a gaveta mostra o novo
         context.view_layer.update()
@@ -1655,11 +1721,9 @@ def _aplicar_valor_hud(context, alvo, valor):
 
 def _estado_arraste_hud(context, alvo):
     obj = alvo['objeto']
-    if alvo['tipo'] == 'gavetas':
-        return 'GAVETAS', _gavetas.copia(obj)
-    if alvo['tipo'] == 'prateleiras':
-        # o Esc devolve os PARAMETROS (as chapas se refazem por eles)
-        return 'PRATELEIRAS', _prateleiras.copia(obj)
+    dono = _sistema_hud(alvo['tipo'])
+    if dono is not None:
+        return alvo['tipo'].upper(), dono.copia(obj)
     modulo = obj if _chapas.MARCA_CONJUNTO in obj else _portas._modulo_da_chapa(obj)
     if modulo is None and _chapas.MARCA_PORTAS in obj:
         modulo = obj.parent if obj.parent and _chapas.MARCA_CONJUNTO in obj.parent else None
@@ -1690,6 +1754,11 @@ def _estado_arraste_hud(context, alvo):
                           _gavetas.CHAVE_PARAMETROS, _gavetas.CHAVE_TRILHO_MM,
                           _gavetas.CHAVE_ENCAIXE, _gavetas.CHAVE_REFERENCIA):
                 porta[chave] = (_portas._copiar_parametros(o[chave]) if chave in o else None)
+        if _prateleiras.MARCA_GRUPO in o:
+            for chave in (_prateleiras.CHAVE_MARGENS, _prateleiras.CHAVE_VAO,
+                          _prateleiras.CHAVE_PARAMETROS, _prateleiras.CHAVE_ENCAIXE,
+                          _prateleiras.CHAVE_REFERENCIA):
+                porta[chave] = (_portas._copiar_parametros(o[chave]) if chave in o else None)
         if _gavetas.MARCA_GAVETA in o:
             porta[_gavetas.CHAVE_TRILHO_MM] = float(o.get(_gavetas.CHAVE_TRILHO_MM,0))
         if _chapas.MARCA_FOLHA in o and _ferragens.CHAVE_CENTRO_FOLHA in o:
@@ -1714,11 +1783,9 @@ def restaurar_cota(context, estado, nome):
 
 def _restaurar_arraste_hud(context, estado):
     objetos, cena = estado
-    if objetos == 'GAVETAS':
-        _gavetas.restaurar(cena)
-        return
-    if objetos == 'PRATELEIRAS':
-        _prateleiras.restaurar(cena)
+    dono = _sistema_hud(objetos)
+    if dono is not None:
+        dono.restaurar(cena)
         return
     _chapas._ocupado[0] = True
     try:
@@ -2031,7 +2098,7 @@ class OBJECT_OT_arrastar_hud(Operator):
             return {'CANCELLED'}
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            if (not self._arrastou and (self._alvo['tipo'] in ('forma', 'aresta', 'angulo_aresta', 'deslocamento', 'gavetas', 'prateleiras') or (
+            if (not self._arrastou and (_sistema_hud(self._alvo['tipo']) is not None or self._alvo['tipo'] in ('forma', 'aresta', 'angulo_aresta', 'deslocamento') or (
                     self._alvo['tipo'] == 'medida' and self._alvo.get('lado')))):
                 # Clique sem arrastar numa linha do modulo: a seta fica e
                 # o valor passa a ser digitado (Enter confirma, Esc volta).
@@ -2059,6 +2126,11 @@ class OBJECT_OT_arrastar_hud(Operator):
             # nunca chegaria ao modo de digitar.
             if (mouse - self._inicio).length < LIMIAR_ARRASTE_HUD_PX:
                 return {'RUNNING_MODAL'}
+            if _hud_volume.elegivel(self._alvo):
+                # O modal nativo recebe B/Ctrl/teclado e possui o UNDO.
+                # CANCELLED aqui evita um segundo passo sem mudanca.
+                _hud_volume.iniciar(context, self._alvo, self._backup)
+                return {'CANCELLED'}
             self._arrastou = True
         try:
             if self._alvo['tipo'] == 'ancora':

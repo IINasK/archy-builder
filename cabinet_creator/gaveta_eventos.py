@@ -28,6 +28,9 @@ _prateleiras = None
 _divisorias = None
 _formas = None
 _biblioteca_faixa = None
+_paredes_edicao = None
+_paredes_composicao = None
+_paredes = None
 
 def _gaveta_sob_evento(context, event):
     """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
@@ -92,7 +95,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
     objeto: StringProperty(options={'SKIP_SAVE'})
     propriedade: StringProperty(options={'SKIP_SAVE'})
     valor: FloatProperty(name='Medida', subtype='DISTANCE', unit='LENGTH',
-                         min=0.001, options={'SKIP_SAVE'})
+                         min=0.0, options={'SKIP_SAVE'})
 
     def invoke(self, context, event):
         if _gaveta._edicao_gaveta[0] is not None:
@@ -189,6 +192,12 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     """Grava `valor` (METROS) no dono da medida; devolve o erro ou None.
     Serve a' digitacao e ao ARRASTE do campo (pedido do usuario: arrastar
     de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
+    if dono == 'parede_modulo':
+        return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
+    if dono in {'livre', 'objeto', 'cota'} and _paredes_composicao.parede(bpy.data.objects.get(objeto)):
+        return 'As medidas da parede sao editadas apenas pelas ferramentas nativas do Blender'
+    if dono == 'paredes':
+        return _paredes_edicao.editar_parametro(propriedade, valor * 1000)
     if dono == 'opcao':
         # Faixa da engrenagem: numero puro, preso ao minimo e maximo
         minimo, maximo, _passo = _opcoes.FAIXAS_OPCOES[propriedade]
@@ -289,7 +298,7 @@ PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
-                      'prateleiras', 'divisorias'}
+                      'prateleiras', 'divisorias', 'paredes', 'parede_modulo'}
 
 
 def _passo_do_arraste(event):
@@ -302,6 +311,8 @@ def _aplicar_contador(context, acao, valor):
     as ferragens selecionadas; com o NOME de um grupo de portas no alvo,
     as folhas daquela porta. Devolve o erro ou None."""
     prop, alvo = acao[1], acao[5]
+    if prop == _paredes_edicao.ALVO_QUANTIDADE:
+        return _paredes_edicao.editar_parametro('quantidade', valor)
     grupo = (bpy.data.objects.get(alvo)
              if alvo not in {_portas.ALVO_ASSISTENTE, _gaveta.ALVO_FERRAGENS}
              else None)
@@ -317,7 +328,9 @@ def _aplicar_contador(context, acao, valor):
     elif grupo is not None and _gavetas.MARCA_GRUPO in grupo:
         erro = _gavetas.editar(context, grupo, prop, valor)
     elif grupo is not None and _prateleiras.MARCA_GRUPO in grupo:
-        erro = _prateleiras.editar(context, grupo, prop, valor)
+        erro = _prateleiras.editar(context, grupo, prop, valor, somente_grupo=True)
+    elif grupo is not None and _prateleiras.MARCA_PRATELEIRA in grupo:
+        erro = _prateleiras.editar_quantidade_local(context, _prateleiras.grupo_de(grupo), grupo, valor)
     elif grupo is not None:
         # digitado pode vir qualquer numero: o limite e' o da abertura
         parametros = dict(grupo.get('porta_parametros') or {})
@@ -508,6 +521,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if acao[1]=='cota':
                         alvo=_hud.alvo_cota(context.object,acao[2])
                         self._campo['backup_cota']=_hud._estado_arraste_hud(context,alvo)
+                    if acao[1] == 'parede_modulo':
+                        grupo = _paredes.modulo_de(context.object)
+                        self._campo['objeto'] = grupo.name
+                        self._campo['backup_cota'] = _hud._estado_arraste_hud(context,
+                                                              dict(objeto=grupo, tipo='modulo'))
                     if acao[1]=='gavetas':
                         grupo=_gavetas.grupo_de(context.object)
                         if grupo is not None:
@@ -528,7 +546,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'escolha':
                 grupo = (bpy.data.objects.get(acao[5])
                          if len(acao) > 5 and acao[5] else None)
-                if not acao[4] or (len(acao) > 5
+                if acao[1] == _paredes_composicao.CHAVE_FIXA:
+                    erro = _paredes_composicao.fixar(context, acao[5], acao[2])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    else:
+                        bpy.ops.ed.undo_push(message='Fixar largura do modulo')
+                elif not acao[4] or (len(acao) > 5
                                    and acao[5] == _portas.ALVO_ASSISTENTE):
                     pass        # a fila do wizard e' atendida pelo modal dele
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_FERRAGENS:
@@ -753,8 +777,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             _prateleiras._quantidade_previa[0] = None
             # o wizard nao vai para o undo: so' o que ja' esta' na cena
-            no_wizard = acao[0] == 'medida' and acao[1] == 'assistente' or (
-                contador and acao[5] == _portas.ALVO_ASSISTENTE)
+            no_wizard = acao[0] == 'medida' and acao[1] in {'assistente', 'paredes'} or (
+                contador and (acao[5] == _portas.ALVO_ASSISTENTE
+                              or acao[1] == _paredes_edicao.ALVO_QUANTIDADE))
             if campo['arrastou']:
                 if contador and acao[1] == 'prateleiras_quantidade':
                     erro = _aplicar_contador(context, acao, campo['valor'])

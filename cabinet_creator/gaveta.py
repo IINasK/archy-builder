@@ -30,6 +30,10 @@ _gavetas = None
 _prateleiras = None
 _divisorias = None
 _formas = None
+_paredes_edicao = None
+_paredes_composicao = None
+_paredes = None
+_eventos = None
 
 class OBJECT_OT_modo_medidas(Operator):
     """Alterna a edicao entre uma chapa e o conjunto"""
@@ -173,7 +177,7 @@ def _limitar_largura_gaveta():
     # fica abaixo dela, senao as medidas voltariam a quebrar a linha.
     teto = max(_LARGURA_MAX_GAVETA, _largura_inicial_gaveta(bpy.context))
     for janela in bpy.context.window_manager.windows:
-        if getattr(janela, 'modal_operators', ()):
+        if any(_eventos.modal_interativo(op) for op in getattr(janela, 'modal_operators', ())):
             continue
         painel = _area_gaveta(janela.screen)
         if painel is None:
@@ -1190,7 +1194,7 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
             itens, x, topo - 25, w, '', 'porta_folha', _portas.OPCOES_FOLHA_CORRER,
             valores.get('folha', 'CHAPA'), alvo=alvo) + 23
 
-    # Abertura: a dobradica nao aparece, e' automatica (sai dos 4 cliques)
+    # Abertura: a dobradica nao aparece, e' automatica pelos dois limites.
     (prop, rotulo, opcoes), = _portas.ESCOLHAS_PORTAS
     topo -= ESPACO_SECOES
     _titulo_com_slider(itens, x, topo - 23, w, rotulo, altura=23)
@@ -1367,12 +1371,22 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         campos.append(campo('altura', 'Altura', altura_vao))
     campos.append(campo('profundidade_mm', 'Profundidade', profundidade))
     previa = _prateleiras._quantidade_previa[0]
-    quantidade = previa[1] if previa and previa[0] == grupo.name else p['quantidade']
+    alvo_contador = prateleira or grupo
+    detalhe = None
+    if prateleira is not None:
+        try:
+            detalhe = _prateleiras.detalhamento(grupo, prateleira)
+        except ValueError as erro:
+            itens.append((x, topo - 23, w, 22, str(erro), None))
+            return itens
+    quantidade_atual = detalhe['quantidade'] if detalhe else int(p['quantidade'])
+    quantidade = previa[1] if previa and previa[0] == alvo_contador.name else quantidade_atual
     topo = _campos_em_linhas(context, itens, x, topo, w, campos,
         colunas_uniformes=True,
         compacto=(str(quantidade),
-                  ('contador', 'prateleiras_quantidade', int(p['quantidade']), 0,
-                   _prateleiras.MAXIMO_PRATELEIRAS, grupo.name, 'Prateleiras')))
+                  ('contador', 'prateleiras_quantidade', quantidade_atual, 0,
+                   _prateleiras.MAXIMO_PRATELEIRAS - int(p['quantidade']) + quantidade_atual,
+                   alvo_contador.name, 'Prateleiras')))
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
     topo = _campos_em_linhas(context, itens, x, topo, w, [
         campo('espessura_mm', 'Espessura', p['espessura_mm']),
@@ -1387,7 +1401,8 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     itens.append((x, topo - 37, w, 37, 'Centralizar espacamento',
                   ('operador', 'object.cabinet_alinhar_prateleiras')))
     topo -= 43
-    campos = [campo('vao_%d' % k, 'E%d' % (k + 1), v) for k, v in enumerate(vaos)]
+    indices = (range(detalhe['primeiro'], detalhe['ultimo'] + 2) if detalhe else range(len(vaos)))
+    campos = [campo('vao_%d' % k, 'E%d' % (k + 1), vaos[k]) for k in indices]
     _campos_em_linhas(context, itens, x, topo, w, campos)
     return itens
 
@@ -1805,6 +1820,9 @@ def _rodape_gaveta(context, x, w):
 LINHAS_OPCOES = (
     ('Unidade padrao', 'suspenso', 'unidade_padrao'),
     ('Contorno do Blender', 'suspenso', 'ocultar_contorno_grupo'),
+    ('Origens no grupo', 'suspenso', 'ocultar_origens_grupo'),
+    ('Bolinhas de apoio', 'suspenso', 'hud_pontos_apoio'),
+    ('Guias nas quinas', 'suspenso', 'hud_setas_quinas'),
     ('Correntes', 'suspenso', 'tecla_corrente'),
     ('Espessura das linhas', 'faixa', 'hud_espessura_linha'),
     ('Tamanho dos rotulos', 'faixa', 'hud_tamanho_rotulo'),
@@ -1814,6 +1832,9 @@ LINHAS_OPCOES = (
 SUSPENSOS_OPCOES = {
     'unidade_padrao': tuple((k, v[1]) for k, v in _opcoes.UNIDADES_MEDIDA.items()),
     'ocultar_contorno_grupo': ((True, 'Ocultar'), (False, 'Mostrar')),
+    'ocultar_origens_grupo': ((True, 'Ocultar'), (False, 'Mostrar')),
+    'hud_pontos_apoio': ((True, 'Ligado'), (False, 'Desligado')),
+    'hud_setas_quinas': ((True, 'Ligado'), (False, 'Desligado')),
     'tecla_corrente': (('ALT', 'Segurar Alt'), ('CTRL', 'Segurar Ctrl'),
                        ('SHIFT', 'Segurar Shift'), ('SEMPRE', 'Sempre')),
 }
@@ -1955,6 +1976,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                         else _botao_criar_puxador())
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
+    y = _paredes_edicao.widgets(context, itens, x, y, w)
     # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
     if s.cabinet_aba == 'PORTAS':
@@ -1977,6 +1999,9 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
     selecionado: nada (a biblioteca, embaixo, e' a criacao desta aba; o
     orcamento, da cena inteira, mora nas Opcoes)."""
     obj = _selecionado(context)
+    if _paredes_composicao.parede(obj) or (_paredes_edicao.ativa(context)
+                                          and _paredes.modulo_de(obj) is not None):
+        return itens
     nosso = (obj is not None and _chapas.MARCA_FOLHA not in obj
              and (_chapas.MARCA_CHAPA in obj or _chapas.MARCA_CONJUNTO in obj))
     de_fora = obj is not None and not any(

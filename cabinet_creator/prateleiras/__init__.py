@@ -22,7 +22,7 @@ from mathutils import Matrix, Vector
 from bpy.types import Operator
 
 # o assistente herda o das gavetas AO CARREGAR (o __init__ as carrega antes)
-from . import gavetas as _gavetas
+from .. import gavetas as _gavetas
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -37,6 +37,7 @@ CHAVE_REFERENCIA = 'prateleiras_referencia'
 CHAVE_MARGENS = 'prateleiras_margens_mm'  # esq, dir, baixo, cima, frente (do modulo)
 CHAVE_VAO = 'prateleiras_vao_mm'          # largura, altura (sem modulo)
 CHAVE_INDICE = 'prateleira_indice'
+CHAVE_DETALHAMENTO = 'prateleira_detalhamento_uid'
 CHAVE_ENCAIXE = 'prateleiras_encaixe'
 
 PARAMETROS_PADRAO = {
@@ -128,6 +129,101 @@ def individual_ativo(context, grupo):
     return obj
 
 
+def detalhamento(grupo, fonte):
+    """Trecho local entre apoios externos; copias guardam so' um UID.
+
+    Os limites sao recalculados dos vaos atuais, nao uma caixa gravada
+    que ficaria velha ao mover apoios, desfazer ou redimensionar o modulo.
+    """
+    atuais = prateleiras_do_grupo(grupo)
+    uid = fonte.get(CHAVE_DETALHAMENTO)
+    unidades = ([o for o in atuais if o.get(CHAVE_DETALHAMENTO) == uid]
+                if uid else [fonte])
+    indices = [int(o[CHAVE_INDICE]) for o in unidades]
+    primeiro, ultimo = min(indices), max(indices)
+    if indices != list(range(primeiro, ultimo + 1)):
+        raise ValueError('As subdivisoes estao separadas por outra prateleira')
+    p = parametros(grupo)
+    largura, altura, _m = vao(grupo)
+    dados = calcular(largura, altura, p)
+    caixas = dados['prateleiras']
+    return dict(unidades=unidades, quantidade=len(unidades), primeiro=primeiro, ultimo=ultimo,
+                baixo=caixas[primeiro - 1][5] if primeiro else 0.,
+                cima=caixas[ultimo + 1][4] if ultimo + 1 < len(caixas) else altura,
+                vaos=dados['vaos'][primeiro:ultimo + 2], caixas=caixas[primeiro:ultimo + 1])
+
+
+def editar_quantidade_local(context, grupo, fonte, quantidade, redistribuir=False):
+    """Subdivide apenas o trecho da unidade; o restante nunca e' remontado."""
+    if context.mode != 'OBJECT' or _eventos._desfazendo[0]:
+        return 'Conclua a edicao antes de subdividir a prateleira'
+    _sincronizar_disposicao(grupo)
+    antes = parametros(grupo)
+    atuais = prateleiras_do_grupo(grupo)
+    try:
+        detalhe = detalhamento(grupo, fonte)
+        antigas = detalhe['unidades']
+        limite = MAXIMO_PRATELEIRAS - len(atuais) + len(antigas)
+        quantidade = max(0, min(limite, int(quantidade)))
+        if quantidade == len(antigas) and not redistribuir:
+            return None
+        # Ao reduzir, a unidade que o usuario escolheu sobrevive.
+        manter = antigas[:quantidade]
+        if quantidade and fonte not in manter:
+            manter[-1] = fonte
+            manter.sort(key=lambda o: int(o[CHAVE_INDICE]))
+        modelo = parametros_individuais(antes, int(fonte[CHAVE_INDICE]))
+        individuais = [dict(parametros_individuais(antes, int(o[CHAVE_INDICE]))) for o in manter]
+        individuais += [dict(modelo) for _ in range(quantidade - len(manter))]
+        individuais = [{k: v for k, v in p.items() if k in (*CAMPOS_INDIVIDUAIS, 'x_mm')}
+                       for p in individuais]
+        local = dict(antes, quantidade=quantidade, espacamento='IGUAL', vaos_mm=[],
+                     individuais=individuais)
+        dados = calcular(vao(grupo)[0], detalhe['cima'] - detalhe['baixo'], local)
+    except ValueError as erro:
+        return str(erro)
+    criadas = []
+    try:
+        for i in range(quantidade - len(manter)):
+            criadas.append(_copiar_prateleira(grupo, len(atuais) + i, fonte))
+    except Exception:
+        for obj in criadas:
+            _gavetas._remover(obj)
+        raise
+    unidades = manter + criadas
+    uid = fonte.get(CHAVE_DETALHAMENTO) or _chapas._garantir_uid(fonte)
+    bpy.context.view_layer.update()
+    for obj in criadas:
+        obj.select_set(False)
+    inversa = grupo.matrix_world.inverted_safe()
+    for obj, caixa in zip(unidades, dados['prateleiras']):
+        base = min((inversa @ obj.matrix_world @ Vector(c)).z for c in obj.bound_box) * 1000
+        delta = grupo.matrix_world.to_3x3() @ Vector((0, 0, (detalhe['baixo'] + caixa[4] - base) / 1000))
+        mundo = obj.matrix_world.copy()
+        mundo.translation += delta
+        obj.matrix_world = mundo
+        obj[CHAVE_DETALHAMENTO] = uid
+    inicio, fim = detalhe['primeiro'], detalhe['ultimo'] + 1
+    novas = atuais[:inicio] + unidades + atuais[fim:]
+    ajustes = [dict(v) for v in antes.get('individuais') or ()]
+    ajustes += [{} for _ in range(len(atuais) - len(ajustes))]
+    p = dict(antes, quantidade=len(novas), individuais=ajustes[:inicio] + individuais + ajustes[fim:])
+    grupo[CHAVE_PARAMETROS] = p
+    for i, obj in enumerate(novas):
+        obj[CHAVE_INDICE] = i
+    for obj in antigas:
+        if obj not in unidades:
+            _gavetas._remover(obj)
+    bpy.context.view_layer.update()
+    _sincronizar_disposicao(grupo)
+    if CHAVE_ENCAIXE in grupo:
+        del grupo[CHAVE_ENCAIXE]
+    if quantidade == 0:
+        selecionar(context, grupo, 'GRUPO')
+    _hud._hover_hud.clear()
+    return None
+
+
 def _digital(obj):
     """Comparacao so' ao entrar/sair de Tab ou adicionar, nunca no redraw."""
     h = hashlib.sha1()
@@ -173,7 +269,7 @@ def _copiar_prateleira(grupo, indice, fonte):
     _gavetas._colecao(grupo).objects.link(obj)
     obj.parent = grupo
     for chave in list(obj.keys()):
-        if chave.startswith('adj_') or chave in ('chapa_uid', 'chapa_edicao'):
+        if chave.startswith('adj_') or chave in ('chapa_uid', 'chapa_edicao', CHAVE_DETALHAMENTO):
             del obj[chave]
     _chapas._garantir_uid(obj)
     obj[CHAVE_INDICE] = indice
@@ -186,7 +282,12 @@ def quantas_no_modulo(conj):
 
 
 def sincronizar_exclusoes(grupo):
-    """Absorve exclusoes/desvinculos nativos sem montar nem mover madeira.
+    """Absorve exclusoes/desvinculos antes de editar parametros ou remontar."""
+    return _sincronizar_disposicao(grupo, somente_exclusoes=True)
+
+
+def _sincronizar_disposicao(grupo, somente_exclusoes=False):
+    """Le as caixas NATIVAS no referencial do vao, sem mover madeira.
 
     Os indices antigos identificam os ajustes sobreviventes; compactar
     antes de copia-los atribuiria o modelo apagado a outra prateleira.
@@ -196,41 +297,54 @@ def sincronizar_exclusoes(grupo):
     atuais = prateleiras_do_grupo(grupo)
     p = parametros(grupo)
     indices = [int(o.get(CHAVE_INDICE, 0)) for o in atuais]
-    if int(p['quantidade']) == len(atuais) and indices == list(range(len(atuais))):
+    mesmos_indices = int(p['quantidade']) == len(atuais) and indices == list(range(len(atuais)))
+    if somente_exclusoes and mesmos_indices:
         return False
     inversa = grupo.matrix_world.inverted_safe()
-    individuais, g, topo = [], [], 0.0
+    disposicao = []
     for obj, indice in zip(atuais, indices):
-        individuais.append(dict((p.get('individuais') or ())[indice])
-                            if indice < len(p.get('individuais') or ()) else {})
-        # A caixa nativa e' medida no referencial do vao, inclusive
-        # depois de mover a prateleira ou girar o modulo inteiro.
         matriz = inversa @ obj.matrix_world
         zs = [(matriz @ Vector(c)).z * 1000.0 for c in obj.bound_box]
-        baixo, cima = min(zs), max(zs)
-        g.append(max(0.0, baixo - topo))
+        disposicao.append((obj, indice, min(zs), max(zs)))
+    # G pode atravessar outra unidade: os campos E continuam de baixo
+    # para cima, e as escolhas individuais acompanham a MESMA chapa.
+    disposicao.sort(key=lambda item: item[2])
+    individuais, g, topo = [], [], 0.0
+    for obj, indice, baixo, cima in disposicao:
+        individuais.append(dict((p.get('individuais') or ())[indice])
+                            if indice < len(p.get('individuais') or ()) else {})
+        g.append(baixo - topo)
         topo = cima
+    try:
+        anteriores = (list(p.get('vaos_mm') or ()) if p['espacamento'] == 'LIVRE'
+                      else vaos(vao(grupo)[1], p)[:-1])
+    except ValueError:
+        anteriores = []
+    if (mesmos_indices and [d[1] for d in disposicao] == indices
+            and len(anteriores) == len(g)
+            and all(abs(a - b) <= TOL_MM for a, b in zip(anteriores, g))):
+        return False
     p.update(quantidade=len(atuais), espacamento='LIVRE', vaos_mm=g,
              individuais=individuais)
     grupo[CHAVE_PARAMETROS] = p
-    for indice, obj in enumerate(atuais):
+    for indice, (obj, _antigo, _baixo, _cima) in enumerate(disposicao):
         if obj.get(CHAVE_INDICE) != indice:
             obj[CHAVE_INDICE] = indice
-    # O encaixe anterior ainda guarda vaos/ajustes da unidade excluida.
+    # O encaixe anterior nao pode ressuscitar posicoes/ajustes antigos.
     if CHAVE_ENCAIXE in grupo:
         del grupo[CHAVE_ENCAIXE]
     return True
 
 
 def sincronizar_exclusoes_da_cena():
-    """So' no timer estavel: undo e Edit Mode nao permitem escrever IDs."""
+    """Exclusoes E posicoes, so' no timer estavel, depois de absorver Tab."""
     if (_eventos._desfazendo[0] or _chapas._ocupado[0]
             or bpy.context.mode != 'OBJECT'):
         return
     mudou = False
     for grupo in bpy.data.objects:
         if MARCA_GRUPO in grupo:
-            mudou = sincronizar_exclusoes(grupo) or mudou
+            mudou = _sincronizar_disposicao(grupo) or mudou
     if mudou:
         _eventos._redesenhar_viewports(bpy.context)
 
@@ -452,9 +566,26 @@ def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
     return grupo
 
 
+def ajustar_ao_espaco(grupo, atual, capacidade):
+    """Memoriza a escolha, consumindo a folga antes de diminuir o bloco."""
+    p = parametros(grupo)
+    assinatura = repr((list(atual), p))
+    estado = grupo.get(CHAVE_ENCAIXE)
+    if not estado or estado.get('bloco_atual') != assinatura:
+        grupo[CHAVE_ENCAIXE] = dict(medidas=list(atual), bloco_atual=assinatura,
+            profundidade=float(p['profundidade_mm']), vaos=list(p['vaos_mm']),
+            individuais=p.get('individuais', []), ultimo='')
+        estado = grupo[CHAVE_ENCAIXE]
+    novo = [min(float(v), capacidade[k]) for k,v in enumerate(estado['medidas'])]
+    p['profundidade_mm'] = novo[1]
+    grupo[CHAVE_PARAMETROS] = p
+    estado['ultimo'] = repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
+    estado['bloco_atual'] = repr((novo,p))
+    return novo
+
+
 def atualizar_do_conjunto(conj):
-    """O modulo mudou de medida: as prateleiras seguem o vao (margens
-    fixas). Se nao couberem mais, ficam como estavam."""
+    """Remonta no vao transportado, conservando a escolha ate' faltar espaco."""
     for grupo in grupos_do_modulo(conj):
         try:
             sincronizar_exclusoes(grupo)
@@ -470,14 +601,19 @@ def atualizar_do_conjunto(conj):
             ref=matriz.to_3x3().normalized()
             _lo,hi=_gavetas.limites_na_referencia(conj,ref)
             origem=ref.transposed() @ matriz.translation*1000
+            limite=hi.y-origem.y
+            if 'medidas' in estado:
+                # O transporte ja' descontou a chapa de apoio. A caixa
+                # externa nao pode devolver a profundidade que nao cabe.
+                limite=min(limite,float(p['profundidade_mm']))
             p['profundidade_mm']=max(float(p['recuo_mm'])+MENOR_LADO_MM,
-                                     min(float(estado['profundidade']),hi.y-origem.y))
+                                     min(float(estado['profundidade']),limite))
             for i, unidade in enumerate(estado.get('individuais') or ()):
                 modelo = _como_dict(unidade)
                 if 'profundidade_mm' in modelo:
                     modelo['profundidade_mm'] = max(
                         float(modelo.get('recuo_mm', p['recuo_mm'])) + MENOR_LADO_MM,
-                        min(float(modelo['profundidade_mm']), hi.y - origem.y))
+                        min(float(modelo['profundidade_mm']), limite))
                 _gravar_individual(p, i, modelo)
             if p['espacamento']=='LIVRE' and len(estado['vaos'])==int(p['quantidade']):
                 desejados=list(estado['vaos'])
@@ -488,6 +624,9 @@ def atualizar_do_conjunto(conj):
             grupo[CHAVE_PARAMETROS]=p
             grupo[CHAVE_ENCAIXE]['ultimo']=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
             montar(grupo)
+            if 'medidas' in grupo[CHAVE_ENCAIXE]:
+                l,a=grupo[CHAVE_VAO]
+                grupo[CHAVE_ENCAIXE]['bloco_atual'] = repr(([float(l),float(p['profundidade_mm']),float(a)],p))
         except ValueError as erro:
             print("[Cabinet Creator] prateleiras de %s: %s" % (conj.name, erro))
 
@@ -529,7 +668,7 @@ def _parametros_editados(grupo, nome, valor):
     return p
 
 
-def editar(context, grupo, nome, valor, referencia=None):
+def editar(context, grupo, nome, valor, referencia=None, somente_grupo=False):
     """Muda um parametro (aba Prateleiras). Devolve o erro (e desfaz) ou None."""
     estado = edicao_atual(context)
     global_ = estado and grupo.name in estado['globais']
@@ -539,7 +678,18 @@ def editar(context, grupo, nome, valor, referencia=None):
     sincronizar_exclusoes(grupo)
     nome = nome[len('prateleiras_'):] if nome.startswith('prateleiras_') else nome
     antes = parametros(grupo)
-    fonte = referencia or (None if global_ else individual_ativo(context, grupo))
+    fonte = referencia or (None if global_ or somente_grupo else individual_ativo(context, grupo))
+    if nome == 'quantidade' and fonte is not None and referencia is None:
+        return editar_quantidade_local(context, grupo, fonte, valor)
+    if nome.startswith('vao_') and fonte is not None:
+        try:
+            trecho = detalhamento(grupo, fonte)
+        except ValueError as erro:
+            return str(erro)
+        # O ultimo campo local e' o vao ACIMA da ultima copia. Quem
+        # se move e' ela, nunca o apoio que delimita o proximo trecho.
+        if int(nome[len('vao_'):]) == trecho['ultimo'] + 1:
+            nome = 'acima_%d' % trecho['ultimo']
     if nome.startswith('individual_'):
         _prefixo, indice, campo = nome.split('_', 2)
         return editar_individual(context, grupo, int(indice), campo, valor)
@@ -595,11 +745,18 @@ def editar_individual(context, grupo, indice, nome, valor):
         if not MENOR_LADO_MM <= float(valor) <= largura + TOL_MM:
             return 'Largura fora do vao da prateleira'
         nome, valor = 'folga_lateral_mm', max(0., (largura - float(valor)) / 2)
-    _gravar_individual(p, indice, {nome: max(0., float(valor))})
+    fonte = prateleiras_do_grupo(grupo)[indice]
+    try:
+        indices = [int(o[CHAVE_INDICE]) for o in detalhamento(grupo, fonte)['unidades']]
+    except ValueError as erro:
+        return str(erro)
+    for k in indices:
+        _gravar_individual(p, k, {nome: max(0., float(valor))})
     if nome == 'espessura_mm':
         altura = vao(grupo)[1]
         g = vaos(altura, antes)
-        g[indice + 1] -= float(valor) - float(parametros_individuais(antes, indice)[nome])
+        for k in indices:
+            g[k + 1] -= float(valor) - float(parametros_individuais(antes, k)[nome])
         if min(g) < -TOL_MM:
             return 'Nao cabe: falta espaco acima da prateleira'
         p.update(espacamento='LIVRE', vaos_mm=g[:-1])
@@ -701,16 +858,10 @@ def concluir_edicao():
                 profundidade_mm=float(modelo['recuo_mm']) + obj.chapa_comprimento_mm,
                 recuo_mm=float(modelo['recuo_mm']),
                 folga_lateral_mm=max(0., (largura - obj.chapa_largura_mm) / 2)))
-        if nome not in estado['globais']:
-            # Tab local conserva as posicoes das demais mesmo se a
-            # espessura foi modelada; nao redistribuir vaos IGUAIS depois.
-            g, topo = [], 0.
-            for obj in atuais:
-                base = obj.matrix_basis.translation.z * 1000 - obj.chapa_espessura_mm / 2
-                g.append(max(0., base - topo))
-                topo = base + obj.chapa_espessura_mm
-            p.update(espacamento='LIVRE', vaos_mm=g)
         grupo[CHAVE_PARAMETROS] = p
+        # A posicao vem da malha confirmada, tanto no Tab individual
+        # quanto no multiobjeto. Nao remontar nem repartir estes vaos.
+        _sincronizar_disposicao(grupo)
 
 
 def _abrir_referencia():
@@ -797,7 +948,7 @@ def entre(grupo):
 class OBJECT_OT_alinhar_prateleiras(Operator):
     bl_idname = 'object.cabinet_alinhar_prateleiras'
     bl_label = 'Centralizar espacamento'
-    bl_description = 'Distribui as prateleiras com vaos iguais, incluindo abaixo da primeira e acima da ultima'
+    bl_description = 'Iguala os vaos acima e abaixo da prateleira selecionada; no grupo, distribui todas'
     bl_options = {'UNDO'}
 
     @classmethod
@@ -807,7 +958,26 @@ class OBJECT_OT_alinhar_prateleiras(Operator):
                 and bool(prateleiras_do_grupo(grupo)))
 
     def execute(self, context):
-        erro = editar(context, grupo_de(context.object), 'espacamento', 'IGUAL')
+        grupo = grupo_de(context.object)
+        # A exclusao nativa pode ainda nao ter passado pelo timer: o indice
+        # da unidade tem de corresponder aos apoios que restaram.
+        sincronizar_exclusoes(grupo)
+        unidade = individual_ativo(context, grupo)
+        if unidade is None:
+            erro = editar(context, grupo, 'espacamento', 'IGUAL')
+        else:
+            indice = int(unidade[CHAVE_INDICE])
+            if unidade.get(CHAVE_DETALHAMENTO):
+                erro = editar_quantidade_local(context, grupo, unidade,
+                    detalhamento(grupo, unidade)['quantidade'], redistribuir=True)
+                if erro:
+                    self.report({'WARNING'}, erro)
+                    return {'CANCELLED'}
+                _eventos._redesenhar_viewports(context)
+                return {'FINISHED'}
+            g = vaos(vao(grupo)[1], parametros(grupo))
+            erro = editar(context, grupo, 'vao_%d' % indice,
+                          (g[indice] + g[indice + 1]) / 2)
         if erro:
             self.report({'WARNING'}, erro)
             return {'CANCELLED'}
@@ -860,14 +1030,30 @@ def linhas_hud(grupo, chapas):
     lado; arrastar ou clicar e digitar anda so' a prateleira de cima)."""
     largura, altura, prof = medidas(grupo)
     m = grupo.matrix_world
-    cantos = [m @ (Vector((i * largura, j * prof, k * altura)) / 1000.0)
+    unidade = individual_ativo(bpy.context, grupo)
+    detalhe = None
+    if unidade is not None:
+        try:
+            detalhe = detalhamento(grupo, unidade)
+        except ValueError:
+            pass
+    x0, x1, y0, y1, z0, z1 = 0., largura, 0., prof, 0., altura
+    if detalhe:
+        caixas = detalhe['caixas']
+        x0, x1 = min(c[0] for c in caixas), max(c[1] for c in caixas)
+        y0, y1 = min(c[2] for c in caixas), max(c[3] for c in caixas)
+        z0, z1 = detalhe['baixo'], detalhe['cima']
+    cantos = [m @ (Vector(((x0, x1)[i], (y0, y1)[j], (z0, z1)[k])) / 1000.0)
               for k in (0, 1) for j in (0, 1) for i in (0, 1)]
     letras = {0: 'L', 1: 'P', 2: 'A'}
     linhas = []
     for eixo, arestas in enumerate(_hud.ARESTAS_EIXO):
         for i, j in arestas:
-            linhas.append({'tipo': 'prateleiras', 'objeto': grupo, 'modo': 'PRATELEIRAS',
-                           'eixo': eixo, 'letra': letras[eixo],
+            # O trecho local e' limitado pelos apoios. As cotas dos vaos
+            # editam a posicao; esta moldura nao redimensiona o bloco global.
+            linhas.append({'tipo': 'contorno_forma' if detalhe else 'prateleiras',
+                           'editavel': not bool(detalhe), 'objeto': grupo, 'modo': 'PRATELEIRAS',
+                           'eixo': eixo, 'letra': None if detalhe else letras[eixo],
                            'face': (letras[eixo],), 'cantos': (i, j),
                            'chapas': chapas, 'pontos': [cantos[i], cantos[j]]})
     p = parametros(grupo)
@@ -876,8 +1062,9 @@ def linhas_hud(grupo, chapas):
     except ValueError:
         return cantos, linhas
     caixas = dados['prateleiras']
-    x, y = largura / 2.0, float(p['recuo_mm'])
-    for k in range(len(dados['vaos'])):
+    x, y = (x0 + x1) / 2.0, y0
+    indices = range(detalhe['primeiro'], detalhe['ultimo'] + 2) if detalhe else range(len(dados['vaos']))
+    for k in indices:
         z0 = caixas[k - 1][5] if k > 0 else 0.0
         z1 = caixas[k][4] if k < len(caixas) else altura
         if z1 - z0 < 1.0:
@@ -905,7 +1092,17 @@ def aplicar(context, grupo, chave, novo, lado=None):
     if letra == 'V':
         return editar(context, grupo, 'vao_%d' % chave[1], novo)
     if letra == 'P':
-        return editar(context, grupo, 'profundidade_mm', max(MENOR_LADO_MM, float(novo)))
+        novo = max(MENOR_LADO_MM, float(novo))
+        antes = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
+        if lado == 'max':
+            margens = list(antes)
+            margens[4] -= novo - valor(grupo, ('P',))
+            grupo[CHAVE_MARGENS] = margens
+        erro = editar(context, grupo, 'profundidade_mm', novo)
+        if erro:
+            grupo[CHAVE_MARGENS] = antes
+            montar(grupo)
+        return erro
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     variacao = float(novo) - valor(grupo, (letra,))
     if letra == 'L':

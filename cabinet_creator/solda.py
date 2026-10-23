@@ -380,7 +380,7 @@ def _atualizar_modulo(modulo):
         bpy.context.view_layer.update()
         _modulos.reposicionar_origem(modulo)
         _modulos.sincronizar_medidas_conjunto(modulo)
-        _portas.atualizar_portas_do_conjunto(modulo)
+        _modulos.atualizar_sistemas_do_conjunto(modulo)
     except Exception as e:
         print("[Cabinet Creator] atualizar modulo:", e)
 
@@ -683,6 +683,7 @@ OP_CORRENTE_OBJETO = 'object.cabinet_corrente_objeto'
 # O "Gerar orcamento" (opcoes) abre o "Salvar como"; o "Usar como
 # puxador", o modal do clique na face.
 OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
+                        'object.cabinet_editar_parede',
                         'object.cabinet_resetar_distancia',
                         'object.cabinet_exportar_orcamento',
                         'object.cabinet_usar_como_puxador'}

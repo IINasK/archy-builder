@@ -4,22 +4,77 @@ Add-on de Blender para gerar armarios de moveis planejados na G3.
 
 ## O que resolve
 
-Chapas (paineis de madeira) com **espessura discreta** (15/18/20/30 mm) que
+Chapas (paineis de madeira) com **espessura livre positiva** que
 permanece imune a qualquer escala — propria, herdada de um pai, ou aplicada
 em selecao multipla. A malha e' real (bmesh), entao continua editavel em
 Edit Mode.
 
 ## Estrutura
 
+Posicionamento em parede (301): biblioteca, duplo clique e arraste direito
+usam a mesma area livre. O volume completo para na borda e nos vizinhos
+da mesma face/altura; sem espaco, a insercao e' recusada e o reposicionamento
+e' cancelado. Nao redimensiona para caber. A caixa da previa usa o envelope
+do modulo e a mira fica no centro aceito, inclusive junto a quinas.
+Cotas usam traco duplo contrastante, setas e numeros maiores sobre fundo;
+a cota do item ativo acompanha o realce escolhido para a HUD.
+
+Orcamento (300): em Opcoes > Gerar orcamento, o .txt no padrao existente
+recebe automaticamente medidas gerais do corpo/moldura (largura x altura x
+profundidade, em mm), portas por abertura, tipos de dobradica, gavetas internas,
+prateleiras, divisorias, puxadores e materiais efetivamente utilizados.
+A ficha e' lida do modelo a cada exportacao; exclusoes e edicoes nao dependem
+das contagens antigas do preset. Modulo girado conserva seus eixos; abrir
+portas/gavetas nao aumenta a medida. Material misto e' listado sem incluir
+ferragens; falta de material ou identificacao de dobradica gera pendencia.
+Comodos continuam sendo as pastas marcadas no Outliner.
+
+Edicao de parede (299): selecione uma malha vertical e use Paredes >
+Editar parede no menu esquerdo, ou Cabinet Creator > Editar parede no
+botao direito. A vista ortografica isola a face e seus modulos pelo Local
+View nativo. Orbitar ou iniciar Walk/Fly sai; zoom e pan permanecem.
+Arraste da biblioteca e solte na parede, ou use o botao direito para
+reposicionar um modulo existente. O ponto de soltura determina a posicao,
+conservando as dimensoes originais. Duplo clique na foto insere a' direita
+do ultimo modulo posicionado; sem espaco a' direita, volta ao centro da
+parede. Sem modulo anterior, tambem comeca no centro. Nao estica para preencher.
+Na composicao existente, clique nas cotas da elevacao para digitar ou use
+os campos do modulo no menu. Livre/Fixa controla quais larguras recebem
+o espaco restante em Redistribuir composicao. G e exclusao recalculam os
+vaos, preservando os vizinhos. Trocar modelo pede uma escolha na biblioteca
+e so' substitui ao confirmar, mantendo tamanho/posicao/associacao.
+Parede nao mostra nem aceita medidas pelo menu; sua modelagem usa as
+ferramentas nativas do Blender. Parede e modulos usam superficies solidas com contornos pretos,
+sem origens ou linhas de parentesco. Ao orbitar, volta a' perspectiva;
+as demais configuracoes visuais anteriores sao restauradas ao sair.
+Nesta vista, clique numa porta seleciona o modulo; duplo isola a folha.
+O interior aparece em arestas reais cinza semitransparentes atras das frentes.
+Cotas ficam junto da peca selecionada; a representacao nao altera malhas.
+
 ```
 cabinet_creator/
-  __init__.py        # o add-on inteiro
+  __init__.py        # carga, ligacao e registro
+  chapas/            # malha e espessura da peca
+  modulos/           # corpo, envelope e dependentes
+  portas/            # vao, cobertura e folhas
+  gavetas/           # gavetas do movel e assistente compartilhado
+  prateleiras/       # unidades e espacamentos
+  divisorias/        # chapas verticais e segmentacao de sistemas
+  gaveta*.py         # MENU: layout, desenho e eventos
+  hud.py             # cotas e interacao na viewport
+  promob.py          # integracao de objetos importados
+  paredes_edicao.py  # vista local de parede e distribuicao de presets
+  paredes_composicao.py # cotas, larguras fixas e troca de modelo na parede
   biblioteca/        # presets de fabrica (viajam com o add-on)
     *.blend
-    indice.json      # catalogo dos presets (3 niveis)
+    indice.json      # catalogo dos presets (niveis sem limite)
 build.py             # gera dist/cabinet_creator.zip
 vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 ```
+
+Para desenvolvimento, comece pelo [mapa de setores](ARQUITETURA.md):
+tarefa, arquivo dono, guia local e suite de testes. Os seis pacotes conservam
+os nomes publicos anteriores; cada um possui instrucoes AGENTS.md/CLAUDE.md.
 
 ## Desenvolvimento
 
@@ -42,89 +97,33 @@ vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
 - **Espaco de mundo:** toda a geometria usa `matrix_world`. Usar `location`
   local quebra assim que o Empty pai sai da origem.
 
-## Portas parametricas
+## Interface e portas
 
-O Cabinet Creator agora tem uma area propria na esquerda da viewport,
-independente do painel N. A alca cinza abre e fecha essa gaveta; aberta,
-ela ocupa toda a altura da viewport e reduz a largura da area de modelagem.
-Sua borda pode ser arrastada para ajustar a largura. A gaveta contem as
-abas **Modulos** e **Portas**, medidas editaveis, wireframe do modulo,
-montagem e biblioteca em cascata com fotos e acoes por preset. A barra de
-tamanho recebe arraste. O posicionador pode ser iniciado na foto ou nome
-do preset e acompanha o cursor ate' a viewport principal. O painel N nao
-e' usado pelo addon; continua disponivel para os demais paineis do Blender.
-O conteudo da gaveta limita sua largura util, e as fotos da biblioteca
-mantem formato quadrado em qualquer largura. A rolagem para no ultimo
-controle, sem deixar uma area vazia acima do menu. As fotos preservam o
-alpha original, centralizadas pela area visivel e sem distorcer a proporcao.
-Os campos de medida formam uma linha, uma grade de duas colunas ou uma lista,
-conforme a largura. Clique no campo para digitar em mm (ou incluir `cm`/`m`);
-Enter confirma, Esc cancela. A edicao acontece na gaveta, sem pop-up.
-Por ser GPU, esses campos nao sao `UILayout.prop`; escrevem nas mesmas
-propriedades parametricas ou em `Object.dimensions` da interface anterior.
-Os icones sao os nativos do Blender, via `GIZMO_GT_button_2d`, e as cores
-dos botoes seguem o tema ativo.
-A biblioteca tem uma divisoria entre cada nivel da cascata. Cada nivel
-ocupa uma linha: setas, roda do mouse sobre a linha ou arraste horizontal
-revelam as demais categorias. Pasta, Assets e Salvar ficam no cabecalho.
-O checkbox Chapa usa a conversao existente ao marcar. Ao desmarcar, preserva
-a malha e a hierarquia, desliga a regeneracao e limpa vinculos de adjacencia.
-Folhas parametricas continuam sendo editadas pelo grupo de portas.
-A alca cinza permanece encostada na borda entre gaveta e viewport.
+O menu esquerdo e' uma area VIEW_3D propria desenhada por GPU, com as abas
+Modulos, Portas, Gavetas, Prateleiras, Divisorias e Puxadores. A biblioteca
+fica numa faixa separada no topo. Selecao e contexto determinam os campos
+exibidos; desenho e recusas de interface estao em [DESIGN.md](DESIGN.md).
 
-1. Selecione a malha do movel ou as duas chapas que contem os cantos.
-   Entre em **Modo Edicao**, ative selecao de vertices e desmarque tudo.
-2. Selecione exatamente **dois vertices opostos em diagonal**, nos cantos
-   **internos** do vao e na mesma borda frontal (como superior esquerdo e
-   inferior direito). Podem pertencer a objetos diferentes em edicao conjunta.
-3. Na gaveta esquerda, clique em **Portas** no topo do painel
-   (ao lado de **Modulos**) e depois em **Criar Portas**.
-   Escolha abertura, folhas e espessura. Para giro/basculante, a escolha da
-   dobradica e' obrigatoria no dialogo; nenhuma folha e' criada antes de confirmar.
-4. Confira **Eixos do vao** e **Frente**: o padrao e' exterior em **-Y**, com
-   altura em **Z**, usando a orientacao do pai comum ou do mundo. Para um movel
-   inteiro rotacionado sem pai, escolha **Objeto ativo** (Z local = altura).
-   Nao use os eixos de uma lateral individual: o Z dela representa a espessura.
-5. Selecione o grupo ou uma folha e use **Configurar Portas**, na aba interna
-   **Portas**, para modificar
-   os parametros depois. A configuracao fica salva no `.blend`; as folhas
-   existentes conservam objetos e materiais. Diminuir a quantidade remove as
-   folhas excedentes, com suporte a desfazer.
+Para criar uma porta em Object Mode:
 
-| Abertura | Folhas | Posicionamento |
-|---|---|---|
-| Abrir (giro) | 1 a 2 | Reta, curva ou super curva |
-| Basculante | 1 | Reta, curva ou super curva |
-| Correr | 1 a 4 | Sempre embutida, com recuo para trilhos |
+1. Na aba Portas, clique em Criar Portas.
+2. Marque dois cantos opostos nos limites desejados da porta. O solver
+   normaliza o vao e calcula a cobertura: inteira no canto externo, meia
+   no meio da espessura, embutida no canto interno. A dobradica e' automatica.
+3. Escolha folhas/abertura e confirme as etapas de ferragens aplicaveis.
+   A gaveta mostra as mesmas etapas da viewport. Esc cancela; direito volta.
+4. Depois, clique na porta para editar o conjunto; duplo clique isola a
+   folha. Reposicionar tambem usa dois cantos. O Tab continua nativo.
 
-Os vertices delimitam o vao livre. A origem do grupo fica no canto inferior
-esquerdo visto de frente; inverter a ordem dos vertices nao altera o resultado.
-Cada folha e' uma malha fechada com 8 vertices e 6 faces, usando os mesmos
-eixos locais de chapa (X = largura, Y = altura, Z = espessura).
+Aberturas: giro, basculante, correr e zigzag. Correr pode ser embutida ou
+com moldura; os limites mistos pedem a escolha. Valores e opcoes vivem
+nas propriedades existentes, sem um segundo modelo de dados para a UI.
+Os campos permitem arrastar ou clicar para digitar; Enter confirma e Esc
+restaura. As malhas modeladas e os materiais devem ser preservados.
 
-- **Reta:** expande o contorno em uma espessura de lateral por borda.
-- **Curva:** expande em meia espessura por borda. Como na reta, o verso da
-  porta fica na borda frontal mais o afastamento configurado; o que muda
-  entre as duas e' a cobertura da lateral.
-- **Super curva:** nao expande o vao; a face externa fica alinhada a borda
-  frontal, ou mais para dentro quando ha' recuo adicional.
-- **Correr:** a face externa da primeira folha fica atras da borda pelo
-  recuo configurado (padrao 30 mm, sempre positivo). Cada folha corre no
-  seu trilho (plano proprio, separado pela folga entre planos) o vao
-  inteiro. A unica tem metade do vao; varias o cobrem cruzando 20 mm com a
-  vizinha. A largura da folha se edita (campo L). Trilho de cima em U, com
-  um canal fundo por folha; o de baixo, chapa com uma guia sob cada folha.
-
-No giro duplo, a folga entre folhas e' 2 mm por padrao.
-As espessuras disponiveis sao 15, 18, 20 e 30 mm. A cobertura usa a espessura
-de lateral informada, aplicada uniformemente nas quatro bordas.
-
-O dialogo informa as dimensoes de cada folha e a profundidade ocupada pelas
-portas de correr. Dois vertices nao informam a profundidade do armario:
-confira o espaco disponivel para as folhas e trilhos. O sistema gera apenas
-blocagem fechada, sem dobradicas, trilhos, puxadores ou animacao de abertura.
-O vao e' capturado na criacao, sem vinculo vivo aos vertices: para remapear
-um vao alterado, crie um novo grupo. Movimentos do pai comum acompanham o grupo.
+Para trabalhar no codigo: [guia de portas](cabinet_creator/portas/AGENTS.md),
+[guia de interface](planejamento/setores/interface/AGENTS.md) e
+[mapa completo](ARQUITETURA.md).
 
 ### Testes no Blender
 
@@ -139,6 +138,9 @@ malhas fechadas, edicao e preservacao de materiais. Nao execute esse script
 na cena de trabalho: ele limpa a cena de testes.
 
 ## Limitacoes conhecidas
+
+- No Blender 4.2, redo de lote na parede pode restaurar a segunda Collection
+  sem religar a cena; o teste continua ativo. Ocorre tambem sem desenho interno.
 
 - A gaveta e' uma area separada da viewport; a largura e' ajustada pelo
   usuario arrastando a divisoria entre as duas areas. Ao soltar, o limite

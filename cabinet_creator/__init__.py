@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (281, 0, 0),
+    "version": (301, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -11,7 +11,7 @@ bl_info = {
 
 """Cabinet Creator: moveis planejados no Blender.
 
-O add-on e' um PACOTE: cada area mora no seu modulo (mapa no CLAUDE.md).
+O add-on e' um PACOTE: cada area mora no seu modulo (mapa em ARQUITETURA.md).
 Aqui ficam so' o bl_info, a ordem de carga, a ligacao entre os modulos e o
 registro. Um modulo chama outro pelo apelido `_nome` (ex.: `_portas.x`).
 """
@@ -47,11 +47,14 @@ from . import gaveta as _gaveta
 from . import biblioteca_faixa as _biblioteca_faixa
 from . import orcamento as _orcamento
 from . import hud as _hud
+from . import hud_volume as _hud_volume
 from . import solda as _solda
 from . import perguntas as _perguntas
 from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
+from . import paredes_edicao as _paredes_edicao
+from . import paredes_composicao as _paredes_composicao
 from . import formas as _formas
 from . import gavetas as _gavetas
 from . import prateleiras as _prateleiras
@@ -65,7 +68,8 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
-            _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias)
+            _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
+            _paredes_edicao, _paredes_composicao)
 
 
 def _ligar_modulos():
@@ -83,6 +87,16 @@ _ligar_modulos()
 
 
 CLASSES = (
+    _paredes_composicao.OBJECT_OT_redistribuir_parede,
+    _paredes_composicao.OBJECT_OT_trocar_modelo_parede,
+    _paredes_composicao.OBJECT_OT_editar_cota_parede,
+    _paredes_edicao.OBJECT_OT_editar_parede,
+    _paredes_edicao.OBJECT_OT_sair_parede,
+    _paredes_edicao.OBJECT_OT_escolher_vao_parede,
+    _paredes_edicao.OBJECT_OT_cancelar_previa_parede,
+    _paredes_edicao.OBJECT_OT_distribuir_parede,
+    _paredes_edicao.OBJECT_OT_observar_parede,
+    _paredes_edicao.VIEW3D_MT_parede_cabinet,
     _biblioteca_faixa.OBJECT_OT_recolher_biblioteca,
     _biblioteca_faixa.OBJECT_OT_acao_item_biblioteca,
     _opcoes.CabinetCreatorPreferences,
@@ -133,6 +147,9 @@ CLASSES = (
     _gaveta_eventos.OBJECT_OT_opcoes_gaveta,
     _gaveta_eventos.OBJECT_OT_editar_medida_gaveta,
     _hud.OBJECT_OT_arrastar_hud,
+    _hud_volume.OBJECT_OT_confirmar_volume,
+    _hud_volume.OBJECT_OT_observar_volume,
+    _hud_volume.OBJECT_OT_transformar_volume,
     _gaveta_eventos.OBJECT_OT_interagir_gaveta,
     _gaveta_eventos.OBJECT_OT_alternar_gaveta,
     _chapas.OBJECT_OT_marcar_como_chapa,
@@ -314,6 +331,7 @@ def register():
     for c in CLASSES:
         bpy.utils.register_class(c)
     _gavetas.registrar_macro_ancora()
+    _hud_volume.registrar_macro()
     _gavetas.registrar_macro_criacao()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
@@ -455,9 +473,12 @@ def register():
 
     _garantir_unidade_padrao_mm()
     bpy.types.VIEW3D_MT_object_context_menu.append(_portas.menu_contexto_porta)
+    bpy.types.VIEW3D_MT_object_context_menu.append(_paredes_edicao.menu_contexto)
 
     if _chapas.ao_atualizar_depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_chapas.ao_atualizar_depsgraph)
+    if _paredes_composicao.invalidar_interiores not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_paredes_composicao.invalidar_interiores)
     for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao not in lista:
@@ -481,6 +502,13 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    _paredes_edicao.encerrar()
+    _paredes_composicao.esquecer()
+    _paredes_edicao._ultima_face[0] = None
+    _paredes_edicao._alvo_contexto[0] = None
+    _paredes_edicao._aviso[0] = ''
+    _paredes_edicao._sequencia[0] = 0
+    bpy.types.VIEW3D_MT_object_context_menu.remove(_paredes_edicao.menu_contexto)
     _solda.encerrar_conexao_nativa()
     bpy.types.VIEW3D_MT_object_context_menu.remove(_portas.menu_contexto_porta)
     _solda._tecla_corrente_segurada[0] = False
@@ -516,6 +544,8 @@ def unregister():
                   _orcamento._apagar_orcamento_gerado):
         if bpy.app.timers.is_registered(timer):
             bpy.app.timers.unregister(timer)
+    _hud_volume.terminar(bpy.context, cancelar=True)
+    _hud_volume._remover_observador()
     _hud._edicao_hud[0] = None
     _hud._hover_hud.clear()
     _hud._clique_chapa_hud.clear()
@@ -593,6 +623,8 @@ def unregister():
         bpy.app.timers.unregister(_preparar_frentes_adiado)
     if _chapas.ao_atualizar_depsgraph in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_chapas.ao_atualizar_depsgraph)
+    if _paredes_composicao.invalidar_interiores in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_paredes_composicao.invalidar_interiores)
     for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao in lista:
@@ -601,6 +633,8 @@ def unregister():
     # contorno para sempre
     _eventos.sincronizar_contornos(devolver=True)
     _eventos._contornos_do_usuario.clear()
+    _eventos._origens_ocultas.clear()
+    _eventos._origens_do_usuario.clear()
     for nome in _PROPS_MEDIDA_UI_OBJETO:
         if hasattr(bpy.types.Object, nome):
             delattr(bpy.types.Object, nome)

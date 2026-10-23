@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 from mathutils import Matrix, Vector
 import bpy
 import bmesh
@@ -255,6 +256,74 @@ class TestDivisorias(unittest.TestCase):
             campos = [w for w in widgets if w[5] and w[5][:2] == ('medida', 'divisorias')]
             self.assertGreaterEqual(len(campos), 7)
             self.assertTrue(all(w[0] + w[2] <= min(largura - 12, 552) + .01 for w in campos))
+
+    def test_clique_simples_isola_grupo_e_duplo_isola_divisoria(self):
+        # Regressao v282: clique e HUD devem conservar o mesmo escopo.
+        grupo = self.criar(2)
+        chapa = D.pecas(grupo)[1]
+        addon.hud._selecionar_chapa_hud(bpy.context, chapa)
+        op = SimpleNamespace(clique=False, modo='GRUPO', toggle=False, extend=False)
+        evento = SimpleNamespace(mouse_region_x=50, mouse_region_y=60)
+        class Contexto:
+            region = SimpleNamespace(as_pointer=lambda: 4242)
+            def __getattr__(self, nome):
+                return getattr(bpy.context, nome)
+        with patch.object(addon.hud, '_raio_hud', return_value=(chapa, None)), \
+             patch.object(addon.hud, '_ferragem_sob_mouse', return_value=None), \
+             patch.object(addon.portas_viewport, '_slider_sob_mouse', return_value=None), \
+             patch.object(G, 'slider_sob_mouse', return_value=None):
+            self.assertEqual(addon.selecao.OBJECT_OT_selecionar._invoke(op, Contexto(), evento), {'FINISHED'})
+            self.assertEqual(set(bpy.context.selected_objects), {grupo, *D.pecas(grupo)})
+            self.assertIs(bpy.context.object, grupo)
+            self.assertEqual(bpy.context.scene.cabinet_aba, 'DIVISORIAS')
+            self.assertEqual(addon.hud._itens_da_selecao(bpy.context), [(grupo, 'DIVISORIAS', [])])
+            self.assertEqual(set(addon.selecao.malhas_para_editar(bpy.context)), set(D.pecas(grupo)))
+            op.modo = 'INDIVIDUAL'
+            addon.selecao.OBJECT_OT_selecionar._invoke(op, Contexto(), evento)
+            self.assertEqual(bpy.context.selected_objects, [chapa])
+            self.assertEqual(addon.selecao.malhas_para_editar(bpy.context), [])
+
+    def test_hud_exibe_vaos_laterais_reais_sem_somar_espessura(self):
+        grupo = self.criar(2, vaos_mm=[200, 300, 428])
+        D.selecionar(bpy.context, grupo)
+        geo = addon.hud._geometria_do_item(*addon.hud._itens_da_selecao(bpy.context)[0])
+        linhas = geo['linhas']
+        vaos = [l for l in linhas if l.get('vao')]
+        self.assertEqual([l['face'] for l in vaos], [('V', k) for k in range(3)])
+        self.assertEqual({l['rotulo'] for l in linhas if l.get('letra')}, {'A1', 'A2', 'A3'})
+        for linha, valor in zip(vaos, (200, 300, 428)):
+            self.assertAlmostEqual(addon.hud._valor_hud(linha), valor, delta=.01)
+            self.assertAlmostEqual((linha['pontos'][1] - linha['pontos'][0]).length * 1000, valor, delta=.01)
+        inversa = grupo.matrix_world.inverted()
+        def projetar(p):
+            local = inversa @ p * 1000
+            return Vector((local.x, local.z))
+        alvo = addon.hud._acertar_linhas_hud(geo, (100, 582), projetar)
+        self.assertEqual(alvo['face'], ('V', 0))
+        self.assertEqual(alvo['tipo'], 'divisorias')
+        with patch.object(addon.hud, '_projetar_hud', side_effect=lambda c, p: projetar(p)):
+            rotulos = addon.hud._rotulos_hud(bpy.context, geo, None)
+        self.assertEqual(len(rotulos), 6)
+
+    def test_hud_edita_vao_e_esc_restaura_tambem_dependentes(self):
+        self.sistemas()
+        grupo = self.criar()
+        D.selecionar(bpy.context, grupo)
+        geo = addon.hud._geometria_do_item(grupo, 'DIVISORIAS', [])
+        alvo = next(l for l in geo['linhas'] if l.get('vao'))
+        estado = addon.hud._estado_arraste_hud(bpy.context, alvo)
+        addon.hud._aplicar_valor_hud(bpy.context, alvo, 400)
+        self.assertEqual(sorted(round(G.vao(g)[0]) for g in G.grupos_do_modulo(self.conj)), [400, 546])
+        addon.hud._restaurar_arraste_hud(bpy.context, estado)
+        self.assertEqual([round(addon.hud._valor_hud(l)) for l in D.linhas_hud(grupo, [])[1] if l.get('vao')], [473, 473])
+        for g in G.grupos_do_modulo(self.conj):
+            self.assertAlmostEqual(G.vao(g)[0], 473, delta=.01)
+
+    def test_modulo_selecionado_absorve_hud_da_divisoria(self):
+        grupo = self.criar()
+        addon.hud._selecionar_chapa_hud(bpy.context, D.pecas(grupo)[0])
+        itens = addon.hud._itens_da_selecao(bpy.context)
+        self.assertEqual([(o, modo) for o, modo, _c in itens], [(self.conj, 'GRUPO')])
 
     def test_undo_redo_restaura_quantidades_e_malhas_nativas(self):
         self.sistemas()

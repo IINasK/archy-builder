@@ -9,6 +9,7 @@ O assistente com eventos de verdade esta' em `gui_interacao.py`.
 """
 import os
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -24,6 +25,186 @@ P = addon.prateleiras
 
 
 class TestPrateleiras(unittest.TestCase):
+    def test_quantidade_local_subdivide_so_entre_os_apoios_e_reutiliza_a_familia(self):
+        grupo = self.prateleiras()
+        baixo, alvo, cima = P.prateleiras_do_grupo(grupo)
+        antes = [(o.matrix_world.copy(), self.geometria(o), o.data) for o in (baixo, cima)]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 2))
+        self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 4)
+        for obj, (matriz, geometria, malha) in zip((baixo, cima), antes):
+            self.assertEqual(obj.matrix_world, matriz)
+            self.assertEqual(self.geometria(obj), geometria)
+            self.assertEqual(obj.data, malha)
+        detalhe = P.detalhamento(grupo, alvo)
+        self.assertEqual(detalhe['quantidade'], 2)
+        self.assertAlmostEqual(detalhe['baixo'], 170.5, places=3)
+        self.assertAlmostEqual(detalhe['cima'], 493.5, places=3)
+        for g in detalhe['vaos']:
+            self.assertAlmostEqual(g, (323 - 36) / 3, places=3)
+        copia = detalhe['unidades'][1]
+        P.selecionar(bpy.context, copia, 'PRATELEIRA')
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 3))
+        self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 5)
+        self.assertEqual(P.detalhamento(grupo, copia)['quantidade'], 3)
+        self.assertEqual(P.individual_ativo(bpy.context, grupo), copia)
+        detalhe = P.detalhamento(grupo, copia)
+        apoio = cima.matrix_world.copy()
+        self.assertIsNone(P.editar(bpy.context, grupo, 'vao_%d' % (detalhe['ultimo'] + 1), 40))
+        self.assertEqual(cima.matrix_world, apoio)
+        self.assertEqual(bpy.ops.object.cabinet_alinhar_prateleiras(), {'FINISHED'})
+        for g in P.detalhamento(grupo, copia)['vaos']:
+            self.assertAlmostEqual(g, (323 - 54) / 4, places=3)
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 1))
+        self.assertEqual(P.detalhamento(grupo, copia)['unidades'], [copia])
+        self.assertAlmostEqual(self.alturas(grupo)[1], 323, places=3)
+        self.assertEqual(bpy.context.object, copia)
+
+    def test_selecao_local_tem_contador_e_caixa_limitados_e_grupo_tem_total(self):
+        grupo = self.prateleiras()
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
+        for nivel, quantidade, limites, nomes in (
+                ('PRATELEIRA', 1, (170.5, 493.5), ['E2', 'E3']),
+                ('GRUPO', 3, (0., 664.), ['E1', 'E2', 'E3', 'E4'])):
+            P.selecionar(bpy.context, alvo, nivel)
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
+            contador, = [w[5] for w in widgets if w[5] and w[5][:2] ==
+                          ('contador', 'prateleiras_quantidade')]
+            self.assertEqual(contador[2], quantidade)
+            campos = [w[5] for w in widgets if w[5] and w[5][0] == 'medida'
+                      and w[5][1] == 'prateleiras' and w[5][2].startswith('vao_')]
+            self.assertEqual([c[3] for c in campos], nomes)
+            cantos, _linhas = P.linhas_hud(grupo, [])
+            zs = [(grupo.matrix_world.inverted() @ c).z * 1000 for c in cantos]
+            self.assertAlmostEqual(min(zs), limites[0], places=2)
+            self.assertAlmostEqual(max(zs), limites[1], places=2)
+
+    def test_detalhamento_preserva_quatro_gavetas_e_herda_madeira_em_modulo_girado(self):
+        self.conj.rotation_euler = (.2, -.3, .6)
+        bpy.context.view_layer.update()
+        gavetas = addon.gavetas.criar_gavetas(bpy.context, self.conj, (18,18,18,300,0),
+                                             dict(quantidade=4, profundidade_mm=400))
+        grupo = self.prateleiras(quantidade=2, espacamento='LIVRE', vaos_mm=[400., 100.])
+        apoio, alvo = P.prateleiras_do_grupo(grupo)
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        self.recortar(alvo)
+        P.editar(bpy.context, grupo, 'profundidade_mm', 420)
+        alvo.modifiers.new('Acabamento local', 'BEVEL').width = .002
+        mat = bpy.data.materials.new('Madeira do detalhe')
+        alvo.data.materials.append(mat)
+        geometria = self.geometria(alvo)
+        malha = alvo.data
+        preservados = [apoio, *gavetas.children_recursive]
+        antes = [(o, o.matrix_world.copy(), o.data, self.geometria(o) if o.type == 'MESH' else None)
+                 for o in preservados]
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 2))
+        for o, mundo, dados, forma in antes:
+            self.assertEqual(o.matrix_world, mundo)
+            self.assertEqual(o.data, dados)
+            if forma is not None:
+                self.assertEqual(self.geometria(o), forma)
+        detalhe = P.detalhamento(grupo, alvo)
+        self.assertAlmostEqual(detalhe['baixo'], 418, places=3)
+        self.assertEqual(alvo.data, malha)
+        self.assertEqual(len({o['chapa_uid'] for o in detalhe['unidades']}), 2)
+        for o in detalhe['unidades']:
+            self.assertEqual(self.geometria(o), geometria)
+            self.assertEqual(o.data.materials[0], mat)
+            self.assertAlmostEqual(o.modifiers[0].width, .002)
+        self.assertIsNone(P.editar(bpy.context, grupo, 'espessura_mm', 25))
+        for o in detalhe['unidades']:
+            self.assertAlmostEqual(o.chapa_espessura_mm, 25)
+        self.assertAlmostEqual(apoio.chapa_espessura_mm, 18)
+
+    def test_contador_local_digitado_arrastado_e_esc_mantem_escopo(self):
+        grupo = self.prateleiras()
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
+        acao, = [w[5] for w in addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
+                  if w[5] and w[5][:2] == ('contador', 'prateleiras_quantidade')]
+        self.assertEqual(acao[2], 1)
+        self.assertEqual(acao[5], alvo.name)
+        ctx = SimpleNamespace(mode='OBJECT', screen=bpy.context.screen,
+                              area=SimpleNamespace(tag_redraw=lambda: None))
+        ev = addon.gaveta_eventos
+        for cancelar in (True, False):
+            op = SimpleNamespace(_campo=dict(acao=acao, x0=0, arrastou=False, valor=1, meio=20))
+            self.assertEqual(ev.OBJECT_OT_interagir_gaveta._modal_campo(op, ctx,
+                SimpleNamespace(type='MOUSEMOVE', mouse_region_x=24)), {'RUNNING_MODAL'})
+            self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 3)
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
+            self.assertTrue(any(w[4] == '2' and w[5] == acao for w in widgets))
+            evento = SimpleNamespace(type='ESC' if cancelar else 'LEFTMOUSE',
+                                     value='PRESS' if cancelar else 'RELEASE')
+            ev.OBJECT_OT_interagir_gaveta._modal_campo(op, ctx, evento)
+            self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 3 if cancelar else 4)
+        self.assertIsNone(ev.aplicar_medida(bpy.context, 'contador', alvo.name,
+                                           'prateleiras_quantidade', 1))
+        self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 3)
+
+    def test_detalhamento_inviavel_nao_altera_cena_e_zero_remove_so_o_trecho(self):
+        grupo = self.prateleiras()
+        baixo, alvo, cima = P.prateleiras_do_grupo(grupo)
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        P.editar(bpy.context, grupo, 'espessura_mm', 100)
+        antes = P.copia(grupo)
+        mundos = [o.matrix_world.copy() for o in (baixo, alvo, cima)]
+        self.assertIsNotNone(P.editar(bpy.context, grupo, 'quantidade', 10))
+        self.assertEqual(P.copia(grupo), antes)
+        self.assertEqual([o.matrix_world for o in (baixo, alvo, cima)], mundos)
+        self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 3)
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 0))
+        self.assertEqual(P.prateleiras_do_grupo(grupo), [baixo, cima])
+        self.assertEqual([o.matrix_world for o in (baixo, cima)], [mundos[0], mundos[2]])
+
+    def test_undo_redo_de_detalhar_preserva_vinculo_e_apoios(self):
+        addon.eventos._fim_do_desfazer()
+        self.addCleanup(addon.eventos._fim_do_desfazer)
+        grupo = self.prateleiras()
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        nome, nome_alvo = grupo.name, alvo.name
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        bpy.ops.ed.undo_push(message='Antes de subdividir')
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 2))
+        depois = self.alturas(grupo)
+        bpy.ops.ed.undo_push(message='Trecho subdividido')
+        bpy.ops.ed.undo()
+        grupo, alvo = bpy.data.objects[nome], bpy.data.objects[nome_alvo]
+        self.assertEqual(self.alturas(grupo), [152.5, 323., 493.5])
+        self.assertNotIn(P.CHAVE_DETALHAMENTO, alvo)
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        grupo, alvo = bpy.data.objects[nome], bpy.data.objects[nome_alvo]
+        self.assertEqual(self.alturas(grupo), depois)
+        self.assertEqual(P.detalhamento(grupo, alvo)['quantidade'], 2)
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 3))
+        self.assertEqual(P.detalhamento(grupo, alvo)['quantidade'], 3)
+
+    def test_detalhamento_gravado_em_blend_reabre_com_escopo_local(self):
+        grupo = self.prateleiras()
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 2))
+        uid = alvo[P.CHAVE_DETALHAMENTO]
+        with tempfile.TemporaryDirectory(prefix='cabinet_detalhamento_') as pasta:
+            caminho = os.path.join(pasta, 'detalhamento.blend')
+            bpy.data.libraries.write(caminho, {self.conj, *self.conj.children_recursive})
+            with bpy.data.libraries.load(caminho, link=False) as (origem, destino):
+                destino.objects = list(origem.objects)
+            for obj in destino.objects:
+                if obj is not None:
+                    bpy.context.scene.collection.objects.link(obj)
+            bpy.context.view_layer.update()
+            novo = next(o for o in destino.objects if o is not None and P.MARCA_GRUPO in o)
+            folha = next(o for o in P.prateleiras_do_grupo(novo) if o.get(P.CHAVE_DETALHAMENTO) == uid)
+            P.selecionar(bpy.context, folha, 'PRATELEIRA')
+            self.assertEqual(P.detalhamento(novo, folha)['quantidade'], 2)
+            self.assertIsNone(P.editar(bpy.context, novo, 'quantidade', 3))
+            self.assertEqual(P.detalhamento(novo, folha)['quantidade'], 3)
+            self.assertEqual(P.detalhamento(grupo, alvo)['quantidade'], 2)
+
     def test_excluir_qualquer_unidade_preserva_posicoes_e_recalcula_hud_e_menu(self):
         for apagada in (2, 1, 0):
             with self.subTest(apagada=apagada):
@@ -116,7 +297,7 @@ class TestPrateleiras(unittest.TestCase):
         self.assertIsNone(P.editar_individual(bpy.context, grupo, 1, 'espessura_mm', 25))
         bpy.data.objects.remove(P.prateleiras_do_grupo(grupo)[2], do_unlink=True)
         # O clique tambem precisa absorver exclusao ainda nao vista pelo timer.
-        P.selecionar(bpy.context, fonte, 'PRATELEIRA')
+        P.selecionar(bpy.context, grupo, 'GRUPO')
         restantes = P.prateleiras_do_grupo(grupo)
         antes = [(o.data, self.geometria(o)) for o in restantes]
         self.assertIn(P.OBJECT_OT_alinhar_prateleiras, addon.CLASSES)
@@ -132,6 +313,71 @@ class TestPrateleiras(unittest.TestCase):
         for g in P.vaos(664, p):
             self.assertAlmostEqual(g, esperado, places=4)
         self.assertAlmostEqual(self.alturas(grupo)[1], 2 * esperado + 18, places=2)
+
+    def test_centralizar_individual_iguala_so_vaos_vizinhos_e_preserva_madeira(self):
+        for quantidade, indice in ((3, 0), (3, 1), (3, 2), (1, 0)):
+            with self.subTest(quantidade=quantidade, indice=indice):
+                grupo = self.prateleiras(quantidade=quantidade, espacamento='LIVRE',
+                                         vaos_mm=[40., 160., 110.][:quantidade])
+                unidades = P.prateleiras_do_grupo(grupo)
+                alvo = unidades[indice]
+                self.recortar(alvo)
+                self.assertIsNone(P.editar_individual(
+                    bpy.context, grupo, indice, 'espessura_mm', 25))
+                P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+                antes = [(o.data, self.geometria(o), o.matrix_world.copy()) for o in unidades]
+                alturas = self.alturas(grupo)
+                altura = P.vao(grupo)[1]
+                # Limites sao as faces das vizinhas, ou o limite do vao.
+                apoio_baixo = alturas[indice - 1] + 18 if indice else 0
+                apoio_cima = alturas[indice + 1] if indice + 1 < quantidade else altura
+                esperado = (apoio_baixo + apoio_cima - 25) / 2
+                self.assertEqual(bpy.ops.object.cabinet_alinhar_prateleiras(), {'FINISHED'})
+                self.assertAlmostEqual(self.alturas(grupo)[indice], esperado, places=3)
+                for i, (o, (malha, geometria, matriz)) in enumerate(zip(unidades, antes)):
+                    self.assertEqual(o.data, malha)
+                    self.assertEqual(self.geometria(o), geometria)
+                    if i != indice:
+                        self.assertEqual(o.matrix_world, matriz)
+                g = P.vaos(altura, P.parametros(grupo))
+                self.assertAlmostEqual(g[indice], g[indice + 1], places=5)
+                self.assertEqual(bpy.context.object, alvo)
+                self.assertEqual(list(bpy.context.selected_objects), [alvo])
+
+    def test_centralizar_individual_absorve_exclusao_e_remapeia_indice(self):
+        grupo = self.prateleiras()
+        unidades = P.prateleiras_do_grupo(grupo)
+        alvo = unidades[2]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        apoio = self.alturas(grupo)[1] + 18
+        vizinha = unidades[1]
+        antes = vizinha.matrix_world.copy()
+        bpy.data.objects.remove(unidades[0], do_unlink=True)
+        self.assertEqual(bpy.ops.object.cabinet_alinhar_prateleiras(), {'FINISHED'})
+        self.assertEqual(P.parametros(grupo)['quantidade'], 2)
+        self.assertEqual(alvo[P.CHAVE_INDICE], 1)
+        self.assertEqual(vizinha.matrix_world, antes)
+        self.assertAlmostEqual(self.alturas(grupo)[1], (apoio + 664 - 18) / 2, places=3)
+
+    def test_centralizar_individual_undo_redo_restaura_posicao_e_selecao(self):
+        # Em background o loop nao executa o timer que libera a guarda.
+        self.addCleanup(addon.eventos._fim_do_desfazer)
+        grupo = self.prateleiras(espacamento='LIVRE', vaos_mm=[40., 160., 110.])
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        nome_grupo, nome_alvo = grupo.name, alvo.name
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        antes = self.alturas(grupo)
+        bpy.ops.ed.undo_push(message='Prateleira individual antes de centralizar')
+        self.assertEqual(bpy.ops.object.cabinet_alinhar_prateleiras(), {'FINISHED'})
+        depois = self.alturas(grupo)
+        self.assertNotEqual(antes[1], depois[1])
+        bpy.ops.ed.undo_push(message='Prateleira individual centralizada')
+        bpy.ops.ed.undo()
+        self.assertEqual(self.alturas(bpy.data.objects[nome_grupo]), antes)
+        self.assertEqual(bpy.context.object.name, nome_alvo)
+        bpy.ops.ed.redo()
+        self.assertEqual(self.alturas(bpy.data.objects[nome_grupo]), depois)
+        self.assertEqual(bpy.context.object.name, nome_alvo)
 
     def test_secao_espacamento_tem_campos_E_e_botao_sem_sobreposicao_em_tres_larguras(self):
         grupo = self.prateleiras()
@@ -163,7 +409,8 @@ class TestPrateleiras(unittest.TestCase):
                     self.assertLess(icone[1] + icone[3], contador[1])
                     campos_E = [w for w in widgets if w[5] and w[5][0] == 'medida'
                                 and w[5][2].startswith('vao_')]
-                    self.assertEqual([w[5][3] for w in campos_E], ['E1', 'E2', 'E3', 'E4'])
+                    esperado = ['E1', 'E2', 'E3', 'E4'] if nivel == 'GRUPO' else ['E1', 'E2']
+                    self.assertEqual([w[5][3] for w in campos_E], esperado)
                     self.assertTrue(all(w[1] + w[3] <= icone[1] for w in campos_E))
                     self.assertFalse(any(w[5] and w[5][:2] == ('escolha', 'prateleiras_espacamento')
                                          for w in widgets))
@@ -269,7 +516,7 @@ class TestPrateleiras(unittest.TestCase):
         P.selecionar(bpy.context, grupo, 'GRUPO')
         self.assertIsNone(P.editar(bpy.context, grupo, 'entre_mm', 80))
         P.selecionar(bpy.context, atuais[1], 'PRATELEIRA')
-        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 5))
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 5, referencia=atuais[1]))
         self.assertEqual(P.parametros(grupo)['espacamento'], 'IGUAL')
         self.assertTrue(all(abs(o.chapa_espessura_mm - 80) < .001
                             for o in P.prateleiras_do_grupo(grupo)))
@@ -393,6 +640,120 @@ class TestPrateleiras(unittest.TestCase):
         bm.verts[0].co.y += .021
         bmesh.update_edit_mesh(obj.data)
 
+    def conferir_cotas_de_posicao(self, grupo, esperado):
+        for atual, valor in zip(P.vaos(P.vao(grupo)[1], P.parametros(grupo)), esperado):
+            self.assertAlmostEqual(atual, valor, places=2)
+        _cantos, linhas = P.linhas_hud(grupo, P.prateleiras_do_grupo(grupo))
+        linhas = [l for l in linhas if l.get('vao')]
+        fonte = P.individual_ativo(bpy.context, grupo)
+        indices = ([int(fonte[P.CHAVE_INDICE]), int(fonte[P.CHAVE_INDICE]) + 1]
+                   if fonte else list(range(len(esperado))))
+        visiveis = [esperado[i] for i in indices]
+        self.assertEqual(len(linhas), len(visiveis))
+        for linha, valor in zip(linhas, visiveis):
+            self.assertAlmostEqual((linha['pontos'][1] - linha['pontos'][0]).length * 1000,
+                                   valor, places=2)
+        bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
+        widgets = addon.gaveta._widgets_gaveta(bpy.context, 320, 1400)
+        campos = [w[5] for w in widgets if w[5] and w[5][0] == 'medida'
+                  and w[5][1] == 'prateleiras' and w[5][2].startswith('vao_')]
+        self.assertEqual(len(campos), len(visiveis))
+        for campo, valor in zip(campos, visiveis):
+            self.assertAlmostEqual(campo[4], valor, places=2)
+
+    def test_g_nativo_em_tab_individual_e_global_atualiza_cotas_sem_mover_vizinhas(self):
+        self.conj.rotation_euler = (.2, -.3, .7)
+        bpy.context.view_layer.update()
+        for nivel, deslocamento in (('PRATELEIRA', 40.), ('GRUPO', -40.)):
+            with self.subTest(nivel=nivel):
+                grupo = self.prateleiras()
+                pecas = P.prateleiras_do_grupo(grupo)
+                alvo = pecas[1]
+                P.selecionar(bpy.context, alvo, nivel)
+                antes = [o.matrix_world.copy() for o in pecas]
+                malhas = [o.data for o in pecas]
+                bpy.ops.object.cabinet_editar_grupo()
+                for obj in bpy.context.objects_in_mode:
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    for v in bm.verts:
+                        v.select_set(obj == alvo)
+                    bmesh.update_edit_mesh(obj.data)
+                delta = grupo.matrix_world.to_3x3() @ Vector((0, 0, deslocamento / 1000))
+                self.assertEqual(bpy.ops.transform.translate(value=delta), {'FINISHED'})
+                P.sincronizar_exclusoes_da_cena()
+                self.assertEqual(P.vaos(664, P.parametros(grupo)), [152.5] * 4)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                addon.eventos.verificar_periodicamente()
+                self.conferir_cotas_de_posicao(grupo,
+                    [152.5, 152.5 + deslocamento, 152.5 - deslocamento, 152.5])
+                self.assertEqual([o.data for o in pecas], malhas)
+                for i in (0, 2):
+                    self.assertEqual(pecas[i].matrix_world, antes[i])
+                alturas = self.alturas(grupo)
+                P.montar(grupo)
+                self.assertEqual(self.alturas(grupo), alturas)
+
+    def test_g_nativo_em_objeto_sincroniza_so_apos_confirmar_e_conserva_encaixe(self):
+        grupo = self.prateleiras()
+        P.atualizar_do_conjunto(self.conj)
+        pecas = P.prateleiras_do_grupo(grupo)
+        alvo = pecas[1]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        self.assertEqual(bpy.ops.transform.translate(value=(0, 0, .04)), {'FINISHED'})
+        with patch.object(addon.eventos, '_ha_modal_ativo', return_value=True):
+            addon.eventos.verificar_periodicamente()
+        self.assertAlmostEqual(P.vaos(664, P.parametros(grupo))[1], 152.5)
+        addon.eventos.verificar_periodicamente()
+        self.conferir_cotas_de_posicao(grupo, [152.5, 192.5, 112.5, 152.5])
+        antes = self.alturas(grupo)
+        P.atualizar_do_conjunto(self.conj)
+        self.assertEqual(self.alturas(grupo), antes)
+        with patch.object(P, 'montar', side_effect=AssertionError('Remontou no timer')):
+            addon.eventos.verificar_periodicamente()
+        self.assertEqual(P.prateleiras_do_grupo(grupo), pecas)
+
+    def test_g_cruzando_prateleira_reordena_cotas_e_conserva_parametros_individuais(self):
+        grupo = self.prateleiras()
+        self.assertIsNone(P.editar_individual(bpy.context, grupo, 1, 'recuo_mm', 35))
+        a, b, c = P.prateleiras_do_grupo(grupo)
+        P.selecionar(bpy.context, b, 'PRATELEIRA')
+        self.assertEqual(bpy.ops.transform.translate(value=(0, 0, .2)), {'FINISHED'})
+        addon.eventos.verificar_periodicamente()
+        self.assertEqual(P.prateleiras_do_grupo(grupo), [a, c, b])
+        self.conferir_cotas_de_posicao(grupo, [152.5, 323., 11.5, 123.])
+        self.assertEqual(P.parametros_individuais(P.parametros(grupo), 2)['recuo_mm'], 35)
+        self.assertEqual(bpy.context.object, b)
+
+    def test_undo_redo_do_g_nativo_restaura_malha_posicao_e_cotas(self):
+        # O teste de undo anterior nao entrega o loop ao timer em background.
+        addon.eventos._fim_do_desfazer()
+        self.addCleanup(addon.eventos._fim_do_desfazer)
+        grupo = self.prateleiras()
+        nome = grupo.name
+        alvo = P.prateleiras_do_grupo(grupo)[1]
+        P.selecionar(bpy.context, alvo, 'PRATELEIRA')
+        bpy.ops.ed.undo_push(message='Antes de G na prateleira')
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.transform.translate(value=(0, 0, .04))
+        bpy.ops.object.mode_set(mode='OBJECT')
+        addon.eventos.verificar_periodicamente()
+        bpy.ops.ed.undo_push(message='G confirmado e cotas atualizadas')
+        bpy.ops.ed.undo()
+        grupo = bpy.data.objects[nome]
+        self.conferir_cotas_de_posicao(grupo, [152.5] * 4)
+        self.assertEqual(self.alturas(grupo), [152.5, 323., 493.5])
+        bpy.ops.ed.redo()
+        grupo = bpy.data.objects[nome]
+        self.conferir_cotas_de_posicao(grupo, [152.5, 192.5, 112.5, 152.5])
+        self.assertEqual(self.alturas(grupo), [152.5, 363., 493.5])
+        antes = P.copia(grupo)
+        addon.eventos.verificar_periodicamente()
+        self.assertEqual(P.copia(grupo), antes)
+        addon.eventos._fim_do_desfazer()
+        addon.eventos.verificar_periodicamente()
+        self.conferir_cotas_de_posicao(grupo, [152.5, 192.5, 112.5, 152.5])
+
     def test_tab_individual_isola_malha_compartilhada_e_preserva_vizinhas(self):
         grupo = self.prateleiras()
         a, b, c = P.prateleiras_do_grupo(grupo)
@@ -457,7 +818,7 @@ class TestPrateleiras(unittest.TestCase):
         mat = bpy.data.materials.new('Madeira da matriz')
         fonte.data.materials.append(mat)
         esperado = self.geometria(fonte)
-        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 5))
+        self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 5, referencia=fonte))
         self.assertIsNone(P._referencia_pendente[0])
         atuais = P.prateleiras_do_grupo(grupo)
         for obj in atuais[3:]:
@@ -656,12 +1017,47 @@ class TestPrateleiras(unittest.TestCase):
         self.assertIsNone(P.editar(bpy.context, grupo, 'espacamento', 'IGUAL'))
         self.assertEqual(self.alturas(grupo), antes)
 
+    def test_reducao_com_folga_preserva_prateleiras_e_so_adapta_ao_encostar(self):
+        grupo = P.criar_prateleiras(bpy.context,self.conj,(18,382,18,382,0),
+                                    dict(quantidade=2, profundidade_mm=400))
+        pecas = P.prateleiras_do_grupo(grupo)
+        antes = P.medidas(grupo)
+        for largura in (1000,900,700,600):
+            self.conj.conj_largura_mm = largura
+            bpy.context.view_layer.update()
+            self.assertAlmostEqual(P.medidas(grupo)[0],antes[0],delta=.05)
+        self.conj.conj_altura_mm=600
+        self.assertAlmostEqual(P.medidas(grupo)[1],antes[1],delta=.05)
+        self.conj.conj_profundidade_mm=500
+        self.assertAlmostEqual(P.medidas(grupo)[2],antes[2],delta=.05)
+        self.conj.conj_largura_mm=400
+        self.assertAlmostEqual(P.medidas(grupo)[0],364,delta=.05)
+        self.conj.conj_largura_mm=800
+        self.assertAlmostEqual(P.medidas(grupo)[0],antes[0],delta=.05)
+        self.assertEqual(P.prateleiras_do_grupo(grupo),pecas)
+
+    def test_cancelar_resize_do_modulo_restaura_vao_parametros_e_geometria(self):
+        grupo=self.prateleiras()
+        antes=P.copia(grupo)
+        objetos=P.prateleiras_do_grupo(grupo)
+        vertices={o.name:[tuple(v.co) for v in o.data.vertices] for o in objetos}
+        alvo=dict(objeto=self.conj,tipo='medida',modo='GRUPO',eixo=0,lado='min')
+        backup=addon.hud._estado_arraste_hud(bpy.context,alvo)
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,500)
+        self.assertAlmostEqual(P.medidas(grupo)[0],464,delta=.05)
+        addon.hud._restaurar_arraste_hud(bpy.context,backup)
+        self.assertEqual(P.copia(grupo),antes)
+        self.assertAlmostEqual(P.medidas(grupo)[0],764,delta=.05)
+        self.assertNotIn(P.CHAVE_ENCAIXE,grupo)
+        for o in objetos:self.assertEqual([tuple(v.co) for v in o.data.vertices],vertices[o.name])
+
     def test_modulo_que_muda_de_medida_leva_as_prateleiras(self):
         grupo = self.prateleiras()
         self.conj.conj_largura_mm = 1000.0          # dispara o redimensionar
         bpy.context.view_layer.update()
-        self.assertAlmostEqual(P.medidas(grupo)[0], 964.0, places=2)
-        self.assertAlmostEqual(P.prateleiras_do_grupo(grupo)[0].chapa_largura_mm, 964.0, places=2)
+        # v288: aumentar a caixa deixa folga; o bloco conserva a escolha.
+        self.assertAlmostEqual(P.medidas(grupo)[0], 764.0, places=2)
+        self.assertAlmostEqual(P.prateleiras_do_grupo(grupo)[0].chapa_largura_mm, 764.0, places=2)
 
     def test_profundidade_para_no_fundo(self):
         conj = addon.modulos.criar_armario(bpy.context, 'Alto', 600, 900, 400)
@@ -724,13 +1120,14 @@ class TestPrateleiras(unittest.TestCase):
         self.assertTrue({'largura', 'altura', 'profundidade_mm', 'espessura_mm', 'recuo_mm',
                          'folga_lateral_mm', 'vao_0', 'vao_3'} <= medidas, medidas)
         self.assertNotIn('entre_mm', medidas)
-        # Uma so' (duplo) tambem exibe os mesmos vaos E1..En+1.
+        # Uma so' (duplo) mostra apenas os vaos do trecho local.
         segunda = P.prateleiras_do_grupo(grupo)[1]
         P.selecionar(bpy.context, segunda, 'PRATELEIRA')
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]
         rotulos = {a[3]: a[2] for a in acoes if a[0] == 'medida' and a[1] == 'prateleiras'}
-        self.assertEqual([rotulos['E%d' % i] for i in range(1, 5)],
-                         ['vao_%d' % i for i in range(4)])
+        self.assertEqual([rotulos['E%d' % i] for i in (2, 3)], ['vao_1', 'vao_2'])
+        self.assertNotIn('E1', rotulos)
+        self.assertNotIn('E4', rotulos)
         self.assertNotIn('Abaixo', rotulos)
         self.assertNotIn('Acima', rotulos)
         self.assertNotIn('Entre prateleiras', rotulos)

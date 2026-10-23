@@ -366,6 +366,171 @@ def test_arrastar_a_seta_da_hud_estica_com_a_quina_parada(janela, m):
     assert (nova['cantos'][linha['cantos'][0]] - fixa).length < 1e-4
 
 
+def test_circulo_da_face_translate_b_esc_e_undo(janela, m):
+    conj = criar_modulo(janela)
+    nome = conj.name
+    selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
+    aproximar(janela, conj)
+    yield
+    yield
+    area, regiao, rv3d = viewport(janela)
+    geo = addon.hud._geometria_do_item(conj, 'GRUPO', addon.modulos._chapas_do_conjunto(conj))
+    controle = next(c for c in addon.hud_volume.controles(geo)
+                    if c['eixo'] == 0 and c['lado'] == 'min')
+    inicio = Vector(na_tela(regiao, rv3d, controle['pontos'][1]))
+    largura = conj.conj_largura_mm
+    cursor = bpy.context.scene.cursor.location.copy()
+    m.mover(*inicio)
+    yield
+    m.apertar()
+    yield
+    m.mover(*(inicio + Vector((15, 0))))
+    yield
+    assert addon.hud_volume._estado[0] is not None
+    m.tecla('B')
+    yield
+    # Esc cancela tambem durante a escolha nativa da base do snap.
+    m.tecla('ESC')
+    m.soltar()
+    yield
+    assert addon.hud_volume._estado[0] is None
+    assert abs(bpy.data.objects[nome].conj_largura_mm - largura) < .01
+    assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
+    m.mover(*inicio)
+    yield
+    m.apertar()
+    yield
+    m.mover(*(inicio + Vector((15, 0))))
+    yield
+    m.digitar('50mm')
+    m.tecla('RET')
+    m.soltar()
+    yield
+    yield
+    assert addon.hud_volume._estado[0] is None
+    assert abs(bpy.data.objects[nome].conj_largura_mm - largura - 50) < .1
+    with contexto(janela, area, regiao):
+        bpy.ops.ed.undo()
+    yield
+    assert abs(bpy.data.objects[nome].conj_largura_mm - largura) < .01
+
+
+def test_snap_b_depois_de_arrastar_face_nao_soma_deslocamento_anterior(janela, m):
+    # Regressao v290: B usa a posicao atual, sem devolver a madeira ao
+    # inicio. O snap completa so' o que falta ate' o destino fixo.
+    conj=criar_modulo(janela);nome=conj.name
+    chapas=addon.modulos._chapas_do_conjunto(conj)
+    lo,hi=caixa_mundo(chapas)
+    base=Vector((hi.x,lo.y,lo.z))
+    destino=base+Vector((.12,0,0))
+    area,regiao,rv3d=viewport(janela)
+    with contexto(janela,area,regiao):
+        bpy.ops.mesh.primitive_cube_add(size=.02,location=destino+Vector((.01,.01,.01)))
+    selecionar(janela,chapas[0]);aproximar(janela,conj)
+    yield
+    yield
+    geo=addon.hud._geometria_do_item(conj,'GRUPO',chapas)
+    controle=next(c for c in addon.hud_volume.controles(geo) if c['eixo']==0 and c['lado']=='min')
+    inicio=Vector(na_tela(regiao,rv3d,controle['pontos'][1]))
+    largura=conj.conj_largura_mm
+    m.mover(*inicio)
+    yield
+    m.apertar()
+    yield
+    m.mover(*(inicio+Vector((60,0))))
+    yield
+    yield
+    assert abs(conj.conj_largura_mm-largura)>1,'nao houve previa antes de B'
+    largura_ao_apertar_b=conj.conj_largura_mm
+    lo_atual,hi_atual=caixa_mundo(chapas)
+    base_atual=Vector((hi_atual.x,lo_atual.y,lo_atual.z))
+    m.tecla('B')
+    yield
+    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'B perdeu o arraste anterior'
+    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(largura_ao_apertar_b-largura))<.05,'B nao chegou ao observador'
+    m.mover(*na_tela(regiao,rv3d,base_atual))
+    yield
+    m.tecla('B')
+    yield
+    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'confirmar a base alterou a medida'
+    m.mover(*na_tela(regiao,rv3d,destino))
+    yield
+    yield
+    m.tecla('RET')
+    m.soltar()
+    yield
+    yield
+    assert addon.hud_volume._estado[0] is None
+    assert addon.hud_volume._timer_observador[0] is None
+    assert abs(bpy.data.objects[nome].conj_largura_mm-largura-120)<.2
+    with contexto(janela,area,regiao):
+        bpy.ops.ed.undo()
+    yield
+    assert abs(bpy.data.objects[nome].conj_largura_mm-largura)<.05
+
+
+def test_snap_b_gavetas_em_corpo_dobrado_e_girado_alinha_vertice_real(janela, m):
+    g=addon.gavetas
+    conj=criar_modulo(janela)
+    area,regiao,rv3d=viewport(janela)
+    with contexto(janela,area,regiao):
+        grupo=g.criar_gavetas(bpy.context,conj,(18,18,18,18,0),dict(quantidade=4,profundidade_mm=280))
+    nome=grupo.name;largura=g.medidas(grupo)[0]
+    conj.conj_largura_mm*=2
+    conj.rotation_euler.z=math.pi/2
+    bpy.context.view_layer.update()
+    assert abs(g.medidas(grupo)[0]-largura)<.02
+    inv=grupo.matrix_world.inverted();eixo=grupo.matrix_world.to_3x3().normalized().col[0]
+    def ponta_da_frente():
+        frente=g.frente_da_gaveta(g.gavetas_do_grupo(grupo)[0])
+        return max((frente.matrix_world@v.co for v in frente.data.vertices),
+                   key=lambda p:(round((inv@p).x,6),-round((inv@p).z,6),-round((inv@p).y,6)))
+    base=ponta_da_frente()
+    corpo=addon.modulos._chapas_do_conjunto(conj)
+    destino=max((o.matrix_world@v.co for o in corpo for v in o.data.vertices),
+                key=lambda p:(round((inv@p).x,6),-round((inv@p).z,6),-round((inv@p).y,6)))
+    esperado=largura+(destino-base).dot(eixo)*1000
+    with contexto(janela,area,regiao):g.selecionar(bpy.context,grupo,'GRUPO')
+    aproximar(janela,conj)
+    yield
+    yield
+    geo=addon.hud._geometria_do_item(grupo,'GAVETAS',[])
+    controle=next(c for c in addon.hud_volume.controles(geo) if c['eixo']==0 and c['lado']=='min')
+    inicio=Vector(na_tela(regiao,rv3d,controle['pontos'][1]))
+    direcao=(Vector(na_tela(regiao,rv3d,controle['pontos'][1]+eixo*.1))-inicio).normalized()
+    m.mover(*inicio)
+    yield
+    m.apertar()
+    yield
+    m.mover(*(inicio+direcao*45))
+    yield
+    yield
+    atual=g.medidas(grupo)[0]
+    assert abs(atual-largura)>1,'nao houve previa nas gavetas'
+    base_atual=ponta_da_frente()
+    m.tecla('B')
+    yield
+    assert abs(g.medidas(grupo)[0]-atual)<.05,'gavetas voltaram ao tamanho anterior'
+    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(atual-largura))<.05,'B nao foi reconhecido'
+    m.mover(*na_tela(regiao,rv3d,base_atual))
+    yield
+    m.tecla('B')
+    yield
+    m.mover(*na_tela(regiao,rv3d,destino))
+    yield
+    yield
+    m.tecla('RET')
+    m.soltar()
+    yield
+    yield
+    assert addon.hud_volume._estado[0] is None
+    assert abs(g.medidas(grupo)[0]-esperado)<.2
+    assert abs((ponta_da_frente()-destino).dot(eixo))<.0002
+    with contexto(janela,area,regiao):bpy.ops.ed.undo()
+    yield
+    assert abs(g.medidas(bpy.data.objects[nome])[0]-largura)<.05
+
+
 def test_clicar_na_seta_e_digitar_a_medida(janela, m):
     conj = criar_modulo(janela)
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
@@ -680,9 +845,9 @@ def _abrir_wizard(janela, m):
     assert addon.portas._assistente_porta[0] is not None, 'Criar Portas nao abriu'
 
 
-def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
-    # Desenho do usuario: 1 = canto da porta, 2 = do vao, 3 = vao oposto,
-    # 4 = porta oposta. Porta na METADE das duas laterais = Curva, sem
+def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
+    # Dois limites opostos: o vao e' resolvido sem marcar outros cantos.
+    # Porta na METADE das duas laterais = Curva, sem
     # escolher dobradica. Depois: folhas, abertura, borda, qtd, margem.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
@@ -691,8 +856,7 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     y = -P / 2
-    for ponto in ((-L / 2 + E / 2, y, A), (-L / 2 + E, y, A - E),
-                  (L / 2 - E, y, E), (L / 2 - E / 2, y, 0)):
+    for ponto in ((-L / 2 + E / 2, y, A), (L / 2 - E / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     w = addon.portas._assistente_porta[0]
     assert w['etapa'] == 'FOLHAS', w['etapa']
@@ -745,8 +909,8 @@ def test_wizard_quatro_cliques_meia_chapa_vira_curva(janela, m):
 
 
 def test_wizard_correr_metade_metade_pergunta_moldura(janela, m):
-    # Pedido do usuario: 1-2 no MESMO canto de dentro e 3-4 de dentro para
-    # fora num correr = duvida; a caixa (e a copia na gaveta) pergunta
+    # Um limite interno e o oposto externo num correr = duvida;
+    # a caixa (e a copia na gaveta) pergunta
     # "Porta embutida ou com moldura?" e a moldura usa o modulo inteiro
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
@@ -755,8 +919,7 @@ def test_wizard_correr_metade_metade_pergunta_moldura(janela, m):
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     y = -P / 2
-    for ponto in ((-L / 2 + E, y, A - E), (-L / 2 + E, y, A - E),
-                  (L / 2 - E, y, E), (L / 2, y, 0)):
+    for ponto in ((-L / 2 + E, y, A - E), (L / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     w = addon.portas._assistente_porta[0]
     assert w['etapa'] == 'FOLHAS', w['etapa']
@@ -797,8 +960,7 @@ def test_wizard_basculante_com_pistoes(janela, m):
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     y = -P / 2
-    for ponto in ((-L / 2, y, A), (-L / 2 + E, y, A - E),
-                  (L / 2 - E, y, E), (L / 2, y, 0)):
+    for ponto in ((-L / 2, y, A), (L / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     w = addon.portas._assistente_porta[0]
     # respondido pela COPIA da caixa na aba Portas (pedido do usuario);
@@ -876,28 +1038,24 @@ def test_wizard_basculante_com_pistoes(janela, m):
     assert abs(p['dobradicas_margem_mm'] - 80.0) < 1e-3, dict(p)
 
 
-def test_wizard_cobertura_fora_do_padrao_pergunta(janela, m):
-    # Um par certo e o outro muito diferente: "As medidas estao
-    # corretas?" na viewport; Nao = marcar de novo.
+def test_wizard_diagonal_invalida_e_voltar_preservam_primeiro_canto(janela, m):
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     y = -P / 2
-    fora = _local(conj, L / 2 + 40, y, -40)
-    with contexto(janela, area, regiao):
-        bpy.ops.mesh.primitive_cube_add(size=0.002, location=fora)
     bpy.ops.object.select_all(action='DESELECT')
     yield
     yield
     yield from _abrir_wizard(janela, m)
-    for ponto in ((-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
+    for ponto in ((-L / 2, y, A), (-L / 2, y, A)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
-    yield from _clicar_no_mundo(m, regiao, rv3d, fora)
     w = addon.portas._assistente_porta[0]
-    assert w['etapa'] == 'CONFIRMAR', w['etapa']
-    assert w['pergunta'] == 'As medidas estao corretas?'
-    yield from _clicar_botao_do_wizard(m, regiao, 'NAO')
-    assert w['etapa'] == 'DIAGONAL' and not addon.portas._assistente_porta[0] is None
+    assert w['etapa'] == 'DIAGONAL', w['etapa']
+    yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, L / 2, y, 0))
+    assert w['etapa'] == 'FOLHAS', w['etapa']
+    m.tecla('RIGHTMOUSE')
+    yield
+    assert w['etapa'] == 'DIAGONAL', w['etapa']
     m.tecla('ESC')
     yield
     assert addon.portas._assistente_porta[0] is None
@@ -2847,6 +3005,9 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_clique_na_foto_e_depois_na_viewport_posiciona,
        test_clique_na_viewport_seleciona_o_modulo,
        test_arrastar_a_seta_da_hud_estica_com_a_quina_parada,
+       test_circulo_da_face_translate_b_esc_e_undo,
+       test_snap_b_depois_de_arrastar_face_nao_soma_deslocamento_anterior,
+       test_snap_b_gavetas_em_corpo_dobrado_e_girado_alinha_vertice_real,
        test_clicar_na_seta_e_digitar_a_medida,
        test_digitar_no_campo_da_gaveta,
        test_arrastar_o_campo_muda_o_valor,
@@ -2854,10 +3015,10 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_criar_puxador_no_topo_da_aba,
        test_usar_como_puxador_pela_gaveta,
        test_digitar_com_operador_e_cursor_no_meio,
-       test_wizard_quatro_cliques_meia_chapa_vira_curva,
+       test_wizard_dois_cliques_meia_chapa_vira_curva,
        test_wizard_correr_metade_metade_pergunta_moldura,
        test_wizard_basculante_com_pistoes,
-       test_wizard_cobertura_fora_do_padrao_pergunta,
+       test_wizard_diagonal_invalida_e_voltar_preservam_primeiro_canto,
        test_alt_arrasta_o_canto_da_porta,
        test_slider_abre_a_folha,
        test_resetar_pela_gaveta_move_a_chapa_ativa,

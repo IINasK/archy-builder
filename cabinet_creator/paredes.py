@@ -23,6 +23,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = None
 _gaveta_desenho = None
+_paredes_edicao = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -180,6 +181,7 @@ def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
                 triangulos += [pontos[vs[0]], pontos[a], pontos[b]]
         regiao = {
             'face': semente,
+            'faces': tuple(sorted(faces)),
             'retangulo': (min(p.dot(u) for p in pontos.values()),
                           max(p.dot(u) for p in pontos.values()),
                           min(p.z for p in pontos.values()),
@@ -656,6 +658,7 @@ class OBJECT_OT_arrastar_na_parede(Operator):
                 and getattr(preferencias, 'select_mouse', 'LEFT') != 'RIGHT')
 
     def invoke(self, context, event):
+        _paredes_edicao.lembrar_face(context, (event.mouse_region_x, event.mouse_region_y), contexto=True)
         atingido = _hud._raio_cru(context, (event.mouse_region_x,
                                             event.mouse_region_y))
         conj = modulo_de(atingido[0]) if atingido is not None else None
@@ -724,17 +727,22 @@ class OBJECT_OT_arrastar_na_parede(Operator):
             self._status(context, motivo)
             return
         n, u = eixos_da_parede(normal)
-        retangulo = regiao['retangulo']
-        lo, hi = self._caixa
-        escala = conj.matrix_world.to_scale()
-        largura, altura = (hi.x - lo.x) * escala.x, (hi.z - lo.z) * escala.z
-        # o cursor fica no MEIO das costas do modulo
-        s, base = ponto.dot(u), ponto.z - altura / 2.0
+        sessao = dict(parede=parede.name, regiao=regiao, ponto=tuple(ponto),
+                      normal=tuple(n), u=tuple(u))
+        if _paredes_edicao.ativa(context):
+            atual = _paredes_edicao._sessao[0]
+            if atual['parede'] == parede.name and regiao['face'] in atual['regiao']['faces']:
+                sessao = atual
         px = _px_por_metro(self._regiao, self._rv3d, ponto, u)
-        if px:
-            s, base = posicao_no_arraste(retangulo, s, base, largura, altura,
-                                         SNAP_PX / px)
-        costas = ponto + u * (s - ponto.dot(u)) + Z * (base - ponto.z)
+        costas, erro = _paredes_edicao.encaixar_na_face(context, conj, ponto, sessao,
+                                self._caixa, SNAP_PX / px if px else 0)
+        if erro:
+            self._parede = None
+            self._restaurar(context)
+            _arraste_parede[0] = {'modulo': self._modulo, 'valido': False}
+            _guias[0] = None
+            self._status(context, erro)
+            return
         conj.matrix_world = matriz_na_parede(conj, costas, n, u, self._caixa)
         associar(conj, parede, costas, normal, regiao['face'])
         self._parede = parede.name
@@ -774,11 +782,14 @@ class OBJECT_OT_arrastar_na_parede(Operator):
                 bpy.ops.wm.call_menu('INVOKE_DEFAULT',
                                      name='VIEW3D_MT_object_context_menu')
                 return {'CANCELLED'}
+            self._mover(context, event)
             if self._parede is None:
                 self._restaurar(context)
                 self._encerrar(context)
                 self.report({'WARNING'}, "Solte o modulo sobre uma parede")
                 return {'CANCELLED'}
+            # O ultimo modulo solto e' a referencia do proximo duplo clique.
+            _paredes_edicao.registrar_posicionado(context, bpy.data.objects[self._modulo])
             self._encerrar(context)
             self.report({'INFO'}, "Modulo associado a' parede %s" % self._parede)
             return {'FINISHED'}

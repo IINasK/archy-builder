@@ -3004,7 +3004,101 @@ class TestPortas(unittest.TestCase):
                                   'pistoes_qtd', 'pistoes_offset_mm'})
         self.assertFalse([a for a in painel('MODULOS') if a[0] == 'medida'])
 
-    # ------------------------------------------------ wizard (Epico 1)
+    def apanhador_diagonal(self, conj, internos=False, meia=False, **escolhas):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        L, A, P, E = addon.portas._caixa_do_modulo(conj)
+        dx = E / 2 if meia else E if internos else 0
+        dz = E if internos else 0
+        a, b = [conj.matrix_world @ (Vector(p) / 1000) for p in
+                ((-L / 2 + dx, -P / 2, A - dz), (L / 2 - dx, -P / 2, dz))]
+        chapas = addon.modulos._chapas_do_conjunto(conj)
+        oa = min(chapas, key=lambda o: (conj.matrix_world.inverted() @ o.matrix_world.translation).x)
+        ob = max(chapas, key=lambda o: (conj.matrix_world.inverted() @ o.matrix_world.translation).x)
+        falso = SimpleNamespace(_grupo_alvo='', _pontos=[(a, oa), (b, ob)],
+            _imantado=None, _objeto_imantado=None,
+            _w=dict(etapa='DIAGONAL', escolhas=dict(folhas=1, abertura='GIRO', **escolhas)),
+            _encerrar=lambda c: None)
+        for nome in ('_referencia', '_centro', '_associar', '_cliques', '_instrucao', '_previa'):
+            setattr(falso, nome, lambda *args, nome=nome: getattr(tipo, nome)(falso, *args))
+        falso.PASSOS_CANTOS = tipo.PASSOS_CANTOS
+        return falso
+
+    def test_wizard_novo_e_reposicionar_usam_so_dois_cantos(self):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        for alvo in ('', 'Porta existente'):
+            falso = SimpleNamespace(_grupo_alvo=alvo, _pontos=[], PASSOS_CANTOS=tipo.PASSOS_CANTOS)
+            self.assertEqual(tipo._cliques(falso), 2)
+            self.assertIn('1/2', tipo._instrucao(falso))
+            falso._pontos = [(None, None)]
+            self.assertIn('2/2', tipo._instrucao(falso))
+
+    def test_wizard_diagonal_calcula_cobertura_e_execucao_igual_a_previa(self):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        for internos, meia, cob, dobradica in ((False, False, [1]*4, 'RETA'),
+                (True, False, [0]*4, 'SUPER_CURVA'), (False, True, [.5, .5, 1, 1], 'CURVA')):
+            with self.subTest(internos=internos, meia=meia):
+                self.setUp()
+                conj = self.nicho()
+                falso = self.apanhador_diagonal(conj, internos, meia)
+                pontos = list(falso._pontos)
+                falso._pontos = pontos[:1]
+                falso._imantado, falso._objeto_imantado = pontos[1]
+                caixas = falso._previa()
+                self.assertEqual(len(caixas), 1)
+                self.assertEqual([falso._w['coberturas'][k] for k in addon.portas.COBERTURAS_LADOS], cob)
+                falso._pontos = pontos
+                self.assertEqual(tipo._concluir(falso, bpy.context, falso._w['escolhas']), {'FINISHED'})
+                grupo, = addon.portas._portas_do_conjunto(conj)
+                self.assertEqual(grupo['porta_parametros']['dobradica'], dobradica)
+                for folha in addon.portas._folhas_portas(grupo):
+                    for v in folha.data.vertices:
+                        self.assertLess(min((folha.matrix_world @ v.co - p).length
+                                            for caixa in caixas for p in caixa), 1e-5)
+
+    def test_wizard_dois_cantos_modal_avanca_e_diagonal_invalida_pode_ser_refeita(self):
+        conj = self.nicho()
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        falso = self.apanhador_diagonal(conj)
+        pontos, falso._pontos = falso._pontos, []
+        falso._area = SimpleNamespace(tag_redraw=lambda: None, header_text_set=lambda t: None)
+        falso._etapa_vista = 'DIAGONAL'
+        falso._engolir_soltar = False
+        falso._imantar = lambda e: None
+        falso._mouse_na_regiao = lambda e: Vector((100, 100))
+        falso.report = lambda *a: None
+        falso._ir = lambda etapa, mouse=None: falso._w.update(etapa=etapa)
+        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS')
+        with patch.object(addon.gaveta_eventos, '_gaveta_sob_evento', return_value=None):
+            for ponto, obj in (pontos[0], pontos[0], pontos[1]):
+                falso._imantado, falso._objeto_imantado = ponto, obj
+                self.assertEqual(tipo.modal(falso, bpy.context, evento), {'RUNNING_MODAL'})
+            self.assertEqual(len(falso._pontos), 2)
+            self.assertEqual(falso._w['etapa'], 'FOLHAS')
+        tipo._voltar(falso)
+        self.assertEqual(falso._w['etapa'], 'DIAGONAL')
+        self.assertEqual(len(falso._pontos), 1)
+
+    def test_wizard_diagonal_girada_e_ordem_inversa_preservam_cobertura(self):
+        conj = self.nicho()
+        conj.rotation_euler = (.1, -.2, .4)
+        conj.location = (2, -3, 1)
+        bpy.context.view_layer.update()
+        falso = self.apanhador_diagonal(conj)
+        falso._pontos.reverse()
+        self.assertTrue(falso._previa())
+        self.assertEqual([falso._w['coberturas'][k] for k in addon.portas.COBERTURAS_LADOS], [1]*4)
+
+    def test_wizard_diagonal_de_correr_resolve_embutida_e_moldura(self):
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        conj = self.nicho()
+        for internos in (False, True):
+            falso = self.apanhador_diagonal(conj, internos)
+            falso._w['escolhas']['abertura'] = 'CORRER'
+            self.assertTrue(falso._previa())
+            self.assertEqual(falso._w['embutida'], internos)
+            self.assertEqual(tipo._metade_metade(falso), False)
+
+    # ------------------------------------------------ wizard (API legada)
     def test_quatro_cliques_coberturas_e_dobradica(self):
         # Desenho do usuario: 1 = canto da porta, 2 = do vao, 3 = vao
         # oposto, 4 = porta oposta. Cobertura de cada lado em espessuras.
@@ -3240,7 +3334,7 @@ class TestPortas(unittest.TestCase):
         chapa = addon.modulos._chapas_do_conjunto(conj)[0]
         tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
         # 4 cliques: porta e vao no mesmo ponto nos dois cantos
-        falso = SimpleNamespace(_pontos=[(a, chapa), (a, chapa), (b, folha)],
+        falso = SimpleNamespace(_pontos=[(a, chapa), (a, chapa), (b, folha), (b, folha)],
                                 _imantado=b, _objeto_imantado=folha,
                                 _frente='NEG_Y')
         falso._referencia = lambda a, b: tipo._referencia(falso, a, b)

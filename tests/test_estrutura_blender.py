@@ -704,6 +704,14 @@ class TestPacote(unittest.TestCase):
         pasta = os.path.dirname(addon.__file__)
         arquivos = {f[:-3] for f in os.listdir(pasta)
                     if f.endswith('.py') and f != '__init__.py'}
+        # Setores podem ser pacotes homonimos; assets sem __init__ nao
+        # entram. A igualdade continua detectando codigo fora da carga.
+        arquivos.update(f for f in os.listdir(pasta)
+                        if os.path.isfile(os.path.join(pasta, f, '__init__.py')))
+        for nome in arquivos:
+            self.assertFalse(os.path.isfile(os.path.join(pasta, nome + '.py'))
+                             and os.path.isfile(os.path.join(pasta, nome, '__init__.py')),
+                             'Duas fontes concorrentes para ' + nome)
         carregados = {m.__name__.rsplit('.', 1)[-1] for m in addon._MODULOS}
         self.assertEqual(arquivos, carregados)
 

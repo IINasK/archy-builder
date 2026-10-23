@@ -25,9 +25,6 @@ import cabinet_creator as addon  # noqa: E402
 # Classe -> por que ainda nao tem teste. So' pode ENCOLHER: ao cobrir
 # uma delas, apague a linha (o teste abaixo cobra isso).
 SEM_TESTE_ACEITO = {
-    'CabinetCreatorPreferences':
-        "AddonPreferences so' existe com o add-on HABILITADO; os testes "
-        "carregam o modulo direto (fallback `_opcao`, que e' testado)",
     'OBJECT_OT_abrir_pasta_biblioteca':
         'abre o Explorer do Windows: efeito fora do Blender',
     'OBJECT_OT_abrir_asset_browser':

@@ -673,18 +673,22 @@ def criar_gavetas(context, conj, margens, p, referencial=None):
 def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
     """Move o bloco inteiro pela face mais proxima, sem esticar pecas.
     Usa o vao FECHADO de antes: abrir uma gaveta nao muda sua ancoragem."""
-    for grupo in grupos_do_modulo(conj):
-        largura, altura = grupo[CHAVE_VAO]
-        profundidade = float(parametros(grupo)['profundidade_mm'])
+    for grupo in [*grupos_do_modulo(conj), *_prateleiras.grupos_do_modulo(conj)]:
+        prateleiras = _prateleiras.MARCA_GRUPO in grupo
+        largura, altura = grupo[_prateleiras.CHAVE_VAO if prateleiras else CHAVE_VAO]
+        profundidade = float((_prateleiras.parametros(grupo) if prateleiras
+                              else parametros(grupo))['profundidade_mm'])
         cantos = [grupo.matrix_world @ (Vector((x, y, z)) / 1000.0)
                   for x in (0.0, largura) for y in (0.0, profundidade)
                   for z in (0.0, altura)]
         delta = Vector()
+        ancoras_mundo = []
         for eixo in range(3):
             minimo = min(p[eixo] for p in cantos)
             maximo = max(p[eixo] for p in cantos)
             # Empate ancora no minimo; erro de float nao deve trocar de face.
             perto_do_min = (minimo - lo_antes[eixo]) <= (hi_antes[eixo] - maximo) + 1e-6
+            ancoras_mundo.append(not perto_do_min)
             delta[eixo] = (lo[eixo] - lo_antes[eixo] if perto_do_min
                            else hi[eixo] - hi_antes[eixo])
         if delta.length > 1e-9:
@@ -692,9 +696,64 @@ def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
             matriz.translation += delta
             grupo.matrix_world = matriz
         eixos = grupo.matrix_world.to_3x3().normalized()
-        mudanca = [sum(abs(eixos.col[k][a]) * ((hi[a]-lo[a])-(hi_antes[a]-lo_antes[a]))
-                       * 1000 for a in range(3)) for k in range(3)]
-        _adaptar_espaco(grupo, mudanca)
+        fixos = []
+        for k in range(3):
+            a = max(range(3),key=lambda a:abs(eixos.col[k][a]))
+            fixos.append(ancoras_mundo[a] if eixos.col[k][a] > 0 else not ancoras_mundo[a])
+        bpy.context.view_layer.update()
+        disponivel, fixos = espaco_disponivel(conj, grupo, (largura, profundidade, altura), fixos)
+        if prateleiras:
+            novos = _prateleiras.ajustar_ao_espaco(grupo, (largura, profundidade, altura), disponivel)
+        else:
+            _adaptar_espaco(grupo, (0, 0, 0), disponivel=disponivel)
+            novos = (float(grupo[CHAVE_VAO][0]), float(parametros(grupo)['profundidade_mm']),
+                     float(grupo[CHAVE_VAO][1]))
+        conservar_faces_fixas(grupo, (largura, profundidade, altura), novos, fixos)
+        if prateleiras:
+            sincronizar_margens(grupo, novos[0], novos[2], _prateleiras.CHAVE_MARGENS)
+
+
+def espaco_disponivel(conj, grupo, dimensoes, fixos=None):
+    """Capacidade real no referencial do bloco, sem consumir a folga antes
+    da hora. Faces externas das chapas alinhadas recuam ate' a face interna.
+    Le so' as caixas nativas das chapas estruturais, nunca os vertices da HUD.
+    """
+    ref = grupo.matrix_world.to_quaternion().to_matrix()
+    inv = ref.transposed()
+    caixas = []
+    for obj in _modulos._estruturais(_modulos._chapas_do_conjunto(conj)):
+        pontos = [inv @ (obj.matrix_world @ Vector(c)) * 1000 for c in obj.bound_box]
+        caixas.append((obj, Vector(tuple(min(p[k] for p in pontos) for k in range(3))),
+                       Vector(tuple(max(p[k] for p in pontos) for k in range(3)))))
+    if not caixas:
+        return list(dimensoes), [False] * 3
+    lo = Vector(tuple(min(a[k] for _o,a,_b in caixas) for k in range(3)))
+    hi = Vector(tuple(max(b[k] for _o,_a,b in caixas) for k in range(3)))
+    interno_lo, interno_hi = lo.copy(), hi.copy()
+    for obj, a, b in caixas:
+        normal = inv @ obj.matrix_world.to_quaternion().to_matrix().col[2]
+        eixo = max(range(3), key=lambda k: abs(normal[k]))
+        if abs(normal[eixo]) < .999:
+            continue
+        if abs(a[eixo]-lo[eixo]) < .15:
+            interno_lo[eixo] = max(interno_lo[eixo], b[eixo])
+        if abs(b[eixo]-hi[eixo]) < .15:
+            interno_hi[eixo] = min(interno_hi[eixo], a[eixo])
+    origem = inv @ grupo.matrix_world.translation * 1000
+    if fixos is None:
+        fixos = [(origem[k]-lo[k]) > (hi[k]-origem[k]-dimensoes[k]) + .01 for k in range(3)]
+    capacidade = [(origem[k]+dimensoes[k]-interno_lo[k] if fixos[k]
+                   else interno_hi[k]-origem[k]) for k in range(3)]
+    return capacidade, fixos
+
+
+def conservar_faces_fixas(grupo, antes, depois, fixos):
+    ref = grupo.matrix_world.to_quaternion().to_matrix()
+    delta = Vector(tuple((antes[k]-depois[k])/1000 if fixos[k] else 0 for k in range(3)))
+    if delta.length > 1e-8:
+        matriz = grupo.matrix_world.copy()
+        matriz.translation += ref @ delta
+        grupo.matrix_world = matriz
 
 
 def _minimos(grupo):
@@ -740,27 +799,30 @@ def limitar_medidas(conj, lo, hi, alvo):
     for grupo in grupos_do_modulo(conj):
         largura, altura=grupo[CHAVE_VAO]
         dimensoes=(largura, float(parametros(grupo)['profundidade_mm']), altura)
+        capacidade, _fixos = espaco_disponivel(conj, grupo, dimensoes)
         minimos=_minimos(grupo)
         eixos=grupo.matrix_world.to_3x3().normalized()
         for k in range(3):
             a=max(range(3),key=lambda a:abs(eixos.col[k][a]))
             if abs(eixos.col[k][a]) < .999: continue
-            minimo=(hi[a]-lo[a])*1000-dimensoes[k]+minimos[k]
+            minimo=(hi[a]-lo[a])*1000-capacidade[k]+minimos[k]
             indice=(0,2,1)[a]
             saida[indice]=max(saida[indice], minimo)
     for grupo in _prateleiras.grupos_do_modulo(conj):
         p=_prateleiras.parametros(grupo)
         l,a,_m=_prateleiras.vao(grupo)
         dims=(l,float(p['profundidade_mm']),a)
+        capacidade, _fixos = espaco_disponivel(conj, grupo, dims)
         minimos=(_prateleiras.MENOR_LADO_MM+2*float(p['folga_lateral_mm']),
                  _prateleiras.MENOR_LADO_MM+float(p['recuo_mm']),
-                 int(p['quantidade'])*float(p['espessura_mm'])+.01)
+                 sum(float(_prateleiras.parametros_individuais(p,i)['espessura_mm'])
+                     for i in range(int(p['quantidade'])))+.01)
         eixos=grupo.matrix_world.to_3x3().normalized()
         for k in range(3):
             a=max(range(3),key=lambda a:abs(eixos.col[k][a]))
             if abs(eixos.col[k][a])<.999:continue
             indice=(0,2,1)[a]
-            saida[indice]=max(saida[indice],(hi[a]-lo[a])*1000-dims[k]+minimos[k])
+            saida[indice]=max(saida[indice],(hi[a]-lo[a])*1000-capacidade[k]+minimos[k])
     # Preset antigo com parametros internos inconsistentes nao pode
     # CRESCER quando a pessoa pediu para diminuir.
     atual=[(hi[k]-lo[k])*1000 for k in (0,2,1)]
@@ -814,7 +876,7 @@ def _reencaixar_existentes(grupo, largura, altura, p):
     grupo[CHAVE_TRILHO_MM]=float(dados['trilho_mm'])
 
 
-def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False):
+def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False, disponivel=None):
     """Preserva o tamanho escolhido ate' faltar espaco; ao devolver o
     armario, devolve tambem a escolha original (incluindo profundidades).
     """
@@ -826,7 +888,8 @@ def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False):
         grupo[CHAVE_ENCAIXE]=dict(desejado=atual,parametros=p,ultimo=assinatura)
         estado=grupo[CHAVE_ENCAIXE]
     desejado=list(estado['desejado'])
-    novo=[min(desejado[k],atual[k]+mudanca[k]) for k in range(3)]
+    novo=[min(desejado[k],disponivel[k] if disponivel is not None
+              else atual[k]+mudanca[k]) for k in range(3)]
     if seguir_largura:novo[0]=atual[0]+mudanca[0]
     mudou_curva=bool(curvas and any(abs(float(parametros_da_unidade(p,i).get('frente_curva_mm') or 0)-v)>.01
                                    for i,v in curvas.items()))
@@ -836,9 +899,14 @@ def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False):
     for q in parametros_novos.get('individuais',{}).values():
         if 'profundidade_mm' in q:q['profundidade_mm']=min(float(q['profundidade_mm']),novo[1])
         if 'largura_mm' in q:
-            proporcao=novo[0]/desejado[0]
-            q['largura_mm']*=proporcao
-            if 'x_mm' in q:q['x_mm']*=proporcao
+            if disponivel is None:
+                proporcao=novo[0]/desejado[0]
+                q['largura_mm']*=proporcao
+                if 'x_mm' in q:q['x_mm']*=proporcao
+            else:
+                q['largura_mm']=min(float(q['largura_mm']),novo[0])
+                if 'x_mm' in q:
+                    q['x_mm']=min(float(q['x_mm']),max(0.,novo[0]-q['largura_mm']))
     for i,v in (curvas or {}).items():
         parametros_novos.setdefault('individuais',{}).setdefault(str(i),{})['frente_curva_mm']=v
     _reencaixar_existentes(grupo,novo[0],novo[2],parametros_novos)
@@ -901,14 +969,17 @@ def atualizar_gavetas_do_conjunto(conj):
     """Redimensionar a caixa nao redimensiona as gavetas internas.
     Recalcula as margens para a edicao direta partir das mesmas medidas."""
     for grupo in grupos_do_modulo(conj):
-        ref = referencia(grupo)
-        lo, hi = limites_na_referencia(conj, ref)
         largura, altura = grupo[CHAVE_VAO]
-        # A origem do modulo compensa os filhos pela matrix_parent_inverse.
-        origem = ref.transposed() @ ((conj.matrix_world.inverted() @ grupo.matrix_world).translation * 1000.0)
-        grupo[CHAVE_MARGENS] = (origem.x - lo.x, hi.x - origem.x - largura,
-                                origem.z - lo.z, hi.z - origem.z - altura,
-                                origem.y - lo.y)
+        sincronizar_margens(grupo, largura, altura, CHAVE_MARGENS)
+
+
+def sincronizar_margens(grupo, largura, altura, chave):
+    conj = grupo.parent
+    ref = referencia(grupo)
+    lo, hi = limites_na_referencia(conj, ref)
+    origem = ref.transposed() @ ((conj.matrix_world.inverted() @ grupo.matrix_world).translation * 1000.0)
+    grupo[chave] = (origem.x-lo.x, hi.x-origem.x-largura,
+                    origem.z-lo.z, hi.z-origem.z-altura, origem.y-lo.y)
 
 
 def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):

@@ -58,6 +58,11 @@ liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
 7. Testes ASCII, em portugues, unittest; no fim do arquivo
    `addon.register()` / roda / `addon.unregister()` / `raise RuntimeError`.
 
+Janela do `--background` nao tem `eventstate` inicializado: chamar
+`Window.event_simulate` ali, mesmo com `--enable-event-simulate`, derruba
+o 5.2. Para eventos reais, usar o harness GUI autorizado ou uma prova
+sem gestos na instancia aberta (operador INVOKE recebe Event real).
+
 ## Harness de interface (`harness_gui.py`)
 
 Padrao oficial do Blender (`tests/python/ui_simulate`, `easy_keys`):

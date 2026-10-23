@@ -7,7 +7,7 @@ import bpy
 import bmesh
 from mathutils import Matrix, Vector
 from bpy.types import Operator
-from . import gavetas as _gavetas
+from .. import gavetas as _gavetas
 
 _chapas = _modulos = _portas = _prateleiras = _eventos = _hud = _formas = None
 MARCA_GRUPO = 'eh_grupo_divisorias'
@@ -71,6 +71,35 @@ def vao(grupo):
 def medidas(grupo):
     l, a, _m = vao(grupo)
     return l, a, float(parametros(grupo)['profundidade_mm'])
+
+
+def linhas_hud(grupo, chapas):
+    """Vao do sistema e distancias livres ate' as faces das divisorias."""
+    largura, altura, prof = medidas(grupo)
+    m = grupo.matrix_world
+    cantos = [m @ (Vector((i * largura, j * prof, k * altura)) / 1000)
+              for k in (0, 1) for j in (0, 1) for i in (0, 1)]
+    letras = ('L', 'P', 'A')
+    comum = dict(tipo='divisorias', objeto=grupo, modo='DIVISORIAS', chapas=chapas)
+    linhas = [dict(comum, eixo=eixo, letra=letras[eixo], face=(letras[eixo],),
+                   cantos=(i, j), pontos=[cantos[i], cantos[j]])
+              for eixo, arestas in enumerate(_hud.ARESTAS_EIXO) for i, j in arestas]
+    p = parametros(grupo)
+    dados = calcular(largura, altura, p)
+    caixas = dados['divisorias']
+    for k in range(len(dados['vaos'])):
+        x0 = caixas[k - 1][1] if k else 0.0
+        x1 = caixas[k][0] if k < len(caixas) else largura
+        linhas.append(dict(comum, letra=None, face=('V', k), vao=True,
+            pontos=[m @ (Vector((x, p['recuo_mm'], altura / 2)) / 1000) for x in (x0, x1)]))
+    return cantos, linhas
+
+
+def valor(grupo, chave):
+    if chave[0] == 'V':
+        l, a, _m = vao(grupo)
+        return calcular(l, a, parametros(grupo))['vaos'][chave[1]]
+    return dict(zip(('L', 'A', 'P'), medidas(grupo)))[chave[0]]
 
 
 def _limites_malha(obj, mundo):
@@ -512,20 +541,37 @@ def editar(context, grupo, nome, valor):
 
 def selecionar(context, obj, nivel='GRUPO', somar=False):
     grupo = grupo_de(obj)
+    if grupo is None:
+        return False
     if not somar:
         for o in context.selected_objects:
             o.select_set(False)
-    alvos = [obj] if nivel == 'INDIVIDUAL' and obj != grupo else pecas(grupo)
+    alvos = [obj] if nivel == 'INDIVIDUAL' and obj != grupo else [grupo, *pecas(grupo)]
     for o in alvos:
-        o.select_set(True)
+        if o.visible_get():
+            o.select_set(True)
     context.view_layer.objects.active = alvos[0]
     context.scene.cabinet_aba = 'DIVISORIAS'
+    if context.area:
+        context.area.tag_redraw()
+    return True
 
 
 def aplicar(context, grupo, chave, novo, lado=None):
     letra = chave[0]
+    if letra == 'V':
+        return editar(context, grupo, 'vao_%d' % chave[1], novo)
     if letra == 'P':
-        return editar(context, grupo, 'profundidade_mm', novo)
+        antes = list(grupo[CHAVE_MARGENS])
+        if lado == 'max':
+            margens = list(antes)
+            margens[4] -= float(novo) - valor(grupo, ('P',))
+            grupo[CHAVE_MARGENS] = margens
+        erro = editar(context, grupo, 'profundidade_mm', novo)
+        if erro:
+            grupo[CHAVE_MARGENS] = antes
+            montar(grupo)
+        return erro
     antes = list(grupo[CHAVE_MARGENS])
     margens = list(antes)
     l, a, _m = vao(grupo)

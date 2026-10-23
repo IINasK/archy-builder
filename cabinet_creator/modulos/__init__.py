@@ -816,6 +816,21 @@ def _upd_conj_dim(self, context):
     redimensionar_conjunto(self)
 
 
+def atualizar_sistemas_do_conjunto(conj, internos=True):
+    """Corpo ja' aplicado: portas/apoios, gavetas e prateleiras, nesta ordem.
+
+    Cada dominio conserva seu calculo e a escrita da propria geometria.
+    A volta a' referencia precisa atualizar SO' portas: remontar internos
+    nessa etapa apagaria os encaixes que o resize acabou de restaurar.
+    """
+    if conj is None or _chapas.MARCA_CONJUNTO not in conj:
+        return
+    _portas.atualizar_do_conjunto(conj)
+    if internos:
+        _gavetas.atualizar_gavetas_do_conjunto(conj)
+        _prateleiras.atualizar_do_conjunto(conj)
+
+
 def redimensionar_conjunto(conj, ancoras=None):
     """Aplica as medidas `conj_*` ao modulo (ver `redimensionar_grupo`).
     Elas sao do ENVELOPE (com a moldura): o corpo recebe o alvo menos o
@@ -837,7 +852,7 @@ def redimensionar_conjunto(conj, ancoras=None):
         if abs(alvo[mudam[0]]-base[mudam[0]])<.01:
             # Voltar a' referencia nao e' uma nova montagem do fundo ou
             # da adjacencia: devolver tambem os encaixes originais.
-            _portas.atualizar_portas_do_conjunto(conj,sistemas=False)
+            atualizar_sistemas_do_conjunto(conj, internos=False)
             sincronizar_medidas_conjunto(conj)
             _formas.concluir_edicao(conj)
             return
@@ -845,11 +860,33 @@ def redimensionar_conjunto(conj, ancoras=None):
                         tuple(max(20.0, a - e) for a, e in zip(alvo, acrescimo)),
                         ancoras)
     reposicionar_origem(conj)
-    _portas.atualizar_portas_do_conjunto(conj)
+    atualizar_sistemas_do_conjunto(conj)
     real=medir_conjunto(conj)
     if real and any(abs(a-b)>.01 for a,b in zip(real,alvo)):
         sincronizar_medidas_conjunto(conj)
     _formas.concluir_edicao(conj)
+
+
+def redimensionar_orientado(conj, medidas_mm):
+    """Aplica o resize existente nos eixos do modulo, inclusive em parede girada."""
+    matriz = conj.matrix_world.copy()
+    ocupado = _chapas._ocupado[0]
+    try:
+        _chapas._ocupado[0] = True
+        conj.matrix_world = Matrix.Diagonal((*matriz.to_scale(), 1.0))
+        bpy.context.view_layer.update()
+        try:
+            conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm = medidas_mm
+        finally:
+            _chapas._ocupado[0] = ocupado
+        redimensionar_conjunto(conj)
+    finally:
+        _chapas._ocupado[0] = True
+        try:
+            conj.matrix_world = matriz
+            bpy.context.view_layer.update()
+        finally:
+            _chapas._ocupado[0] = ocupado
 
 
 def _upd_conj_espessura(self, context):
@@ -864,7 +901,7 @@ def _upd_conj_espessura(self, context):
         finally:
             _chapas._ocupado[0] = False
     aplicar_espessura_grupo(_chapas_do_conjunto(self), self.conj_espessura_mm)
-    _portas.atualizar_portas_do_conjunto(self)
+    atualizar_sistemas_do_conjunto(self)
     reposicionar_origem(self)
 
 
@@ -1131,7 +1168,7 @@ def agrupar_chapas(context, sel, nome=''):
     return conj
 
 
-def absorver_conjuntos():
+def absorver_conjuntos(no_timer=False):
     """Converte a escala aplicada num Empty de conjunto em escala real
     das chapas filhas, zerando a escala do Empty."""
     for conj in list(bpy.data.objects):
@@ -1139,6 +1176,36 @@ def absorver_conjuntos():
             continue
         sx, sy, sz = conj.scale
         if abs(sx-1) < 1e-6 and abs(sy-1) < 1e-6 and abs(sz-1) < 1e-6:
+            continue
+        sistemas = _gavetas.grupos_do_modulo(conj) or _prateleiras.grupos_do_modulo(conj)
+        if sistemas and min(sx,sy,sz) > 0:
+            # O handler nao pode atualizar o depsgraph/reencaixar sistemas.
+            # O timer ja' existente conclui pelo MESMO resize das cotas.
+            if not no_timer:
+                continue
+            # `_cantos` nominal descarta escala na espessura: durante S
+            # precisamos medir a caixa NATIVA antes de retirar essa escala.
+            pontos = [o.matrix_world @ Vector(v) for o in _chapas_do_conjunto(conj)
+                      for v in o.bound_box]
+            lo = Vector(tuple(min(p[k] for p in pontos) for k in range(3)))
+            hi = Vector(tuple(max(p[k] for p in pontos) for k in range(3)))
+            alvo = tuple((hi[k]-lo[k])*1000 for k in (0,2,1))
+            caixa = (lo,hi)
+            ocupado = _chapas._ocupado[0]
+            _chapas._ocupado[0] = True
+            try:
+                conj.scale = (1,1,1)
+                bpy.context.view_layer.update()
+                conj.conj_largura_mm,conj.conj_altura_mm,conj.conj_profundidade_mm = alvo
+            finally:
+                _chapas._ocupado[0] = ocupado
+            redimensionar_conjunto(conj)
+            atual = _caixa_de(_chapas_do_conjunto(conj))
+            if caixa and atual:
+                mundo = conj.matrix_world.copy()
+                mundo.translation += Vector(caixa[0])-Vector(atual[0])
+                conj.matrix_world = mundo
+                bpy.context.view_layer.update()
             continue
         filhos = [o for o in bpy.data.objects if o.parent == conj]
         mundos = {o.name: o.matrix_world.copy() for o in filhos}
@@ -1249,7 +1316,7 @@ def redimensionar_grupo_da_cena(s, context, ancoras=None):
     if pai is not None and _chapas.MARCA_CONJUNTO in pai:
         reposicionar_origem(pai)
         sincronizar_medidas_conjunto(pai)
-        _portas.atualizar_portas_do_conjunto(pai)
+        atualizar_sistemas_do_conjunto(pai)
 
 
 def _upd_grupo_espessura(self, context):
@@ -1270,7 +1337,7 @@ def _upd_grupo_espessura(self, context):
         if pai is not None and _chapas.MARCA_CONJUNTO in pai:
             reposicionar_origem(pai)
             sincronizar_medidas_conjunto(pai)
-            _portas.atualizar_portas_do_conjunto(pai)
+            atualizar_sistemas_do_conjunto(pai)
 
 
 class OBJECT_OT_sincronizar_grupo(Operator):

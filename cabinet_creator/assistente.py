@@ -1,4 +1,4 @@
-"""Wizard de criacao da porta (4 cliques + caixas) e o operador
+"""Wizard de criacao da porta (2 cliques + caixas) e o operador
 das portas parametricas."""
 
 import bpy, gpu, blf
@@ -191,9 +191,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return _portas._centro_do_movel(obj_a, obj_b)
 
     def _cliques(self):
-        """Porta nova: 4 cliques (porta, vao, vao, porta). Reposicionar
-        uma porta continua na diagonal de 2."""
-        return 2 if getattr(self, '_grupo_alvo', '') else 4
+        """Criar e reposicionar compartilham a mesma diagonal."""
+        return 2
 
     def _cantos_marcados(self):
         """Pontos ja' clicados e, enquanto marca, o que esta' sob o
@@ -206,8 +205,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return marcados
 
     def _previa(self):
-        """Caixas das folhas pelos cantos marcados (o 4o pode ser o
-        ponto sob o cursor).
+        """Caixas das folhas pela diagonal, incluindo o ponto sob o cursor.
 
         Usa os parametros da ABA, nao um padrao fixo: o que se ve
         arrastando tem de ser a porta que vai nascer. Quando a conta
@@ -218,16 +216,19 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._recado = ''
         marcados = tipo._cantos_marcados(self)
         portas = None
-        if tipo._cliques(self) == 2:
-            if len(marcados) < 2:
-                return []
-            (a, obj_a), (b, obj_b) = marcados[:2]
-        else:
-            if len(marcados) < 4:
-                return []
+        if len(marcados) >= 4:
+            # Compatibilidade da API de captura antiga; a UI so' marca dois.
             (p1, o1), (a, obj_a), (b, obj_b), (p4, o4) = marcados[:4]
             obj_a, obj_b = obj_a or o1, obj_b or o4
             portas = (p1, p4)
+        else:
+            if len(marcados) < 2:
+                return []
+            (a, obj_a), (b, obj_b) = marcados[:2]
+            if not getattr(self, '_grupo_alvo', ''):
+                # O mesmo solver encontra as faces internas e mede a
+                # cobertura ate' os dois limites clicados, sem novos gestos.
+                portas = (a, b)
         obj_b = obj_b or obj_a
         # Reposicionando, os parametros sao os da porta e ela nao serve
         # de apoio para si mesma.
@@ -261,8 +262,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 # com moldura a folha nasce de 18 (pesado) ou 15 (leve)
                 parametros['espessura_mm'] = _portas._espessura_porta_do_trilho(parametros)
             embutida = portas is not None and _portas._porta_embutida(coberturas)
-            if embutida and 'dobradica' not in escolhas:
-                parametros['dobradica'] = 'SUPER_CURVA'
+            if portas is not None and parametros['abertura'] != 'CORRER':
+                lado = parametros.get('dobradica_lado', 'ESQUERDA')
+                chave = _portas.COBERTURAS_LADOS[_portas.INDICE_LADO.get(lado, 0)]
+                parametros['dobradica'] = _portas._dobradica_da_cobertura(
+                    float(parametros.get(chave, 1.0)), embutida)
             folhas = _portas._calcular_folhas_portas(largura, altura, parametros)
         except (ValueError, KeyError) as erro:
             self._recado = str(erro)
@@ -312,16 +316,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         etapa = self._w.get('etapa')
         marcados = [p for p, _o in self._cantos_marcados()]
         arestas_cor = []
-        if self._cliques() == 2:
-            # reposicionar: a linha do 1o canto ate' o cursor
-            if len(marcados) == 2:
-                linhas.extend(marcados)
-        elif etapa in {'DIAGONAL', 'CONFIRMAR'}:
-            # o fio dos cliques (desenho do usuario): laranja = cobertura
-            # (1-2 e 3-4), branco = o vao (2-3)
-            for i in range(len(marcados) - 1):
-                arestas_cor.append((_portas.COR_FIO_VAO if i == 1 else _portas.COR_FIO_COBERTURA,
-                                    [marcados[i], marcados[i + 1]]))
+        if etapa in {'DIAGONAL', 'CONFIRMAR'} and len(marcados) == 2:
+            linhas.extend(marcados)
         ferragens = []
         if etapa == 'EIXO':
             # a borda sob o mouse acende na cor da HUD
@@ -511,8 +507,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         'PISTOES_OFFSET': 'Posicao automatica | mova em Y para subir o '
                           'pistao | clique cria a porta',
     }
-    PASSOS_CANTOS = ('1/4: canto da porta', '2/4: canto do vao',
-                     '3/4: canto oposto do vao', '4/4: canto oposto da porta')
+    PASSOS_CANTOS = ('1/2: primeiro canto da porta', '2/2: canto oposto da porta')
     PERGUNTAS = {'CONFIRMAR': (_portas.OPCOES_CONFIRMAR, 'As medidas estao corretas?'),
                  'FOLHAS': (_portas.OPCOES_FOLHAS, 'Quantas folhas?'),
                  'MOLDURA': (_portas.TIPOS_CORRER, 'Porta embutida ou com moldura?'),
@@ -521,10 +516,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
     ETAPAS_CAIXA = ('CONFIRMAR', 'FOLHAS', 'TIPO', 'MOLDURA', 'BASE', 'TRILHO')
 
     def _instrucao(self):
-        if self._cliques() == 2:
-            return 'Clique nos 2 cantos do vao (Esc cancela)'
-        return ('Clique %s -- porta e vao no mesmo ponto: clique 2x '
-                '(Esc cancela)' % self.PASSOS_CANTOS[min(len(self._pontos), 3)])
+        return 'Clique %s (Esc cancela)' % self.PASSOS_CANTOS[min(len(self._pontos), 1)]
 
     def _ir(self, etapa, mouse=None):
         w = self._w
@@ -626,11 +618,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return self._escolher_abertura(context, chave)
 
     def _metade_metade(self):
-        """Cliques 1-2 no mesmo ponto e 3-4 nao (ou o contrario). Os dois
-        no mesmo ponto = embutida; nenhum = com moldura: so' o caso do
-        meio e' duvida."""
+        """Limites com coberturas mistas deixam o tipo de correr explicito."""
         if len(self._pontos) < 4:
-            return False
+            coberturas = self._w.get('coberturas', {})
+            lados = [float(coberturas.get(k, 0)) > 1e-6 for k in _portas.COBERTURAS_LADOS]
+            return any(lados) and not all(lados)
         (p1, _o1), (a, _oa), (b, _ob), (p4, _o4) = self._pontos[:4]
         tolerancia = _modulos.TOL_BORDA
         juntos = [(Vector(p1) - Vector(a)).length <= tolerancia,
@@ -804,8 +796,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         w = self._w
         etapa = w['etapa']
         if etapa in {'CONFIRMAR', 'FOLHAS'}:
-            # desfaz o 4o clique
-            self._pontos = self._pontos[:3]
+            # Conserva o primeiro canto para remarcar so' o oposto.
+            self._pontos = self._pontos[:1]
             w.update(etapa='DIAGONAL', botoes=[], escolhas={})
             self._area.header_text_set(self._instrucao())
             self._area.tag_redraw()
@@ -961,7 +953,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._previa()
             if self._w.get('matriz') is None:
                 self.report({'WARNING'}, self._recado or "Vao invalido")
-                self._pontos = self._pontos[:3]
+                self._pontos = self._pontos[:1]
                 return {'RUNNING_MODAL'}
             mouse = self._mouse_na_regiao(event)
             if _portas._lados_fora_do_padrao(self._w['coberturas']):
@@ -979,6 +971,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             portas = (p1, p4)
         else:
             (a, obj_a), (b, obj_b) = self._pontos[:2]
+            if not self._grupo_alvo:
+                portas = (a, b)
         self._encerrar(context)
         referencia, pai = _portas._referencia_do_par(obj_a, obj_b)
         # Cenario 2: o canto do vao caiu numa chapa, entao o vao
@@ -1029,8 +1023,8 @@ class OBJECT_OT_portas_parametricas(Operator):
     capturado: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
     ponto_a: FloatVectorProperty(size=3, options={'HIDDEN'})
     ponto_b: FloatVectorProperty(size=3, options={'HIDDEN'})
-    # Wizard de 4 cliques: ponto_a/b sao os cantos do VAO e porta_a/b os
-    # da PORTA (a cobertura de cada lado sai da diferenca).
+    # API legada de cobertura explicita. No wizard de dois cliques os
+    # mesmos limites iniciam porta/vao; o solver acha as faces internas.
     quatro_pontos: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
     porta_a: FloatVectorProperty(size=3, options={'HIDDEN', 'SKIP_SAVE'})
     porta_b: FloatVectorProperty(size=3, options={'HIDDEN', 'SKIP_SAVE'})

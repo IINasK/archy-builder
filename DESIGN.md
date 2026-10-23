@@ -169,6 +169,18 @@ Campos conservam o operador ligado no setup; no redraw muda so' `dica`.
 
 ## 8. HUD parametrica na viewport
 
+Opcoes (engrenagem): "Origens no grupo" = Ocultar/Mostrar; Ocultar por
+padrao. Grupos de modulo, portas, gavetas, prateleiras e divisorias escondem
+os pontos de origem NATIVOS pela viewport, sem mudar objetos ou malhas.
+Peca/folha individual e selecao vazia devolvem o estado anterior. Respeitar
+origens ja' ocultas pelo usuario e mudancas manuais por viewport. Salvar/
+abrir/desligar devolve o estado nativo, como o contorno; controle independente.
+
+"Bolinhas de apoio" e "Guias nas quinas" = Ligado/Desligado, independentes,
+ligados por padrao. Bolinhas desligadas somem do desenho E do clique.
+Guias desligadas escondem setas/realces de hover nas cotas e quinas;
+os campos de medidas e a edicao continuam disponiveis.
+
 A representacao do armario agora vive na viewport principal: `gpu`
 em `POST_VIEW` desenha os contornos e `blf` em `POST_PIXEL` as letras.
 O mini-wireframe da gaveta foi descontinuado; os campos continuam nela.
@@ -191,6 +203,24 @@ a quina gruda na de OUTRO armario (caixa da HUD) ou chapa ao alcance de
 `RAIO_SNAP_QUINA_HUD` px -- snap especial, so' quinas (nada de vertice,
 aresta ou grade); grudada, ganha bolinha cheia no circulo laranja.
 Linha A1/A2/A3... (e a E da chapa individual):
+No envelope convencional de modulos e grupos internos ha' seis circulos,
+um no centro de cada face (raio 2 px, hover 3 px, multiplicados pela escala
+da interface; manter area de clique maior). Arrastar move aquela face, fixando a oposta.
+Circulos e setas lineares da caixa usam translate NATIVO do cursor:
+arraste inicia SEM snap, inclusive com ima global ligado; B ativa o snap
+de vertice nativo e a escolha da base. Preservar os atalhos nativos e a
+entrada numerica nativa de DESLOCAMENTO (aceita unidade, ex.: 50mm).
+Ao apertar B, preservar a geometria ATUAL, inclusive o ultimo movimento
+ainda nao desenhado pelo timer. O cursor nativo volta ao inicio, mas o
+resize registra o deslocamento acumulado e passa a partir da medida atual.
+Base/destino sao escolhidos na madeira que esta' na tela; repetir B nao
+duplica deslocamentos. Esc/undo conservam a referencia original do gesto.
+O observador consulta o matcher do keymap nativo e repassa todos os eventos.
+A HUD abre uma caixa com A1/A2/A3 e a dimensao RESULTANTE durante o gesto;
+clique sem arraste continua digitando dimensao ABSOLUTA. Esc restaura
+geometria/cursor/selecao; confirmar e' um unico undo. Angulos e segmentos
+modelados conservam seus editores. O vao cadastrado nao e' redistribuido
+automaticamente por sobrepor outro sistema; os controles permitem corrigi-lo.
 seta sai da quina mais perto (`lado`), que fica PARADA; arrastar estica,
 clicar digita (Enter/Esc). Caixa de digitar (HUD e gaveta, um nucleo so':
 `_tecla_no_texto`): abre com tudo selecionado, mas um OPERADOR continua
@@ -215,7 +245,7 @@ Angulo da diagonal, que deixa a frente do canto parada).
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
-do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); as gavetas acompanham a face proxima sem crescer; quando falta espaco, frente/caixa/trilho se adaptam ate' o minimo fisico, e devolvem as medidas escolhidas ao aumentar a caixa. Selecionadas (clique na frente = todas
+do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); ambos acompanham a face proxima sem crescer. Reduzir a caixa consome a folga antes de diminuir os internos, comparando a escolha com o espaco livre entre as faces reais de apoio (desconta E). Frente/caixa/trilho se adaptam ate' o minimo fisico; devolver espaco restaura a escolha original. Gaveta individual menor tambem conserva sua largura enquanto couber. Vale nos campos, HUD e S nativo; a conversao de S com internos conclui no timer normal, nunca dentro do depsgraph. Esc restaura vao/margens/parametros E malhas. Selecionadas (clique na frente = todas
 do vao, duplo = uma): so' elas tem linha branca; L/A/P da HUD mudam o vao
 (a quina perto do mouse fica) e a profundidade; Alt mostra 3 bolinhas --
 as quinas de cima a' esquerda e de baixo a' direita da frente e a da
@@ -244,9 +274,12 @@ com o VALOR ao lado (sao varios; uma letra so' nao diria qual). Arrastar ou
 clicar e digitar um vao anda SO' a prateleira de cima dele. Na aba:
 Prateleiras (L/A/P + contador), Chapa (Espessura, Recuo, Folga lateral).
 Na largura padrao, A1/A2/A3 tem a MESMA largura com o contador ao lado; estreita conserva colunas iguais, movendo o contador para outra linha se necessario.
-Espacamento: botao de 37 px com simbolo proprio (seta para esquerda, barra vertical, seta para direita; GPU, excecao pedida pelo usuario) e texto "Centralizar espacamento" a' direita; abaixo, campos E1..En+1 de baixo para cima, tambem com UMA selecionada. Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
+Espacamento: botao de 37 px com simbolo proprio (seta para esquerda, barra vertical, seta para direita; GPU, excecao pedida pelo usuario) e texto "Centralizar espacamento" a' direita; abaixo, campos E do escopo selecionado, numerados de baixo para cima. Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
 Excluir uma unidade atualiza quantidade/vaos sem mover as demais; centralizar e' explicito, sem botao ao lado do contador.
+Centralizar com uma unidade sem subdivisoes selecionada iguala apenas os vaos acima e abaixo dela, entre as faces vizinhas ou os limites do vao; conserva as outras. Com o grupo selecionado, distribui todas.
 Editar um campo E anda so' a prateleira correspondente (o vao do topo anda a ultima).
+Mover com G nativo atualiza os mesmos campos E e cotas da HUD apos confirmar (Objeto) ou sair do Tab (individual/grupo), sem redistribuir. Se as unidades trocarem de ordem, E continua de baixo para cima e os ajustes acompanham a chapa.
+Detalhamento: grupo selecionado usa quantidade total e blocagem completa. Unidade selecionada usa quantidade local (ela e suas copias) e subdivide so' o intervalo entre os apoios externos inferior/superior; fora dele, preservar chapas/gavetas. Qualquer copia selecionada reencontra o mesmo trecho. Parametros/Centralizar valem para as copias; reduzir preserva a ativa, zero exclui apenas o trecho. Contador, cotas E visiveis e moldura seguem esse escopo; a moldura local nao redimensiona a caixa global. Ultimo E local move a ultima copia, nunca o apoio. Tab individual conserva o escopo nativo da malha.
 
 **Divisorias (aba propria).** "Criar Divisorias" no topo; dois cantos e scroll (quantidade), mesmos snap e cancelamento nativos das prateleiras. Chapas verticais segmentam os sistemas que atravessam o vao: 3 gavetas viram 6 com uma divisoria central; prateleiras sao partidas sem mudar a altura. Aba: A1/A2/A3 do vao, Espessura/Recuo, E1..En+1 da esquerda para direita. Os dois lados continuam editaveis nas abas de origem. Clique seleciona divisorias, duplo isola a chapa; Tab/G nativos.
 
@@ -382,15 +415,14 @@ selecionadas = so' a quantidade e o afastamento delas.
 inteira e texto centralizado (backlog do usuario, Epico 2.3); o bloco de
 medidas desce 38 px nessa aba. Sem porta selecionada a aba nao mostra
 folga/afastamento/vaos (Epico 2.1/2.4): os campos vem com a porta.
-Wizard de criacao (Epico 1), desenho do usuario: QUATRO cliques -- canto
-da porta, canto do vao, canto oposto do vao, canto oposto da porta. Os
-fios 1-2 e 3-4 (laranja) mostram quanto a folha cobre de cada lado; o
-2-3 (branco), o vao. Dai' sai tudo: medida da folha, vao, espessura e a
+Wizard de criacao: DOIS cliques nos limites opostos da porta; fio branco
+na diagonal e previa das folhas. O mesmo solver encontra o vao interno,
+sem pedir outros pontos. Dai' saem medida da folha, vao, espessura e a
 dobradica, que e' AUTOMATICA (borda no limite do modulo = Reta, na
 metade da chapa = Curva, dentro do vao = Super Curva) e nao aparece
-como escolha nem na aba. Clique 1 e 2 no mesmo ponto: a margem do par
-3-4 vale para ele, contada para dentro. Cobertura que nao bate com
-nenhuma das tres pergunta "As medidas estao corretas?" (Nao = marcar de
+como escolha nem na aba. Canto invalido pode ser remarcado sem perder
+o primeiro; botao direito em Folhas volta ao segundo. Cobertura fora
+dos tres padroes pergunta "As medidas estao corretas?" (Nao = marcar de
 novo). Depois, caixas desenhadas ao lado do clique (popup nativo nao, o
 release respondia) que NUNCA saem cortadas (`_botoes_assistente` mede a
 regiao: perto da borda a caixa vai para o outro lado do mouse ou
@@ -434,13 +466,13 @@ segmentos 1 2 3 4 sairam), **Posicao** (Afastamento ou Recuo), **Trilhos**
 categoria ("Recuo", nao "Recuo para trilhos"): o titulo ja' diz de que e'.
 Dobradica (automatica) e Converter
 em porta/dupla sairam da aba (pedido do usuario; F3 segue).
-Correr: 1-2 e 3-4 no mesmo canto de DENTRO = embutido; de fora para
-dentro = COM MOLDURA -- folhas de 18 na frente do modulo, cobrindo a
+Correr: dois cantos de DENTRO = embutido; limites externos =
+COM MOLDURA -- folhas de 18 na frente do modulo, cobrindo a
 frente inteira, num trilho de aluminio do usuario (dois canais, a 1a na
 frente), e a moldura de chapas de 15 refeita com a porta (revestimento das
 laterais, base do trilho + testeira em cima, base + rodape embaixo; soma
-acima e abaixo do modulo). Metade-metade (um par no mesmo ponto, o outro
-nao) PERGUNTA "Porta embutida ou com moldura?" -- moldura usa o modulo
+acima e abaixo do modulo). Limites mistos (cobertura em alguns lados)
+PERGUNTAM "Porta embutida ou com moldura?" -- moldura usa o modulo
 inteiro, embutida a medida de dentro da chapa.
 Com moldura vem mais uma caixa: "A porta tem base?" -- sem rodape a
 moldura vai direto no chao (rodape 0). A moldura passa a SER a caixa do

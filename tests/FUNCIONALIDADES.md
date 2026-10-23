@@ -1,5 +1,21 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Encaixe e cotas em parede (301): sete regressoes novas em paredes_edicao
+(62 testes) para colisao, parede cheia/rollback, limites nas quinas, preset
+girado/previa/mira/confirmacao, arraste direito e altura/face oposta.
+Composicao (36 testes) cobre tema claro/escuro, halo, setas e desenho do
+numero depois da linha. `faixas_livres` e' comum aos posicionadores,
+distribuicao e edicao; nenhuma geometria e' encolhida para caber.
+Validacao 301 (2026-10-22): 322 testes dirigidos aprovados em 4.2/5.2.
+Harness completo: 2003 testes contabilizados, 46/48 execucoes aprovadas;
+persistem a bancada curva 5.2 e o limite de 300 s da biblioteca nas previews.
+Log: `D:/Blender/Backups/CabinetCreator/paredes301-completo.log`.
+Auditoria na cena 5.2: cotas legiveis sobre parede branca/grade escura;
+previa na quina inferior direita terminou exatamente nos limites e a mira
+coincidiu com seu centro. Alvo sobre movel foi para vao livre adjacente.
+Os 347 objetos conservaram matrizes e vertices; selecao/vista restauradas.
+Backup: `D:/Blender/Backups/CabinetCreator/antes-paredes301.blend`.
+
 Cadastro automatico do orcamento (300): medidas da geometria avaliada nos
 eixos do modulo, quantidades reais de folhas/gavetas, tipos de dobradica e
 materiais usados nas faces. Sem contagens persistentes nem mudanca no 3D;
@@ -15,7 +31,64 @@ A repeticao isolada da biblioteca 5.2 aprovou a refiliacao, mas tambem
 excedeu 300 segundos, agora na regeneracao de previews. Sem reduzir o piso
 ou aumentar o limite: `D:/Blender/Backups/CabinetCreator/orcamento300-biblioteca.log`.
 
-Divisorias (281): aba propria e `OBJECT_OT_criar_divisorias` reutilizam AssistenteDoVao/snap nativos. Particao valida os vaos antes de mutar, desconta E e produz gavetas/prateleiras independentes, inclusive apos criar a divisoria; apoios por UID acompanham espacamentos e resize. BMesh conserva Mesh/material/E/altura/recortes de prateleiras. `test_divisorias_blender.py`: exemplo 3->6/maleiro, multiplas, prateleiras parcialmente atingidas, outro modulo/giro, parametros/abertura/puxadores, vao invalido, campos/limites, restaurar/Esc e undo/redo.
+Leitura frontal da parede (299): clique em porta seleciona modulo; duplo
+isola folha. Shift e PRESS/CLICK conservam selecao multipla; fora do modo,
+porta continua selecionando seu grupo. Interior usa quinas reais da malha
+avaliada, desenhadas cinza com alfa apenas quando ocultas, sem editar a Mesh.
+Cache invalida por geometria/pose e e' descartado ao sair/undo; redraw nao
+extrai geometria. Cotas junto a' peca, sem usar o fim de toda a composicao.
+`test_paredes_composicao_blender.py`: 34 testes, seis novos para estes casos.
+Validacao 299 (2026-10-21): 1054 testes dirigidos passaram nas duas versoes;
+auditoria na cena 5.2 confirmou modulo/folha e cinza interno, mantendo os 157
+objetos e sua geometria. Ultimo harness: 2054 testes, unica falha nessa execucao
+na bancada curva 5.2. Uma execucao anterior acusou tambem redo de lote no 4.2:
+os dois modulos existem, mas a segunda Collection pode voltar sem vinculo
+com a cena. Reproduzido em 2/24 execucoes inclusive DESATIVANDO o interior;
+permanece pendente, sem ignorar teste ou enfraquecer suas assercoes. Logs em
+`D:/Blender/Backups/CabinetCreator/299-repeticao-*.log` e `299-sem-interior-*.log`.
+
+Insercao e saida da parede (298): orbita devolve PERSP preservando o gesto;
+parede e modulos solidos com contornos pretos, estado visual restaurado.
+Biblioteca arrastada/clique e arraste direito conservam malha/dimensoes no
+ponto de soltura. Duplo clique segue o ultimo a' direita; se exceder, centra
+na parede; ordem persiste entre sessoes. Staging oculto usa limites anteriores
+e sincroniza filhos ao confirmar. `test_paredes_edicao_blender.py`: 55 testes,
+inclusive arraste com RELEASE final, multiplos movimentos em parede girada,
+duplo clique do posicionador, cancelamento/limpeza, arestas nativas temporarias
+com restauracao/undo e modelo que nao cabe. Auditoria visual em cena temporaria
+na janela 5.2 com tres presets reais 600x1356x550, sem alterar a cena original.
+Validacao 298 (2026-10-21): 2042 testes em 48 execucoes, 2041 passaram.
+Permanece somente a falha preexistente de importacao da bancada curva no 5.2
+descrita abaixo; sem alteracao da tolerancia ou do teste.
+
+Composicao de paredes (297): cotas de largura/altura e vaos E1/E2 clicaveis,
+campos locais no menu, larguras Livre/Fixa e redistribuicao explicita no
+vao, separando linhas superiores. G/adicionar/excluir recalculam vaos sem
+mover vizinhos. Troca de modelo preserva tamanho/posicao/associacao e so'
+remove o original apos validar o substituto. Parede sem medidas no menu;
+visual solido/OBJECT/FLAT com parede em contorno e restauracao apos sair,
+undo e redo. Observador passivo nao bloqueia sincronizacao nativa.
+`test_paredes_composicao_blender.py`: 28 testes, inclusive parede girada,
+espessura/Mesh, encaixes invalidos, rollback, troca/Esc e undo/redo.
+
+Validacao 297 (2026-10-20): suites dirigidas em Blender 4.2/5.2 e auditoria
+visual na janela 5.2, em cena descartavel; cena original preservada.
+Harness completo: 2006 testes em 48 execucoes, 2005 passaram; unica falha preexistente em 5.2,
+`importacao::test_curva_bancada_encaixa_sem_apagar_modelagem_e_abre_fora_do_corpo`
+(desvio 0.000677527 m, tolerancia 0.00005 m). Nao houve alteracao do teste.
+
+Edicao 2D de paredes (296): grupo contextual Paredes e menu direito
+Cabinet Creator, face clicada ou maior face voltada para a vista, Local
+View nativo e restauracao do isolamento/ocultacao anterior. Orbita/Walk/Fly
+saem; pan/zoom ficam. Modelo da biblioteca, quantidade/folgas/espacamento,
+previa no vao, contorno real com aberturas, obstaculos por altura/face e
+retornos por BVH/raycast. Confirmacao independente com E preservada e
+rollback isolado; undo/redo/salvar/apagar parede encerram a sessao.
+`test_paredes_edicao_blender.py`: 37 testes em 4.2/5.2; desenho/gesto sem solver.
+
+Organizacao por setores (284): seis pacotes homonimos com imports publicos preservados, recarga mantendo objetos/malhas e aliases entre dominios. `test_organizacao_blender.py` verifica identidade/recarga; `TestPacote` enumera arquivos e pacotes sem aceitar fontes homonimas concorrentes. Mapa em ARQUITETURA.md e guias AGENTS.md/CLAUDE.md por setor.
+
+Divisorias (282): aba propria e `OBJECT_OT_criar_divisorias` reutilizam AssistenteDoVao/snap nativos. Particao valida os vaos antes de mutar, desconta E e produz gavetas/prateleiras independentes, inclusive apos criar a divisoria; apoios por UID acompanham espacamentos e resize. BMesh conserva Mesh/material/E/altura/recortes de prateleiras. Clique simples seleciona o grupo e exibe cotas do vao e distancias laterais editaveis; duplo isola a chapa, Tab conserva escopo nativo. `test_divisorias_blender.py`: exemplo 3->6/maleiro, multiplas, prateleiras parcialmente atingidas, outro modulo/giro, parametros/abertura/puxadores, vao invalido, campos/limites, clique/HUD/hit-test, restaurar/Esc com dependentes e undo/redo.
 
 Limpeza de embalagens de assets legados (280): tag nativa `chapa-g3` identifica a Collection do preset mesmo sem a marca da montagem, renomeada e com fake user. Delete limpa pastas aninhadas de dentro para fora; objetos/pastas comuns e assets de terceiros permanecem. Arquivo da biblioteca intocado; undo/redo preservam asset/tag/fake user. `test_append_delete_limpa_embalagem_asset_legada_com_fake_user`, `test_embalagem_asset_nao_vazia_e_assets_alheios_sao_preservados`, `test_embalagens_asset_aninhadas_limpam_de_dentro_para_fora`, `test_undo_redo_restaura_embalagem_asset_e_sua_identificacao` (portas).
 
@@ -126,7 +199,7 @@ que toda classe registrada apareca aqui por algum teste.
 |---|---|---|
 | Calculo das folhas (giro/basculante/correr, dobradicas) | `_calcular_folhas_portas` | portas, snapshot |
 | Criar pelo vao (2 cliques, ima) | `cabinet_apanhar_vao`, `cabinet_portas` | portas |
-| Wizard de 4 cliques: cobertura por lado, dobradica automatica, margem espelhada, aviso fora do padrao | `_coberturas_dos_cantos`, `_espelhar_margem`, `_lados_fora_do_padrao`, `_dobradica_da_cobertura` | portas, gui |
+| Wizard de 2 cliques (283): limites opostos da porta, vao/cobertura/dobradica automaticos, previa igual a execucao, diagonal invalida refeita e voltar conserva primeiro canto; API antiga de quatro pontos preservada | `_cliques`, `_previa`, `_concluir`, `_coberturas_dos_cantos`, `_dobradica_da_cobertura` | portas, gui |
 | Wizard: folhas, abertura, borda das dobradicas (basculante = sempre CIMA, sem perguntar), qtd (scroll), margem (Y), pistoes do basculante (posicao automatica; Y so' sobe, trava no curso) | `_arestas_da_porta`, `_posicoes_ferragens` | portas, gui |
 | Caixa e recado do wizard nunca saem cortados pela borda da viewport | `_botoes_assistente`, `_desenhar_assistente_2d` | gaveta, gui |
 | Aba Portas = copia clicavel da caixa do wizard, etapa a etapa (refaz dali), com as medidas da porta | `_filas_do_assistente`, `_responder_pela_gaveta`, `ALVO_ASSISTENTE` | gaveta, gui |
@@ -273,7 +346,7 @@ e' visto na GUI (sem comparacao de imagem ainda).
 
 | Contorno do modulo (254): HUD usa a geometria real de cada folha, sem caixa agregada em frentes curvas/facetadas; desenho e porta isolada compartilham referencia | `hud.py`, `test_hud_blender.py` | hud |
 
-| Forma/angulo (255): angulo interno pelas duas arestas nativas, extremos ortogonais, ida/volta; fundo dependente segue apoio e recuo normal; Tab reorienta chapa plana sem mudar mundo/UV/material/filhos nem arredondar E | `formas.py`, `chapas.py`, `hud.py`, `test_formas_blender.py` | formas, hud, operadores, importacao |
+| Forma/angulo (255): angulo interno pelas duas arestas nativas, extremos ortogonais, ida/volta; fundo dependente segue apoio e recuo normal; Tab reorienta chapa plana sem mudar mundo/UV/material/filhos nem arredondar E | `formas.py`, `chapas/`, `hud.py`, `test_formas_blender.py` | formas, hud, operadores, importacao |
 
 | Inclinacao vertical (256): solver comum XY/XZ/YZ, angulos reais e comprimento da diagonal, fundo/E/UV/material preservados; ida/volta com modulo girado, Tab invalida cache, Esc restaura; edicao individual isola Mesh compartilhada; cotas recortadas pelo perfil e referencia nativa sobrevive a append com nomes duplicados | `test_formas_blender.py` | formas, hud |
 
@@ -313,3 +386,76 @@ e' visto na GUI (sem comparacao de imagem ainda).
 | Categorias da biblioteca (276/277): modos e niveis em uma unica linha em qualquer altura, caixas com hover cinza e contornos/divisorias cinza claro do tema em todas as juntas; navegacao sem halo. Fundo nao intercepta abas, roda no padding afeta so seu nivel, Shift+roda conserva acesso aos niveis profundos | `test_todos_os_grupos_incluindo_modos_tem_caixa_e_divisoria_na_mesma_linha`, `test_hover_de_aba_realca_so_a_caixa_daquela_categoria`, `test_caixa_tem_hover_no_espaco_vazio_sem_roubar_o_hit_test_da_aba`, `test_roda_no_padding_da_caixa_rola_apenas_seu_nivel` | biblioteca_faixa |
 | Biblioteca responsiva (278): miniaturas crescem proporcionalmente a' altura da area, cabem com as setas mesmo em faixa alta/estreita e conservam ajuste/caminho; contorno da categoria SO' durante hover de uma aba, nunca permanente ou pelo fundo vazio | `test_miniaturas_crescem_com_a_area_sem_ultrapassar_altura_ou_largura`, `test_hover_de_aba_realca_so_a_caixa_daquela_categoria` | biblioteca_faixa |
 | Organizacao apos Delete nativo (279): remove controles ocultos das dobradicas, Empties e pasta marcada do modulo sem pecas; exclusao parcial preserva sobreviventes, dados compartilhados e objetos/pastas comuns. Adia em Tab/modal/undo; undo/redo restauram montagem/Collection | `test_delete_pecas_limpa_rig_empties_e_pasta`, `test_delete_so_folha_limpa_rig_e_preserva_carcaca`, `test_delete_pai_deixa_subgrupos_mas_limpeza_remove_pasta`, `test_delete_parcial_preserva_porta_e_dobradicas`, `test_limpeza_preserva_objeto_comum_na_pasta_e_grupo`, `test_limpeza_rig_preserva_filho_comum_e_dados_compartilhados`, `test_limpeza_so_remove_pastas_marcadas_e_comodos_vazios`, `test_limpeza_adiada_em_undo_edicao_ocupado_e_modal`, `test_delete_undo_redo_restauram_modulo_e_pasta` | portas |
+## Volume visual (v285)
+
+Origens no grupo (v287): opcao Ocultar/Mostrar, padrao oculto, flags nativas
+por viewport e restauracao ao isolar peca/salvar/desligar; respeita mudancas
+manuais e origens previamente ocultas. TestHUD: `test_origens_grupo_restaura_flags_nativas_e_opcao_muda_na_hora`,
+`test_origens_respeita_viewport_e_intervencao_manual`, `test_origens_somem_em_todos_os_grupos_mas_nao_na_folha_individual`,
+`test_menu_oferece_ocultar_e_mostrar_origens_no_grupo`.
+
+v286: arraste inicia sem snap (B ativa a base nativa), mesmo com ima global
+ligado; circulos de face com raio 2 px/hover 3 px, area de clique preservada.
+
+- Seis centros de face, picking e caixa girada: `TestHUD.test_volume_seis_centros_reais_e_hit_test_em_caixa_girada`.
+- Translate nativo, filtro de vertices, estado sem IDs: `TestHUD.test_volume_translate_nativo_vertice_base_b_e_estado_sem_ids` e `test_volume_macro_executa_translate_real_e_confirma`.
+- Referencia unica/Esc: `TestHUD.test_volume_previa_reparte_da_origem_e_esc_restaura_malha`.
+- Limite fisico invalido permite voltar a uma medida valida sem abandonar o modal: `TestHUD.test_volume_medida_invalida_nao_abandona_translate_e_pode_recuperar`.
+- Corrigir vao de prateleiras sem mover corpo: `TestHUD.test_volume_prateleiras_corrige_topo_e_base_sem_mover_corpo`.
+- Frente movel/fundo fixo e filhos refeitos: `TestHUD.test_volume_prateleiras_frente_movel_preserva_costas` e `test_volume_gavetas_e_divisorias_previa_repetida_com_filhos_refeitos`.
+- Escopo de angulos/unidades: `TestHUD.test_volume_nao_intercepta_angulo_e_cota_de_unidade`.
+- Eventos reais B/Esc/numero/undo: `gui_interacao.test_circulo_da_face_translate_b_esc_e_undo` (requer GUI autorizada).
+
+## Opcoes e encaixe dos internos (v288)
+
+- Bolinhas/guias independentes, sem alvos invisiveis e com preferencias RNA: `TestHUD.test_opcoes_independentes_escondem_bolinhas_e_guias_sem_alvo_fantasma`, `test_menu_tem_controles_ligado_desligado_para_bolinhas_e_guias`.
+- Consumir folga antes de diminuir; restaurar escolha ao devolver espaco: `TestGavetas.test_reducao_com_folga_preserva_gavetas_ate_faltar_espaco`, `TestPrateleiras.test_reducao_com_folga_preserva_prateleiras_e_so_adapta_ao_encostar`.
+- Escala nativa S, dimensao fisica das malhas e recuperacao: `TestGavetas.test_escala_nativa_conserva_internos_ate_faltar_espaco`.
+- Largura individual menor preservada: `TestGavetas.test_gaveta_individual_menor_nao_encolhe_junto_com_o_vao`.
+- Cancelar HUD restaura metadados e geometria: `TestPrateleiras.test_cancelar_resize_do_modulo_restaura_vao_parametros_e_geometria`.
+
+## Base do snap depois da previa (v289/290)
+
+- v290 substitui o retorno a' origem da v289: B preserva a geometria ATUAL e absorve o ultimo movimento antes do timer. Tres eixos/duas direcoes, vertice chega ao destino, cursor intacto na preparacao, translate real e Esc: `TestHUD.test_volume_base_snap_apos_arraste_preserva_geometria_atual_em_todos_os_eixos`.
+- B repetido/confirmacao da mesma base conserva o deslocamento acumulado, sem somar duas vezes; Esc recupera origem e malha: `TestHUD.test_volume_base_snap_repetida_acumula_so_arrastes_e_esc_restaura_origem`.
+- Observador repassa os eventos/undo, consulta o matcher nativo (atalhos remapeados), instala depois do translate e libera timer: `TestHUD.test_volume_observador_repassa_base_nativa_e_termina_sem_consumir_undo`, `test_volume_observador_abre_depois_do_translate_e_libera_timer`.
+- Arrastar 60 px -> B (conserva posicao atual) -> vertice atual da base -> B -> vertice destino fixo -> Enter/soltar -> undo: `gui_interacao.test_snap_b_depois_de_arrastar_face_nao_soma_deslocamento_anterior` (GUI autorizada).
+
+## Dono explicito da atualizacao do modulo (v295)
+
+- `modulos.atualizar_sistemas_do_conjunto`: portas -> gavetas -> prateleiras, uma chamada por dominio; `internos=False` preserva encaixes. Portas conserva seu aplicador e a fachada publica antiga, sem coordenar internos.
+- `test_coordenador_atualiza_portas_gavetas_prateleiras_uma_vez_nesta_ordem`, `test_api_legada_delega_ao_mesmo_coordenador_sem_duplicar`: ordem e compatibilidade da assinatura antiga.
+- `test_atualizar_apenas_portas_preserva_internos_reais`, `test_coordenador_ignora_alvo_ausente_ou_sem_marca`: escopo e alvos validos.
+- `test_resize_sem_porta_usa_coordenador_e_preserva_malhas_modeladas`: resize real, internos sem porta, cada dominio uma vez, mesmos IDs/recortes de Mesh.
+- `test_producao_nao_coordena_sistemas_pela_api_legada_de_portas`: chamadores internos nao voltam a depender da fachada antiga.
+- `test_undo_redo_do_resize_coordenado_restaura_corpo_e_internos`, `test_recarga_religa_setores_e_preserva_objetos_da_cena`: undo/redo, recarga e ligacoes dinamicas preservadas (suite organizacao).
+
+## Detalhamento local de prateleiras (v294)
+
+- Grupo: quantidade total e blocagem inteira; unidade: quantidade de suas subdivisoes, apenas entre apoios externos, contador/cotas/moldura locais. UID persistente por copia, sem nova hierarquia.
+- `test_quantidade_local_subdivide_so_entre_os_apoios_e_reutiliza_a_familia`: dividir 1 em 2/3/1, ativa preservada, apoios parados, ultimo E nao move apoio, Centralizar redistribui so' o trecho.
+- `test_selecao_local_tem_contador_e_caixa_limitados_e_grupo_tem_total`: alternancia de contador, campos E e limites da HUD por selecao.
+- `test_detalhamento_preserva_quatro_gavetas_e_herda_madeira_em_modulo_girado`: quatro gavetas preservadas, giro 3D, IDs/recorte/material/modificador e parametros das copias.
+- `test_contador_local_digitado_arrastado_e_esc_mantem_escopo`: alvo por nome, previa sem copiar, Esc cancela e digitacao respeita o trecho.
+- `test_detalhamento_inviavel_nao_altera_cena_e_zero_remove_so_o_trecho`: capacidade fisica validada antes de alterar; zero preserva apoios.
+- `test_undo_redo_de_detalhar_preserva_vinculo_e_apoios`, `test_detalhamento_gravado_em_blend_reabre_com_escopo_local`: undo/redo, salvar/reabrir e grupos independentes com o mesmo UID.
+
+## Posicao nativa de prateleiras e cotas (v293)
+
+- `test_g_nativo_em_tab_individual_e_global_atualiza_cotas_sem_mover_vizinhas`: transform.translate nativo, movimento para cima/baixo, modulo girado em 3D, HUD/menu E, mesmos IDs Mesh e remontagem sem salto.
+- `test_g_nativo_em_objeto_sincroniza_so_apos_confirmar_e_conserva_encaixe`: sem sincronizar durante modal; descarta encaixe antigo sem remontar no timer.
+- `test_g_cruzando_prateleira_reordena_cotas_e_conserva_parametros_individuais`: ordem real de baixo para cima, ajustes e selecao seguem a chapa.
+- `test_undo_redo_do_g_nativo_restaura_malha_posicao_e_cotas`: undo/redo recuperam geometria/cotas, com guarda ate' o timer normal.
+
+## Centralizar prateleira individual (v292)
+
+- Uma selecionada iguala apenas seus vaos acima/abaixo, entre faces de apoio reais ou limites do vao; grupo selecionado continua distribuindo todas.
+- `test_centralizar_individual_iguala_so_vaos_vizinhos_e_preserva_madeira`: primeira/intermediaria/ultima/unica, espessura individual, recorte e ID Mesh, vizinhas e selecao preservados.
+- `test_centralizar_individual_absorve_exclusao_e_remapeia_indice`: exclusao pendente do timer e indice compactado antes de escolher os apoios.
+- `test_centralizar_individual_undo_redo_restaura_posicao_e_selecao`: undo/redo nativos recuperam as alturas e a unidade ativa.
+
+## Reconhecimento real de B no resize (v291)
+
+- Matcher modal direto nao funciona (idname vazio/poll); espelho normal interno preserva atalhos/modificadores e remapeamento, com limpeza no fim/unregister: `TestHUD.test_volume_mapa_snap_nativo_tem_operador_valido_e_copia_atalhos_modais`. Fixture usa itens RNA nativos, sem substituir o matcher por Mock. Prova em Blender aberto: item vazio rejeitado; item valido e reconhecido pelo matcher com evento real; evento de outro atalho rejeitado.
+- Corpo dobrado, quatro gavetas e rotacao 90 graus: tamanho inicial preservado; arraste antes de B, referencia atual e nova translacao mantem medida; Esc restaura: `TestHUD.test_volume_gavetas_em_corpo_dobrado_e_girado_preservam_previa_ao_ancorar`.
+- Gesto completo ate' a quina real do corpo e undo: `gui_interacao.test_snap_b_gavetas_em_corpo_dobrado_e_girado_alinha_vertice_real` (GUI autorizada); o teste confere tambem se B chegou ao observador.

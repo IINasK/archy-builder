@@ -1467,7 +1467,7 @@ def _concluir_transformacao(context,conj,sistemas=True):
             for o in conj.children_recursive if o.get('porta_curva_modelada')]
     _modulos.reposicionar_origem(conj)
     _modulos.sincronizar_medidas_conjunto(conj)
-    _portas.atualizar_portas_do_conjunto(conj,sistemas=sistemas)
+    _modulos.atualizar_sistemas_do_conjunto(conj, internos=sistemas)
     for grupo,pontos in curvas:_portas.adotar_contorno_modelado(context,grupo,pontos)
     context.view_layer.update();_cache.pop(conj.name,None);concluir_edicao(conj)
 

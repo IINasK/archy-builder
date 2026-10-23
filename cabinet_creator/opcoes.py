@@ -36,7 +36,9 @@ OPCOES_PADRAO = {'unidade_padrao': 'MM', 'hud_espessura_linha': 1.5,
                  'hud_linha_tema': True, 'hud_rgb_linha': (1.0, 1.0, 1.0),
                  'hud_rgb_realce': COR_REALCE_PADRAO, 'hud_realce_gizmo': False,
                  'hud_tamanho_rotulo': 14,
-                 'ocultar_contorno_grupo': True, 'tecla_corrente': 'ALT'}
+                 'ocultar_contorno_grupo': True, 'ocultar_origens_grupo': True,
+                 'hud_pontos_apoio': True, 'hud_setas_quinas': True,
+                 'tecla_corrente': 'ALT'}
 # Sem preferencias (add-on carregado por script, testes) as opcoes
 # vivem aqui, para a engrenagem continuar funcionando.
 _opcoes_sem_preferencias = dict(OPCOES_PADRAO)
@@ -66,7 +68,7 @@ def _definir_opcao(nome, valor):
                     area.tag_redraw()
     except Exception:
         pass
-    if nome == 'ocultar_contorno_grupo':
+    if nome in {'ocultar_contorno_grupo', 'ocultar_origens_grupo'}:
         _eventos.sincronizar_contornos()
 
 
@@ -147,6 +149,16 @@ class CabinetCreatorPreferences(bpy.types.AddonPreferences):
         description="Com um modulo ou porta selecionado, desliga o "
                     "contorno de selecao da viewport e devolve o estado "
                     "anterior ao terminar")
+    ocultar_origens_grupo: bpy.props.BoolProperty(
+        name="Ocultar origens no grupo", default=True,
+        description="Oculta os pontos de origem nativos ao selecionar um grupo; "
+                    "restaura a configuracao anterior ao selecionar uma peca ou sair do grupo")
+    hud_pontos_apoio: bpy.props.BoolProperty(
+        name="Bolinhas de apoio", default=True,
+        description="Mostra os controles circulares no centro das faces do volume")
+    hud_setas_quinas: bpy.props.BoolProperty(
+        name="Guias nas quinas", default=True,
+        description="Mostra a direcao do redimensionamento ao passar o mouse nas cotas")
 
     def draw(self, context):
         layout = self.layout

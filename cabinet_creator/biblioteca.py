@@ -18,6 +18,8 @@ _chapas = _modulos = _opcoes = _selecao = _gaveta = None
 _portas = _puxadores = _ferragens = _promob = None
 _biblioteca_faixa = None
 _formas = None
+_paredes_edicao = None
+_paredes = None
 
 # ================================================== BIBLIOTECA / ASSETS
 # Salva chapas e modulos na biblioteca de assets do Blender, para
@@ -814,6 +816,11 @@ class OBJECT_OT_inserir_preset(Operator):
     tipo: bpy.props.StringProperty(default="modulo")
 
     def execute(self, context):
+        if _paredes_edicao.ativa(context):
+            erro = _paredes_edicao.inserir_modelo(context, self.pasta, self.arquivo, self.tipo)
+            if erro:
+                self.report({'WARNING'}, erro)
+            return {'CANCELLED'} if erro else {'FINISHED'}
         novos, _raizes, erro = inserir_preset(
             context, self.pasta, self.arquivo, self.tipo)
         if erro:
@@ -844,6 +851,12 @@ class OBJECT_OT_arrastar_preset(Operator):
         return context.area is not None and context.area.type == 'VIEW_3D'
 
     def invoke(self, context, event):
+        if (self.arquivo and _paredes_edicao.ativa(context)
+                and _paredes_edicao._sessao[0].get('substituir')):
+            erro = _paredes_edicao.preparar_modelo(context, self.pasta, self.arquivo, self.tipo)
+            if erro:
+                self.report({'WARNING'}, erro)
+            return {'CANCELLED'} if erro else {'FINISHED'}
         # Sem preset nas props, o arraste comecou sobre a grade: o bloco
         # sob o cursor e' lido em context.button_operator, que entrega as
         # propriedades do botao apontado (o mesmo recurso que o Blender
@@ -918,6 +931,18 @@ class OBJECT_OT_arrastar_preset(Operator):
             return {'CANCELLED'}
 
         self._base = {o: o.location.copy() for o in self._raizes}
+        self._sessao_parede = (_paredes_edicao._sessao[0]['id']
+                                if _paredes_edicao.ativa(context) else 0)
+        if self._sessao_parede:
+            if (self.tipo != 'modulo' or len(self._raizes) != 1
+                    or _chapas.MARCA_CONJUNTO not in self._raizes[0]):
+                self._apagar()
+                self._restaurar_selecao(context)
+                self.report({'WARNING'}, 'Escolha um unico modulo completo')
+                return {'CANCELLED'}
+            self._matriz_parede_base = self._raizes[0].matrix_world.copy()
+            self._caixa_parede_base = _paredes.caixa_do_modulo(self._raizes[0])
+        self._automatico_parede = False
         self._altura = context.scene.cursor.location.z
         self._alvo = None
         self._normal = Vector((0.0, 0.0, 1.0))
@@ -974,6 +999,13 @@ class OBJECT_OT_arrastar_preset(Operator):
             Vector((lo.x, lo.y, hi.z)), Vector((hi.x, lo.y, hi.z)),
             Vector((hi.x, hi.y, hi.z)), Vector((lo.x, hi.y, hi.z)),
         )
+        if getattr(self, '_sessao_parede', 0):
+            # A caixa do staging inteiro inclui puxadores/folhas abertas e
+            # pode estar girada. A previa deve usar o envelope validado.
+            lo, hi = self._caixa_parede_base
+            matriz = self._matriz_parede_base
+            self._bbox_base = tuple(matriz @ Vector((x, y, z)) for z in (lo.z, hi.z)
+                for x, y in ((lo.x, lo.y), (hi.x, lo.y), (hi.x, hi.y), (lo.x, hi.y)))
         self._ancora_base = Vector((
             (lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, lo.z))
         diagonal = (hi - lo).length
@@ -1095,6 +1127,9 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._valido = False
             self._area_preview.tag_redraw()
             return
+        if getattr(self, '_sessao_parede', 0):
+            self._mover_na_parede(context, event)
+            return
         coord = (event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y)
         try:
             origem = view3d_utils.region_2d_to_origin_3d(
@@ -1135,6 +1170,28 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._normal = normal
         self._bbox_atual = [p + deslocamento for p in self._bbox_base]
         self._valido = True
+        self._area_preview.tag_redraw()
+
+    def _mover_na_parede(self, context, event):
+        self._valido = False
+        ponto = _paredes_edicao.ponto_no_evento(context, event)
+        if ponto is not None:
+            modulo = self._raizes[0]
+            # Objetos ocultos nao atualizam os filhos no depsgraph. A previa
+            # usa a caixa medida antes de ocultar, nunca uma caixa defasada.
+            costas, erro = _paredes_edicao.posicao_do_modelo(context, modulo, ponto, self._caixa_parede_base)
+            if not erro:
+                s = _paredes_edicao._sessao[0]
+                modulo.matrix_world = _paredes.matriz_na_parede(modulo, costas,
+                    Vector(s['normal']), Vector(s['u']), caixa=self._caixa_parede_base)
+                context.view_layer.update()
+                matriz = modulo.matrix_world @ self._matriz_parede_base.inverted_safe()
+                self._bbox_atual = [matriz @ p for p in self._bbox_base]
+                altura = (self._caixa_parede_base[1].z - self._caixa_parede_base[0].z) * modulo.matrix_world.to_scale().z
+                self._alvo = costas + Vector((0, 0, altura / 2))
+                self._normal = Vector(s['normal'])
+                self._ponto_parede = tuple(ponto)
+                self._em_superficie = self._valido = True
         self._area_preview.tag_redraw()
 
     def _apagar(self):
@@ -1185,6 +1242,11 @@ class OBJECT_OT_arrastar_preset(Operator):
 
     def _no_cursor(self, context):
         """Centro da base do preset no cursor 3D, e confirma."""
+        if getattr(self, '_sessao_parede', 0):
+            self._raizes[0].matrix_world = self._matriz_parede_base
+            context.view_layer.update()
+            self._automatico_parede = True
+            return self._confirmar(context)
         deslocamento = context.scene.cursor.location - self._ancora_base
         for o in self._raizes:
             base = self._base.get(o)
@@ -1194,6 +1256,15 @@ class OBJECT_OT_arrastar_preset(Operator):
         return self._confirmar(context)
 
     def _confirmar(self, context):
+        if getattr(self, '_sessao_parede', 0):
+            self._raizes[0].matrix_world = self._matriz_parede_base
+            self._restaurar_staging()
+            context.view_layer.update()
+            ponto = None if self._automatico_parede else Vector(self._ponto_parede)
+            erro = _paredes_edicao.posicionar_modelo(context, self._raizes[0], ponto, self._novos)
+            if erro:
+                self.report({'WARNING'}, erro)
+                return self._cancelar(context)
         self._encerrar_visual(context)
         self._restaurar_staging()
         try:
@@ -1212,6 +1283,9 @@ class OBJECT_OT_arrastar_preset(Operator):
         return {'FINISHED'}
 
     def modal(self, context, event):
+        if getattr(self, '_sessao_parede', 0) and (not _paredes_edicao.ativa(context)
+                or _paredes_edicao._sessao[0]['id'] != self._sessao_parede):
+            return self._cancelar(context)
         if event.type == 'MOUSEMOVE':
             if self._arrastando and not self._moveu:
                 dx = event.mouse_x - self._mouse_inicio[0]
@@ -1247,6 +1321,9 @@ class OBJECT_OT_arrastar_preset(Operator):
                     return {'RUNNING_MODAL'}
                 if not self._na_viewport(event):
                     return self._cancelar(context)
+                # O RELEASE pode chegar sem MOUSEMOVE na coordenada final.
+                if getattr(self, '_sessao_parede', 0):
+                    self._mover(context, event)
                 if not self._valido:
                     self.report({'WARNING'}, "Posicione dentro da viewport")
                     return self._cancelar(context)

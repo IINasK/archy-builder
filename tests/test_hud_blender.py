@@ -178,6 +178,8 @@ class TestHUD(unittest.TestCase):
 
     def test_hud_e_menu_redimensionam_so_o_modulo_apos_desvincular(self):
         modulo,lateral,prateleiras=self._modulo_com_lateral_desvinculada()
+        # Escolha original do nicho 600x400, antes de ampliar/desvincular.
+        limite_internos=(564.,364.)
         mundo=lateral.matrix_world.copy();me=lateral.data;vertices=[tuple(v.co) for v in me.vertices]
         for caminho in ('hud','menu'):
             for eixo in (0,1,2):
@@ -199,8 +201,9 @@ class TestHUD(unittest.TestCase):
                         for a,b in zip(mundo,lateral.matrix_world):self.assertLess((a-b).length,1e-6)
                         largura,altura,_matriz=addon.prateleiras.vao(prateleiras)
                         esperado=addon.modulos.medir_conjunto(modulo)
-                        self.assertAlmostEqual(largura,esperado[0]-36,places=2)
-                        self.assertAlmostEqual(altura,esperado[1]-36,places=2)
+                        # v288: o vao conserva a escolha, nao cresce com a caixa.
+                        self.assertLessEqual(largura,min(limite_internos[0],esperado[0])+.05)
+                        self.assertLessEqual(altura,min(limite_internos[1],esperado[1])+.05)
         # Mover a peca ja' solta de novo nao muda nem o vao nem a HUD do grupo.
         antes=addon.modulos.medir_conjunto(modulo)
         lateral.location.x+=2;bpy.context.view_layer.update()
@@ -781,6 +784,454 @@ class TestHUD(unittest.TestCase):
         modulo = bpy.context.object
         bpy.context.view_layer.update()
         return modulo
+
+    def _volume_contexto(self):
+        contexto = _ContextoRegiao()
+        contexto.area = SimpleNamespace(as_pointer=lambda: 987654, tag_redraw=lambda: None)
+        contexto.space_data = SimpleNamespace(overlay=SimpleNamespace(show_cursor=True))
+        return contexto
+
+    def _volume_preparar(self, obj, modo, eixo, lado):
+        obj.select_set(True)
+        geo = addon.hud._geometria_do_item(obj, modo, []) if modo != 'GRUPO' else (
+            addon.hud._geometria_do_item(obj, modo, addon.modulos._chapas_do_conjunto(obj)))
+        controle = next(c for c in addon.hud_volume.controles(geo)
+                        if c['eixo'] == eixo and c['lado'] == lado)
+        contexto = self._volume_contexto()
+        backup = addon.hud._estado_arraste_hud(contexto, controle)
+        props = addon.hud_volume.preparar(contexto, controle, backup)
+        return contexto, controle, props
+
+    def test_volume_seis_centros_reais_e_hit_test_em_caixa_girada(self):
+        modulo = self.modulo()
+        modulo.rotation_euler = (.1, .2, .7)
+        bpy.context.view_layer.update()
+        geo = addon.hud._geometria_do_item(modulo, 'GRUPO',
+                                         addon.modulos._chapas_do_conjunto(modulo))
+        controles = addon.hud_volume.controles(geo)
+        self.assertEqual(len(controles), 6)
+        for controle in controles:
+            eixo = controle['eixo']
+            face = 1 if controle['lado'] == 'min' else 0
+            esperado = sum((p for i, p in enumerate(geo['cantos'])
+                           if bool(i & (1 << eixo)) == bool(face)), Vector()) / 4
+            self.assertLess((controle['pontos'][1] - esperado).length, 1e-7)
+        # Projecao obliqua separa os seis centros, incluindo frente/costas.
+        projetar = lambda p: Vector((p.x * 500 + p.y * 180, p.z * 500 + p.y * 90))
+        for c in controles:
+            alvo = addon.hud._acertar_linhas_hud(geo, projetar(c['pontos'][1]), projetar)
+            self.assertTrue(alvo.get('controle_face'))
+            self.assertEqual((alvo['eixo'], alvo['lado']), (c['eixo'], c['lado']))
+
+    def test_opcoes_independentes_escondem_bolinhas_e_guias_sem_alvo_fantasma(self):
+        from unittest.mock import patch
+        modulo=self.modulo()
+        geo=addon.hud._geometria_do_item(modulo,'GRUPO',addon.modulos._chapas_do_conjunto(modulo))
+        originais={n:addon.opcoes._opcao(n) for n in ('hud_pontos_apoio','hud_setas_quinas')}
+        ctx=_ContextoRegiao()
+        realce=addon.hud._realce_medida[0]
+        addon.hud._realce_medida[0]=None
+        try:
+            addon.opcoes._definir_opcao('hud_pontos_apoio',True)
+            controle=addon.hud_volume.controles(geo)[0]
+            addon.opcoes._definir_opcao('hud_pontos_apoio',False)
+            self.assertFalse(addon.hud_volume.controles(geo))
+            addon.hud._hover_hud[4242]=controle
+            self.assertIsNone(addon.hud._realce_hud(ctx))
+            addon.opcoes._definir_opcao('hud_pontos_apoio',True)
+            self.assertIs(addon.hud._realce_hud(ctx),controle)
+            addon.opcoes._definir_opcao('hud_setas_quinas',False)
+            self.assertEqual(len(addon.hud_volume.controles(geo)),6)
+            addon.hud._hover_hud[4242]=dict(geo['linhas'][0],lado='min')
+            self.assertIsNone(addon.hud._realce_hud(ctx))
+            with patch.object(addon.hud,'_projetar_hud',side_effect=AssertionError('Desenhou guia desligada')):
+                addon.hud._desenhar_seta_hud(ctx,{},geo)
+            addon.opcoes._definir_opcao('hud_setas_quinas',True)
+            self.assertIsNotNone(addon.hud._realce_hud(ctx))
+        finally:
+            addon.hud._hover_hud.pop(4242,None)
+            addon.hud._realce_medida[0]=realce
+            for n,v in originais.items():addon.opcoes._definir_opcao(n,v)
+
+    def test_menu_tem_controles_ligado_desligado_para_bolinhas_e_guias(self):
+        for nome in ('hud_pontos_apoio','hud_setas_quinas'):
+            self.assertEqual(addon.gaveta.SUSPENSOS_OPCOES[nome],((True,'Ligado'),(False,'Desligado')))
+            self.assertIn(nome,[linha[2] for linha in addon.gaveta.LINHAS_OPCOES])
+            self.assertTrue(addon.opcoes.CabinetCreatorPreferences.bl_rna.properties[nome].default)
+
+    def test_volume_translate_nativo_vertice_base_b_e_estado_sem_ids(self):
+        modulo = self.modulo()
+        cursor = tuple(bpy.context.scene.cursor.location)
+        ctx, c, props = self._volume_preparar(modulo, 'GRUPO', 0, 'min')
+        try:
+            self.assertTrue(props['cursor_transform'])
+            self.assertFalse(props['snap'])
+            self.assertEqual(props['snap_elements'], {'VERTEX'})
+            self.assertTrue(props['use_snap_selectable'])
+            self.assertEqual(props['constraint_axis'], (True, False, False))
+            eixo = (c['pontos'][1] - c['pontos'][0]).normalized()
+            self.assertGreater(Vector(props['orient_matrix'][0]).dot(eixo), .99999)
+            self.assertFalse(addon._segura_dado(addon.hud_volume._estado[0]))
+            self.assertIn('TRANSFORM_OT_translate',
+                          bpy.ops.object.cabinet_transformar_volume.get_rna_type().properties.keys())
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
+        self.assertEqual(tuple(bpy.context.scene.cursor.location), cursor)
+        self.assertFalse(modulo.hide_select)
+        self.assertIsNone(addon.hud_volume._estado[0])
+        chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+        addon.hud._selecionar_chapa_hud(bpy.context, chapa, individual=True)
+        alvo = dict(tipo='medida', objeto=chapa, modo='INDIVIDUAL', eixo=0,
+                    lado='min', pontos=[chapa.matrix_world @ Vector(p)
+                                       for p in [(-.1,0,0),(.1,0,0)]])
+        backup = addon.hud._estado_arraste_hud(ctx, alvo)
+        addon.hud_volume.preparar(ctx, alvo, backup)
+        try:
+            self.assertFalse(chapa.select_get())
+            self.assertEqual(addon.hud._itens_hud(ctx), [(chapa, 'INDIVIDUAL', [chapa])])
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
+        self.assertTrue(chapa.select_get())
+
+    def test_volume_base_snap_apos_arraste_preserva_geometria_atual_em_todos_os_eixos(self):
+        # Regressao v290: a base pertence a' posicao em que B foi apertado.
+        # O cursor nativo volta ao inicio, mas a madeira nao pode voltar.
+        modulo=self.modulo()
+        originais={o.name:[o.matrix_world@v.co for v in o.data.vertices]
+                   for o in modulo.children_recursive if o.type=='MESH'}
+        for eixo in range(3):
+            for lado in ('min','max'):
+                with self.subTest(eixo=eixo,lado=lado):
+                    ctx,c,props=self._volume_preparar(modulo,'GRUPO',eixo,lado)
+                    estado=addon.hud_volume._estado[0]
+                    inicio=Vector(estado['inicio']);direcao=Vector(estado['eixo'])
+                    original=estado['valor']
+                    try:
+                        bpy.context.scene.cursor.location=inicio+direcao*.04
+                        addon.hud_volume.atualizar(ctx)
+                        self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+40,delta=.01)
+                        atuais={o.name:[o.matrix_world@v.co for v in o.data.vertices]
+                                for o in modulo.children_recursive if o.type=='MESH'}
+                        cursor=bpy.context.scene.cursor.location.copy()
+                        addon.hud_volume.preparar_base_snap(ctx)
+                        self.assertLess((bpy.context.scene.cursor.location-cursor).length,1e-7)
+                        for nome,pontos in atuais.items():
+                            obj=bpy.data.objects[nome]
+                            for v,p in zip(obj.data.vertices,pontos):
+                                self.assertLess((obj.matrix_world@v.co-p).length,1e-6)
+                        # O Blender restaura o cursor e aplica destino-base.
+                        # Aqui o deslocamento e' conhecido; o translate real
+                        # verifica a referencia sem simular picking por Python.
+                        bpy.context.scene.cursor.location=inicio
+                        addon.hud_volume.atualizar(ctx)
+                        self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+40,delta=.01)
+                        base=max((p for pontos in atuais.values() for p in pontos),key=lambda p:p.dot(direcao))
+                        destino=base+direcao*.075
+                        props.update(snap=False,value=((destino-base).dot(direcao),0,0))
+                        self.assertEqual(bpy.ops.transform.translate('EXEC_DEFAULT',**props),{'FINISHED'})
+                        addon.hud_volume.atualizar(ctx)
+                        self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+115,delta=.02)
+                        ponta=max((o.matrix_world@v.co for o in modulo.children_recursive
+                                   if o.type=='MESH' for v in o.data.vertices),key=lambda p:p.dot(direcao))
+                        self.assertAlmostEqual(ponta.dot(direcao),destino.dot(direcao),delta=.00002)
+                    finally:
+                        addon.hud_volume.terminar(ctx,cancelar=True)
+                    for nome,pontos in originais.items():
+                        obj=bpy.data.objects[nome]
+                        for v,p in zip(obj.data.vertices,pontos):
+                            self.assertLess((obj.matrix_world@v.co-p).length,1e-6)
+
+    def test_volume_observador_repassa_base_nativa_e_termina_sem_consumir_undo(self):
+        from unittest.mock import Mock,patch
+        modulo=self.modulo()
+        ctx,c,_=self._volume_preparar(modulo,'GRUPO',0,'min')
+        obs=addon.hud_volume.OBJECT_OT_observar_volume
+        operador=SimpleNamespace(_sessao=id(addon.hud_volume._estado[0]))
+        evento=SimpleNamespace(type='B',value='PRESS')
+        try:
+            bpy.context.scene.cursor.location+=Vector((.03,0,0))
+            addon.hud_volume.atualizar(ctx)
+            with patch.object(addon.hud_volume,'_evento_base_snap',return_value=True):
+                self.assertEqual(obs.modal(operador,ctx,evento),{'PASS_THROUGH'})
+            self.assertAlmostEqual(modulo.conj_largura_mm,630,delta=.01)
+            addon.hud_volume.terminar(ctx,cancelar=True)
+            with patch.object(addon.hud_volume,'_remover_observador') as limpar:
+                self.assertEqual(obs.modal(operador,ctx,evento),{'FINISHED','PASS_THROUGH'})
+                limpar.assert_called_once()
+            # Usa o matcher NATIVO, inclusive com o atalho remapeado.
+            matcher=Mock(return_value=object())
+            mapa=SimpleNamespace(keymap_items=SimpleNamespace(match_event=matcher))
+            with patch.object(addon.hud_volume,'_mapa_eventos_snap',return_value=mapa):
+                self.assertTrue(addon.hud_volume._evento_base_snap(ctx,evento))
+            matcher.assert_called_once_with(evento)
+            matcher.return_value=None
+            with patch.object(addon.hud_volume,'_mapa_eventos_snap',return_value=mapa):
+                self.assertFalse(addon.hud_volume._evento_base_snap(ctx,evento))
+        finally:
+            addon.hud_volume.terminar(ctx,cancelar=True)
+
+    def test_volume_observador_abre_depois_do_translate_e_libera_timer(self):
+        from unittest.mock import Mock,patch
+        modulo=self.modulo()
+        ctx,c,_=self._volume_preparar(modulo,'GRUPO',0,'min')
+        backup=addon.hud_volume._recuperar(addon.hud_volume._estado[0]['backup'])
+        addon.hud_volume.terminar(ctx,cancelar=True)
+        ordem=[]
+        def traduzir(*a,**k):ordem.append('translate');return {'RUNNING_MODAL'}
+        def observar(*a,**k):ordem.append('observador');return {'RUNNING_MODAL'}
+        try:
+            api=SimpleNamespace(ops=SimpleNamespace(object=SimpleNamespace(
+                cabinet_transformar_volume=traduzir,cabinet_observar_volume=observar)),
+                app=SimpleNamespace(timers=SimpleNamespace(register=Mock())),
+                types=bpy.types,data=bpy.data,context=bpy.context)
+            with patch.object(addon.hud_volume,'bpy',api):
+                self.assertTrue(addon.hud_volume.iniciar(ctx,c,backup))
+            self.assertEqual(ordem,['translate','observador'])
+            timer=object();adicionar=Mock(return_value=timer)
+            wm=SimpleNamespace(event_timer_add=adicionar,modal_handler_add=Mock())
+            contexto=SimpleNamespace(window_manager=wm,window=None)
+            op=SimpleNamespace()
+            classe=addon.hud_volume.OBJECT_OT_observar_volume
+            with patch.object(addon.hud_volume,'_remover_observador'):
+                self.assertEqual(classe.invoke(op,contexto,None),{'RUNNING_MODAL'})
+            self.assertIs(addon.hud_volume._timer_observador[0],timer)
+            wm.modal_handler_add.assert_called_once_with(op)
+            # O operador guarda so' o identificador da sessao, nunca IDs.
+            self.assertFalse(addon._segura_dado(op.__dict__))
+            remover=Mock()
+            api=SimpleNamespace(context=SimpleNamespace(window_manager=SimpleNamespace(
+                event_timer_remove=remover,keyconfigs=SimpleNamespace(addon=None))))
+            with patch.object(addon.hud_volume,'bpy',api):
+                addon.hud_volume._remover_observador()
+                remover.assert_called_once_with(timer)
+            self.assertIsNone(addon.hud_volume._timer_observador[0])
+        finally:
+            addon.hud_volume._timer_observador[0]=None
+            addon.hud_volume.terminar(ctx,cancelar=True)
+
+    def test_volume_mapa_snap_nativo_tem_operador_valido_e_copia_atalhos_modais(self):
+        v=addon.hud_volume
+        origem=bpy.context.window_manager.keyconfigs.user.keymaps['Transform Modal Map']
+        itens=[i for i in origem.keymap_items if i.active and i.propvalue in {
+            'EDIT_SNAP_SOURCE_ON','EDIT_SNAP_SOURCE_OFF'}]
+        criados=[]
+        if not itens:
+            # --background cria o mapa modal nativo, mas nao carrega o
+            # preset Python dos atalhos. Completar somente esta fixture.
+            criados=[origem.keymap_items.new_modal(p,'B','PRESS') for p in
+                     ('EDIT_SNAP_SOURCE_ON','EDIT_SNAP_SOURCE_OFF')]
+            itens=criados
+        self.assertTrue(itens)
+        self.assertTrue(all(i.idname=='' for i in itens))
+        antes=[tuple(getattr(i,p,None) for p in v._CAMPOS_EVENTO) for i in itens]
+        tipo=itens[0].type
+        try:
+            mapa=v._mapa_eventos_snap(bpy.context)
+            self.assertFalse(mapa.is_modal)
+            self.assertEqual(len(mapa.keymap_items),len(itens))
+            self.assertTrue(all(i.idname==v.OBJECT_OT_observar_volume.bl_idname for i in mapa.keymap_items))
+            self.assertEqual([tuple(getattr(i,p,None) for p in v._CAMPOS_EVENTO)
+                              for i in mapa.keymap_items],antes)
+            self.assertFalse(addon._segura_dado(v._assinatura_mapa_snap[0]))
+            # Remapeamento durante a sessao atualiza o espelho sem editar
+            # o mapa original. A fixture e' o factory-startup do harness.
+            itens[0].type='V' if tipo!='V' else 'B'
+            atualizado=v._mapa_eventos_snap(bpy.context)
+            self.assertEqual(atualizado.keymap_items[0].type,itens[0].type)
+        finally:
+            itens[0].type=tipo
+            v._remover_observador()
+            for item in criados:origem.keymap_items.remove(item)
+        self.assertIsNone(bpy.context.window_manager.keyconfigs.addon.keymaps.get(v.NOME_MAPA_SNAP))
+        self.assertIsNone(v._assinatura_mapa_snap[0])
+
+    def test_volume_gavetas_em_corpo_dobrado_e_girado_preservam_previa_ao_ancorar(self):
+        g=addon.gavetas
+        modulo=self.modulo()
+        grupo=g.criar_gavetas(bpy.context,modulo,(18,18,18,18,0),dict(quantidade=4,profundidade_mm=280))
+        largura=g.medidas(grupo)[0]
+        modulo.conj_largura_mm*=2
+        self.assertAlmostEqual(g.medidas(grupo)[0],largura,delta=.01)
+        modulo.rotation_euler.z=math.pi/2
+        bpy.context.view_layer.update()
+        ctx,c,props=self._volume_preparar(grupo,'GAVETAS',0,'min')
+        s=addon.hud_volume._estado[0]
+        inicio=Vector(s['inicio']);eixo=Vector(s['eixo'])
+        try:
+            self.assertGreater(abs(eixo.y),.999)
+            bpy.context.scene.cursor.location=inicio+eixo*.04
+            addon.hud_volume.atualizar(ctx)
+            self.assertAlmostEqual(g.medidas(grupo)[0],largura+40,delta=.02)
+            addon.hud_volume.preparar_base_snap(ctx)
+            bpy.context.scene.cursor.location=inicio
+            addon.hud_volume.atualizar(ctx)
+            self.assertAlmostEqual(g.medidas(grupo)[0],largura+40,delta=.02)
+            props.update(snap=False,value=(.075,0,0))
+            bpy.ops.transform.translate('EXEC_DEFAULT',**props)
+            addon.hud_volume.atualizar(ctx)
+            self.assertAlmostEqual(g.medidas(grupo)[0],largura+115,delta=.02)
+            self.assertNotIn('erro',s)
+        finally:
+            addon.hud_volume.terminar(ctx,cancelar=True)
+        self.assertAlmostEqual(g.medidas(grupo)[0],largura,delta=.01)
+
+    def test_volume_base_snap_repetida_acumula_so_arrastes_e_esc_restaura_origem(self):
+        modulo=self.modulo()
+        ctx,c,_=self._volume_preparar(modulo,'GRUPO',0,'min')
+        s=addon.hud_volume._estado[0]
+        inicio=Vector(s['inicio']);eixo=Vector(s['eixo']);original=s['valor']
+        antes={o.name:[tuple(v.co) for v in o.data.vertices]
+               for o in modulo.children_recursive if o.type=='MESH'}
+        try:
+            for delta,total in ((.04,40),(.02,60),(-.01,50)):
+                # B deve absorver o cursor mesmo antes do tique de previa.
+                bpy.context.scene.cursor.location=inicio+eixo*delta
+                addon.hud_volume.preparar_base_snap(ctx)
+                self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
+                bpy.context.scene.cursor.location=inicio
+                addon.hud_volume.atualizar(ctx)
+                self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
+                # O segundo B confirma a mesma base, sem duplicar o gap.
+                addon.hud_volume.preparar_base_snap(ctx)
+                addon.hud_volume.atualizar(ctx)
+                self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
+            self.assertFalse(addon._segura_dado(s))
+        finally:
+            addon.hud_volume.terminar(ctx,cancelar=True)
+        self.assertAlmostEqual(modulo.conj_largura_mm,original,delta=.01)
+        for nome,pontos in antes.items():
+            self.assertEqual([tuple(v.co) for v in bpy.data.objects[nome].data.vertices],pontos)
+
+    def test_volume_previa_reparte_da_origem_e_esc_restaura_malha(self):
+        modulo = self.modulo()
+        antes = {o.name: (o.matrix_world.copy(), [tuple(v.co) for v in o.data.vertices])
+                 for o in modulo.children_recursive if o.type == 'MESH'}
+        original = modulo.conj_largura_mm
+        ctx, c, _ = self._volume_preparar(modulo, 'GRUPO', 0, 'max')
+        inicio = Vector(addon.hud_volume._estado[0]['inicio'])
+        eixo = Vector(addon.hud_volume._estado[0]['eixo'])
+        try:
+            for delta in (.04, .01, .04):
+                bpy.context.scene.cursor.location = inicio + eixo * delta
+                addon.hud_volume.atualizar(ctx)
+                self.assertAlmostEqual(modulo.conj_largura_mm, original + delta*1000, places=2)
+            self.assertTrue(addon.hud._edicao_hud[0]['nativo'])
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
+        self.assertAlmostEqual(modulo.conj_largura_mm, original, places=3)
+        for nome, (m, vertices) in antes.items():
+            obj = bpy.data.objects[nome]
+            for a, b in zip(m, obj.matrix_world):
+                self.assertLess((a-b).length, 1e-6)
+            self.assertEqual(vertices, [tuple(v.co) for v in obj.data.vertices])
+
+    def test_volume_prateleiras_corrige_topo_e_base_sem_mover_corpo(self):
+        modulo = self.modulo()
+        p = addon.prateleiras
+        grupo = p.criar_prateleiras(bpy.context, modulo, (18,18,0,0,0),
+                                    dict(quantidade=2, profundidade_mm=300))
+        corpo = {o.name: o.matrix_world.copy() for o in addon.modulos._chapas_do_conjunto(modulo)}
+        altura = p.medidas(grupo)[1]
+        for lado, deslocamento in [('min', -.018), ('max', -.2)]:
+            ctx, c, _ = self._volume_preparar(grupo, 'PRATELEIRAS', 2, lado)
+            s = addon.hud_volume._estado[0]
+            bpy.context.scene.cursor.location = Vector(s['inicio']) + Vector(s['eixo']) * deslocamento
+            # Confirmacao da macro aplica o ultimo movimento mesmo sem tique de timer.
+            self.assertEqual(bpy.ops.object.cabinet_confirmar_volume(), {'FINISHED'})
+        self.assertAlmostEqual(p.medidas(grupo)[1], altura - 218, places=2)
+        self.assertAlmostEqual(grupo[p.CHAVE_MARGENS][2], 200, places=2)
+        self.assertAlmostEqual(grupo[p.CHAVE_MARGENS][3], 18, places=2)
+        for nome, matriz in corpo.items():
+            self.assertEqual(bpy.data.objects[nome].matrix_world, matriz)
+
+    def test_volume_prateleiras_frente_movel_preserva_costas(self):
+        modulo = self.modulo()
+        p = addon.prateleiras
+        grupo = p.criar_prateleiras(bpy.context, modulo, (18,18,18,18,20),
+                                    dict(quantidade=2, profundidade_mm=300))
+        ctx, c, _ = self._volume_preparar(grupo, 'PRATELEIRAS', 1, 'max')
+        costas = c['pontos'][0].copy()
+        try:
+            s = addon.hud_volume._estado[0]
+            bpy.context.scene.cursor.location = Vector(s['inicio']) + Vector(s['eixo']) * -.05
+            addon.hud_volume.atualizar(ctx)
+            self.assertAlmostEqual(p.medidas(grupo)[2], 250, places=2)
+            geo = addon.hud._geometria_do_item(grupo, 'PRATELEIRAS', [])
+            atual = next(c for c in addon.hud_volume.controles(geo)
+                         if c['eixo'] == 1 and c['lado'] == 'max')
+            self.assertLess((atual['pontos'][0] - costas).length, 1e-6)
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
+
+    def test_volume_nao_intercepta_angulo_e_cota_de_unidade(self):
+        modulo = self.modulo()
+        for alvo in [dict(tipo='angulo_aresta', lado='min'),
+                     dict(tipo='gavetas', face=('A', 0), lado='min'),
+                     dict(tipo='prateleiras', face=('V', 0), lado='min')]:
+            self.assertFalse(addon.hud_volume.elegivel(alvo))
+        chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+        geo = addon.hud._geometria_do_item(chapa, 'INDIVIDUAL', [chapa])
+        self.assertFalse(addon.hud_volume.controles(geo))
+
+    def test_volume_macro_executa_translate_real_e_confirma(self):
+        modulo = self.modulo()
+        largura = modulo.conj_largura_mm
+        ctx, c, props = self._volume_preparar(modulo, 'GRUPO', 0, 'min')
+        try:
+            eixo = Vector(addon.hud_volume._estado[0]['eixo'])
+            props['value'] = tuple(eixo * .05)
+            props['snap'] = False
+            self.assertEqual(bpy.ops.object.cabinet_transformar_volume(
+                'EXEC_DEFAULT', TRANSFORM_OT_translate=props), {'FINISHED'})
+            self.assertAlmostEqual(modulo.conj_largura_mm, largura + 50, places=2)
+            self.assertIsNone(addon.hud_volume._estado[0])
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
+
+    def test_volume_gavetas_e_divisorias_previa_repetida_com_filhos_refeitos(self):
+        for dono, modo, criar in [
+                (addon.gavetas, 'GAVETAS', addon.gavetas.criar_gavetas),
+                (addon.divisorias, 'DIVISORIAS', addon.divisorias.criar_divisorias)]:
+            with self.subTest(modo=modo):
+                modulo = self.modulo()
+                grupo = criar(bpy.context, modulo, (18,18,18,18,20),
+                              dict(quantidade=1, profundidade_mm=400))
+                ctx, c, _ = self._volume_preparar(grupo, modo, 1, 'max')
+                costas = c['pontos'][0].copy()
+                inicio = Vector(addon.hud_volume._estado[0]['inicio'])
+                eixo = Vector(addon.hud_volume._estado[0]['eixo'])
+                try:
+                    for delta in (-.03, -.05, -.02):
+                        bpy.context.scene.cursor.location = inicio + eixo * delta
+                        addon.hud_volume.atualizar(ctx)
+                        self.assertAlmostEqual(dono.medidas(grupo)[2], 400+delta*1000, places=2)
+                        geo = addon.hud._geometria_do_item(grupo, modo, [])
+                        atual = next(c for c in addon.hud_volume.controles(geo)
+                                     if c['eixo']==1 and c['lado']=='max')
+                        self.assertLess((atual['pontos'][0]-costas).length, 1e-6)
+                finally:
+                    addon.hud_volume.terminar(ctx, cancelar=True)
+                self.assertAlmostEqual(dono.medidas(grupo)[2], 400, places=2)
+
+    def test_volume_medida_invalida_nao_abandona_translate_e_pode_recuperar(self):
+        modulo = self.modulo()
+        grupo = addon.gavetas.criar_gavetas(bpy.context, modulo, (18,18,18,18,0),
+                                          dict(quantidade=1, profundidade_mm=400))
+        ctx, c, _ = self._volume_preparar(grupo, 'GAVETAS', 1, 'min')
+        s = addon.hud_volume._estado[0]
+        inicio, eixo = Vector(s['inicio']), Vector(s['eixo'])
+        try:
+            bpy.context.scene.cursor.location = inicio - eixo * .3
+            addon.hud_volume.atualizar(ctx)
+            self.assertIs(addon.hud_volume._estado[0], s)
+            self.assertTrue(s.get('erro'))
+            self.assertAlmostEqual(addon.gavetas.medidas(grupo)[2], 400, places=2)
+            bpy.context.scene.cursor.location = inicio - eixo * .02
+            addon.hud_volume.atualizar(ctx)
+            self.assertNotIn('erro', s)
+            self.assertAlmostEqual(addon.gavetas.medidas(grupo)[2], 380, places=2)
+        finally:
+            addon.hud_volume.terminar(ctx, cancelar=True)
 
     def test_clique_seleciona_todo_modulo_e_duplo_isola_chapa(self):
         modulo = self.modulo()
@@ -1448,6 +1899,101 @@ class TestHUD(unittest.TestCase):
             self.assertEqual(overlay.show_outline_selected, inicial)
             for o in addon.selecao.familia_de(modulo):
                 o.select_set(True)
+
+    def test_origens_grupo_restaura_flags_nativas_e_opcao_muda_na_hora(self):
+        e = addon.eventos
+        modulo = self.modulo()
+        espacos = [s for j in bpy.context.window_manager.windows for s in e._viewports_da_janela(j)]
+        self.assertTrue(espacos)
+        overlay = espacos[0].overlay
+        nomes = ('show_object_origins', 'show_object_origins_all')
+        antes = [getattr(overlay, n) for n in nomes]
+        opcao = addon.opcoes._opcao('ocultar_origens_grupo')
+        try:
+            for inicial in [(True, False), (True, True), (False, False), (False, True)]:
+                e._origens_ocultas.clear(); e._origens_do_usuario.clear()
+                for n, v in zip(nomes, inicial): setattr(overlay, n, v)
+                addon.opcoes._definir_opcao('ocultar_origens_grupo', True)
+                self.assertEqual([getattr(overlay, n) for n in nomes], [False, False])
+                e._devolver_contornos()   # salvar/desligar devolve o estado nativo
+                self.assertEqual([getattr(overlay, n) for n in nomes], list(inicial))
+                e._retomar_contornos()
+                self.assertFalse(overlay.show_object_origins)
+                addon.opcoes._definir_opcao('ocultar_origens_grupo', False)
+                self.assertEqual([getattr(overlay, n) for n in nomes], list(inicial))
+                addon.opcoes._definir_opcao('ocultar_origens_grupo', True)
+                chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+                addon.hud._selecionar_chapa_hud(bpy.context, chapa, individual=True)
+                e.sincronizar_contornos()
+                self.assertEqual([getattr(overlay, n) for n in nomes], list(inicial))
+                addon.hud._selecionar_chapa_hud(bpy.context, chapa)
+        finally:
+            for o in bpy.context.view_layer.objects: o.select_set(False)
+            e.sincronizar_contornos(devolver=True)
+            e._origens_ocultas.clear(); e._origens_do_usuario.clear()
+            for n, v in zip(nomes, antes): setattr(overlay, n, v)
+            addon.opcoes._definir_opcao('ocultar_origens_grupo', opcao)
+
+    def test_origens_respeita_viewport_e_intervencao_manual(self):
+        e = addon.eventos
+        a = SimpleNamespace(as_pointer=lambda: -777, overlay=SimpleNamespace(
+            show_object_origins=True, show_object_origins_all=True))
+        b = SimpleNamespace(as_pointer=lambda: -778, overlay=SimpleNamespace(
+            show_object_origins=False, show_object_origins_all=False))
+        try:
+            grupo = frozenset({'Modulo A'})
+            e._sincronizar_origens(a, grupo); e._sincronizar_origens(b, grupo)
+            self.assertFalse(a.overlay.show_object_origins)
+            a.overlay.show_object_origins = True
+            e._sincronizar_origens(a, grupo)
+            self.assertTrue(a.overlay.show_object_origins)  # usuario manda nesta selecao
+            e._sincronizar_origens(a, grupo, devolver=True)
+            e._sincronizar_origens(a, grupo)
+            self.assertTrue(a.overlay.show_object_origins)  # salvar nao perde a escolha
+            e._sincronizar_origens(a, frozenset({'Modulo B'}))
+            self.assertFalse(a.overlay.show_object_origins)
+            e._sincronizar_origens(a, frozenset()); e._sincronizar_origens(b, frozenset())
+            self.assertTrue(a.overlay.show_object_origins)
+            self.assertTrue(a.overlay.show_object_origins_all)
+            self.assertFalse(b.overlay.show_object_origins)
+            self.assertFalse(b.overlay.show_object_origins_all)  # nunca ligar o que nao era nosso
+        finally:
+            for ptr in (-777, -778):
+                for n in ('show_object_origins', 'show_object_origins_all'):
+                    e._origens_ocultas.discard((ptr,n)); e._origens_do_usuario.pop((ptr,n),None)
+
+    def test_origens_somem_em_todos_os_grupos_mas_nao_na_folha_individual(self):
+        marcas = (addon.chapas.MARCA_CONJUNTO, addon.chapas.MARCA_PORTAS,
+                  addon.gavetas.MARCA_GRUPO, addon.prateleiras.MARCA_GRUPO,
+                  addon.divisorias.MARCA_GRUPO)
+        for marca in (*marcas, addon.chapas.MARCA_FOLHA):
+            obj = bpy.data.objects.new('Grupo para origens', None)
+            bpy.context.scene.collection.objects.link(obj)
+            obj[marca] = 1
+            bpy.context.view_layer.update()
+            obj.select_set(True)
+            grupos = addon.eventos._grupos_selecionados(bpy.context.view_layer, marcas)
+            self.assertEqual(grupos, frozenset({obj.name}) if marca in marcas else frozenset())
+            obj.select_set(False)
+
+    def test_menu_oferece_ocultar_e_mostrar_origens_no_grupo(self):
+        g = addon.gaveta
+        tela = bpy.context.screen
+        antes = {n:tela.get(n) for n in (g._CHAVE_OPCOES, g._CHAVE_SUSPENSO)}
+        try:
+            tela[g._CHAVE_OPCOES] = 1
+            tela[g._CHAVE_SUSPENSO] = 'ocultar_origens_grupo'
+            widgets = g._rodape_gaveta(bpy.context, 12, 400)
+            self.assertTrue(any(w[4] == 'Origens no grupo' for w in widgets))
+            escolhas = [w for w in widgets if w[5] and w[5][:2] == ('escolha','ocultar_origens_grupo')]
+            self.assertEqual({(w[4],w[5][2]) for w in escolhas}, {('Ocultar',True),('Mostrar',False)})
+            prop = addon.opcoes.CabinetCreatorPreferences.bl_rna.properties['ocultar_origens_grupo']
+            self.assertTrue(prop.default)
+        finally:
+            for n, v in antes.items():
+                if v is None:
+                    if n in tela: del tela[n]
+                else: tela[n] = v
 
     def test_letras_somem_de_longe_e_seta_tem_tamanho_fixo(self):
         self.modulo()

@@ -8,6 +8,9 @@ import bpy
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
 _ferragens = _prateleiras = _selecao = _formas = _divisorias = None
 _frentes = _solda = None
+_hud_volume = None
+_gavetas = None
+_paredes_edicao = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -18,10 +21,16 @@ _frentes = _solda = None
 INTERVALO_TIMER = 0.2
 
 
+def modal_interativo(operador):
+    # O observador da parede so' repassa eventos; nao segura G/Tab nem
+    # pode impedir a sincronizacao depois de o gesto nativo terminar.
+    return getattr(operador, 'bl_idname', '') != 'OBJECT_OT_cabinet_observar_parede'
+
+
 def _ha_modal_ativo():
     try:
         for win in bpy.context.window_manager.windows:
-            if len(win.modal_operators) > 0:
+            if any(modal_interativo(op) for op in win.modal_operators):
                 return True
     except Exception:
         pass
@@ -49,16 +58,21 @@ def verificar_periodicamente():
     # guarda do depsgraph deve valer ANTES de consultar selecao/malhas.
     if _desfazendo[0]:
         return INTERVALO_TIMER
+    try:
+        _paredes_edicao.verificar()
+    except Exception as erro:
+        _paredes_edicao.encerrar()
+        print('[Cabinet Creator] edicao de parede:', erro)
     sincronizar_contornos()
     if not _chapas._ocupado[0] and not _ha_modal_ativo():
         try:
-            _prateleiras.sincronizar_exclusoes_da_cena()
             _prateleiras.concluir_edicao()
             _selecao.concluir_edicao_grupo(bpy.context)
-            _modulos.absorver_conjuntos()
+            _modulos.absorver_conjuntos(no_timer=True)
             _divisorias.atualizar_dependentes()
             _chapas.normalizar_chapas()
             _chapas.absorver_edicoes_de_malha()
+            _prateleiras.sincronizar_exclusoes_da_cena()
             _frentes.processar_pendentes()
             _puxadores._conferir_rebaixos()
             _modulos._sincronizar_medidas_ativas()
@@ -84,46 +98,52 @@ def verificar_periodicamente():
 # mao durante a edicao manda naquela viewport ate' trocar de selecao.
 _contornos_desligados = set()   # as_pointer() das viewports desligadas
 _contornos_do_usuario = {}      # as_pointer() -> grupos da edicao
+_origens_ocultas = set()        # (ponteiro do espaco, propriedade nativa)
+_origens_do_usuario = {}
 
 
 def _novo_contorno(ptr, ligado, grupos):
-    """Valor novo do contorno de UMA viewport (None = nao mexer).
+    """Mesmo contrato legado, com controle de propriedade compartilhado."""
+    return _novo_overlay(ptr, ligado, grupos, _contornos_desligados,
+                         _contornos_do_usuario)
 
-    `grupos`: nomes dos modulos/portas selecionados (vazio = nenhum).
-    """
+
+def _novo_overlay(ptr, ligado, grupos, desligados, usuario):
+    """So' devolve o que desligamos; respeita intervencao manual por selecao."""
     if not grupos:
-        _contornos_do_usuario.pop(ptr, None)
-        if ptr in _contornos_desligados:
-            _contornos_desligados.discard(ptr)
+        usuario.pop(ptr, None)
+        if ptr in desligados:
+            desligados.discard(ptr)
             if not ligado:
                 return True
         return None
-    if _contornos_do_usuario.get(ptr) == grupos:
+    if usuario.get(ptr) == grupos:
         return None
-    _contornos_do_usuario.pop(ptr, None)
-    if ptr in _contornos_desligados:
+    usuario.pop(ptr, None)
+    if ptr in desligados:
         if ligado:
             # religado na mao no meio da edicao: o usuario quer ver
-            _contornos_desligados.discard(ptr)
-            _contornos_do_usuario[ptr] = grupos
+            desligados.discard(ptr)
+            usuario[ptr] = grupos
         return None
     if ligado:
-        _contornos_desligados.add(ptr)
+        desligados.add(ptr)
         return False
     # ja' estava desligado antes: nao e' nosso, nao se devolve nada
-    _contornos_do_usuario[ptr] = grupos
+    usuario[ptr] = grupos
     return None
 
 
-def _grupos_selecionados(view_layer):
+def _grupos_selecionados(view_layer, marcas=None):
     # Nao percorre `view_layer.objects.selected`: logo apos um Ctrl+Z essa
     # colecao ainda pode trazer bases da memoria velha, e o Blender caia
     # criando o objeto Python (crash do usuario, 2x). `select_get` acha a
     # base de cada objeto nosso na hora.
     try:
+        if marcas is None:
+            marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS, _chapas.MARCA_FOLHA)
         return frozenset(o.name for o in bpy.data.objects
-                         if (_chapas.MARCA_CONJUNTO in o or _chapas.MARCA_PORTAS in o
-                             or _chapas.MARCA_FOLHA in o)
+                         if any(marca in o for marca in marcas)
                          and o.select_get(view_layer=view_layer))
     except Exception:
         return frozenset()
@@ -138,8 +158,23 @@ def _viewports_da_janela(janela):
             yield area.spaces.active
 
 
+def _sincronizar_origens(espaco, grupos, devolver=False):
+    """Duas flags nativas: origens selecionadas e todas as origens."""
+    for nome in ('show_object_origins', 'show_object_origins_all'):
+        chave = (espaco.as_pointer(), nome)
+        if devolver:
+            if chave in _origens_ocultas:
+                _origens_ocultas.discard(chave)
+                setattr(espaco.overlay, nome, True)
+            continue
+        novo = _novo_overlay(chave, getattr(espaco.overlay, nome), grupos,
+                             _origens_ocultas, _origens_do_usuario)
+        if novo is not None:
+            setattr(espaco.overlay, nome, novo)
+
+
 def sincronizar_contornos(devolver=False):
-    """Aplica `_novo_contorno` a cada viewport aberta.
+    """Sincroniza contorno e origens nativos, com preferencias independentes.
 
     `devolver=True` religa tudo que o add-on desligou, sem esquecer
     quem o usuario religou: e' o caminho de salvar, abrir e desligar.
@@ -151,9 +186,15 @@ def sincronizar_contornos(devolver=False):
     for janela in janelas:
         try:
             grupos = frozenset()
+            grupos_origens = frozenset()
             if not devolver and _opcoes._opcao('ocultar_contorno_grupo'):
                 grupos = _grupos_selecionados(janela.view_layer)
+            if not devolver and _opcoes._opcao('ocultar_origens_grupo'):
+                grupos_origens = _grupos_selecionados(janela.view_layer,
+                    (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
+                     _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO))
             for espaco in _viewports_da_janela(janela):
+                _sincronizar_origens(espaco, grupos_origens, devolver)
                 overlay = espaco.overlay
                 ptr = espaco.as_pointer()
                 if devolver:
@@ -186,6 +227,8 @@ def _esquecer_contornos(*_args):
     # arquivo novo: os ponteiros antigos podem ser reaproveitados
     _contornos_desligados.clear()
     _contornos_do_usuario.clear()
+    _origens_ocultas.clear()
+    _origens_do_usuario.clear()
     sincronizar_contornos()
 
 
@@ -194,7 +237,11 @@ def _esquecer_referencias(*_args):
     """Antes de desfazer/refazer/abrir: o hover da HUD guarda OBJETOS, que
     essas acoes liberam (ver `_hud._alvo_vivo`). O proximo movimento do mouse
     acha o alvo de novo."""
+    _paredes_edicao.encerrar()
+    _paredes_edicao._ultima_face[0] = None
+    _paredes_edicao._alvo_contexto[0] = None
     _hud._hover_hud.clear()
+    _hud_volume.terminar()
     _paredes.esquecer()
     _prateleiras.esquecer()
     _selecao._edicao_grupo[0] = None
@@ -215,6 +262,7 @@ _desfazendo = [False]
 
 @bpy.app.handlers.persistent
 def _antes_de_desfazer(*_args):
+    _paredes_edicao.encerrar()
     # Undo dentro do Edit Mode conserva o escopo atual (so' nomes/digitais).
     edicao = _prateleiras._edicao[0] if bpy.context.mode == 'EDIT_MESH' else None
     grupo = _selecao._edicao_grupo[0] if bpy.context.mode == 'EDIT_MESH' else None
@@ -249,7 +297,13 @@ HANDLERS_REFERENCIAS = (('undo_pre', _antes_de_desfazer),
                         ('redo_post', _depois_de_desfazer),
                         ('load_pre', _esquecer_referencias))
 
+@bpy.app.handlers.persistent
+def _encerrar_vista_parede(*_args):
+    _paredes_edicao.encerrar()
+
+
 HANDLERS_CONTORNO = (('save_pre', _devolver_contornos),
+                     ('save_pre', _encerrar_vista_parede),
                      ('save_post', _retomar_contornos),
                      ('load_pre', _devolver_contornos),
                      ('load_post', _esquecer_contornos))

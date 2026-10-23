@@ -9,7 +9,7 @@ from mathutils.interpolate import poly_3d_calc
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _modulos = _ferragens = _puxadores = _gavetas = None
+_chapas = _modulos = _ferragens = _puxadores = None
 _prateleiras = None
 _geometria = None
 _solda = None
@@ -1395,7 +1395,7 @@ def _vao_com_ancoras(grupo, vao, parametros):
     return largura, altura, matriz
 
 
-def atualizar_portas_do_conjunto(conj, sistemas=True):
+def atualizar_do_conjunto(conj):
     """Refaz as folhas depois que o modulo mudou de medida.
 
     Chamado DEPOIS de `redimensionar_grupo` / `aplicar_espessura_grupo`,
@@ -1442,11 +1442,11 @@ def atualizar_portas_do_conjunto(conj, sistemas=True):
                             largura, altura, dict(parametros))
         except (ValueError, KeyError, TypeError) as e:
             print("[Cabinet Creator] porta vinculada:", e)
-    # as gavetas e as prateleiras do modulo seguem o vao (margens fixas),
-    # como as portas
-    if sistemas:
-        _gavetas.atualizar_gavetas_do_conjunto(conj)
-        _prateleiras.atualizar_do_conjunto(conj)
+
+
+def atualizar_portas_do_conjunto(conj, sistemas=True):
+    """Compatibilidade da API antiga; coordenacao pertence ao modulo."""
+    return _modulos.atualizar_sistemas_do_conjunto(conj, internos=sistemas)
 
 
 def preferir_esquerda_no_modulo(context, conj):
@@ -1796,7 +1796,7 @@ def _refazer_porta(context, grupo, parametros):
     if (modulo is not None and _chapas.MARCA_CONJUNTO in modulo
             and grupo.get(CHAVE_FOLGAS_PORTA)):
         grupo['porta_parametros'] = dict(parametros)
-        atualizar_portas_do_conjunto(modulo)
+        _modulos.atualizar_sistemas_do_conjunto(modulo)
         return ''
     try:
         _reaplicar_portas(context, grupo, parametros)

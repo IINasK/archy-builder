@@ -20,6 +20,7 @@ _gavetas = None
 _prateleiras = None
 _divisorias = None
 _formas = None
+_paredes_edicao = None
 
 # ====================================================== SELECAO
 # 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
@@ -153,6 +154,7 @@ class OBJECT_OT_selecionar(Operator):
                 and not _gaveta._eh_area_gaveta(context))
 
     def invoke(self, context, event):
+        _paredes_edicao.lembrar_face(context, (event.mouse_region_x, event.mouse_region_y))
         resultado = self._invoke(context, event)
         _seguir_selecao_na_gaveta(context)
         _log_clique('selecionar %s/%s modo=%s clique=%s pass=%s -> %s | ativo=%s n=%d nivel_gravado=%s' % (
@@ -224,15 +226,24 @@ class OBJECT_OT_selecionar(Operator):
                 # inteira (nunca o modulo); duplo = UMA folha ("aba").
                 # Shift soma. Ferragens nao entram (selecao propria).
                 somar = self.toggle or self.extend
+                modulo_parede = _paredes_edicao.modulo_da_porta(context, obj)
                 if (self.modo != 'INDIVIDUAL' and self.select_passthrough
                         and not somar and obj.select_get()):
-                    familia = {_portas._grupo_portas(obj), *_portas._folhas_portas(
-                        _portas._grupo_portas(obj))}
+                    familia = (set(_hud._familia_do_clique(obj)) if modulo_parede else
+                               {_portas._grupo_portas(obj), *_portas._folhas_portas(_portas._grupo_portas(obj))})
                     if any(o not in familia for o in context.selected_objects):
                         # varios selecionados: o arraste leva todos; se
                         # soltar sem arrastar, o CLICK deixa so' a porta
                         _hud._clique_pendente[chave] = obj.name
                         return {'PASS_THROUGH', 'CANCELLED'}
+                if modulo_parede:
+                    if somar:
+                        _hud._somar_peca(context, obj, duplo=self.modo == 'INDIVIDUAL')
+                    elif self.modo == 'INDIVIDUAL':
+                        _hud._selecionar_porta_hud(context, obj, 'FOLHA')
+                    else:
+                        _hud._selecionar_chapa_hud(context, obj)
+                    return {'FINISHED'}
                 _hud._selecionar_porta_hud(
                     context, obj,
                     'FOLHA' if self.modo == 'INDIVIDUAL' else 'PORTA',
@@ -273,7 +284,10 @@ class OBJECT_OT_selecionar(Operator):
                 or atingido[0].name != pendente):
             return {'PASS_THROUGH'}
         if _chapas.MARCA_FOLHA in atingido[0] and _portas._grupo_portas(atingido[0]) is not None:
-            _hud._selecionar_porta_hud(context, atingido[0], 'PORTA')
+            if _paredes_edicao.modulo_da_porta(context, atingido[0]):
+                _hud._selecionar_chapa_hud(context, atingido[0])
+            else:
+                _hud._selecionar_porta_hud(context, atingido[0], 'PORTA')
             return {'FINISHED'}
         _hud._selecionar_chapa_hud(context, atingido[0])
         return {'FINISHED'}
@@ -317,7 +331,7 @@ def malhas_para_editar(context):
     Duplo clique numa chapa continua entrando apenas naquela peca.
     """
     marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
-              _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO)
+              _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
     grupos = [o for o in context.selected_objects if o.type == 'EMPTY'
               and any(m in o for m in marcas)]
     return list(dict.fromkeys(o for g in grupos for o in g.children_recursive
