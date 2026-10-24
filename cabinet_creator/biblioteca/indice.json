@@ -149,34 +149,6 @@
   ]
  },
  {
-  "nome": "Despenseiro Alto 03 800x1356x550",
-  "arquivo": "Despenseiro_Alto_03_800x1356x550.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Altos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Altos",
-   "Despenseiros"
-  ]
- },
- {
-  "nome": "Despenseiro Alto 04 1000x1356x550",
-  "arquivo": "Despenseiro_Alto_04_1000x1356x550.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Altos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Altos",
-   "Despenseiros"
-  ]
- },
- {
   "nome": "Despenseiro Alto 05 600x1356x550",
   "arquivo": "Despenseiro_Alto_05_600x1356x550.blend",
   "n1": "Armarios",
@@ -655,20 +627,6 @@
  {
   "nome": "Balcao 10 400x703x565",
   "arquivo": "Balcao_10_400x703x565.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Balcoes"
-  ]
- },
- {
-  "nome": "Balcao 11 800x703x550",
-  "arquivo": "Balcao_11_800x703x550.blend",
   "n1": "Armarios",
   "n2": "Cozinha",
   "n3": "Inferiores",
@@ -1591,34 +1549,6 @@
   ]
  },
  {
-  "nome": "Inferior Ilha 05 950x706x615",
-  "arquivo": "Inferior_Ilha_05_950x706x615.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Ilhas",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Ilhas",
-   "Inferiores"
-  ]
- },
- {
-  "nome": "Inferior Ilha 06 950x706x615",
-  "arquivo": "Inferior_Ilha_06_950x706x615.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Ilhas",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Ilhas",
-   "Inferiores"
-  ]
- },
- {
   "nome": "Inferior Ilha 07 350x703x400",
   "arquivo": "Inferior_Ilha_07_350x703x400.blend",
   "n1": "Armarios",
@@ -2064,34 +1994,6 @@
    "Cozinha",
    "Sup Baixos",
    "Microondas"
-  ]
- },
- {
-  "nome": "Bifold 01 950x703x1445",
-  "arquivo": "Bifold_01_950x703x1445.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Cantos Bifold"
-  ]
- },
- {
-  "nome": "Bifold 02 1450x703x945",
-  "arquivo": "Bifold_02_1450x703x945.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Cantos Bifold"
   ]
  },
  {
@@ -4119,14 +4021,6 @@
   "tipo": "modulo"
  },
  {
-  "nome": "Armario Quarto 02 1000x2503x550",
-  "arquivo": "Armario_Quarto_02_1000x2503x550.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo"
- },
- {
   "nome": "Armario Quarto 03 300x2503x550",
   "arquivo": "Armario_Quarto_03_300x2503x550.blend",
   "n1": "Armarios",
@@ -4145,14 +4039,6 @@
  {
   "nome": "Armario Quarto 05 600x2503x550",
   "arquivo": "Armario_Quarto_05_600x2503x550.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo"
- },
- {
-  "nome": "Armario Quarto 06 700x2503x550",
-  "arquivo": "Armario_Quarto_06_700x2503x550.blend",
   "n1": "Armarios",
   "n2": "Quartos",
   "n3": "Armarios",
@@ -4259,20 +4145,6 @@
   ]
  },
  {
-  "nome": "Canto Quarto Armario 07 950x2503x1450",
-  "arquivo": "Canto_Quarto_Armario_07_950x2503x1450.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Armarios",
-   "Cantos"
-  ]
- },
- {
   "nome": "Canto Quarto Armario 08 950x2503x950",
   "arquivo": "Canto_Quarto_Armario_08_950x2503x950.blend",
   "n1": "Armarios",
@@ -4317,20 +4189,6 @@
  {
   "nome": "Canto Quarto Armario 11 950x2503x950",
   "arquivo": "Canto_Quarto_Armario_11_950x2503x950.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Armarios",
-   "Cantos"
-  ]
- },
- {
-  "nome": "Canto Quarto Armario 12 1450x2503x950",
-  "arquivo": "Canto_Quarto_Armario_12_1450x2503x950.blend",
   "n1": "Armarios",
   "n2": "Quartos",
   "n3": "Armarios",

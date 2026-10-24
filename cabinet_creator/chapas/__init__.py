@@ -280,25 +280,45 @@ def _malha_e_caixa(malha):
     return len(cantos) == 8
 
 
+def _digital_malha(malha):
+    import hashlib
+    from array import array
+    co=array('f',[0])*(3*len(malha.vertices))
+    malha.vertices.foreach_get('co',co)
+    return hashlib.sha1(co.tobytes()).hexdigest()
+
+
+def _nova_referencia(obj, **extra):
+    estado=obj.get('chapa_edicao')
+    velha=estado.get('malha') if estado else None
+    obj['chapa_edicao']=dict(malha=obj.data.copy(),ultimo='',**extra)
+    if isinstance(velha,bpy.types.Mesh) and velha.users==0:
+        bpy.data.meshes.remove(velha)
+    return obj['chapa_edicao']
+
+
+def guardar_referencia_malha(obj, largura, comprimento):
+    """Fixa a malha atual como referencia do esticar, com a largura e o
+    comprimento (m) que ela representa. Chamar ANTES de trocar as medidas:
+    a madeira da porta curva passa da largura nominal (quinas reais), e
+    medir pela malha a encolhia no primeiro resize, sem volta."""
+    estado=obj.get('chapa_edicao')
+    if estado and estado['ultimo']==_digital_malha(obj.data):
+        return
+    _nova_referencia(obj,nominal=[largura,comprimento])['ultimo']=_digital_malha(obj.data)
+
+
 def _esticar_malha(obj, medidas):
     """Leva a malha MODELADA as medidas (m) sem apagar nada: cada
     vertice anda junto com a face do lado em que esta' (acima do meio,
     a face maxima; abaixo, a minima). Recortes e furos mantem o tamanho
     e a distancia ate' a borda mais proxima."""
-    import hashlib
-    from array import array
     _frentes.preparar(obj)
-    def digital(malha):
-        co=array('f',[0])*(3*len(malha.vertices))
-        malha.vertices.foreach_get('co',co)
-        return hashlib.sha1(co.tobytes()).hexdigest()
     estado=obj.get('chapa_edicao')
-    if not estado or estado['ultimo']!=digital(obj.data):
-        velha=estado.get('malha') if estado else None
-        obj['chapa_edicao']=dict(malha=obj.data.copy(),ultimo='')
-        if isinstance(velha,bpy.types.Mesh) and velha.users==0:
-            bpy.data.meshes.remove(velha)
-        estado=obj['chapa_edicao']
+    if not estado or estado['ultimo']!=_digital_malha(obj.data):
+        estado=_nova_referencia(obj)
+    # Sem nominal guardado, a malha vale o que mede (caso geral).
+    nominal=estado.get('nominal')
     _frentes.copiar_rotulos(obj.data,estado['malha'])
     # Nao recalcular de que lado o vertice esta' depois de cruzar o meio:
     # a referencia nativa conserva furos, recortes e indices no retorno.
@@ -313,7 +333,7 @@ def _esticar_malha(obj, medidas):
                 delta=(medidas[2]-secao['espessura_mm']/1000)/2
                 for v,lado in zip(bm.verts,secao['lados']):v.co.z+=lado*delta
                 continue
-            delta=(medidas[i]-(hi[i]-lo[i]))/2
+            delta=(medidas[i]-(nominal[i] if nominal and i<2 else hi[i]-lo[i]))/2
             meio=(lo[i]+hi[i])/2
             mais=[v for v in bm.verts if v.co[i]>meio]
             menos=[v for v in bm.verts if v.co[i]<=meio]
@@ -323,7 +343,7 @@ def _esticar_malha(obj, medidas):
         bm.to_mesh(obj.data)
     finally:bm.free()
     obj.data.update()
-    estado['ultimo']=digital(obj.data)
+    estado['ultimo']=_digital_malha(obj.data)
 
 
 def _malha_com_canais(obj, L, C, E):

@@ -1942,6 +1942,11 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
                     folha.data = folha.data.copy()
                 antigo = (folha.chapa_largura_mm, folha.chapa_comprimento_mm,
                           folha.chapa_espessura_mm)
+                if folha.get('porta_curva_modelada'):
+                    # A madeira curva passa da largura nominal nas quinas:
+                    # o resize mede a variacao das medidas, nao a malha.
+                    _chapas.guardar_referencia_malha(folha, antigo[0] / 1000,
+                                                     antigo[1] / 1000)
             else:
                 malha = bpy.data.meshes.new("Folha %02d" % (i + 1))
                 folha = bpy.data.objects.new("Folha %02d" % (i + 1), malha)
