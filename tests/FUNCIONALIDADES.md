@@ -276,6 +276,7 @@ que toda classe registrada apareca aqui por algum teste.
 | Converter em puxador / vincular a folha | `cabinet_converter_puxador`, `cabinet_vincular_puxador` | operadores |
 | Puxador importado com cadeados L/A/P | `_ajustar_puxadores` | importacao |
 | Puxadores parametricos (perfil/alca/borda) | `criar_puxador`, `posicionar_puxador` | puxadores, snapshot |
+| Perfil na folha curva antiga (305): borda X reta pela linha da frente (borda inteira) ou pelo raio 1 mm dentro da ponta; biblioteca toda em PERFIL por `padronizar_puxador_perfil.py` (alca vira perfil na mesma borda; porta sem puxador pela regra da importacao, curva na lateral; gaveta NENHUM vira perfil) | `test_perfil_na_borda_reta_da_folha_curva_senta_na_madeira`, `test_perfil_na_folha_curva_sem_linha_senta_na_madeira`, `_lugar_do_puxador` | importacao |
 | Ferramenta de linha + snaps | `cabinet_posicionar_puxador`, `_snaps` | puxadores |
 
 ## Registro

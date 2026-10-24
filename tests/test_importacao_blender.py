@@ -312,6 +312,37 @@ class TestImportacao(unittest.TestCase):
         bpy.context.view_layer.update()
         return conj,g,f
 
+    # Regressao (era BUG, corrigido na 305): o perfil na borda X da folha
+    # curva (linha da frente) ia pela caixa e caia na corda, fora da madeira.
+    def test_perfil_na_borda_reta_da_folha_curva_senta_na_madeira(self):
+        from unittest.mock import patch
+        conj,g,f=self._diagonal_modelada()
+        self.assertTrue(addon.promob.alinhar_frente_ao_corpo(g))
+        pux,=[o for o in f.children if addon.chapas.MARCA_PUXADOR in o]
+        # como as folhas curvas da biblioteca: sem a referencia nova das frentes
+        with patch.object(addon.frentes,'referencia',return_value=None):
+            addon.puxadores._trocar_modelo_puxador(pux,'PERFIL')
+        bpy.context.view_layer.update()
+        local=f.matrix_world.inverted()@pux.matrix_world.translation
+        _hit,co,_n,_i=f.closest_point_on_mesh(local)
+        self.assertLess((co-local).length,.002)
+        self.assertAlmostEqual(max(pux.dimensions),f.chapa_comprimento_mm/1000,delta=.002)
+
+    # Mesmo BUG, folha curva SEM linha: o raio de recuo 0 passava rente a'
+    # ponta e o perfil ficava no lugar da caixa, solto no ar.
+    def test_perfil_na_folha_curva_sem_linha_senta_na_madeira(self):
+        from unittest.mock import patch
+        conj,g,f=self._diagonal_modelada()
+        self.assertNotIn('porta_linha_frente',f)
+        pux,=[o for o in f.children if addon.chapas.MARCA_PUXADOR in o]
+        pux['puxador_curvo']=True
+        with patch.object(addon.frentes,'referencia',return_value=None):
+            addon.puxadores._trocar_modelo_puxador(pux,'PERFIL')
+        bpy.context.view_layer.update()
+        local=f.matrix_world.inverted()@pux.matrix_world.translation
+        _hit,co,_n,_i=f.closest_point_on_mesh(local)
+        self.assertLess((co-local).length,.002)
+
     def test_diagonal_modelada_alinha_perfil_normal_abertura_e_apoios(self):
         conj,g,f=self._diagonal_modelada()
         self.assertTrue(addon.promob.alinhar_frente_ao_corpo(g))
