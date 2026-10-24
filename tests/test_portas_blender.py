@@ -1013,9 +1013,10 @@ class TestPortas(unittest.TestCase):
         p = grupo['porta_parametros']
         self.assertEqual([p[k] for k in addon.portas.COBERTURAS_LADOS], [0.0] * 4)
 
-    def test_cantos_da_porta_sao_os_4_cliques_e_refazem_a_porta(self):
-        # Pedido do usuario: porta selecionada mostra os 4 pontos do
-        # wizard; com Alt, mover um deles refaz a porta.
+    def test_cantos_da_porta_sao_os_cliques_e_refazem_a_porta(self):
+        # Pedido do usuario: porta selecionada mostra os pontos do wizard;
+        # com Alt so' os 2 cliques (v309: eram 4) se arrastam e refazem a
+        # porta como a criacao, pela chapa de cada clique.
         conj = self.nicho()
         L, A, P, E = addon.portas._caixa_do_modulo(conj)
         y = -P / 2
@@ -1026,33 +1027,39 @@ class TestPortas(unittest.TestCase):
         mundo = [conj.matrix_world @ (Vector(p) / 1000.0) for p in cliques]
         for a, b in zip(addon.portas_viewport._cantos_da_porta(grupo), mundo):
             self.assertLess((a - b).length, 1e-6)
-        # canto 4 na quina de fora: a direita passa a cobrir a chapa toda
-        novos = list(mundo)
-        novos[3] = conj.matrix_world @ (Vector((L / 2, y, 0)) / 1000.0)
-        self.assertEqual(addon.portas_viewport._mover_cantos_porta(bpy.context, grupo, novos),
+        V = addon.portas_viewport
+        self.assertEqual(V.CANTOS_DO_GESTO, (0, 3))
+        self.assertEqual(V.OBJECT_OT_arrastar_canto_porta.invoke(
+            SimpleNamespace(grupo=grupo.name, indice=1), bpy.context, None), {'CANCELLED'})
+        lateral = self.lateral_esquerda(conj)
+        # canto de baixo na quina de fora: a direita passa a cobrir a chapa toda
+        fora = conj.matrix_world @ (Vector((L / 2, y, 0)) / 1000.0)
+        self.assertEqual(V._mover_cantos_porta(bpy.context, grupo, [mundo[0], fora]),
                          {'FINISHED'})
         p = grupo['porta_parametros']
         self.assertEqual([p[k] for k in addon.portas.COBERTURAS_LADOS], [1.0] * 4)
         self.assertEqual(grupo[addon.portas.CHAVE_MODULO_PORTA], conj.name)
         # a porta continua selecionada para seguir ajustando
         self.assertIn(grupo, addon.portas_viewport._portas_com_cantos(bpy.context))
-        # canto 1 no meio da lateral das dobradicas: a dobradica vira Curva
-        novos[0] = conj.matrix_world @ (Vector((-L / 2 + E / 2, y, A)) / 1000.0)
-        addon.portas_viewport._mover_cantos_porta(bpy.context, grupo, novos)
+        # canto de cima no meio da lateral das dobradicas: a chapa do clique
+        # diz que e' a metade dela, e a dobradica vira Curva
+        meio = conj.matrix_world @ (Vector((-L / 2 + E / 2, y, A)) / 1000.0)
+        V._mover_cantos_porta(bpy.context, grupo, [meio, fora], [lateral, None])
         self.assertEqual(grupo['porta_parametros']['cobertura_esq_e'], 0.5)
         self.assertEqual(grupo['porta_parametros']['dobradica'], 'CURVA')
-        # fora do padrao: pergunta (viewport) e "Nao" volta os cantos
-        antigos = addon.portas_viewport._cantos_da_porta(grupo)
-        torto = list(antigos)
-        torto[0] = conj.matrix_world @ (Vector((-L / 2 - 40, y, A)) / 1000.0)
-        addon.portas_viewport._aplicar_cantos_porta(bpy.context, grupo, torto, [None] * 4,
-                                    antigos)
-        pergunta = addon.perguntas._pergunta_atual[0]
-        self.assertEqual(pergunta['texto'], 'As medidas estao corretas?')
-        self.assertFalse(pergunta['na_gaveta'])
-        self.assertTrue(addon.portas._lados_fora_do_padrao(
-            addon.portas_viewport._coberturas_da_porta(grupo)))
-        bpy.ops.object.cabinet_responder_pergunta(opcao=1)
+        antes = [V._cantos_da_porta(grupo)[i] for i in V.CANTOS_DO_GESTO]
+        self.assertLess((antes[0] - meio).length, 1e-6)
+        # padrao: refaz sem perguntar
+        addon.perguntas._pergunta_atual[0] = None
+        quina = conj.matrix_world @ (Vector((-L / 2, y, A)) / 1000.0)
+        V._aplicar_cantos_porta(bpy.context, grupo, [quina, fora], [lateral, None],
+                                antes, [lateral, None])
+        self.assertIsNone(addon.perguntas._pergunta_atual[0])
+        self.assertEqual(grupo['porta_parametros']['cobertura_esq_e'], 1.0)
+        # o "Nao" da pergunta volta os 2 cliques, com a chapa de cada um
+        self.assertEqual(bpy.ops.object.cabinet_cantos_porta(
+            grupo=grupo.name, pontos=tuple(v for p in antes for v in p),
+            objeto_a=lateral.name), {'FINISHED'})
         self.assertEqual(grupo['porta_parametros']['cobertura_esq_e'], 0.5)
         # "Sim" nao mexe em nada
         antes = addon.portas_viewport._cantos_da_porta(grupo)

@@ -1044,7 +1044,7 @@ def test_wizard_diagonal_invalida_e_voltar_preservam_primeiro_canto(janela, m):
 
 def test_alt_arrasta_o_canto_da_porta(janela, m):
     # Pedido do usuario: clique simples na porta = os fios do wizard; com
-    # Alt as 4 bolinhas viram alcas e o canto arrastado refaz a porta.
+    # Alt as 2 bolinhas (os cliques) viram alcas e o canto arrastado refaz a porta.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm

@@ -44,7 +44,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   nunca cortada. Reposicionar = 2 cliques. Nao usar popup_menu: release responderia.
 - Clique = porta inteira, nunca modulo; duplo = folha, sem contorno nativo.
   Selecionada POR SI: contorno branco, vao amarelo, fios e slider por folha.
-  Alt arrasta bolinhas de `_cantos_da_porta`: refeitas, nunca gravadas;
+  Alt arrasta SO' os 2 cliques (`CANTOS_DO_GESTO`) de `_cantos_da_porta`: refeitas, nunca gravadas;
   o destino e' o snap NATIVO do cursor (macro `cabinet_mover_canto_porta`).
 - Espelhar: icone na aba Portas + contexto direito, grupo ou folha; inverter
   giro, cadeia zigzag INTEIRA, curso de correr ou basculante com pistoes.

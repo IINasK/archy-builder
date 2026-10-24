@@ -2144,7 +2144,6 @@ CONFIRMAR_ETAPA = 'confirmar_etapa'
 TIPOS_SOBREPOSTA = (('GIRO', 'Giro'), ('BASCULANTE', 'Basculante'),
                     ('CORRER', 'Correr'), ('ZIGZAG', 'Zig-zag'))
 TIPOS_EMBUTIDA = (('GIRO', 'Giro (Super Curva)'), ('CORRER', 'Correr'), ('ZIGZAG', 'Zig-zag'))
-COR_FIO_COBERTURA = (1.0, 0.55, 0.1, 1.0)     # laranja (print do usuario)
 COR_FIO_VAO = (1.0, 1.0, 1.0, 1.0)
 COR_BORDA_EIXO = (0.25, 0.85, 0.3, 1.0)       # verde
 MARGEM_DOBRADICAS_PADRAO = 100.0   # mm da quina: pratica de marcenaria

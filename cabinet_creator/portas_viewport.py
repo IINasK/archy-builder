@@ -163,6 +163,11 @@ def _cantos_da_porta(grupo):
         (-cob[0], A + cob[3]), (0.0, A), (L, 0.0), (L + cob[1], -cob[2]))]
 
 
+# O Alt arrasta so' os 2 cliques do wizard (pedido do usuario): os cantos
+# da porta em cima a' esquerda e embaixo a' direita. Os do vao so' desenham.
+CANTOS_DO_GESTO = (0, 3)
+
+
 def _coberturas_da_porta(grupo):
     p = grupo.get('porta_parametros') or {}
     return {k: float(p[k]) for k in _portas.COBERTURAS_LADOS if k in p}
@@ -176,8 +181,9 @@ def _canto_porta_sob_mouse(context, posicao):
     mouse = Vector(posicao)
     melhor = None
     for grupo in _portas_com_cantos(context):
-        for i, ponto in enumerate(_cantos_da_porta(grupo)):
-            p = _hud._projetar_hud(context, ponto)
+        cantos = _cantos_da_porta(grupo)
+        for i in CANTOS_DO_GESTO:
+            p = _hud._projetar_hud(context, cantos[i])
             if p is None:
                 continue
             d = (p - mouse).length
@@ -235,8 +241,8 @@ def _desenho_da_porta(grupo):
 
 def _desenhar_cantos_porta(context):
     """Porta selecionada (print do usuario): contorno branco das folhas,
-    linhas internas do vao em amarelo, os fios dos 4 cantos e, com Alt
-    (ou arrastando), as 4 bolinhas brancas. As dobradicas nao (pedido do
+    linhas internas do vao em amarelo, a diagonal dos 2 cliques e, com Alt
+    (ou arrastando), as 2 bolinhas brancas. As dobradicas nao (pedido do
     usuario): so' criando ou com elas selecionadas."""
     portas = _portas_com_cantos(context)
     folhas = _folhas_com_contorno(context)
@@ -282,19 +288,17 @@ def _desenhar_cantos_porta(context):
                 pontos[estado['indice']] = estado['ponto']
             else:
                 pontos = _cantos_da_porta(grupo)
-            tela = [_hud._projetar_hud(context, p) for p in pontos]
+            tela = [_hud._projetar_hud(context, pontos[i]) for i in CANTOS_DO_GESTO]
             if any(p is None for p in tela):
                 continue
-            for i in range(3):
-                if i == 1 and desenho.get('perfil'):
-                    continue  # a diagonal do wizard atravessava a porta curva
-                shader.uniform_float('color', _portas.COR_FIO_VAO if i == 1
-                                     else _portas.COR_FIO_COBERTURA)
+            if not desenho.get('perfil'):
+                # a diagonal do wizard (atravessava a porta curva)
+                shader.uniform_float('color', _portas.COR_FIO_VAO)
                 batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
-                    tela[i], tela[i + 1], 2.0 * escala)}).draw(shader)
+                    tela[0], tela[1], 2.0 * escala)}).draw(shader)
             if not (arrastando or _solda._correntes_visiveis()):
                 continue
-            for i, p in enumerate(tela):
+            for i, p in zip(CANTOS_DO_GESTO, tela):
                 aceso = arrastando and i == estado['indice']
                 if aceso:
                     _hud._bolinha_2d(shader, p, 8 * escala, realce)
@@ -312,8 +316,10 @@ def _dentro_da_porta(obj, grupo):
     return False
 
 
-def _mover_cantos_porta(context, grupo, pontos, objetos=(None,) * 4):
-    """Refaz a porta pelos 4 pontos (mundo), como o wizard faria."""
+def _mover_cantos_porta(context, grupo, pontos, objetos=(None, None)):
+    """Refaz a porta pelos 2 cliques (mundo) e as chapas deles, como o
+    wizard: a cobertura de cada lado sai de onde o ponto cai (quina de
+    fora = reta, meio da espessura = curva, quina de dentro = embutida)."""
     modulo = bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
     if modulo is not None and _chapas.MARCA_CONJUNTO not in modulo:
         modulo = None
@@ -324,10 +330,10 @@ def _mover_cantos_porta(context, grupo, pontos, objetos=(None,) * 4):
     folha = (_portas._folhas_portas(grupo) or [None])[0]
     resultado = bpy.ops.object.cabinet_portas(
         'EXEC_DEFAULT', capturado=True, grupo_alvo=grupo.name,
-        ponto_a=pontos[1], ponto_b=pontos[2], quatro_pontos=True,
-        porta_a=pontos[0], porta_b=pontos[3],
-        objeto_a_nome=objetos[1].name if objetos[1] is not None else '',
-        objeto_b_nome=objetos[2].name if objetos[2] is not None else '',
+        ponto_a=pontos[0], ponto_b=pontos[1], quatro_pontos=True,
+        porta_a=pontos[0], porta_b=pontos[1],
+        objeto_a_nome=objetos[0].name if objetos[0] is not None else '',
+        objeto_b_nome=objetos[1].name if objetos[1] is not None else '',
         referencia=valores, referencia_ativa=valores,
         pai_nome=pai.name if pai is not None else '',
         modulo_nome=modulo.name if modulo is not None else '',
@@ -340,30 +346,36 @@ def _mover_cantos_porta(context, grupo, pontos, objetos=(None,) * 4):
     return resultado
 
 
-def _aplicar_cantos_porta(context, grupo, pontos, objetos, antigos):
+def _aplicar_cantos_porta(context, grupo, pontos, objetos, antigos,
+                         objetos_antigos=(None, None)):
     """Arraste solto: refaz a porta e, se a cobertura sair do padrao,
-    pergunta (viewport: pop-up). "Nao" volta os cantos de antes."""
+    pergunta (viewport: pop-up). "Nao" volta os 2 cliques de antes."""
     resultado = _mover_cantos_porta(context, grupo, pontos, objetos)
     if 'FINISHED' not in resultado:
         return resultado
     if _portas._lados_fora_do_padrao(_coberturas_da_porta(grupo)):
         planos = tuple(v for p in antigos for v in p)
+        nomes = [o.name if o is not None else '' for o in objetos_antigos]
         _perguntas._perguntar(context, 'As medidas estao corretas?', [
             ('Sim', 'CHECKMARK', 'object.cabinet_cantos_porta',
              {'grupo': grupo.name, 'manter': True}),
             ('Nao', 'X', 'object.cabinet_cantos_porta',
-             {'grupo': grupo.name, 'pontos': planos})], na_gaveta=False)
+             {'grupo': grupo.name, 'pontos': planos,
+              'objeto_a': nomes[0], 'objeto_b': nomes[1]})], na_gaveta=False)
     return resultado
 
 
 class OBJECT_OT_cantos_porta(Operator):
-    """Refaz a porta pelos 4 cantos (resposta do "As medidas estao corretas?")"""
+    """Refaz a porta pelos 2 cliques (resposta do "As medidas estao corretas?")"""
     bl_idname = 'object.cabinet_cantos_porta'
     bl_label = 'Cantos da Porta'
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
-    pontos: FloatVectorProperty(size=12, options={'SKIP_SAVE'})
+    pontos: FloatVectorProperty(size=6, options={'SKIP_SAVE'})
+    # a chapa de cada clique: sem ela o meio da espessura nao vira curva
+    objeto_a: StringProperty(options={'SKIP_SAVE'})
+    objeto_b: StringProperty(options={'SKIP_SAVE'})
     manter: BoolProperty(options={'SKIP_SAVE'})
 
     def execute(self, context):
@@ -373,8 +385,10 @@ class OBJECT_OT_cantos_porta(Operator):
         if self.manter:
             return {'FINISHED'}
         v = list(self.pontos)
-        pontos = [Vector(v[i:i + 3]) for i in range(0, 12, 3)]
-        return _mover_cantos_porta(context, grupo, pontos)
+        pontos = [Vector(v[0:3]), Vector(v[3:6])]
+        objetos = [bpy.data.objects.get(n) if n else None
+                   for n in (self.objeto_a, self.objeto_b)]
+        return _mover_cantos_porta(context, grupo, pontos, objetos)
 
 
 def _preparar_canto_nativo(context, grupo, indice):
@@ -422,16 +436,22 @@ class OBJECT_OT_confirmar_canto_porta(Operator):
         indice, antigos = estado['indice'], estado['antigos']
         if grupo is None or (ponto - antigos[indice]).length < 1e-6:
             return {'CANCELLED'}
-        # a chapa do destino: ray cast/BVH nativos, so' no soltar
-        nome = (_gavetas._objeto_do_ponto_criacao(context, ponto)
-                if context.area is not None and context.area.type == 'VIEW_3D' else None)
-        obj = bpy.data.objects.get(nome or '')
-        objetos = [None] * 4
-        objetos[indice] = None if obj is None or _dentro_da_porta(obj, grupo) else obj
-        pontos = list(antigos)
-        pontos[indice] = ponto
-        resultado = _aplicar_cantos_porta(context, grupo, pontos, objetos, antigos)
+        antes = [antigos[i] for i in CANTOS_DO_GESTO]
+        pontos = list(antes)
+        pontos[CANTOS_DO_GESTO.index(indice)] = ponto
+        resultado = _aplicar_cantos_porta(
+            context, grupo, pontos, [_chapa_do_ponto(context, grupo, p) for p in pontos],
+            antes, [_chapa_do_ponto(context, grupo, p) for p in antes])
         return {'FINISHED'} if 'FINISHED' in resultado else {'CANCELLED'}
+
+
+def _chapa_do_ponto(context, grupo, ponto):
+    """A chapa do clique: ray cast/BVH nativos, so' no soltar. As duas
+    contam (o meio da espessura de cada lado so' se ve pela chapa)."""
+    nome = (_gavetas._objeto_do_ponto_criacao(context, ponto)
+            if context.area is not None and context.area.type == 'VIEW_3D' else None)
+    obj = bpy.data.objects.get(nome or '')
+    return None if obj is None or _dentro_da_porta(obj, grupo) else obj
 
 
 class OBJECT_OT_mover_canto_porta(Macro):
@@ -446,7 +466,7 @@ def registrar_macro_canto():
 
 
 class OBJECT_OT_arrastar_canto_porta(Operator):
-    """Arraste um dos 4 cantos da porta (Alt) ate' outro vertice: a porta se refaz por ele"""
+    """Arraste um dos 2 cantos da porta (Alt) ate' outro vertice: a porta se refaz por ele"""
     bl_idname = 'object.cabinet_arrastar_canto_porta'
     bl_label = 'Mover Canto da Porta'
     bl_options = {'INTERNAL'}
@@ -457,7 +477,7 @@ class OBJECT_OT_arrastar_canto_porta(Operator):
     def invoke(self, context, event):
         grupo = bpy.data.objects.get(self.grupo)
         if (grupo is None or _chapas.MARCA_PORTAS not in grupo
-                or not 0 <= self.indice < 4 or context.region is None):
+                or self.indice not in CANTOS_DO_GESTO or context.region is None):
             return {'CANCELLED'}
         parametros = _preparar_canto_nativo(context, grupo, self.indice)
         try:
