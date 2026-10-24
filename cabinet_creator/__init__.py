@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (301, 0, 0),
+    "version": (305, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -147,6 +147,8 @@ CLASSES = (
     _gaveta_eventos.OBJECT_OT_opcoes_gaveta,
     _gaveta_eventos.OBJECT_OT_editar_medida_gaveta,
     _hud.OBJECT_OT_arrastar_hud,
+    _hud.OBJECT_OT_confirmar_quina_hud,
+    _hud.OBJECT_OT_mover_quina_hud,
     _hud_volume.OBJECT_OT_confirmar_volume,
     _hud_volume.OBJECT_OT_observar_volume,
     _hud_volume.OBJECT_OT_transformar_volume,
@@ -195,7 +197,11 @@ CLASSES = (
     _solda.OBJECT_OT_confirmar_conexao,
     _solda.OBJECT_OT_resetar_distancia,
     _solda.OBJECT_OT_arrastar_ancora,
+    _solda.OBJECT_OT_confirmar_ancora_solda,
+    _solda.OBJECT_OT_mover_ancora_solda,
     _portas_viewport.OBJECT_OT_arrastar_canto_porta,
+    _portas_viewport.OBJECT_OT_confirmar_canto_porta,
+    _portas_viewport.OBJECT_OT_mover_canto_porta,
     _ferragens.OBJECT_OT_arrastar_ferragem,
     _puxadores.OBJECT_OT_arrastar_puxador,
     _puxadores.OBJECT_OT_usar_como_puxador,
@@ -330,8 +336,11 @@ def register():
                                first_interval=0.3, persistent=True)
     for c in CLASSES:
         bpy.utils.register_class(c)
+    _portas_viewport.registrar_macro_canto()
+    _solda.registrar_macro_ancora()
     _gavetas.registrar_macro_ancora()
     _hud_volume.registrar_macro()
+    _hud.registrar_macro_quina()
     _gavetas.registrar_macro_criacao()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
@@ -342,8 +351,6 @@ def register():
         _hud._desenhar_hud_texto, (), 'WINDOW', 'POST_PIXEL')
     bpy.app.timers.register(_gaveta._reconectar_gavetas, first_interval=0.1)
     _selecao.registrar_keymaps()
-    # DIAGNOSTICO TEMPORARIO: o keymap mesclado so' existe depois do registro
-    bpy.app.timers.register(_selecao._log_keymaps, first_interval=1.0)
     S = bpy.types.Scene
     # Os parametros das portas moram na Scene para a gaveta edita-los
     # sem popup (ver `_portas.ESCOLHAS_PORTAS`). Frente e espessuras nao estao
@@ -519,8 +526,9 @@ def unregister():
     _solda._pergunta_reset[0] = ''
     _perguntas._pergunta_atual[0] = None
     _perguntas._na_gaveta[0] = False
-    _solda._arraste_ancora[0] = None
-    _portas_viewport._arraste_canto_porta[0] = None
+    _solda._terminar_ancora_solda()     # cursor, hide_select, desenho e timer
+    # devolve cursor/hide_select e tira o timer de um arraste em curso
+    _portas_viewport._terminar_canto_nativo()
     _ferragens._arraste_ferragem[0] = None
     _ferragens._ferragens_selecionadas[0] = None
     _ferragens._dobradica_reta[0] = None
@@ -538,7 +546,7 @@ def unregister():
     _ferragens._contagem_objetos[0] = -1
     _ferragens._perfis_trilho_moldura[0] = None
     _solda._bolinha_hover[0] = None
-    for timer in (_selecao._log_keymaps, _registrar_bibliotecas_adiado,
+    for timer in (_registrar_bibliotecas_adiado,
                   _hud._animar_piscada, _ferragens._conferir_ferragens,
                   _chapas._separar_copias_no_timer,
                   _orcamento._apagar_orcamento_gerado):
@@ -547,6 +555,7 @@ def unregister():
     _hud_volume.terminar(bpy.context, cancelar=True)
     _hud_volume._remover_observador()
     _hud._edicao_hud[0] = None
+    _hud._terminar_quina_nativa()      # arraste pela quina em curso
     _hud._hover_hud.clear()
     _hud._clique_chapa_hud.clear()
     _hud._clique_pendente.clear()
@@ -583,11 +592,6 @@ def unregister():
     _materiais._apagar_pendente[0] = None
     _materiais._pintar_pendente[0] = None
     _materiais._clique_esfera[0] = None
-    for nome in _gaveta._imagens_gaveta:
-        imagem = bpy.data.images.get(nome)
-        if imagem is not None:
-            bpy.data.images.remove(imagem)
-    _gaveta._imagens_gaveta.clear()
     if bpy.app.timers.is_registered(_gaveta._configurar_gavetas):
         bpy.app.timers.unregister(_gaveta._configurar_gavetas)
     if bpy.app.timers.is_registered(_gaveta._reconectar_gavetas):
@@ -600,6 +604,8 @@ def unregister():
         if hasattr(bpy.types.Scene, nome):
             delattr(bpy.types.Scene, nome)
     _puxadores._contornos_modelo.clear()
+    _portas._apanhando_vao[0] = False
+    _portas._assistente_porta[0] = None
     _puxadores._posicionador_puxador[0] = None
     if _puxadores._handler_posicionador[0] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_puxadores._handler_posicionador[0], 'WINDOW')
@@ -632,6 +638,7 @@ def unregister():
     # desligar o add-on no meio da edicao nao pode deixar a viewport sem
     # contorno para sempre
     _eventos.sincronizar_contornos(devolver=True)
+    _eventos._contornos_desligados.clear()
     _eventos._contornos_do_usuario.clear()
     _eventos._origens_ocultas.clear()
     _eventos._origens_do_usuario.clear()

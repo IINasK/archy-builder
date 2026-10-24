@@ -72,7 +72,7 @@ def pasta_biblioteca():
 
 
 def registrar_bibliotecas(silencioso=True):
-    """Registra as duas pastas como bibliotecas de assets do Blender,
+    """Registra a pasta da biblioteca como biblioteca de assets do Blender,
     sem duplicar caso ja' estejam registradas."""
     registradas = []
     libs = bpy.context.preferences.filepaths.asset_libraries
@@ -226,7 +226,9 @@ def _gravar_se_mudou(arq, texto):
         os.remove(temporario)
     except OSError:
         pass
-    return False
+    # False ja' significa "nao mudou": falha calada deixava o chamador
+    # usar um UUID de catalogo que nunca chegou ao disco.
+    raise OSError("nao consegui gravar " + arq)
 
 
 def refiliar_preset(caminho, niveis):
@@ -664,10 +666,13 @@ def _conta(itens, n1, n2=None, n3=None):
 NOME_INDICE = "indice.json"
 
 
-def _ler_indice(pasta):
+def _ler_indice(pasta, estrito=False):
     """Indice em JSON ao lado dos .blend. Existe para o painel listar os
     presets sem precisar abrir cada arquivo -- abrir .blend so' para
-    montar a lista deixaria a interface travada."""
+    montar a lista deixaria a interface travada.
+
+    `estrito`: quem vai REGRAVAR o indice nao pode tratar arquivo ilegivel
+    como vazio, senao grava so' o item novo por cima de todos os outros."""
     arq = os.path.join(pasta, NOME_INDICE)
     if not os.path.exists(arq):
         return []
@@ -675,17 +680,16 @@ def _ler_indice(pasta):
         with open(arq, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
+        if estrito:
+            raise
         print("[Cabinet Creator] indice ilegivel:", e)
         return []
 
 
 def _gravar_indice(pasta, itens):
     try:
-        # newline explicito: o .gitattributes do projeto forca LF
-        with open(os.path.join(pasta, NOME_INDICE), "w",
-                  encoding="utf-8", newline="\n") as f:
-            json.dump(itens, f, ensure_ascii=False, indent=1)
-            f.write("\n")
+        _gravar_se_mudou(os.path.join(pasta, NOME_INDICE),
+                         json.dumps(itens, ensure_ascii=False, indent=1) + "\n")
         _biblioteca_faixa.invalidar()
     except Exception as e:
         print("[Cabinet Creator] nao gravei o indice:", e)
@@ -709,7 +713,7 @@ def registrar_no_indice(pasta, nome, arquivo, *niveis_e_tipo):
     de 3 niveis vao inteiros em `niveis`; n1/n2/n3 ficam (indice antigo)."""
     *niveis, tipo = niveis_e_tipo
     niveis = [n for n in niveis if n]
-    itens = [i for i in _ler_indice(pasta)
+    itens = [i for i in _ler_indice(pasta, estrito=True)
              if not (i.get("arquivo") == os.path.basename(arquivo))]
     tres = (niveis + ["", "", ""])[:3]
     item = {"nome": nome, "arquivo": os.path.basename(arquivo),
@@ -740,11 +744,6 @@ def itens_de_fabrica():
                   valor=tipo)
         itens.append(it)
     return itens
-
-
-def _itens_de(categoria, subcategoria):
-    return [i for i in indice_completo()
-            if i.get("categoria") == categoria and i.get("subcategoria") == subcategoria]
 
 
 def inserir_preset(context, pasta, arquivo, tipo, destino=None):
@@ -1296,10 +1295,6 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._mover(context, event)
             return {'RUNNING_MODAL'}
 
-        if event.type == 'LEFTMOUSE':   # DIAGNOSTICO TEMPORARIO
-            _selecao._log_clique('posicionador %s viewport=%s arrastando=%s moveu=%s'
-                        % (event.value, self._na_viewport(event),
-                           self._arrastando, self._moveu))
         if self._duplo_clique_na_foto(context, event):
             # Duplo clique na FOTO (o primeiro clique abriu este
             # posicionador): entra direto no cursor 3D, sem mirar.
@@ -1796,9 +1791,6 @@ PX_TILE_FOTO = 16.0
 # qualquer desvio abre fresta e a foto fica picotada. Com folga, a
 # celula fica sempre abaixo do icone em qualquer largura.
 PX_ALVO_CELULA = 16.0
-# ui_units_x sozinho nao encosta as colunas: sobra folga lateral
-# em cada celula. O valor abaixo foi achado por captura de tela.
-COMPRESSAO_TILE_FOTO = 0.7
 
 
 # Folgas medidas por captura: o box da lista come' um tanto da
@@ -2219,7 +2211,7 @@ def gerar_armario_nativo(context, tipo, L, A, P, niveis, portas=None, E=18.0):
 
 def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
     """Grava o modulo da cena como preset (`pasta_biblioteca`): .blend,
-    foto sem janela (porta entreaberta), preview do asset e indice. O
+    foto sem janela (porta fechada), preview do asset e indice. O
     modulo SAI da cena. Devolve o caminho do .blend."""
     pecas = [conj] + list(conj.children_recursive)
     colecao = _modulos._colecao_do_modulo(conj)
@@ -2397,13 +2389,6 @@ def capturar_viewport(destino_png, camera=None, isolar=None, rotacao=None):
          cena.render.resolution_percentage, cena.render.film_transparent) = ant
 
 
-def viewport_em_camera():
-    area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'), None)
-    if area is None:
-        return False
-    return area.spaces.active.region_3d.view_perspective == 'CAMERA'
-
-
 def _achar_item(pasta, arquivo):
     for it in indice_completo():
         if it["pasta"] == pasta and it["arquivo"] == arquivo:
@@ -2413,7 +2398,7 @@ def _achar_item(pasta, arquivo):
 
 # ========================================== BLOQUEIO E RENOMEAR DOS BLOCOS
 def _atualizar_item(pasta, arquivo, mudancas):
-    itens = _ler_indice(pasta)
+    itens = _ler_indice(pasta, estrito=True)
     for i in itens:
         if i.get("arquivo") == arquivo:
             i.update(mudancas)
@@ -2516,7 +2501,7 @@ class OBJECT_OT_editar_modelo(Operator):
                 if chave in col:
                     del col[chave]
 
-        itens = _ler_indice(self.pasta)
+        itens = _ler_indice(self.pasta, estrito=True)
         for i in itens:
             if i.get("arquivo") == self.arquivo:
                 i["nome"] = self.nome
@@ -2791,7 +2776,7 @@ class OBJECT_OT_prateleira(Operator):
 
 
 class OBJECT_OT_registrar_bibliotecas(Operator):
-    """Registra as pastas do addon como bibliotecas de assets"""
+    """Registra a pasta da biblioteca como biblioteca de assets"""
     bl_idname = "object.cabinet_registrar_bibliotecas"
     bl_label = "Registrar Bibliotecas no Blender"
 

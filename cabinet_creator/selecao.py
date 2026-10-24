@@ -1,6 +1,6 @@
 """Selecao em camadas (clique = modulo, duplo = peca) e os keymaps."""
 
-import bpy, os, time
+import bpy
 from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
 from bpy.types import Operator
 
@@ -157,13 +157,6 @@ class OBJECT_OT_selecionar(Operator):
         _paredes_edicao.lembrar_face(context, (event.mouse_region_x, event.mouse_region_y))
         resultado = self._invoke(context, event)
         _seguir_selecao_na_gaveta(context)
-        _log_clique('selecionar %s/%s modo=%s clique=%s pass=%s -> %s | ativo=%s n=%d nivel_gravado=%s' % (
-            getattr(event, 'type', '?'), getattr(event, 'value', '?'),
-            self.modo, self.clique,
-            self.select_passthrough, sorted(resultado),
-            context.object.name if context.object else None,
-            len(context.selected_objects),
-            _hud._clique_chapa_hud.get(context.region.as_pointer())))
         return resultado
 
     def _invoke(self, context, event):
@@ -191,8 +184,6 @@ class OBJECT_OT_selecionar(Operator):
         # qualquer outro clique sai do modo de edicao das ferragens
         _ferragens._ferragens_selecionadas[0] = None
         atingido = _hud._raio_hud(context, self.location)
-        _log_clique('  raio=%s anterior=%s' % (
-            atingido and atingido[0].name, _hud._clique_chapa_hud.get(chave)))
         puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
         if puxador is not None:
             _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
@@ -434,43 +425,6 @@ class OBJECT_OT_editar_grupo(Operator):
 
 
 _keymaps = []
-
-# DIAGNOSTICO TEMPORARIO do clique duplo (remover depois): grava cada
-# clique na viewport e, ao registrar, como os atalhos ficaram no keymap.
-ARQUIVO_LOG_CLIQUES = os.path.join(
-    os.environ.get('TEMP') or os.environ.get('TMP') or os.path.expanduser('~'),
-    'cabinet_cliques.log')
-
-
-def _log_clique(texto):
-    try:
-        with open(ARQUIVO_LOG_CLIQUES, 'a', encoding='utf-8') as f:
-            f.write('%.3f %s\n' % (time.time(), texto))
-    except Exception:
-        pass
-
-
-def _log_keymaps():
-    try:
-        wm = bpy.context.window_manager
-        _log_clique('--- registro; dbl_click_time=%s ms' % (
-            bpy.context.preferences.inputs.mouse_double_click_time))
-        for nome in ('addon', 'user', 'active'):
-            kc = getattr(wm.keyconfigs, nome, None)
-            km = kc.keymaps.get('3D View') if kc else None
-            if km is None:
-                _log_clique('%s: sem 3D View' % nome)
-                continue
-            for kmi in km.keymap_items:
-                if kmi.idname.startswith('object.cabinet') or (
-                        kmi.type == 'LEFTMOUSE' and kmi.idname.startswith('view3d.select')):
-                    _log_clique('%s: %s %s %s shift=%s ctrl=%s ativo=%s modo=%s' % (
-                        nome, kmi.idname, kmi.type, kmi.value, kmi.shift,
-                        kmi.ctrl, kmi.active,
-                        getattr(kmi.properties, 'modo', '-')))
-    except Exception as e:
-        _log_clique('keymaps: erro %s' % e)
-    return None
 
 # (valor do evento, shift, modo, props repassadas ao view3d.select)
 # O PRESS simples leva select_passthrough para preservar o arraste: o

@@ -127,7 +127,7 @@ def publicar(destino):
                             (os.path.join(destino,'novos'),'novo')):
             p=caminho_da_peca(pasta,d['nome']);sha=digital(p) if os.path.isfile(p) else None
             if sha!=d[chave]:raise RuntimeError('Arquivo mudou: '+p)
-    aplicados=[]
+    aplicados=[];alvo=None
     try:
         for d in sorted(m['arquivos'],key=lambda d:d['nome'].endswith(('.json','.txt'))):
             alvo=caminho_da_peca(m['biblioteca'],d['nome'])
@@ -137,6 +137,8 @@ def publicar(destino):
                 os.replace(alvo+'.integracao',alvo)
             aplicados.append(d)
     except Exception:
+        # o temporario do arquivo que falhou nao pode ficar na biblioteca real
+        if alvo and os.path.exists(alvo+'.integracao'):os.remove(alvo+'.integracao')
         for d in aplicados:
             alvo=caminho_da_peca(m['biblioteca'],d['nome'])
             if d['original'] is None:os.remove(alvo)

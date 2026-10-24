@@ -175,8 +175,10 @@ class TestOrganizacao(unittest.TestCase):
         addon = importlib.reload(addon)
         # Reload tambem recarrega biblioteca/opcoes e remove os mocks;
         # reaplica o isolamento ANTES de registrar qualquer timer.
-        self.enterContext(patch.object(addon.biblioteca, 'pasta_biblioteca', return_value=pasta_teste))
-        self.enterContext(patch.object(addon.opcoes, '_pasta_addon', return_value=pasta_teste))
+        # start() sem stop: no fim do teste o patch devolveria a funcao REAL
+        # (a do reload) aos testes seguintes; o patch de fora restaura no fim.
+        patch.object(addon.biblioteca, 'pasta_biblioteca', return_value=pasta_teste).start()
+        patch.object(addon.opcoes, '_pasta_addon', return_value=pasta_teste).start()
         addon.register()
         try:
             for nome in nomes:

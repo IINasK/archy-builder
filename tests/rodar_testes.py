@@ -29,16 +29,19 @@ TESTES = os.path.join(RAIZ, 'tests')
 PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # Piso de testes por suite: cair abaixo disto = teste apagado/pulado sem
 # querer. Subir o numero quando a suite crescer (nunca baixar calado).
+# v304: portas -1, gavetas -3, geometria -1 de proposito -- os testes do
+# ima em Python (`_alvos_do_ima`, `IndiceSnapGavetas`, rotulos) sairam com
+# ele; o snap agora e' o nativo do Blender.
 PISO = {
-    'paredes_composicao': 36,
+    'paredes_composicao': 37,
     'paredes_edicao': 62,
     'organizacao': 9,
-    'divisorias': 23,
-    'estrutura': 51, 'gaveta': 66, 'portas': 140, 'hud': 141,
-    'importacao': 77, 'puxadores': 20, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
-    'biblioteca': 81, 'cobertura': 4, 'gui_interacao': 57,
-    'orcamento': 16, 'paredes': 12, 'armarios': 17, 'formas': 62, 'gavetas': 53,
-    'geometria': 9, 'prateleiras': 51, 'migracoes': 8,
+    'divisorias': 24,
+    'estrutura': 51, 'gaveta': 66, 'portas': 143, 'hud': 142,
+    'importacao': 77, 'puxadores': 21, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
+    'biblioteca': 82, 'cobertura': 4, 'gui_interacao': 58,
+    'orcamento': 17, 'paredes': 12, 'armarios': 17, 'formas': 62, 'gavetas': 50,
+    'geometria': 8, 'prateleiras': 51, 'migracoes': 8,
     'biblioteca_faixa': 28, 'gui_biblioteca_faixa': 7,
 }
 LIMITE_SEGUNDOS = 300
@@ -146,8 +149,6 @@ def main():
             resultados[chave] = futuro.result()
     for v, exe, s, c, g in janelas:
         resultados[(v, s)] = _rodar(exe, s, c, g)
-    # O add-on grava um log de diagnostico em %TEMP%; os testes nao.
-    log = os.path.join(os.environ.get('TEMP', ''), 'cabinet_cliques.log')
 
     print('\n' + '=' * 64)
     print('%-8s %-14s %6s %8s  %s' % ('versao', 'suite', 'testes', 'tempo', 'resultado'))
@@ -172,7 +173,8 @@ def main():
         print(primeiro['texto'][-4000:])
     sys.stdout.flush()
     if falhou:
-        sys.exit(1)
+        # Sem --python-exit-code o Blender sai com 0 mesmo apos excecao.
+        os._exit(1)
 
 
 try:

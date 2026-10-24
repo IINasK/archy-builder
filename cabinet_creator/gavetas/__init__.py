@@ -16,7 +16,6 @@ import math
 import bpy, bmesh, blf, gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
-from mathutils.kdtree import KDTree
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, IntProperty, StringProperty
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
@@ -303,7 +302,7 @@ def limites_na_referencia(conj, ref, limites=None):
              if not o.get('eh_prateleira') for v in o.bound_box]
         return (Vector(tuple(min(v[k] for v in pts) for k in range(3))),
                 Vector(tuple(max(v[k] for v in pts) for k in range(3))))
-    lo, hi = limites if limites is not None else _limites(conj)
+    lo, hi = limites
     pontos = [ref.transposed() @ Vector((x, y, z))
               for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
     return (Vector(tuple(min(v[k] for v in pontos) for k in range(3))),
@@ -406,10 +405,6 @@ def vao(grupo):
     altura = hi.z - cima - origem.z
     matriz = ref.to_4x4() @ Matrix.Translation(origem / 1000.0)
     return _divisorias.limitar_vao(grupo, largura, altura, matriz)
-
-
-def _mundo_do_vao(conj, origem_mm):
-    return conj.matrix_world @ Matrix.Translation(Vector(origem_mm) / 1000.0)
 
 
 # ------------------------------------------------------------ montagem
@@ -1384,143 +1379,46 @@ def _aplicar_ponto(grupo, indice, ponto_mundo):
     return None
 
 
-def _dentro(obj, grupo):
+# ------------------------------------- arraste por CURSOR + snap nativo
+# Protocolo comum dos arrastes com Alt (ancora das gavetas, canto da porta,
+# ancora da solda): o cursor 3D e' o ponto temporario, o TRANSFORM_OT_translate
+# nativo leva-o ate' o alvo (o snap do Blender, nunca vertices em Python) e
+# uma macro aplica num undo so'. Cada dono guarda o estado na SUA lista.
+PARAMETROS_CURSOR_NATIVO = dict(cursor_transform=True, snap=True, snap_target='CENTER',
+                                snap_align=False, use_snap_selectable=True,
+                                release_confirm=True)
+
+
+def acessorio_fora_do_snap(obj):
+    """Puxador/acessorio (e o que pende deles) so' pesaria o BVH do snap."""
     while obj is not None:
-        if obj == grupo:
+        if 'eh_puxador' in obj or ('eh_acessorio' in obj and 'eh_peca_curva' not in obj):
             return True
         obj = obj.parent
     return False
 
 
-def _ponto_livre(context, grupo, indice, mouse):
-    """Sem ima: a quina anda no plano da frente; a profundidade, no eixo
-    dela (o ponto da reta mais perto do raio do mouse)."""
-    regiao, rv3d = context.region, context.region_data
-    origem = view3d_utils.region_2d_to_origin_3d(regiao, rv3d, mouse)
-    direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv3d, mouse)
-    m = grupo.matrix_world
-    eixos = m.to_3x3()
-    if indice < 2:
-        normal = eixos.col[1].normalized()
-        base = m.translation
-        d = direcao.dot(normal)
-        if abs(d) < 1e-6:
-            return None
-        return origem + direcao * ((base - origem).dot(normal) / d)
-    p0 = pontos_editaveis(grupo)[2]
-    eixo = eixos.col[1].normalized()
-    w0 = p0 - origem
-    a, b, c = eixo.dot(eixo), eixo.dot(direcao), direcao.dot(direcao)
-    d, e = eixo.dot(w0), direcao.dot(w0)
-    den = a * c - b * b
-    if abs(den) < 1e-9:
-        return None
-    s = (b * e - c * d) / den
-    return p0 + eixo * s
-
-
-class IndiceSnapGavetas:
-    """Pontos em mundo indexados na tela durante UM arraste.
-    Movimentos do mouse consultam a arvore; so' navegar refaz a projecao."""
-
-    def __init__(self, alvos):
-        # NumPy vem com o Blender. Carregar so' no arraste evita custo no register.
-        import numpy as np
-        self._pontos = np.asarray([co for _nome, pontos in alvos for co in pontos],
-                                  dtype=np.float32).reshape((-1, 3))
-        self._vista = None
-        self._arvore = None
-
-    def _reconstruir(self, matriz, largura, altura):
-        import numpy as np
-        self._arvore = None
-        if not len(self._pontos):
-            return
-        m = np.asarray(matriz, dtype=np.float32)
-        # Mesma projecao de location_3d_to_region_2d, em lote: w > 0.
-        clip = self._pontos @ m[:, :3].T + m[:, 3]
-        indices = np.flatnonzero(clip[:, 3] > 0)
-        clip = clip[indices]
-        tela = (clip[:, :2] / clip[:, 3, None] + 1) * np.asarray(
-            (largura / 2.0, altura / 2.0), dtype=np.float32)
-        raio = _portas.RAIO_IMA_PX
-        visiveis = (np.isfinite(tela).all(axis=1) &
-                    (tela[:, 0] >= -raio) & (tela[:, 0] <= largura + raio) &
-                    (tela[:, 1] >= -raio) & (tela[:, 1] <= altura + raio))
-        # Vertices coincidentes (frente/costas, soldas) nao precisam de
-        # milhares de entradas iguais. A primeira preserva a prioridade.
-        unicos = {}
-        for indice, (x, y) in zip(indices[visiveis], tela[visiveis]):
-            unicos.setdefault((float(x), float(y)), int(indice))
-        if not unicos:
-            return
-        arvore = KDTree(len(unicos))
-        for (x, y), indice in unicos.items():
-            arvore.insert((x, y, 0.0), indice)
-        arvore.balance()
-        self._arvore = arvore
-
-    def buscar(self, context, mouse):
-        regiao, rv3d = context.region, context.region_data
-        matriz = tuple(tuple(linha) for linha in rv3d.perspective_matrix)
-        vista = (regiao.width, regiao.height, matriz)
-        if vista != self._vista:
-            self._reconstruir(matriz, regiao.width, regiao.height)
-            self._vista = vista
-        if self._arvore is None:
-            return None
-        ponto = Vector((mouse[0], mouse[1], 0.0))
-        _co, indice, distancia = self._arvore.find(ponto)
-        if distancia > _portas.RAIO_IMA_PX:
-            return None
-        # Empate na tela continua escolhendo o primeiro ponto, como antes.
-        empatados = self._arvore.find_range(ponto, distancia + 1e-5)
-        _co, indice, _dist = min(empatados, key=lambda item: (item[2], item[1]))
-        return Vector(self._pontos[indice])
-
-
-def _preparar_ancora_nativa(context, grupo, indice):
-    """O cursor e' so' o ponto temporario: o translate nativo nao move
-    nenhum objeto selecionado. A macro faz translate + aplicar num undo."""
-    ponto = pontos_editaveis(grupo)[indice]
-    # O filtro nativo ONLY_SELECTABLE evita BVHs das ferragens e que a
-    # propria frente capture a ancora. O bloqueio dura so' esta macro.
-    proprias = {o.name for o in grupo.children_recursive}
+def iniciar_cursor_nativo(context, lista, estado, ponto, fora):
+    """Guarda em `lista[0]` o `estado` + o que restaurar e poe o cursor no
+    `ponto`. `fora(obj)`: malha que o snap nao pode pegar (o filtro nativo
+    ONLY_SELECTABLE; o bloqueio dura so' a macro)."""
     bloqueados = []
     for obj in context.visible_objects:
-        dono = obj
-        acessorio = False
-        while dono is not None:
-            if ('eh_puxador' in dono or
-                    ('eh_acessorio' in dono and 'eh_peca_curva' not in dono)):
-                acessorio = True
-                break
-            dono = dono.parent
-        if obj.type == 'MESH' and (obj.name in proprias or acessorio):
+        if obj.type == 'MESH' and fora(obj):
             bloqueados.append((obj.name, obj.hide_select))
             obj.hide_select = True
-    _arraste_ponto[0] = {
-        'nativo': True, 'regiao': context.region.as_pointer(),
-        'area': context.area.as_pointer(), 'cena': context.scene.name,
-        'grupo': grupo.name, 'indice': indice, 'ponto': ponto.copy(), 'ima': False,
-        'cursor': tuple(context.scene.cursor.location),
-        'mostrar_cursor': context.space_data.overlay.show_cursor,
-        'bloqueados': bloqueados,
-    }
+    estado.update(nativo=True, area=context.area.as_pointer(), cena=context.scene.name,
+                  cursor=tuple(context.scene.cursor.location),
+                  mostrar_cursor=context.space_data.overlay.show_cursor,
+                  bloqueados=bloqueados, ponto=ponto.copy())
+    lista[0] = estado
     context.space_data.overlay.show_cursor = False
     context.scene.cursor.location = ponto
-    return dict(cursor_transform=True, snap=True,
-                snap_elements={'VERTEX', 'EDGE_MIDPOINT'}, snap_target='CENTER',
-                snap_align=False, use_snap_selectable=True, release_confirm=True,
-                orient_type='GLOBAL', orient_matrix_type='GLOBAL',
-                # RNA do translate recebe os eixos em LINHAS. Mathutils
-                # guarda-os nas colunas; sem transpor, gira ao contrario.
-                orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3().transposed()),
-                constraint_axis=(True, False, True) if indice < 2 else (False, True, False))
 
 
-def _terminar_ancora_nativa(remover_timer=True):
-    estado = _arraste_ponto[0]
+def terminar_cursor_nativo(lista):
+    """Devolve cursor, overlay e hide_select; esvazia `lista` e devolve o estado."""
+    estado, lista[0] = lista[0], None
     if estado and estado.get('nativo'):
         for nome, oculto in estado.get('bloqueados', ()):
             obj = bpy.data.objects.get(nome)
@@ -1534,29 +1432,56 @@ def _terminar_ancora_nativa(remover_timer=True):
                 if area.as_pointer() == estado['area'] and area.type == 'VIEW_3D':
                     area.spaces.active.overlay.show_cursor = estado['mostrar_cursor']
                     area.tag_redraw()
-    _arraste_ponto[0] = None
-    if remover_timer and bpy.app.timers.is_registered(_acompanhar_ancora_nativa):
-        bpy.app.timers.unregister(_acompanhar_ancora_nativa)
+    return estado
 
 
-def _acompanhar_ancora_nativa():
-    """Le so' a posicao do cursor, nunca malhas. Esc da macro tambem
-    devolve o cursor/overlay quando o translate nativo termina cancelado."""
-    estado = _arraste_ponto[0]
+def acompanhar_cursor_nativo(lista, macro):
+    """Para o timer do dono: True enquanto a `macro` vive. Le so' o cursor,
+    nunca malhas; Esc da macro tambem devolve cursor/overlay."""
+    estado = lista[0]
     if not estado or not estado.get('nativo'):
-        return None
-    ativa = any(op.bl_idname == 'OBJECT_OT_cabinet_mover_ancora_gaveta'
+        return False
+    ativa = any(op.bl_idname == macro
                 for janela in bpy.context.window_manager.windows for op in janela.modal_operators)
     cena = bpy.data.scenes.get(estado['cena'])
     if not ativa or cena is None:
-        _terminar_ancora_nativa(remover_timer=False)
-        return None
+        terminar_cursor_nativo(lista)
+        return False
     estado['ponto'] = cena.cursor.location.copy()
     for janela in bpy.context.window_manager.windows:
         for area in janela.screen.areas:
             if area.as_pointer() == estado['area']:
                 area.tag_redraw()
-    return 1.0 / 60.0
+    return True
+
+
+def _preparar_ancora_nativa(context, grupo, indice):
+    """O cursor e' so' o ponto temporario: o translate nativo nao move
+    nenhum objeto selecionado. A macro faz translate + aplicar num undo."""
+    # a propria frente nao captura a ancora
+    proprias = {o.name for o in grupo.children_recursive}
+    iniciar_cursor_nativo(
+        context, _arraste_ponto,
+        {'regiao': context.region.as_pointer(), 'grupo': grupo.name, 'indice': indice},
+        pontos_editaveis(grupo)[indice],
+        lambda o: o.name in proprias or acessorio_fora_do_snap(o))
+    return dict(PARAMETROS_CURSOR_NATIVO, snap_elements={'VERTEX', 'EDGE_MIDPOINT'},
+                orient_type='GLOBAL', orient_matrix_type='GLOBAL',
+                # RNA do translate recebe os eixos em LINHAS. Mathutils
+                # guarda-os nas colunas; sem transpor, gira ao contrario.
+                orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3().transposed()),
+                constraint_axis=(True, False, True) if indice < 2 else (False, True, False))
+
+
+def _terminar_ancora_nativa(remover_timer=True):
+    terminar_cursor_nativo(_arraste_ponto)
+    if remover_timer and bpy.app.timers.is_registered(_acompanhar_ancora_nativa):
+        bpy.app.timers.unregister(_acompanhar_ancora_nativa)
+
+
+def _acompanhar_ancora_nativa():
+    vivo = acompanhar_cursor_nativo(_arraste_ponto, 'OBJECT_OT_cabinet_mover_ancora_gaveta')
+    return 1.0 / 60.0 if vivo else None
 
 
 class OBJECT_OT_confirmar_ancora_gaveta(Operator):
@@ -1870,7 +1795,8 @@ _snap_criacao = [None]
 def _estado_criacao():
     return (_assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
             or _divisorias._assistente_divisorias[0]
-            or (_solda._conexao_manual[0] if (_solda._conexao_manual[0] or {}).get('snap_nativo') else None))
+            or (_solda._conexao_manual[0] if (_solda._conexao_manual[0] or {}).get('snap_nativo') else None)
+            or (_portas._assistente_porta[0] if (_portas._assistente_porta[0] or {}).get('snap_nativo') else None))
 
 
 def _terminar_snap_criacao():
@@ -1914,19 +1840,22 @@ def _objeto_do_ponto_criacao(context, ponto):
         direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv3d,tela)
         hit,co,_n,_f,obj,_m=context.scene.ray_cast(context.evaluated_depsgraph_get(),origem,direcao)
         if hit and obj is not None and (co-ponto).length<.005:return obj.original.name
-    # Quina exata pode ficar na tangente do raio. Consultar so' o modulo
-    # ativo (BVH nativo), sem ler/projetar vertices de toda a cena.
-    conj=_portas._modulo_da_chapa(context.object) if context.object is not None else None
-    if conj is not None:
-        melhor=None
-        for obj in _modulos._chapas_do_conjunto(conj):
-            inv=obj.matrix_world.inverted()
-            hit,co,_n,_f=obj.closest_point_on_mesh(inv@ponto)
-            if hit:
-                d=(obj.matrix_world@co-ponto).length
-                if d<.002 and (melhor is None or d<melhor[0]):melhor=(d,obj.name)
-        if melhor:return melhor[1]
-    return None
+    # Quina exata fica na tangente do raio (ele passa para o fundo do vao).
+    # So' o modulo ativo nao bastava: sem selecao a porta nova nao achava a
+    # chapa. Pecas que o snap enxerga, com a caixa no ponto, pelo BVH nativo
+    # -- sem ler/projetar vertices da cena.
+    melhor=None
+    for obj in context.visible_objects:
+        if obj.type!='MESH' or obj.hide_select:continue
+        inv=obj.matrix_world.inverted();local=inv@ponto
+        caixa=obj.bound_box
+        if any(local[i]<min(c[i] for c in caixa)-.002 or local[i]>max(c[i] for c in caixa)+.002
+               for i in range(3)):continue
+        hit,co,_n,_f=obj.closest_point_on_mesh(local)
+        if hit:
+            d=(obj.matrix_world@co-ponto).length
+            if d<.002 and (melhor is None or d<melhor[0]):melhor=(d,obj.name)
+    return melhor[1] if melhor else None
 
 
 class OBJECT_OT_confirmar_ponto_vao(Operator):
@@ -1996,8 +1925,7 @@ class AssistenteDoVao:
         p = self._w['p']
         p['lateral_mm'] = float(_portas._espessura_do_vao(conj))
         p['espessura_frente_mm'] = p['lateral_mm']
-        lo, hi = _limites(conj)
-        p['profundidade_mm'] = hi.y - lo.y
+        # a profundidade sai de `_definir_vao` no 2o canto (maxprof)
 
     def _limitar_profundidade(self, mm):
         return min(self._w.get('maxprof',float('inf')),max(100.0, mm))
@@ -2023,14 +1951,6 @@ class AssistenteDoVao:
     # ---------------------------------------------- tela e ima
     def _mouse(self, event):
         return Vector((event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y))
-
-    def _tela(self, ponto):
-        return view3d_utils.location_3d_to_region_2d(self._regiao, self._rv3d, ponto)
-
-    def _imantar(self, mouse):
-        # A criacao usa TRANSFORM_OT_translate, assim como as ancoras.
-        # Nunca montar uma lista de vertices avaliados aqui.
-        return self._w.get('cursor'), self._w.get('cursor_obj')
 
     def _iniciar_snap_nativo(self,context):
         w=self._w
@@ -2066,25 +1986,6 @@ class AssistenteDoVao:
         origem = view3d_utils.region_2d_to_origin_3d(self._regiao, self._rv3d, mouse)
         direcao = view3d_utils.region_2d_to_vector_3d(self._regiao, self._rv3d, mouse)
         return origem, direcao
-
-    def _no_plano_da_frente(self, mouse):
-        conj = bpy.data.objects.get(self._w.get('modulo', ''))
-        if conj is None:
-            return None
-        origem, direcao = self._raio(mouse)
-        ref=self._w.get('referencia',Matrix.Identity(3))
-        normal = (conj.matrix_world.to_3x3()@ref.col[1]).normalized()
-        base = self._w['pontos'][0]
-        d = direcao.dot(normal)
-        if abs(d) < 1e-6:
-            return None
-        return origem + direcao * ((base - origem).dot(normal) / d)
-
-    def _superficie(self, context, mouse):
-        origem, direcao = self._raio(mouse)
-        acertou, ponto, _n, _f, obj, _m = context.scene.ray_cast(
-            context.evaluated_depsgraph_get(), origem, direcao)
-        return (ponto, obj.original.name) if acertou and obj is not None else (None, None)
 
     # ---------------------------------------------- previa
     def _dados(self):

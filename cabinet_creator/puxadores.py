@@ -618,7 +618,7 @@ def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
                       and _eh_puxador_parametrico(f)
                       and f['puxador_tipo'] == 'PERFIL'
                       and f.get('puxador_borda') == borda]:
-            bpy.data.objects.remove(velho, do_unlink=True)
+            _gavetas._remover(velho)
         _atualizar_madeira(chapa)        # corta a madeira e posiciona
     else:
         posicionar_puxador(pux)
@@ -668,9 +668,7 @@ def perfis_na_porta(context, grupo, posicao):
     roupeiro). Porta FECHADA (a borda sai da matriz da folha)."""
     modulo = (bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
               or grupo.parent or grupo)
-    eixos = modulo.matrix_world.to_3x3()
-    direita, frente, cima = (eixos.col[0].normalized(), -eixos.col[1].normalized(),
-                             eixos.col[2].normalized())
+    cima = modulo.matrix_world.to_3x3().col[2].normalized()
     p = dict(grupo.get('porta_parametros') or {})
     if p.get('abertura') == 'ZIGZAG':
         return [puxador_terminal(context, grupo)]
@@ -1145,7 +1143,7 @@ def _trocar_modelo_puxador(pux, valor):
                       and _eh_puxador_parametrico(f)
                       and f['puxador_tipo'] == 'PERFIL'
                       and f.get('puxador_borda') == pux.get('puxador_borda')]:
-            bpy.data.objects.remove(velho, do_unlink=True)
+            _gavetas._remover(velho)
     if 'PERFIL' in (antes, tipo):
         _atualizar_madeira(chapa)        # corta/devolve a madeira e posiciona
     else:
@@ -1360,7 +1358,7 @@ class OBJECT_OT_arrastar_puxador(Operator):
                               and f['puxador_tipo'] == 'PERFIL'
                               and f.get('puxador_borda')
                               == pux.get('puxador_borda')]:
-                    bpy.data.objects.remove(velho, do_unlink=True)
+                    _gavetas._remover(velho)
                 _atualizar_madeira(pux.parent)
             self._encerrar()
             return {'FINISHED'}

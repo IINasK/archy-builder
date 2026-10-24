@@ -113,7 +113,6 @@ def _abreviar(texto, limite):
 _handler_gaveta = [None]
 _biblioteca_faixa = None
 _fotos_gaveta = {}
-_imagens_gaveta = set()
 _edicao_gaveta = [None]
 # Realces animados: chave -> [valor atual, alvo, instante]. A chave
 # e' (ponteiro da area, nome do widget), porque agora a alca e os

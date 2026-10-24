@@ -5,7 +5,7 @@ import bpy, math, gpu, blf, time, json
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from bpy_extras import view3d_utils
-from bpy.types import Gizmo, GizmoGroup, Operator
+from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -29,7 +29,6 @@ _formas = None
 _gavetas = None
 _prateleiras = None
 _divisorias = None
-_geometria = None
 _assistente = None
 _hud_volume = None
 
@@ -78,7 +77,6 @@ RAIO_ARESTA_HUD = 7.0
 RAIO_CANTO_HUD = 10.0
 LIMIAR_ARRASTE_HUD_PX = 4.0  # abaixo disto o gesto e' clique, nao arraste
 GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
-COR_REALCE_HUD = (1.0, 0.35, 0.05, 1.0)   # padrao; a cor vem das opcoes
 
 
 def _contexto_hud(context):
@@ -319,23 +317,6 @@ def _alvo_e_do_item(geometria, alvo):
         return alvo['objeto'] == geometria['objeto']
     identidade = _identidade_hud(alvo)
     return any(_identidade_hud(l) == identidade for l in geometria['linhas'])
-
-
-def _linha_gap_hud(grupo):
-    folhas = _portas._folhas_portas(grupo)
-    if len(folhas) != 2:
-        return None
-    inversa = grupo.matrix_world.inverted()
-    caixas = [[inversa @ (f.matrix_world @ Vector(v)) for v in f.bound_box]
-              for f in folhas]
-    caixas.sort(key=lambda caixa: min(p.x for p in caixa))
-    x = (max(p.x for p in caixas[0]) + min(p.x for p in caixas[1])) / 2
-    baixo = max(min(p.y for p in caixa) for caixa in caixas)
-    cima = min(max(p.y for p in caixa) for caixa in caixas)
-    frente = max(p.z for caixa in caixas for p in caixa)
-    if cima <= baixo:
-        return None
-    return [grupo.matrix_world @ Vector((x, y, frente)) for y in (baixo, cima)]
 
 
 def _geometria_hud(context):
@@ -1256,7 +1237,9 @@ def _desenhar_hud_texto():
                 largura_letra, altura_letra = blf.dimensions(0, letra)
                 x, y = ponto.x - largura_letra / 2, ponto.y - altura_letra / 2
                 blf.position(0, x, y, 0)
-                blf.color(0, *(_cor_realce_hud(letra) if aceso else cor))
+                # pela letra do ALVO: o rotulo vem numerado ('A1'), fora
+                # da tabela de eixos, e saia laranja ao lado da linha colorida
+                blf.color(0, *(_cor_realce_hud(_letra_do_alvo(alvo)) if aceso else cor))
                 blf.draw(0, letra)
                 if digitando and aceso:
                     # O valor sai da PROPRIA letra, numa caixa preta com
@@ -1294,9 +1277,6 @@ def _desenhar_hud_texto():
                 shader.bind()
                 shader.uniform_float('color', realce)
                 batch_for_shader(shader, 'LINE_STRIP', {'pos': circulo}).draw(shader)
-                if nesta and edicao.get('snap') is not None:
-                    # grudou (Ctrl): bolinha cheia no centro da quina
-                    _bolinha_2d(shader, ponto, raio * 0.45, realce)
     finally:
         gpu.state.line_width_set(1)
         gpu.state.point_size_set(1)
@@ -1815,56 +1795,92 @@ def _restaurar_arraste_hud(context, estado):
         _chapas._ocupado[0] = False
 
 
-# Snap ao mover o modulo pela quina (Ctrl segurado): alcance em pixels.
-RAIO_SNAP_QUINA_HUD = 20.0
+# Mover o modulo pela quina: o cursor 3D e' a quina pega e o translate
+# NATIVO o leva (Ctrl liga o snap de vertice do proprio Blender, o gesto
+# de antes); um timer so' copia o cursor para o modulo. Antes as quinas
+# da cena eram juntadas e projetadas em Python a cada movimento.
+_arraste_quina = [None]
 
 
-def _quinas_de_snap(modulo):
-    """Onde a quina arrastada gruda com Ctrl (pedido do usuario: snap
-    ESPECIAL, so' em quinas de OUTROS armarios ou chapas -- nada de
-    vertice qualquer, aresta ou grade). Armario = a caixa da HUD dele;
-    chapa = os 8 cantos nominais. Pontos copiados: nenhum objeto fica
-    guardado no operador."""
-    proprios = {modulo, *modulo.children_recursive}
-    quinas = []
-    for o in bpy.context.view_layer.objects:
-        if o in proprios:
-            continue
-        if _chapas.MARCA_CONJUNTO in o:
-            # o Empty e' invisivel: vale o que as chapas mostram
-            chapas = [c for c in _modulos._chapas_do_conjunto(o) if c.visible_get()]
-            if chapas:
-                quinas += _caixa_hud_objetos(chapas) or []
-        elif _chapas.MARCA_CHAPA in o and o.type == 'MESH' and o.visible_get():
-            quinas += _chapas._cantos(o)
-        # peca MODELADA (recorte, chanfro) ou curva (frente em arco, peca
-        # do Promob): as quinas, os angulos e as pontas das curvas que o
-        # detector acha (`_geometria`), nao so' a caixa dela
-        if (o.type == 'MESH' and o.visible_get()
-                and (_chapas.MARCA_ACESSORIO in o or _chapas.MARCA_CHAPA in o)
-                and not _chapas._malha_e_caixa(o.data)):
-            quinas += [co for co, tipo, _a in _geometria.pontos_no_mundo(o)
-                       if tipo != 'CENTRO']
-    return quinas
+def _levar_quina(estado, ponto):
+    obj = bpy.data.objects.get(estado['objeto'])
+    if obj is None:
+        return
+    matriz = estado['matriz'].copy()
+    matriz.translation += ponto - estado['origem']
+    obj.matrix_world = matriz
 
 
-def _snap_de_quina(context, ponto, quinas, escala=1.0):
-    """A quina mais perto de `ponto` NA TELA, dentro do alcance, ou None.
-    Quinas sobrepostas na tela (uma atras da outra): a mais perto em 3D."""
-    tela = _projetar_hud(context, ponto)
-    if tela is None:
-        return None
-    alcance = RAIO_SNAP_QUINA_HUD * escala
-    perto = []
-    for quina in quinas:
-        p = _projetar_hud(context, quina)
-        if p is not None and (p - tela).length <= alcance:
-            perto.append(((p - tela).length, quina))
-    if not perto:
-        return None
-    minimo = min(d for d, _q in perto)
-    return min((q for d, q in perto if d <= minimo + 2.0 * escala),
-               key=lambda q: (q - ponto).length).copy()
+def _preparar_quina_nativa(context, modulo, origem, matriz):
+    """Estado + parametros do translate. A propria peca nao e' alvo do
+    snap; puxador e ferragem so' pesariam o BVH."""
+    proprios = {modulo.name, *(o.name for o in modulo.children_recursive)}
+    _gavetas.iniciar_cursor_nativo(
+        context, _arraste_quina,
+        {'objeto': modulo.name, 'origem': origem.copy(), 'matriz': matriz.copy()},
+        origem, lambda o: (o.name in proprios or _chapas.MARCA_PUXADOR in o
+                           or _ferragens.CHAVE_FERRAGEM in o))
+    # snap desligado: o Ctrl do translate liga (vertice = quina da chapa)
+    return dict(_gavetas.PARAMETROS_CURSOR_NATIVO, snap=False, snap_elements={'VERTEX'})
+
+
+def _terminar_quina_nativa(remover_timer=True):
+    estado = _gavetas.terminar_cursor_nativo(_arraste_quina)
+    if remover_timer and bpy.app.timers.is_registered(_acompanhar_quina_nativa):
+        bpy.app.timers.unregister(_acompanhar_quina_nativa)
+    return estado
+
+
+def _acompanhar_quina_nativa():
+    estado = _arraste_quina[0]
+    if _gavetas.acompanhar_cursor_nativo(_arraste_quina, 'OBJECT_OT_cabinet_mover_quina_hud'):
+        _levar_quina(estado, estado['ponto'])
+        return 1.0 / 60.0
+    if estado is not None:
+        # Esc/direito no translate: o modulo volta para onde estava
+        _levar_quina(estado, estado['origem'])
+    return None
+
+
+def _iniciar_quina_nativa(context, modulo, origem, matriz):
+    parametros = _preparar_quina_nativa(context, modulo, origem, matriz)
+    try:
+        resultado = bpy.ops.object.cabinet_mover_quina_hud(
+            'INVOKE_DEFAULT', TRANSFORM_OT_translate=parametros)
+    except Exception:
+        _terminar_quina_nativa()
+        raise
+    if 'RUNNING_MODAL' not in resultado:
+        _terminar_quina_nativa()
+        return False
+    bpy.app.timers.register(_acompanhar_quina_nativa, first_interval=0.0)
+    return True
+
+
+class OBJECT_OT_confirmar_quina_hud(Operator):
+    bl_idname = 'object.cabinet_confirmar_quina_hud'
+    bl_label = 'Confirmar Quina do Modulo'
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        if not _arraste_quina[0]:
+            return {'CANCELLED'}
+        ponto = context.scene.cursor.location.copy()
+        estado = _terminar_quina_nativa()
+        _levar_quina(estado, ponto)
+        context.view_layer.update()
+        return {'FINISHED'}
+
+
+class OBJECT_OT_mover_quina_hud(Macro):
+    bl_idname = 'object.cabinet_mover_quina_hud'
+    bl_label = 'Mover Modulo pela Quina'
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+
+def registrar_macro_quina():
+    OBJECT_OT_mover_quina_hud.define('TRANSFORM_OT_translate')
+    OBJECT_OT_mover_quina_hud.define('OBJECT_OT_cabinet_confirmar_quina_hud')
 
 
 class OBJECT_OT_arrastar_hud(Operator):
@@ -1879,8 +1895,6 @@ class OBJECT_OT_arrastar_hud(Operator):
 
     def invoke(self, context, event):
         alvo = _acertar_hud(context, (event.mouse_region_x, event.mouse_region_y))
-        _selecao._log_clique('HUD pegou %s/%s alvo=%s' % (
-            event.type, event.value, alvo and alvo.get('tipo')))
         if alvo is None or _edicao_hud[0] is not None:
             return {'CANCELLED'}
         self._alvo = alvo
@@ -1891,10 +1905,7 @@ class OBJECT_OT_arrastar_hud(Operator):
         self._origem = alvo['pontos'][0].copy()
         self._matriz = alvo['objeto'].matrix_world.copy()
         if alvo['tipo'] == 'ancora':
-            self._ponto_mouse = view3d_utils.region_2d_to_location_3d(
-                context.region, context.region_data, self._inicio, self._origem)
-            self._quinas = None             # snap: medidas no 1o Ctrl
-            self._mouse = self._inicio.copy()
+            pass        # o arraste vai ao cursor nativo (`_iniciar_quina_nativa`)
         else:
             if _chapas.MARCA_CONJUNTO in alvo['objeto']:
                 _modulos.sincronizar_medidas_conjunto(alvo['objeto'])
@@ -1949,27 +1960,6 @@ class OBJECT_OT_arrastar_hud(Operator):
             _gavetas.montar(self._alvo['objeto'])
         _edicao_hud[0] = None
         self._area.tag_redraw()
-
-    def _mover_pela_quina(self, context, mouse, snap):
-        """Leva a quina pega ate' o mouse; com `snap` (Ctrl) ela gruda
-        na quina de outro armario/chapa que estiver no alcance."""
-        ponto = view3d_utils.region_2d_to_location_3d(
-            context.region, context.region_data, mouse, self._origem)
-        destino = self._origem + ponto - self._ponto_mouse
-        grudou = None
-        if snap:
-            if self._quinas is None:
-                self._quinas = _quinas_de_snap(self._alvo['objeto'])
-            grudou = _snap_de_quina(context, destino, self._quinas,
-                                    context.preferences.system.ui_scale)
-            if grudou is not None:
-                destino = grudou
-        matriz = self._matriz.copy()
-        matriz.translation += destino - self._origem
-        self._alvo['objeto'].matrix_world = matriz
-        self._alvo['pontos'] = [destino]
-        _edicao_hud[0]['snap'] = grudou
-        context.view_layer.update()
 
     def cancel(self, context):
         if _edicao_hud[0] is not None:_edicao_hud[0].pop('previa_gavetas',None)
@@ -2111,14 +2101,6 @@ class OBJECT_OT_arrastar_hud(Operator):
                 return {'RUNNING_MODAL'}
             self._encerrar()
             return {'FINISHED'}
-        if (event.type in {'LEFT_CTRL', 'RIGHT_CTRL'} and self._arrastou
-                and self._alvo['tipo'] == 'ancora'
-                and event.value in {'PRESS', 'RELEASE'}):
-            # apertar/soltar o Ctrl parado ja' liga/desliga o snap
-            self._mover_pela_quina(context, self._mouse,
-                                   event.value == 'PRESS')
-            self._area.tag_redraw()
-            return {'RUNNING_MODAL'}
         if event.type != 'MOUSEMOVE':
             return {'RUNNING_MODAL'}
         if not self._arrastou:
@@ -2131,14 +2113,16 @@ class OBJECT_OT_arrastar_hud(Operator):
                 # CANCELLED aqui evita um segundo passo sem mudanca.
                 _hud_volume.iniciar(context, self._alvo, self._backup)
                 return {'CANCELLED'}
+            if self._alvo['tipo'] == 'ancora':
+                # o translate nativo segue com o arraste e possui o UNDO
+                modulo, origem, matriz = self._alvo['objeto'], self._origem, self._matriz
+                self._encerrar()
+                _iniciar_quina_nativa(context, modulo, origem, matriz)
+                return {'CANCELLED'}
             self._arrastou = True
         try:
-            if self._alvo['tipo'] == 'ancora':
-                self._mouse = mouse
-                self._mover_pela_quina(context, mouse, event.ctrl)
-            else:
-                delta = (mouse-self._inicio).dot(self._direcao) * self._por_pixel
-                _aplicar_valor_hud(context, self._alvo, self._valor + delta)
+            delta = (mouse-self._inicio).dot(self._direcao) * self._por_pixel
+            _aplicar_valor_hud(context, self._alvo, self._valor + delta)
         except (ValueError, TypeError, ReferenceError) as erro:
             self.report({'WARNING'}, str(erro))
         self._area.tag_redraw()

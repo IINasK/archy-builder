@@ -5,7 +5,7 @@ from gpu_extras.batch import batch_for_shader
 from bpy.props import (FloatProperty, BoolProperty, StringProperty,
                        IntProperty, FloatVectorProperty)
 from mathutils import Matrix, Vector
-from bpy.types import Gizmo, GizmoGroup, Operator
+from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -18,6 +18,7 @@ _hud = None
 _solda = None
 _perguntas = None
 _frentes = None
+_gavetas = None
 
 # ------------------------------------------ os 4 cantos da porta
 # Pedido do usuario: clique simples na porta mostra os fios do wizard
@@ -222,9 +223,8 @@ def _desenho_da_porta(grupo):
             desenho.setdefault('arestas_folhas', []).append(arestas)
             continue
         meia = Vector((l, alt, e)) / 2000.0
-        # pela folha de verdade: o contorno abre junto com ela
-        matriz = (objetos[i].matrix_world if i < len(objetos)
-                  else m @ Matrix.Translation(Vector(centro) / 1000.0))
+        # folha que ainda nao existe: a caixa calculada
+        matriz = m @ Matrix.Translation(Vector(centro) / 1000.0)
         desenho['folhas'].append([matriz @ Vector((meia.x * sx, meia.y * sy,
                                                    meia.z * sz))
                                   for sx in (-1, 1) for sy in (-1, 1)
@@ -276,7 +276,12 @@ def _desenhar_cantos_porta(context):
                     batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
                         tela[i], tela[j], 1.4 * escala)}).draw(shader)
             arrastando = estado is not None and estado['grupo'] == grupo.name
-            pontos = estado['pontos'] if arrastando else _cantos_da_porta(grupo)
+            if arrastando:
+                # o canto arrastado e' o cursor do snap nativo
+                pontos = list(estado['antigos'])
+                pontos[estado['indice']] = estado['ponto']
+            else:
+                pontos = _cantos_da_porta(grupo)
             tela = [_hud._projetar_hud(context, p) for p in pontos]
             if any(p is None for p in tela):
                 continue
@@ -295,8 +300,6 @@ def _desenhar_cantos_porta(context):
                     _hud._bolinha_2d(shader, p, 8 * escala, realce)
                 _hud._bolinha_2d(shader, p, (6 if aceso else 5) * escala,
                             (1.0, 1.0, 1.0, 1.0))
-            if arrastando and estado.get('alvo') is None:
-                _hud._bolinha_2d(shader, estado['mouse'], 4 * escala, realce)
     finally:
         gpu.state.blend_set('NONE')
 
@@ -374,11 +377,79 @@ class OBJECT_OT_cantos_porta(Operator):
         return _mover_cantos_porta(context, grupo, pontos)
 
 
+def _preparar_canto_nativo(context, grupo, indice):
+    """O cursor e' o canto temporario e o snap NATIVO acha o destino
+    (`_gavetas.iniciar_cursor_nativo`). Antes cada malha visivel era lida
+    (to_mesh) no clique e cada vertice projetado em Python a cada movimento:
+    segundos de travamento."""
+    antigos = _cantos_da_porta(grupo)
+    # a propria porta nao e' ima de si mesma; ferragem/puxador so' pesariam o BVH
+    _gavetas.iniciar_cursor_nativo(
+        context, _arraste_canto_porta,
+        {'regiao': context.region.as_pointer(), 'grupo': grupo.name,
+         'indice': indice, 'antigos': list(antigos)},
+        antigos[indice],
+        lambda o: (_dentro_da_porta(o, grupo) or _ferragens.CHAVE_FERRAGEM in o
+                   or _gavetas.acessorio_fora_do_snap(o)))
+    return dict(_gavetas.PARAMETROS_CURSOR_NATIVO, snap_elements={'VERTEX'})
+
+
+def _terminar_canto_nativo(remover_timer=True):
+    estado = _gavetas.terminar_cursor_nativo(_arraste_canto_porta)
+    if remover_timer and bpy.app.timers.is_registered(_acompanhar_canto_nativo):
+        bpy.app.timers.unregister(_acompanhar_canto_nativo)
+    return estado
+
+
+def _acompanhar_canto_nativo():
+    vivo = _gavetas.acompanhar_cursor_nativo(_arraste_canto_porta,
+                                             'OBJECT_OT_cabinet_mover_canto_porta')
+    return 1.0 / 60.0 if vivo else None
+
+
+class OBJECT_OT_confirmar_canto_porta(Operator):
+    bl_idname = 'object.cabinet_confirmar_canto_porta'
+    bl_label = 'Confirmar Canto da Porta'
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context):
+        estado = _arraste_canto_porta[0]
+        if not estado:
+            return {'CANCELLED'}
+        ponto = context.scene.cursor.location.copy()
+        estado = _terminar_canto_nativo()
+        grupo = bpy.data.objects.get(estado['grupo'])
+        indice, antigos = estado['indice'], estado['antigos']
+        if grupo is None or (ponto - antigos[indice]).length < 1e-6:
+            return {'CANCELLED'}
+        # a chapa do destino: ray cast/BVH nativos, so' no soltar
+        nome = (_gavetas._objeto_do_ponto_criacao(context, ponto)
+                if context.area is not None and context.area.type == 'VIEW_3D' else None)
+        obj = bpy.data.objects.get(nome or '')
+        objetos = [None] * 4
+        objetos[indice] = None if obj is None or _dentro_da_porta(obj, grupo) else obj
+        pontos = list(antigos)
+        pontos[indice] = ponto
+        resultado = _aplicar_cantos_porta(context, grupo, pontos, objetos, antigos)
+        return {'FINISHED'} if 'FINISHED' in resultado else {'CANCELLED'}
+
+
+class OBJECT_OT_mover_canto_porta(Macro):
+    bl_idname = 'object.cabinet_mover_canto_porta'
+    bl_label = 'Mover Canto da Porta'
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+
+def registrar_macro_canto():
+    OBJECT_OT_mover_canto_porta.define('TRANSFORM_OT_translate')
+    OBJECT_OT_mover_canto_porta.define('OBJECT_OT_cabinet_confirmar_canto_porta')
+
+
 class OBJECT_OT_arrastar_canto_porta(Operator):
     """Arraste um dos 4 cantos da porta (Alt) ate' outro vertice: a porta se refaz por ele"""
     bl_idname = 'object.cabinet_arrastar_canto_porta'
     bl_label = 'Mover Canto da Porta'
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+    bl_options = {'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
     indice: IntProperty(options={'SKIP_SAVE'})
@@ -388,78 +459,18 @@ class OBJECT_OT_arrastar_canto_porta(Operator):
         if (grupo is None or _chapas.MARCA_PORTAS not in grupo
                 or not 0 <= self.indice < 4 or context.region is None):
             return {'CANCELLED'}
-        # vertices lidos UMA vez (como no wizard); a propria porta nao
-        # serve de ima para si mesma
-        self._alvos = [(o, vs) for o, vs in _portas._alvos_do_ima(context)
-                       if not _dentro_da_porta(o, grupo)]
-        self._antigos = _cantos_da_porta(grupo)
-        _arraste_canto_porta[0] = {
-            'regiao': context.region.as_pointer(), 'grupo': grupo.name,
-            'indice': self.indice, 'pontos': list(self._antigos),
-            'alvo': None, 'objeto': None,
-            'mouse': Vector((event.mouse_region_x, event.mouse_region_y))}
-        self._area = context.area
-        context.window_manager.modal_handler_add(self)
-        self._area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    def _encerrar(self):
-        estado, _arraste_canto_porta[0] = _arraste_canto_porta[0], None
-        self._area.tag_redraw()
-        return estado
-
-    def cancel(self, context):
-        self._encerrar()
-
-    def _imantar(self, context, mouse):
-        melhor = None
-        for obj, vertices in self._alvos:
-            for co in vertices:
-                p = _hud._projetar_hud(context, co)
-                if p is None:
-                    continue
-                d = (p - mouse).length
-                if d <= _portas.RAIO_IMA_PX and (melhor is None or d < melhor[0]):
-                    melhor = (d, co, obj)
-        return (melhor[1], melhor[2]) if melhor else (None, None)
-
-    def modal(self, context, event):
-        estado = _arraste_canto_porta[0]
-        if estado is None:
+        parametros = _preparar_canto_nativo(context, grupo, self.indice)
+        try:
+            resultado = bpy.ops.object.cabinet_mover_canto_porta(
+                'INVOKE_DEFAULT', TRANSFORM_OT_translate=parametros)
+        except Exception:
+            _terminar_canto_nativo()
+            raise
+        if 'RUNNING_MODAL' not in resultado:
+            _terminar_canto_nativo()
             return {'CANCELLED'}
-        mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-        if event.type in {'ESC', 'RIGHTMOUSE'}:
-            self._encerrar()
-            return {'CANCELLED'}
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}
-        if event.type == 'MOUSEMOVE':
-            alvo, obj = self._imantar(context, mouse)
-            estado.update(mouse=mouse, alvo=alvo, objeto=obj)
-            pontos = list(self._antigos)
-            if alvo is not None:
-                pontos[self.indice] = alvo
-            estado['pontos'] = pontos
-            self._area.tag_redraw()
-            return {'RUNNING_MODAL'}
-        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            alvo, obj = self._imantar(context, mouse)
-            if alvo is None:
-                alvo, obj = estado.get('alvo'), estado.get('objeto')
-            self._encerrar()
-            if alvo is None or (alvo - self._antigos[self.indice]).length < 1e-6:
-                return {'CANCELLED'}
-            grupo = bpy.data.objects.get(self.grupo)
-            if grupo is None:
-                return {'CANCELLED'}
-            pontos = list(self._antigos)
-            pontos[self.indice] = alvo
-            objetos = [None] * 4
-            objetos[self.indice] = obj
-            resultado = _aplicar_cantos_porta(context, grupo, pontos, objetos,
-                                              self._antigos)
-            return {'FINISHED'} if 'FINISHED' in resultado else {'CANCELLED'}
-        return {'RUNNING_MODAL'}
+        bpy.app.timers.register(_acompanhar_canto_nativo, first_interval=0.0)
+        return {'FINISHED'}
 
 
 # ------------------------------------------ slider de abertura (Epico 4)
@@ -497,7 +508,9 @@ def _folhas_com_slider(context):
             continue
         if _porta_veio_do_modulo(grupo):
             continue        # modulo selecionado: sem sliders
-        if grupo['porta_parametros'].get('abertura') == 'ZIGZAG':
+        # .get: o ramo da folha nao garante parametros (grupo legado) e o
+        # KeyError aqui caia no poll do GizmoGroup
+        if (grupo.get('porta_parametros') or {}).get('abertura') == 'ZIGZAG':
             candidatas = _portas._folhas_portas(grupo)[-1:]
         folhas += [f for f in candidatas if f not in folhas]
     return folhas

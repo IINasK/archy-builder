@@ -526,7 +526,6 @@ def lugar(chapa,borda,face,fracao,comprimento_mm,recuo_mm,inteiro=False):
     if linhas is None:
         return None
     baixo,cima = linhas
-    ref = referencia(chapa)
     sinal = 1 if borda.endswith('+') else -1
     comprimento,recuo = float(comprimento_mm)/1000,float(recuo_mm)/1000
     if borda.startswith('Y'):

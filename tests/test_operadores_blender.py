@@ -954,14 +954,11 @@ class TestOperadores(unittest.TestCase):
 
     # Regressao (era BUG, corrigido na 126): timers do register() sem
     # remocao no unregister (invariante 13), inclusive um lambda.
-    def test_unregister_remove_timer_de_diagnostico(self):
-        self.assertTrue(bpy.app.timers.is_registered(addon.selecao._log_keymaps))
+    def test_unregister_remove_timer_adiado(self):
+        self.assertTrue(bpy.app.timers.is_registered(addon._registrar_bibliotecas_adiado))
         addon.unregister()
         try:
-            for timer in (addon.selecao._log_keymaps,
-                          addon._registrar_bibliotecas_adiado):
-                self.assertFalse(bpy.app.timers.is_registered(timer),
-                                 timer.__name__)
+            self.assertFalse(bpy.app.timers.is_registered(addon._registrar_bibliotecas_adiado))
         finally:
             addon.register()
 

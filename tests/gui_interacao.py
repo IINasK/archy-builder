@@ -110,18 +110,6 @@ def caixa_mundo(objetos):
     return lo, hi
 
 
-def widget_titulo(janela):
-    """Centro do titulo "Biblioteca (n)" (decoracao, sem acao)."""
-    area, regiao = gaveta(janela)
-    with contexto(janela, area, regiao):
-        _c, conteudo, _r = addon.gaveta._partes_gaveta(addon.gaveta._widgets_gaveta(
-            bpy.context, regiao.width, regiao.height))
-    titulo = addon.gaveta._paineis_gaveta(conteudo)[2][0]
-    assert titulo[4].startswith('Biblioteca'), titulo
-    x, y, w, h = titulo[:4]
-    return regiao.x + x + w / 2, regiao.y + y + h / 2
-
-
 def exigir_biblioteca_legivel():
     """Os presets foram gravados pelo Blender 5.x, cujo formato de .blend
     o 4.x nao le ("not a blend file"). Ali o teste do CLIQUE nao tem
@@ -771,14 +759,6 @@ def _wizard_ate_o_tipo(janela, m):
     return conj, area, regiao, rv3d
 
 
-def _cantos_internos(conj):
-    L, A = conj.conj_largura_mm, conj.conj_altura_mm
-    P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
-    a = conj.matrix_world @ (Vector((-L / 2 + E, -P / 2, E)) / 1000.0)
-    b = conj.matrix_world @ (Vector((L / 2 - E, -P / 2, A - E)) / 1000.0)
-    return a, b
-
-
 def _clicar_no_mundo(m, regiao, rv3d, ponto):
     m.mover(*na_tela(regiao, rv3d, ponto))
     yield
@@ -1095,7 +1075,8 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
     m.apertar(alt=True)
     yield
     assert addon.portas_viewport._arraste_canto_porta[0] is not None, 'o canto nao pegou'
-    assert any(o.bl_idname.endswith('cabinet_arrastar_canto_porta')
+    # o arraste e' o translate NATIVO do cursor (macro), sem ima em Python
+    assert any(o.bl_idname.endswith('cabinet_mover_canto_porta')
                for o in m.janela.modal_operators), 'o arraste nao abriu'
     destino = na_tela(regiao, rv3d, _local(conj, L / 2, y, 0))
     inicio = (m.x, m.y)
@@ -1622,38 +1603,26 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
         'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
     m.apertar()
     yield
-    janela.event_simulate('LEFT_CTRL', 'PRESS', ctrl=True, x=m.x, y=m.y)
-    yield
+    # o arraste passa ao translate NATIVO do cursor; o Ctrl dele liga o
+    # snap de vertice (as quinas das chapas de B)
     for passo in range(1, 6):
         m.x, m.y = (int(round(v)) for v in
                     Vector(canto) + (destino - Vector(canto)) * passo / 5)
         janela.event_simulate('MOUSEMOVE', 'NOTHING', ctrl=True, x=m.x, y=m.y)
         yield
-    # Grudou numa quina de B perto do alvo: a da caixa ou a de uma chapa
-    # dele (a espessura as separa por poucos pixels; vale a mais perto)
-    grudou = addon.hud._edicao_hud[0].get('snap')
-    assert grudou is not None, 'nao grudou'
-    quinas_b = [q for q in addon.hud._quinas_de_snap(a)
-                if (q - alvo).length < 0.05]
-    assert min((q - grudou).length for q in quinas_b) < 1e-6, \
-        'grudou fora das quinas de B'
-    erro = (cantos(a)[i] - grudou).length
-    assert erro < 1e-5, 'quina de A a %.4f m da quina' % erro
-    alvo = grudou.copy()
-    # soltando o Ctrl parado o snap sai; apertando de novo, volta
-    janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
-    yield
-    assert addon.hud._edicao_hud[0].get('snap') is None, 'Ctrl solto e grudado'
-    assert min((c - alvo).length for c in cantos(a)) > 1e-3, 'nao soltou'
-    janela.event_simulate('LEFT_CTRL', 'PRESS', ctrl=True, x=m.x, y=m.y)
-    yield
+    assert addon.hud._arraste_quina[0] is not None, 'o arraste nativo nao abriu'
     m.soltar(ctrl=True)
     yield
+    yield
     janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon.hud._edicao_hud[0] is None, 'o arraste nao terminou'
-    erro = min((c - alvo).length for c in cantos(a))
-    assert erro < 1e-5, 'soltou fora da quina: %.4f m' % erro
+    assert addon.hud._arraste_quina[0] is None, 'o arraste nao terminou'
+    # grudou num vertice de B perto do alvo: a quina da caixa ou a de uma
+    # chapa dele (a espessura as separa por poucos pixels)
+    vertices_b = [o.matrix_world @ v.co for o in addon.modulos._chapas_do_conjunto(b)
+                  for v in o.data.vertices if (o.matrix_world @ v.co - alvo).length < 0.05]
+    erro = min((cantos(a)[i] - q).length for q in vertices_b)
+    assert erro < 1e-5, 'quina de A a %.4f m de uma quina de B' % erro
 
 
 def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
@@ -2995,6 +2964,7 @@ rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_arrastar_gavetas_redimensiona_sem_mexer_no_armario,
        test_gavetas_arraste_esc_e_digitacao_na_hud,
        test_gavetas_esc_apos_modulo_renomeado_e_aumentado,
+       test_altura_de_uma_gaveta_com_previa_esc_e_digitacao,
        test_alt_arrasta_o_ponto_das_gavetas,
        test_arrastar_modulo_com_o_direito_ate_a_parede,
        test_materiais_pela_gaveta,

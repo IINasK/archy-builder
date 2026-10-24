@@ -12,7 +12,7 @@ Limites conhecidos (fonte do Blender, ver CLAUDE.md):
   DOUBLE_CLICK nem do mouse real, entao isso cobre os modais; o
   DOUBLE_CLICK de keymap (selecao em 3 camadas) so' com entrada real.
 - excecao num timer so' e' impressa: aqui tudo e' capturado e o processo
-  sai com `sys.exit(codigo)`; o executor ainda tem tempo-limite.
+  sai com `os._exit(codigo)`; o executor ainda tem tempo-limite.
 
 Rodado pelo executor:  blender ... --python tests/rodar_testes.py -- --gui
 """

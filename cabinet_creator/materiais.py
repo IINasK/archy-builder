@@ -87,9 +87,10 @@ def caminho_arquivo():
     return os.path.join(_biblioteca.pasta_biblioteca(), NOME_ARQUIVO)
 
 
-def ler_materiais():
+def ler_materiais(estrito=False):
     """Itens do catalogo (dicts com n1/n2/n3/nome/cor/chave). Sem
-    arquivo na biblioteca: o catalogo de fabrica."""
+    arquivo na biblioteca: o catalogo de fabrica. `estrito` (quem vai
+    regravar): arquivo ilegivel levanta, em vez de virar o de fabrica."""
     caminho = caminho_arquivo()
     try:
         mtime = os.path.getmtime(caminho)
@@ -103,10 +104,22 @@ def ler_materiais():
             itens = [_completar(it) for it in json.load(f)
                      if isinstance(it, dict) and it.get("nome") and it.get("n1")]
     except Exception as e:
+        if estrito:
+            raise
         print("[Cabinet Creator] materiais ilegiveis:", e)
         return _padrao()
     _cache[0] = (caminho, mtime, itens)
     return [dict(it) for it in itens]
+
+
+def _itens_para_gravar(op):
+    """None (com aviso) se o arquivo existe mas esta' ilegivel: gravar por
+    cima trocaria o catalogo do usuario pelo de fabrica."""
+    try:
+        return ler_materiais(estrito=True)
+    except Exception as e:
+        op.report({'ERROR'}, "%s ilegivel: %s" % (NOME_ARQUIVO, e))
+        return None
 
 
 def gravar_materiais(itens):
@@ -194,11 +207,13 @@ def garantir_material(it):
     viewport (`diffuse_color`) e a do Principled (Material Preview e
     render). Existindo, so' acompanha nome e cor do catalogo."""
     mat = material_da_chave(it["chave"])
+    nome = nome_do_material(it)
     if mat is None:
-        mat = bpy.data.materials.new(nome_do_material(it))
+        mat = bpy.data.materials.new(nome)
         mat[CHAVE_MATERIAL] = it["chave"]
-    elif not mat.name.startswith(nome_do_material(it)):
-        mat.name = nome_do_material(it)
+    elif mat.name != nome and not mat.name.startswith(nome + "."):
+        # so' o sufixo .001 e' tolerado: "Branco TX" -> "Branco" renomeia
+        mat.name = nome
     cor = (*rgb_linear(it["cor"]), 1.0)
     mat.diffuse_color = cor
     if mat.node_tree is None:
@@ -424,7 +439,9 @@ class OBJECT_OT_novo_material(_CamposMaterial, Operator):
         if not novo["nome"]:
             self.report({'ERROR'}, "Material sem nome")
             return {'CANCELLED'}
-        itens = ler_materiais()
+        itens = _itens_para_gravar(self)
+        if itens is None:
+            return {'CANCELLED'}
         if achar(novo["chave"], itens) is not None:
             self.report({'ERROR'}, "Ja' existe %s nessa categoria" % novo["nome"])
             return {'CANCELLED'}
@@ -452,7 +469,9 @@ class OBJECT_OT_editar_material(_CamposMaterial, Operator):
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
-        itens = ler_materiais()
+        itens = _itens_para_gravar(self)
+        if itens is None:
+            return {'CANCELLED'}
         antigo = achar(self.chave, itens)
         novo = self._item()
         if antigo is None or not novo["nome"]:
@@ -483,8 +502,8 @@ class OBJECT_OT_apagar_material(Operator):
         _apagar_pendente[0] = None
         if not self.apagar:
             return {'CANCELLED'}
-        itens = ler_materiais()
-        if achar(self.chave, itens) is None:
+        itens = _itens_para_gravar(self)
+        if itens is None or achar(self.chave, itens) is None:
             return {'CANCELLED'}
         gravar_materiais([it for it in itens if it["chave"] != self.chave])
         return {'FINISHED'}

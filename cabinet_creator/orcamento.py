@@ -72,6 +72,13 @@ def _modulo_do_objeto(obj):
         obj = obj.parent
     grupo = _portas._grupo_portas(obj)
     if grupo is not None:
+        # Hierarquia primeiro, como `_portas_do_conjunto`: o nome gravado
+        # nao ganha .001 quando o mesmo preset entra duas vezes.
+        pai = grupo.parent
+        while pai is not None and _chapas.MARCA_CONJUNTO not in pai:
+            pai = pai.parent
+        if pai is not None:
+            return pai
         modulo = bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
         return modulo if modulo is not None and _chapas.MARCA_CONJUNTO in modulo else None
     return _portas._modulo_da_chapa(obj)
@@ -141,11 +148,6 @@ def _colecao_do_comodo(cena, nome):
     return pasta
 
 
-def _garantir_colecao_modulo(cena, conj):
-    """Solda e comodo usam a mesma migracao da montagem legada."""
-    return _modulos._garantir_colecao_modulo(cena, conj)
-
-
 def _limpar_comodos_vazios():
     for pasta in [c for c in bpy.data.collections
                   if c.get(MARCA_COLECAO_COMODO)
@@ -161,7 +163,7 @@ def definir_comodo(cena, modulos, nome):
     for conj in modulos:
         if conj is None or _chapas.MARCA_CONJUNTO not in conj:
             continue
-        colecao = _garantir_colecao_modulo(cena, conj)
+        colecao = _modulos._garantir_colecao_modulo(cena, conj)
         destino = (_colecao_do_comodo(cena, nome) if nome
                    else cena.collection)
         # liga antes de desligar: a Collection nunca fica sem dono

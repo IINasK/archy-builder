@@ -134,7 +134,10 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
             try:
                 self.valor = (_gaveta_desenho._ler_numero_digitado(self._estado['texto'])
                               if self.dono in {'opcao', 'contador'} else
-                              _gaveta_desenho._ler_medida_digitada(self._estado['texto']))
+                              _gaveta_desenho._ler_medida_digitada(
+                                  self._estado['texto'],
+                                  # o mesmo piso do arraste: curva/folga aceitam 0
+                                  0.0 if self.dono in DONOS_DE_PARAMETRO else 0.001))
             except (ValueError, TypeError) as e:
                 self.report({'WARNING'}, str(e))
                 return {'RUNNING_MODAL'}
@@ -248,7 +251,7 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
         if conj is None or conj.type!='MESH':
             return 'Selecione uma chapa individual para editar seu formato'
         letra, canto = propriedade.split(':')
-        if conj is None or _formas.forma_do_modulo(conj) is None:
+        if _formas.forma_do_modulo(conj) is None:
             return 'O modulo nao tem mais esse formato'
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
@@ -1031,7 +1034,6 @@ class OBJECT_OT_alternar_gaveta(Operator):
 
     def execute(self, context):
         screen = context.screen
-        painel = _gaveta._area_gaveta(screen)
         if _biblioteca_faixa.area_da_faixa(screen) is not None:
             _biblioteca_faixa.fechar(context.window, screen)
             return {'FINISHED'}

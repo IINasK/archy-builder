@@ -1615,8 +1615,9 @@ class OBJECT_OT_arrastar_ferragem(Operator):
         self._trilho = (controle[2].copy(), controle[3].copy())
         self._nome = ('dobradicas_margem_mm' if self.tipo == 'DOBRADICA'
                       else 'pistoes_offset_mm')
-        self._antes = float(grupo['porta_parametros'].get(self._nome, 0.0)
-                            or 0.0)
+        # Os parametros INTEIROS: arrastar apaga `dobradicas_referencia`
+        # (arranjo medido do Promob), que so' a margem nao traz de volta.
+        self._antes = _portas._copiar_parametros(grupo['porta_parametros'])
         self._estado = _ferragens_selecionadas[0]
         _arraste_ferragem[0] = (self.grupo, self.tipo)
         self._area = context.area
@@ -1631,7 +1632,16 @@ class OBJECT_OT_arrastar_ferragem(Operator):
         guardado = float(grupo['porta_parametros'].get(self._nome, 0.0) or 0.0)
         if abs(guardado - valor) < 0.05:
             return
-        erro = _portas._editar_parametro_porta(context, grupo, self._nome, valor)
+        self._refazer(context, _portas._editar_parametro_porta(
+            context, grupo, self._nome, valor))
+
+    def _restaurar(self, context):
+        grupo = bpy.data.objects.get(self.grupo)
+        if (grupo is not None and
+                _portas._copiar_parametros(grupo['porta_parametros']) != self._antes):
+            self._refazer(context, _portas._refazer_porta(context, grupo, self._antes))
+
+    def _refazer(self, context, erro):
         if erro:
             print("[Cabinet Creator] ferragem:", erro)
         # refazer a porta mexe na selecao: as ferragens continuam a dela
@@ -1651,7 +1661,7 @@ class OBJECT_OT_arrastar_ferragem(Operator):
         if _arraste_ferragem[0] is None:
             return {'CANCELLED'}
         if event.type in {'ESC', 'RIGHTMOUSE'}:
-            self._aplicar(context, self._antes)
+            self._restaurar(context)
             self._encerrar()
             return {'CANCELLED'}
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:

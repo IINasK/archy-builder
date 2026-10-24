@@ -11,7 +11,6 @@ from mathutils.interpolate import poly_3d_calc
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _ferragens = _puxadores = None
 _prateleiras = None
-_geometria = None
 _solda = None
 _frentes = None
 
@@ -2108,74 +2107,16 @@ def _limitar_folhas_portas(self, context):
 # ==================================== APANHADOR DO VAO DAS PORTAS
 # Marcar o vao exigia entrar em Modo Edicao e selecionar 2 vertices em
 # duas chapas diferentes. No apanhador (`cabinet_apanhar_vao`, modulo
-# `assistente`) o usuario fica em Modo Objeto: o cursor
-# ganha um ima que gruda no vertice mais proximo, o primeiro clique
-# fixa um canto e a previa das folhas acompanha o mouse ate' o segundo.
-# Aqui ficam so' o ima (`_alvos_do_ima`) e as constantes dele.
-RAIO_IMA_PX = 28.0          # alcance do ima, em pixels de tela
-TETO_VERTICES_IMA = 60000   # acima disto o ima desiste de um objeto
+# `assistente`) o usuario fica em Modo Objeto: o snap NATIVO do Blender
+# leva o cursor ao vertice, o primeiro clique fixa um canto e a previa
+# das folhas acompanha o cursor ate' o segundo.
+RAIO_IMA_PX = 28.0          # alcance, em pixels, para escolher uma borda do wizard
 
 ARESTAS_CAIXA = (
     (0, 1), (1, 3), (3, 2), (2, 0),
     (4, 5), (5, 7), (7, 6), (6, 4),
     (0, 4), (1, 5), (2, 6), (3, 7),
 )
-
-
-def _alvos_do_ima(context, ignorar=()):
-    """(objeto, vertices em MUNDO) de tudo que o ima pode pegar.
-
-    Os vertices sao lidos UMA vez, no invoke: reavaliar o depsgraph a
-    cada movimento do mouse derrubaria o quadro. Quem mexer na cena
-    durante a marcacao precisa recomecar -- e' o preco justo.
-    """
-    try:
-        dep = context.evaluated_depsgraph_get()
-    except Exception:
-        dep = None
-    alvos = []
-    ignorados = set(ignorar)
-    for obj in context.visible_objects:
-        if obj.type != 'MESH' or obj.name in ignorados:
-            continue
-        avaliado = obj.evaluated_get(dep) if dep is not None else obj
-        try:
-            malha = avaliado.to_mesh()
-        except Exception:
-            malha = None
-        if malha is None:
-            continue
-        try:
-            if 0 < len(malha.vertices) <= TETO_VERTICES_IMA:
-                m = obj.matrix_world
-                # o detector de geometria (`_geometria`): o meio de um arco
-                # sai (eram dezenas de pontos colados na borda redonda); o
-                # centro dele entra; quina/extremidade ganham rotulo na tela
-                notaveis = _geometria.pontos_notaveis(malha)
-                ruido = notaveis['ruido']
-                pontos = [m @ v.co.copy() for v in malha.vertices
-                          if v.index not in ruido]
-                pontos += [m @ p['co'] for p in notaveis['pontos']
-                           if p['tipo'] == 'CENTRO']
-                _geometria.lembrar_rotulos(obj, malha, notaveis=notaveis)
-                if _chapas.MARCA_CHAPA in obj:
-                    # Porta que cobre METADE de uma chapa (pedido do
-                    # usuario): o meio de cada aresta da espessura (Z
-                    # local) tambem pega, ja' na diagonal.
-                    for aresta in malha.edges:
-                        if all(i in ruido for i in aresta.vertices):
-                            continue            # o meio do arco, de novo
-                        p, q = (malha.vertices[i].co for i in aresta.vertices)
-                        d = q - p
-                        if d.length > 1e-6 and abs(d.normalized().z) > 0.99:
-                            pontos.append(m @ ((p + q) / 2.0))
-                alvos.append((obj, pontos))
-        finally:
-            try:
-                avaliado.to_mesh_clear()
-            except Exception:
-                pass
-    return alvos
 
 
 # ---- WIZARD DE CRIACAO (backlog do usuario, Epico 1)

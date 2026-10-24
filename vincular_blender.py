@@ -3,7 +3,7 @@
 Depois disso o Blender carrega o codigo direto do repositorio: editar aqui
 altera o add-on, sem copiar nada. Junction no Windows nao exige admin.
 """
-import os, shutil, subprocess, sys
+import os, subprocess, sys
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 ORIGEM = os.path.join(RAIZ, "cabinet_creator")
@@ -29,15 +29,17 @@ def main():
     os.makedirs(addons, exist_ok=True)
     alvo = os.path.join(addons, "cabinet_creator")
 
-    if os.path.exists(alvo):
+    # lexists: junction QUEBRADO (repositorio mudou de lugar) tambem sai
+    if os.path.lexists(alvo):
         print("Removendo o que ja estava em", alvo)
         try:
             os.rmdir(alvo)              # junction: rmdir basta
         except OSError:
-            # pasta comum; objetos do Git sao somente-leitura no Windows
-            import stat
-            shutil.rmtree(alvo, onerror=lambda f, p, e:
-                          (os.chmod(p, stat.S_IWRITE), f(p)))
+            # Pasta comum (instalado por .zip) pode ter presets salvos na
+            # biblioteca/: apagar sem perguntar perderia o trabalho do usuario.
+            print("Ja existe uma instalacao comum em", alvo,
+                  "- mova ou apague essa pasta e rode de novo.")
+            return 1
 
     r = subprocess.run(["cmd", "/c", "mklink", "/J", alvo, ORIGEM],
                        capture_output=True)

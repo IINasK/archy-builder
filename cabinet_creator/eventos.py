@@ -152,7 +152,6 @@ def _grupos_selecionados(view_layer, marcas=None):
 def _viewports_da_janela(janela):
     """Viewports da janela, menos a gaveta (que nao tem overlay)."""
     screen = janela.screen
-    gaveta = _gaveta._area_gaveta(screen)
     for area in screen.areas:
         if area.type == 'VIEW_3D' and not _gaveta._eh_area_gaveta_bruto(area):
             yield area.spaces.active
@@ -179,6 +178,22 @@ def sincronizar_contornos(devolver=False):
     `devolver=True` religa tudo que o add-on desligou, sem esquecer
     quem o usuario religou: e' o caminho de salvar, abrir e desligar.
     """
+    if devolver:
+        # Todas as telas, nao so' a ativa: a viewport de outro workspace
+        # tambem vai para o .blend.
+        try:
+            for tela in bpy.data.screens:
+                for area in tela.areas:
+                    if area.type != 'VIEW_3D':
+                        continue
+                    espaco = area.spaces.active
+                    _sincronizar_origens(espaco, frozenset(), True)
+                    if espaco.as_pointer() in _contornos_desligados:
+                        _contornos_desligados.discard(espaco.as_pointer())
+                        espaco.overlay.show_outline_selected = True
+        except Exception as e:
+            print("[Cabinet Creator] contorno:", e)
+        return
     try:
         janelas = bpy.context.window_manager.windows
     except Exception:
@@ -187,21 +202,16 @@ def sincronizar_contornos(devolver=False):
         try:
             grupos = frozenset()
             grupos_origens = frozenset()
-            if not devolver and _opcoes._opcao('ocultar_contorno_grupo'):
+            if _opcoes._opcao('ocultar_contorno_grupo'):
                 grupos = _grupos_selecionados(janela.view_layer)
-            if not devolver and _opcoes._opcao('ocultar_origens_grupo'):
+            if _opcoes._opcao('ocultar_origens_grupo'):
                 grupos_origens = _grupos_selecionados(janela.view_layer,
                     (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
                      _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO))
             for espaco in _viewports_da_janela(janela):
-                _sincronizar_origens(espaco, grupos_origens, devolver)
+                _sincronizar_origens(espaco, grupos_origens)
                 overlay = espaco.overlay
                 ptr = espaco.as_pointer()
-                if devolver:
-                    if ptr in _contornos_desligados:
-                        _contornos_desligados.discard(ptr)
-                        overlay.show_outline_selected = True
-                    continue
                 novo = _novo_contorno(ptr, overlay.show_outline_selected,
                                       grupos)
                 if novo is not None:

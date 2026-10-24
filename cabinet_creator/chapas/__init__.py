@@ -451,19 +451,20 @@ def gerar_malha_chapa(obj):
     L = obj.chapa_largura_mm / 1000.0
     C = obj.chapa_comprimento_mm / 1000.0
     E = obj.chapa_espessura_mm / 1000.0
-    if obj.get('chapa_canais'):
-        # base do trilho leve: refeita COM os canais (nao e' caixa, mas
-        # tambem nao foi modelada -- esticar levaria os canais junto)
-        _malha_com_canais(obj, L, C, E)
+    if obj.get('chapa_canais') or obj.get('chapa_quadro_mm') or obj.get('chapa_arco_mm'):
+        if obj.get('chapa_canais'):
+            # base do trilho leve: refeita COM os canais (nao e' caixa, mas
+            # tambem nao foi modelada -- esticar levaria os canais junto)
+            _malha_com_canais(obj, L, C, E)
+        elif obj.get('chapa_quadro_mm'):
+            _malha_quadro(obj, L, C, E)
+        else:
+            _malha_arco(obj, L, C, E)
         _frentes.preparar(obj)
-        return
-    if obj.get('chapa_quadro_mm'):
-        _malha_quadro(obj, L, C, E)
-        _frentes.preparar(obj)
-        return
-    if obj.get('chapa_arco_mm'):
-        _malha_arco(obj, L, C, E)
-        _frentes.preparar(obj)
+        # o perfil numa folha Quadro/Arco tambem acompanha a malha nova
+        for filho in obj.children:
+            if _puxadores._eh_puxador_parametrico(filho):
+                _puxadores.posicionar_puxador(filho)
         return
     if not _malha_e_caixa(obj.data):
         # Na folha curva o Z da malha e' a FLECHA do arco, nao a
@@ -538,8 +539,8 @@ def _espessura_da_malha(obj):
 
 
 def _upd_espessura(self, context):
-    """Arredonda o valor digitado para a espessura permitida mais proxima
-    e engrossa a chapa para DENTRO do movel
+    """Grava a espessura LIVRE (`_espessura_livre`, sem arredondar) e
+    engrossa a chapa para DENTRO do movel
     (ver `_modulos.aplicar_espessura_chapa`)."""
     if _ocupado[0]:
         return
@@ -792,13 +793,8 @@ def ao_atualizar_depsgraph(scene, depsgraph):
         _havia_modal[0] = True     # arraste em andamento: nao tocar
         return
 
-    if _havia_modal[0]:
-        _havia_modal[0] = False
-        _modulos.absorver_conjuntos()
-        normalizar_chapas()        # o modal acabou: recalcula tudo
-        return
-
-    # sem modal envolvido (ex.: escala definida por script/painel)
+    # o modal acabou, ou nunca houve (escala por script/painel): recalcula tudo
+    _havia_modal[0] = False
     _modulos.absorver_conjuntos()
     normalizar_chapas()
 

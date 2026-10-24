@@ -16,7 +16,7 @@ from . import portas as _portas
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _eventos = _ferragens = _gaveta_eventos = _arame = _gaveta = _hud = None
 _modulos = None
-_geometria = None
+_gavetas = None
 
 PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
 MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
@@ -86,14 +86,6 @@ def _desenhar_assistente_2d(estado):
             _hud._bolinha_2d(shader, estado['snap_tela'], 9 * escala, realce)
             _hud._bolinha_2d(shader, estado['snap_tela'], 6 * escala,
                         (1.0, 1.0, 1.0, 1.0))
-        # o que o ima pegou: "Quina reta", "Angulo 135", "Fim da curva"
-        if estado.get('rotulo_snap') and estado.get('ponto_rotulo') is not None:
-            tela = view3d_utils.location_3d_to_region_2d(
-                regiao, bpy.context.region_data, estado['ponto_rotulo'])
-            if tela is not None:
-                blf.size(0, 11 * escala)
-                _hud._caixa_texto_hud(tela.x + 12 * escala, tela.y + 10 * escala,
-                                      estado['rotulo_snap'], 11 * escala, escala)
         blf.size(0, 12 * escala)
         for (x, y, w, h), chave, texto in estado.get('botoes', ()):
             borda = (realce if chave == estado.get('hover_botao')
@@ -153,22 +145,13 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                        event.mouse_y - self._regiao.y))
 
     def _imantar(self, event):
-        alvo = self._mouse_na_regiao(event)
-        melhor, melhor_obj, melhor_d = None, None, _portas.RAIO_IMA_PX
-        for obj, vertices in self._alvos:
-            for co in vertices:
-                tela = view3d_utils.location_3d_to_region_2d(
-                    self._regiao, self._rv3d, co)
-                if tela is None:
-                    continue
-                d = (tela - alvo).length
-                if d < melhor_d:
-                    melhor, melhor_obj, melhor_d = co, obj, d
-        self._imantado = melhor
-        self._objeto_imantado = melhor_obj
-        w = getattr(self, '_w', None)
-        if w is not None:
-            _geometria.marcar_rotulo(w, melhor)
+        """O ponto vem do snap NATIVO (o cursor da macro `cabinet_marcar_ponto_vao`,
+        como em `gavetas.AssistenteDoVao`). Antes toda malha visivel era lida no
+        clique e cada vertice projetado em Python a cada movimento do mouse."""
+        w = getattr(self, '_w', None) or {}
+        cursor = w.get('cursor')
+        self._imantado = cursor.copy() if cursor is not None else None
+        self._objeto_imantado = bpy.data.objects.get(w.get('cursor_obj') or '')
 
     # ------------------------------------------------ previa
     def _referencia(self, obj_a, obj_b):
@@ -242,8 +225,10 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         escolhas = assistente.get('escolhas', {}) if assistente else {}
         parametros.update(escolhas)
         # As mesmas espessuras que o operador vai resolver: a previa
-        # tem de ser a porta que vai nascer.
-        modulo = _portas._modulo_da_chapa(obj_a)
+        # tem de ser a porta que vai nascer (corrente partida = sem modulo,
+        # como em `_concluir`).
+        modulo = (_portas._modulo_da_chapa(obj_a)
+                  if tipo._associar(self, bpy.context) else None)
         parametros['lateral_mm'] = _portas._espessura_do_vao(modulo, apoios)
         if alvo is None:
             parametros['espessura_mm'] = _portas._espessura_da_porta_nova(
@@ -306,6 +291,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         regiao = getattr(bpy.context, "region", None)
         if regiao is None or regiao.as_pointer() != self._regiao_ptr:
             return
+        if self._w.get('snap_pendente'):
+            # o translate nativo segura os eventos: a previa segue o cursor
+            self._imantar(None)
         tema = bpy.context.preferences.themes[0]
         cor_ima = (*tema.view_3d.object_active, 1.0)
         cor_previa = (*tema.user_interface.wcol_regular.text, 0.9)
@@ -416,6 +404,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return pecas, pontos, fios
 
     def _encerrar(self, context):
+        _gavetas._terminar_snap_criacao()
+        timer = getattr(self, '_timer', None)
+        if timer is not None:
+            context.window_manager.event_timer_remove(timer)
+            self._timer = None
         _portas._marcar_apanhando(False)
         _portas._assistente_porta[0] = None
         if getattr(self, '_handler_2d', None) is not None:
@@ -428,7 +421,13 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._handler = None
         if self._area is not None:
             self._area.tag_redraw()
-        context.window.cursor_modal_restore()
+        if context.window is not None:
+            context.window.cursor_modal_restore()
+
+    def cancel(self, context):
+        # Abrir arquivo/fechar janela cancela por fora: sem isto handlers,
+        # cursor e `_apanhando_vao` (que desliga a HUD) ficavam presos.
+        self._encerrar(context)
 
     def invoke(self, context, event):
         self._area = context.area
@@ -466,8 +465,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return {'CANCELLED'}
 
         _ferragens._ferragens_selecionadas[0] = None    # criar encerra aquela selecao
-        self._alvos = _portas._alvos_do_ima(context)
-        if not self._alvos:
+        if not any(o.type == 'MESH' for o in context.visible_objects):
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
             return {'CANCELLED'}
         self._pontos = []
@@ -478,7 +476,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._engolir_soltar = False
         self._w = {'etapa': 'DIAGONAL', 'regiao': self._regiao_ptr,
                    'botoes': [], 'escolhas': {}, 'bolinhas': [],
-                   'snap_tela': None, 'mouse': None, 'recado': ''}
+                   'snap_tela': None, 'mouse': None, 'recado': '',
+                   'snap_nativo': True, 'cursor': None, 'iniciar_snap': True}
         _portas._assistente_porta[0] = self._w
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
@@ -487,6 +486,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         _portas._marcar_apanhando(True)
         context.window.cursor_modal_set('CROSSHAIR')
         context.window_manager.modal_handler_add(self)
+        # acorda o modal quando a macro nativa confirma ou cancela
+        self._timer = context.window_manager.event_timer_add(.02, window=context.window)
         self.report({'INFO'}, self._instrucao())
         self._area.header_text_set(self._instrucao())
         return {'RUNNING_MODAL'}
@@ -573,7 +574,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         """"Nao, marcar de novo": volta ao 1o clique."""
         self._pontos = []
         self._w.update(etapa='DIAGONAL', botoes=[], escolhas={},
-                       pistoes=False, duas_bordas=False, aresta=None)
+                       pistoes=False, duas_bordas=False, aresta=None,
+                       iniciar_snap=True)
         self._area.header_text_set(self._instrucao())
         self._area.tag_redraw()
 
@@ -798,7 +800,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if etapa in {'CONFIRMAR', 'FOLHAS'}:
             # Conserva o primeiro canto para remarcar so' o oposto.
             self._pontos = self._pontos[:1]
-            w.update(etapa='DIAGONAL', botoes=[], escolhas={})
+            w.update(etapa='DIAGONAL', botoes=[], escolhas={}, iniciar_snap=True)
             self._area.header_text_set(self._instrucao())
             self._area.tag_redraw()
             return
@@ -887,6 +889,29 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return self._escolher_abertura(context, chave)
 
     def modal(self, context, event):
+        try:
+            return OBJECT_OT_apanhar_vao_portas._modal(self, context, event)
+        except Exception:
+            # erro no meio prendia handlers, timer, snap e a HUD desligada
+            self._encerrar(context)
+            raise
+
+    def _modal(self, context, event):
+        w = self._w
+        if w.get('cancelar'):           # Esc/direito no translate nativo
+            self._encerrar(context)
+            return {'CANCELLED'}
+        confirmado = w.pop('ponto_confirmado', None)
+        if confirmado is not None:
+            w['snap_pendente'] = False
+            w['cursor'], w['cursor_obj'] = confirmado
+            self._imantar(event)
+            return self._marcar_canto(context, event)
+        if w.pop('iniciar_snap', False) and w.get('etapa') == 'DIAGONAL':
+            self._iniciar_snap(context)
+            return {'RUNNING_MODAL'}
+        if w.get('snap_pendente'):
+            return {'PASS_THROUGH'}
         if self._w.get('etapa') != getattr(self, '_etapa_vista', None):
             # etapa nova: a aba Portas rola ate' ela (nasce no fim)
             self._etapa_vista = self._w.get('etapa')
@@ -936,31 +961,43 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             self._imantar(event)
-            if self._imantado is None:
-                self.report({'WARNING'}, "Aproxime de um vertice")
-                return {'RUNNING_MODAL'}
-            self._pontos.append((self._imantado.copy(),
-                                 self._objeto_imantado))
-            self._area.tag_redraw()
-            if len(self._pontos) < self._cliques():
-                self._area.header_text_set(self._instrucao())
-                return {'RUNNING_MODAL'}
-            if self._grupo_alvo:
-                # reposicionar: so' a diagonal, com os parametros da porta
-                return self._concluir(context)
-            # porta nova: o wizard segue (folhas, tipo, borda, ferragens)
-            self._w['matriz'] = None
-            self._previa()
-            if self._w.get('matriz') is None:
-                self.report({'WARNING'}, self._recado or "Vao invalido")
-                self._pontos = self._pontos[:1]
-                return {'RUNNING_MODAL'}
-            mouse = self._mouse_na_regiao(event)
-            if _portas._lados_fora_do_padrao(self._w['coberturas']):
-                self._ir('CONFIRMAR', mouse)
-            else:
-                self._ir('FOLHAS', mouse)
+            return self._marcar_canto(context, event)
+        return {'RUNNING_MODAL'}
+
+    def _iniciar_snap(self, context):
+        # o protocolo comum do snap nativo (corrigir la', nao copiar)
+        _gavetas.AssistenteDoVao._iniciar_snap_nativo(self, context)
+
+    def _marcar_canto(self, context, event):
+        """Aceita o ponto do snap como o proximo canto."""
+        if self._imantado is None or self._objeto_imantado is None:
+            # sem a peca o vao nao tem eixos nem modulo
+            self.report({'WARNING'}, "Clique num vertice de uma chapa")
+            self._w['iniciar_snap'] = True
             return {'RUNNING_MODAL'}
+        self._pontos.append((self._imantado.copy(),
+                             self._objeto_imantado))
+        self._area.tag_redraw()
+        if len(self._pontos) < self._cliques():
+            self._area.header_text_set(self._instrucao())
+            self._w['iniciar_snap'] = True
+            return {'RUNNING_MODAL'}
+        if self._grupo_alvo:
+            # reposicionar: so' a diagonal, com os parametros da porta
+            return self._concluir(context)
+        # porta nova: o wizard segue (folhas, tipo, borda, ferragens)
+        self._w['matriz'] = None
+        self._previa()
+        if self._w.get('matriz') is None:
+            self.report({'WARNING'}, self._recado or "Vao invalido")
+            self._pontos = self._pontos[:1]
+            self._w['iniciar_snap'] = True
+            return {'RUNNING_MODAL'}
+        mouse = self._mouse_na_regiao(event)
+        if _portas._lados_fora_do_padrao(self._w['coberturas']):
+            self._ir('CONFIRMAR', mouse)
+        else:
+            self._ir('FOLHAS', mouse)
         return {'RUNNING_MODAL'}
 
     def _concluir(self, context, extras=None):

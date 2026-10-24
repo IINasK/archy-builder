@@ -40,7 +40,9 @@ continua no dono da cota, sem um segundo solver no controlador visual.
 3. HUD e menu chamam o mesmo contrato do dominio. `gaveta` e' o MENU;
    `gavetas` sao as caixas do movel. Nao misturar os dois.
 4. `gavetas.AssistenteDoVao` fornece o gesto nativo compartilhado por
-   prateleiras/divisorias. Corrigir o protocolo comum ali, nao copiar.
+   prateleiras/divisorias/wizard de porta; `gavetas.iniciar_cursor_nativo`,
+   o dos arrastes com Alt (canto da porta, ancora da solda, quina da HUD).
+   Snap e' sempre o nativo. Corrigir o protocolo comum ali, nao copiar.
 5. `modulos.atualizar_sistemas_do_conjunto` coordena portas -> gavetas ->
    prateleiras, uma chamada por dominio; `internos=False` conserva encaixes
    restaurados. Portas so' aplica suas folhas. A entrada antiga

@@ -75,8 +75,7 @@ class TestGavetas(unittest.TestCase):
 
     def test_snap_pendente_nao_projeta_vertices_da_cena(self):
         w=G.AssistenteDoVao();w._w=dict(etapa='CANTO2',snap_pendente=True)
-        with patch.object(addon.portas,'_alvos_do_ima',side_effect=AssertionError('Avaliou malhas')), \
-             patch.object(view3d_utils,'location_3d_to_region_2d',side_effect=AssertionError('Projetou vertices')):
+        with patch.object(view3d_utils,'location_3d_to_region_2d',side_effect=AssertionError('Projetou vertices')):
             for _ in range(100):
                 self.assertEqual(w.modal(bpy.context,SimpleNamespace(type='MOUSEMOVE')),{'PASS_THROUGH'})
     def assistente(self, a, b, nomes=('', '')):
@@ -604,56 +603,6 @@ class TestGavetas(unittest.TestCase):
         addon.modulos.criar_armario(bpy.context, 'Balcao', 500, 600, 400)
         self.assertIs(G.modulo_do_grupo(grupo), self.conj)
 
-    def test_indice_snap_preserva_ponto_mais_perto_raio_e_empates(self):
-        contexto = SimpleNamespace(region=SimpleNamespace(width=800, height=600),
-            region_data=SimpleNamespace(perspective_matrix=Matrix((
-                (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0.5, 1)))))
-        pontos = [Vector((x / 10, y / 10, z)) for x in range(-12, 13)
-                  for y in range(-8, 9) for z in (-3.0, 0.0, 0.5)]
-        pontos += [Vector((0, 0, 0)), Vector((0, 0, 0.2))]
-        indice = G.IndiceSnapGavetas([('Teste', pontos)])
-        for x in range(0, 801, 40):
-            for y in range(0, 601, 40):
-                mouse = Vector((x, y))
-                candidatos = []
-                for i, p in enumerate(pontos):
-                    tela = view3d_utils.location_3d_to_region_2d(
-                        contexto.region, contexto.region_data, p)
-                    if tela is not None:
-                        d = (tela - mouse).length
-                        if d <= addon.portas.RAIO_IMA_PX:
-                            candidatos.append((d, i, p))
-                esperado = min(candidatos, key=lambda v: (v[0], v[1]))[2] if candidatos else None
-                encontrado = indice.buscar(contexto, mouse)
-                if esperado is None:
-                    self.assertIsNone(encontrado)
-                else:
-                    # Pequeno erro da projecao em lote nao pode mudar o snap.
-                    self.assertLess((encontrado - esperado).length, 1e-5)
-
-    def test_indice_snap_nao_reprojeta_no_mouse_e_atualiza_ao_navegar(self):
-        contexto = SimpleNamespace(region=SimpleNamespace(width=800, height=600),
-            region_data=SimpleNamespace(perspective_matrix=Matrix.Identity(4)))
-        ponto = Vector((0.0, 0.0, 0.0))
-        indice = G.IndiceSnapGavetas([('Teste', [ponto] * 10000)])
-        with patch.object(indice, '_reconstruir', wraps=indice._reconstruir) as refazer:
-            for i in range(500):
-                self.assertEqual(indice.buscar(contexto, (400 + i % 10, 300)), ponto)
-            self.assertEqual(refazer.call_count, 1)
-            contexto.region_data.perspective_matrix[0][3] = 0.5
-            self.assertIsNone(indice.buscar(contexto, (400, 300)))
-            self.assertEqual(indice.buscar(contexto, (600, 300)), ponto)
-            contexto.region.width = 1000
-            self.assertEqual(indice.buscar(contexto, (750, 300)), ponto)
-            self.assertEqual(refazer.call_count, 3)
-
-    def test_snap_ignora_pecas_da_gaveta_sem_excluir_modulo(self):
-        grupo = self.gavetas()
-        ignorados = {o.name for o in [grupo, *grupo.children_recursive]}
-        nomes = {o.name for o, _vs in addon.portas._alvos_do_ima(bpy.context, ignorar=ignorados)}
-        self.assertFalse(nomes & ignorados)
-        self.assertTrue({o.name for o in addon.modulos._chapas_do_conjunto(self.conj)} <= nomes)
-
     def test_tres_pontos_com_alt_refazem_o_vao(self):
         grupo = self.gavetas()
         cima_esq, baixo_dir, fundo = G.pontos_editaveis(grupo)
@@ -726,8 +675,7 @@ class TestGavetas(unittest.TestCase):
         cursor = tuple(bpy.context.scene.cursor.location)
         selecao = {o.name for o in bpy.context.selected_objects}
         bloqueados = {o.name: o.hide_select for o in bpy.context.scene.objects}
-        with patch.object(addon.portas, '_alvos_do_ima', side_effect=AssertionError('varredura')):
-            parametros = G._preparar_ancora_nativa(contexto, grupo, 0)
+        parametros = G._preparar_ancora_nativa(contexto, grupo, 0)
         self.assertTrue(parametros['cursor_transform'])
         self.assertTrue(parametros['use_snap_selectable'])
         self.assertFalse(overlay.show_cursor)

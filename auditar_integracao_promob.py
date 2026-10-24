@@ -4,7 +4,7 @@ Blender --background --factory-startup --python este_arquivo --
     --destino PASTA_FORA_DA_BIBLIOTECA [--aplicar]
 O manifesto registra esperado/antes/depois e verificacoes funcionais.
 """
-import argparse, json, os, re, shutil, sys
+import argparse, json, os, shutil, sys
 import bpy
 from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
@@ -223,12 +223,15 @@ def preparar(biblioteca,fontes,destino):
         m['fontes'][path]=digital(path)
         planos,geo=capturar(path)
         for it in itens:
-            n=int(re.search(r' (\d+) \d+x\d+x\d+$',it['nome'])[1])-1
-            d=planos[n];p=d['plano'];exp=esperado(p)
             nomes=[it['arquivo'],os.path.splitext(it['arquivo'])[0]+'.png']
             hashes={s:digital(caminho_da_peca(biblioteca,s)) for s in nomes}
             cols,objs=carregar(caminho_da_peca(biblioteca,nomes[0]))
             conj,=[o for o in objs if addon.chapas.MARCA_CONJUNTO in o]
+            # Pelas camadas de origem, como o integrar: o numero do nome nao
+            # e' o indice do plano ("Canto 05A/05B" divide um modulo em dois).
+            fontes_preset={nome_fonte(o) for o in addon.modulos._chapas_do_conjunto(conj)}
+            d=max(planos,key=lambda d:len(fontes_preset&d['pecas'].keys()))
+            p=d['plano'];exp=esperado(p)
             offset=deslocamento_do_preset(conj,d)
             a=atual(conj);antes=estado(cols,objs)
             pontos_antes={o.name:[o.matrix_world @ v.co for v in o.data.vertices]

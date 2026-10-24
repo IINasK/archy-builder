@@ -1178,8 +1178,8 @@ class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
         p = self._w['p']
         p['espessura_mm'] = float(_portas._espessura_do_vao(conj))
         # SO' 2 pontos (pedido do usuario): sem etapa de profundidade, ela
-        # vai ate' o fundo; a folga da frente e' o Recuo da aba
-        p['profundidade_mm'] = profundidade_ate_o_fundo(conj, ponto)
+        # vai ate' o fundo (`_definir_vao`, sem varrer malha no clique); a
+        # folga da frente e' o Recuo da aba
 
     def _depois_da_quantidade(self, context):
         return self._criar(context)

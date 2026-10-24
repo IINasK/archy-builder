@@ -673,16 +673,6 @@ class TestPortas(unittest.TestCase):
         bpy.ops.object.mode_set(mode='OBJECT')
         self.assertTrue(addon.assistente.OBJECT_OT_apanhar_vao_portas.poll(bpy.context))
 
-    def test_ima_enxerga_os_vertices_em_mundo(self):
-        objetos = self.pontos(separados=True)
-        bpy.ops.object.mode_set(mode='OBJECT')
-        alvos = dict(addon.portas._alvos_do_ima(bpy.context))
-        for obj in objetos:
-            self.assertIn(obj, alvos)
-            esperado = obj.matrix_world @ obj.data.vertices[0].co
-            self.assertAlmostEqual((alvos[obj][0] - esperado).length, 0.0,
-                                   places=6)
-
     def sem_rig(self):
         """Sem o asset da dobradica reta: caixas e eixo fixo -- o caminho
         das portas Curva/embutida (e de quem nao tem o asset)."""
@@ -869,17 +859,15 @@ class TestPortas(unittest.TestCase):
                    key=lambda c: (conj.matrix_world.inverted()
                                   @ c.matrix_world.translation).x)
 
-    def test_ima_oferece_o_meio_da_espessura(self):
+    def test_snap_nativo_oferece_o_meio_da_espessura(self):
         # Porta que cobre METADE de uma chapa (pedido do usuario): ja' na
-        # diagonal, o ima pega o meio das arestas de espessura.
-        conj = self.nicho()
-        L, A, P, E = addon.portas._caixa_do_modulo(conj)
-        lateral = self.lateral_esquerda(conj)
-        meio = conj.matrix_world @ (Vector((-L / 2 + E / 2, -P / 2, A)) / 1000.0)
-        alvos = dict(addon.portas._alvos_do_ima(bpy.context))
-        self.assertLess(min((p - meio).length for p in alvos[lateral]), 1e-6)
-        # o vertice continua primeiro (o meio vem depois)
-        self.assertEqual(len(alvos[lateral]), 8 + 4)
+        # diagonal o snap NATIVO pega o meio das arestas (EDGE_MIDPOINT);
+        # o wizard nao troca os elementos padrao do protocolo comum.
+        import inspect
+        fonte = inspect.getsource(addon.gavetas.AssistenteDoVao._iniciar_snap_nativo)
+        self.assertIn("('VERTEX','EDGE_MIDPOINT')", fonte)
+        w = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        self.assertNotIn('elementos_snap', inspect.getsource(w.invoke))
 
     def test_porta_cobre_meia_chapa_marcada_no_meio(self):
         conj = self.nicho()
@@ -939,6 +927,46 @@ class TestPortas(unittest.TestCase):
             objeto_a_nome=chapa.name, frente='NEG_Y', folga_mm=0,
             **extras), {'FINISHED'})
         return addon.portas._portas_do_conjunto(conj)[0]
+
+    # Regressao (era BUG, corrigido na 303): o Alt-arraste do canto lia toda
+    # malha visivel no clique e projetava cada vertice a cada movimento --
+    # segundos de travamento. Agora o cursor anda pelo snap nativo.
+    def test_canto_da_porta_pelo_snap_nativo(self):
+        import inspect
+        V = addon.portas_viewport
+        self.assertIn(V.OBJECT_OT_mover_canto_porta, addon.CLASSES)
+        self.assertIn(V.OBJECT_OT_confirmar_canto_porta, addon.CLASSES)
+        self.assertNotIn('.vertices', inspect.getsource(V._preparar_canto_nativo))
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_canto_porta(), {'CANCELLED'})
+        self.assertEqual(V.OBJECT_OT_arrastar_canto_porta.invoke(
+            SimpleNamespace(grupo='sem porta', indice=0), bpy.context, None), {'CANCELLED'})
+        self.assertIsNone(V._arraste_canto_porta[0])
+        conj = self.nicho()
+        L, A, P, E = addon.portas._caixa_do_modulo(conj)
+        y = -P / 2
+        grupo = self.porta_por_quatro_cliques(
+            conj, (-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E),
+            (L / 2 - E / 2, y, 0), dobradica='RETA', folhas=1)
+        self.assertEqual(grupo['porta_parametros']['cobertura_dir_e'], 0.5)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        cena = bpy.context.scene
+        cursor = cena.cursor.location.copy()
+        contexto = SimpleNamespace(
+            visible_objects=bpy.context.visible_objects, scene=cena,
+            region=SimpleNamespace(as_pointer=lambda: 1),
+            area=SimpleNamespace(as_pointer=lambda: 2),
+            space_data=SimpleNamespace(overlay=SimpleNamespace(show_cursor=True)))
+        self.addCleanup(V._terminar_canto_nativo)
+        parametros = V._preparar_canto_nativo(contexto, grupo, 3)
+        self.assertTrue(parametros['snap'] and parametros['cursor_transform'])
+        self.assertTrue(folha.hide_select)      # a porta nao e' ima de si
+        self.assertLess((cena.cursor.location - V._cantos_da_porta(grupo)[3]).length, 1e-6)
+        cena.cursor.location = conj.matrix_world @ (Vector((L / 2, y, 0)) / 1000.0)
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_canto_porta(), {'FINISHED'})
+        self.assertIsNone(V._arraste_canto_porta[0])
+        self.assertFalse(folha.hide_select)
+        self.assertLess((cena.cursor.location - cursor).length, 1e-6)
+        self.assertEqual(grupo['porta_parametros']['cobertura_dir_e'], 1.0)
 
     def test_quatro_cliques_definem_a_porta_lado_a_lado(self):
         conj = self.nicho()
@@ -1913,9 +1941,12 @@ class TestPortas(unittest.TestCase):
         classe = addon.ferragens.OBJECT_OT_arrastar_ferragem
         op = SimpleNamespace(
             grupo=grupo.name, tipo='PISTAO', _nome='pistoes_offset_mm',
-            _antes=offset, _estado=estado, _trilho=(a_p, b_p),
+            _antes=addon.portas._copiar_parametros(grupo['porta_parametros']),
+            _estado=estado, _trilho=(a_p, b_p),
             _area=SimpleNamespace(tag_redraw=lambda: None))
         op._aplicar = lambda c, v: classe._aplicar(op, c, v)
+        op._restaurar = lambda c: classe._restaurar(op, c)
+        op._refazer = lambda c, e: classe._refazer(op, c, e)
         op._encerrar = lambda: classe._encerrar(op)
         addon.ferragens._arraste_ferragem[0] = (grupo.name, 'PISTAO')
         op._aplicar(bpy.context, 0.0)
@@ -3018,7 +3049,8 @@ class TestPortas(unittest.TestCase):
             _imantado=None, _objeto_imantado=None,
             _w=dict(etapa='DIAGONAL', escolhas=dict(folhas=1, abertura='GIRO', **escolhas)),
             _encerrar=lambda c: None)
-        for nome in ('_referencia', '_centro', '_associar', '_cliques', '_instrucao', '_previa'):
+        for nome in ('_referencia', '_centro', '_associar', '_cliques', '_instrucao', '_previa',
+                     '_marcar_canto'):
             setattr(falso, nome, lambda *args, nome=nome: getattr(tipo, nome)(falso, *args))
         falso.PASSOS_CANTOS = tipo.PASSOS_CANTOS
         return falso
@@ -3063,20 +3095,72 @@ class TestPortas(unittest.TestCase):
         falso._area = SimpleNamespace(tag_redraw=lambda: None, header_text_set=lambda t: None)
         falso._etapa_vista = 'DIAGONAL'
         falso._engolir_soltar = False
-        falso._imantar = lambda e: None
+        falso._imantar = lambda e: tipo._imantar(falso, e)
         falso._mouse_na_regiao = lambda e: Vector((100, 100))
         falso.report = lambda *a: None
         falso._ir = lambda etapa, mouse=None: falso._w.update(etapa=etapa)
-        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS')
-        with patch.object(addon.gaveta_eventos, '_gaveta_sob_evento', return_value=None):
+        iniciados = []
+        falso._iniciar_snap = lambda c: iniciados.append(c)
+        # o ponto chega da macro NATIVA (cursor + snap do Blender): nada de
+        # ler malhas; o timer acorda o modal com o ponto confirmado
+        evento = SimpleNamespace(type='TIMER', value='NOTHING')
+        with patch.object(addon.assistente.view3d_utils, 'location_3d_to_region_2d',
+                          side_effect=AssertionError('projetou vertices')):
+            self.assertEqual(tipo.modal(falso, bpy.context, evento), {'RUNNING_MODAL'})
+            self.assertEqual(len(iniciados), 0)     # sem pedido, nao reinicia
             for ponto, obj in (pontos[0], pontos[0], pontos[1]):
-                falso._imantado, falso._objeto_imantado = ponto, obj
+                falso._w['ponto_confirmado'] = (ponto, obj.name)
                 self.assertEqual(tipo.modal(falso, bpy.context, evento), {'RUNNING_MODAL'})
+                if falso._w['etapa'] == 'DIAGONAL':
+                    # entre um canto e outro o snap nativo recomeca
+                    self.assertEqual(tipo.modal(falso, bpy.context, evento), {'RUNNING_MODAL'})
             self.assertEqual(len(falso._pontos), 2)
             self.assertEqual(falso._w['etapa'], 'FOLHAS')
+            self.assertEqual(len(iniciados), 2)
         tipo._voltar(falso)
         self.assertEqual(falso._w['etapa'], 'DIAGONAL')
         self.assertEqual(len(falso._pontos), 1)
+        self.assertTrue(falso._w['iniciar_snap'])
+
+    # Regressao (era BUG, corrigido na 305): o snap nativo devolve so' o
+    # ponto; a chapa saia do ray cast, que passa rente a' quina do vao, ou
+    # do modulo ATIVO. Sem modulo selecionado nao vinha peca e o 2o clique
+    # derrubava o wizard (handlers e HUD presos): porta nova nao nascia.
+    def test_wizard_acha_a_chapa_do_ponto_sem_modulo_ativo(self):
+        conj = self.nicho()
+        G = addon.gavetas
+        bpy.context.view_layer.objects.active = None
+        falso = self.apanhador_diagonal(conj)
+        contexto = SimpleNamespace(
+            area=SimpleNamespace(spaces=SimpleNamespace(active=SimpleNamespace(region_3d=None))),
+            region=None, object=None, visible_objects=bpy.context.visible_objects,
+            scene=bpy.context.scene)
+        with patch.object(G.view3d_utils, 'location_3d_to_region_2d', return_value=None):
+            for ponto, obj in falso._pontos:
+                nome = G._objeto_do_ponto_criacao(contexto, ponto)
+                self.assertEqual(addon.portas._modulo_da_chapa(bpy.data.objects[nome]), conj)
+            # ponto solto (snap sem vertice): sem peca
+            self.assertIsNone(G._objeto_do_ponto_criacao(contexto, Vector((9, 9, 9))))
+
+    def test_wizard_ponto_sem_peca_pede_outro_clique(self):
+        conj = self.nicho()
+        tipo = addon.assistente.OBJECT_OT_apanhar_vao_portas
+        falso = self.apanhador_diagonal(conj)
+        primeiro, segundo = falso._pontos
+        falso._pontos = [primeiro]
+        falso._area = SimpleNamespace(tag_redraw=lambda: None, header_text_set=lambda t: None)
+        falso._etapa_vista = 'DIAGONAL'
+        falso._imantar = lambda e: tipo._imantar(falso, e)
+        falso._mouse_na_regiao = lambda e: Vector((100, 100))
+        avisos = []
+        falso.report = lambda nivel, texto: avisos.append(texto)
+        falso._w['ponto_confirmado'] = (segundo[0], None)
+        evento = SimpleNamespace(type='TIMER', value='NOTHING')
+        self.assertEqual(tipo.modal(falso, bpy.context, evento), {'RUNNING_MODAL'})
+        self.assertEqual(len(falso._pontos), 1)
+        self.assertEqual(falso._w['etapa'], 'DIAGONAL')
+        self.assertTrue(falso._w['iniciar_snap'])
+        self.assertTrue(avisos)
 
     def test_wizard_diagonal_girada_e_ordem_inversa_preservam_cobertura(self):
         conj = self.nicho()
@@ -3496,6 +3580,28 @@ class TestPortas(unittest.TestCase):
         original,=[o for o in para.objects if addon.chapas.MARCA_PORTAS in o]
         self.assertEqual(original['porta_parametros']['dobradica_lado'],'DIREITA')
         self.assertTrue(all(f.get(addon.ferragens.CHAVE_ABERTURA,0)==0 for f in addon.portas._folhas_portas(original)))
+
+    # Regressao (era BUG, corrigido na 302): Esc no arraste da dobradica so'
+    # devolvia a margem e perdia o arranjo medido do Promob.
+    def test_esc_no_arraste_da_dobradica_preserva_a_referencia(self):
+        conj=self.nicho();grupo=self.porta_de_giro(conj)
+        p=addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p['dobradicas_referencia']={'0':[.16,.77]}
+        addon.portas._reaplicar_portas(bpy.context,grupo,p)
+        classe=addon.ferragens.OBJECT_OT_arrastar_ferragem
+        self.addCleanup(addon.ferragens._arraste_ferragem.__setitem__,0,None)
+        op=SimpleNamespace(grupo=grupo.name,tipo='DOBRADICA',_nome='dobradicas_margem_mm',
+                           _antes=addon.portas._copiar_parametros(grupo['porta_parametros']),
+                           _estado=None,_area=SimpleNamespace(tag_redraw=lambda:None))
+        op._aplicar=lambda c,v:classe._aplicar(op,c,v)
+        op._restaurar=lambda c:classe._restaurar(op,c)
+        op._refazer=lambda c,e:classe._refazer(op,c,e)
+        op._encerrar=lambda:classe._encerrar(op)
+        addon.ferragens._arraste_ferragem[0]=(grupo.name,'DOBRADICA')
+        op._aplicar(bpy.context,123.)
+        self.assertNotIn('dobradicas_referencia',grupo['porta_parametros'])
+        self.assertEqual(classe.modal(op,bpy.context,SimpleNamespace(type='ESC',value='PRESS')),{'CANCELLED'})
+        self.assertEqual(list(grupo['porta_parametros']['dobradicas_referencia']['0']),[.16,.77])
 
     def test_padrao_esquerdo_preserva_alturas_material_uid_e_puxador(self):
         conj=self.nicho();grupo=self.porta_de_giro(conj,dobradica_lado='DIREITA')

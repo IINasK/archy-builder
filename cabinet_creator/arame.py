@@ -98,13 +98,15 @@ def _arame_dos_itens(itens):
             pontos += [p / 1000 for p in _arame_caixa(cantos)]
         elif forma == 'PERFIL':         # trilho da moldura: a secao nas pontas
             x0, x1 = item['x']
-            fecho = [] if item.get('aberto') else None
             for poligono in item['poligonos']:
-                volta = poligono[1:] + (poligono[:1] if fecho is None else [])
+                volta = poligono[1:] + ([] if item.get('aberto') else poligono[:1])
                 for (za, ya), (zb, yb) in zip(poligono, volta):
                     for x in (x0, x1):
                         pontos += [Vector((x, ya, za)) / 1000.0,
                                    Vector((x, yb, zb)) / 1000.0]
+                # longitudinal em TODO vertice: no perfil aberto o ultimo
+                # nao inicia segmento, mas a malha real tem essa aresta
+                for za, ya in poligono:
                     pontos += [Vector((x0, ya, za)) / 1000.0,
                                Vector((x1, ya, za)) / 1000.0]
         elif forma == 'CILINDRO':          # caneco: em Z, centrado
@@ -228,16 +230,12 @@ def preparar_previa(chapa, tipo, borda, face, fracao=.5, arquivo='',
     borda, fracao = _puxadores._borda_e_fracao(chapa, borda, fracao)
     matriz, comprimento = _puxadores._lugar_do_puxador(
         chapa, tipo, borda, face, fracao, comprimento, recuo)
-    if tipo == 'PERFIL' and modelo is not None:
+    if modelo is not None:
         bm = _puxadores._bmesh_perfil(
             modelo, chapa.chapa_espessura_mm, comprimento, chapa, borda, face)
-    elif tipo == 'MODELO' and modelo is not None:
-        bm = bmesh.new()
-        bm.from_mesh(modelo)
     else:
         bm = _puxadores._bmesh_caixas(
-            tipo if tipo != 'MODELO' else 'ALCA',
-            chapa.chapa_espessura_mm, comprimento, chapa, borda, face)
+            tipo, chapa.chapa_espessura_mm, comprimento, chapa, borda, face)
     try:
         # A peca guarda locacao/quaternion/escala; a previa usa a mesma
         # recomposicao nativa, inclusive a precisao de rotacoes de 90 graus.

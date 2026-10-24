@@ -214,6 +214,7 @@ def publicar(destino):
         if digital(os.path.join(destino, 'novos', arq['nome'])) != arq['novo']:
             raise RuntimeError('Arquivo preparado mudou: ' + arq['nome'])
     aplicados = []
+    temporario = None
     try:
         for arq in manifesto['arquivos']:
             alvo = caminho_da_peca(biblioteca, arq['nome'])
@@ -222,6 +223,9 @@ def publicar(destino):
             os.replace(temporario, alvo)
             aplicados.append(arq)
     except Exception:
+        # o temporario do arquivo que falhou nao pode ficar na biblioteca real
+        if temporario and os.path.exists(temporario):
+            os.remove(temporario)
         for arq in aplicados:
             alvo = caminho_da_peca(biblioteca, arq['nome'])
             if arq['original'] is not None:

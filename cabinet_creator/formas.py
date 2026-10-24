@@ -187,8 +187,7 @@ def _preparar_edicao(conj, chave, lado, plano='XY'):
                         if d.get('referencia'):
                             o[_gavetas.CHAVE_REFERENCIA]=list(d['referencia'])
                         elif _gavetas.CHAVE_REFERENCIA in o:del o[_gavetas.CHAVE_REFERENCIA]
-                        for chave in (_gavetas.CHAVE_ENCAIXE,):
-                            if chave in o:del o[chave]
+                        if _gavetas.CHAVE_ENCAIXE in o:del o[_gavetas.CHAVE_ENCAIXE]
                         o[_gavetas.CHAVE_MARGENS]=list(d['margens'])
                         p=d['parametros'].to_dict()
                         if (any(abs(a-b)>.01 for a,b in zip(o[_gavetas.CHAVE_VAO],d['vao']))
@@ -1580,7 +1579,9 @@ def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _
                 _mover_perna(conj,forma,k,'a',rx+dx*fator-f['a'],angular=True)
                 _cache.pop(conj.name,None)
                 atual=forma_do_modulo(conj,plano)
-                _mover_perna(conj,atual,k,'b',ry+dy*fator-atual['cantos'][k]['b'],angular=True)
+                # a 1a perna pode ter zerado a diagonal (R ~ 0): a forma some
+                if atual is not None and atual['cantos'][k] is not None:
+                    _mover_perna(conj,atual,k,'b',ry+dy*fator-atual['cantos'][k]['b'],angular=True)
         else:
             # diagonal: as duas pernas recebem a mesma medida
             _mover_perna(conj, forma, k, 'b', novo - f['b'])

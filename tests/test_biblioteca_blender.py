@@ -270,6 +270,19 @@ class TestIndice(BaseBiblioteca):
         # indice quebrado nao pode derrubar o painel
         self.assertEqual(addon.biblioteca._ler_indice(vazia), [])
 
+    def test_indice_ilegivel_nao_e_regravado_com_um_item(self):
+        # Ler "vazio" e gravar so' o novo apagava os outros presets.
+        quebrada = os.path.join(self.tmp, "quebrada")
+        os.makedirs(quebrada)
+        arq = os.path.join(quebrada, addon.biblioteca.NOME_INDICE)
+        with open(arq, "w") as f:
+            f.write("[ pela metade")
+        with self.assertRaises(ValueError):
+            addon.biblioteca.registrar_no_indice(quebrada, "Novo", "Novo.blend",
+                                                 "Armarios", "objeto")
+        with open(arq) as f:
+            self.assertEqual(f.read(), "[ pela metade")
+
     def test_ler_indice_le_a_copia_da_biblioteca(self):
         itens = addon.biblioteca._ler_indice(self.pasta)
         arquivos = {i["arquivo"] for i in itens}

@@ -16,7 +16,7 @@ from gpu_extras.batch import batch_for_shader
 
 _paredes_edicao = _paredes = _modulos = _chapas = _hud = None
 _gaveta = _gaveta_desenho = _opcoes = _biblioteca = None
-_eventos = None
+_eventos = _orcamento = None
 
 CHAVE_FIXA = 'parede_largura_fixa'
 _resumo = [None]
@@ -207,6 +207,9 @@ def substituir(context):
     antes = _paredes_edicao._dados_antes()
     selecao = [o.name for o in context.selected_objects]
     ativo = context.object.name if context.object else ''
+    # o preset entra na raiz da cena; o substituto volta para o comodo do
+    # original, senao sai do orcamento
+    comodo = _orcamento._nome_comodo(_orcamento._comodo_do_modulo(antigo))
     try:
         m = s['modelo']
         novos, raizes, erro = _biblioteca.inserir_preset(context, m['pasta'], m['arquivo'], m['tipo'], Vector((0, 0, 0)))
@@ -249,6 +252,8 @@ def substituir(context):
         col = bpy.data.collections.get(nome)
         if col is not None:
             bpy.data.collections.remove(col)
+    if comodo:
+        _orcamento.definir_comodo(context.scene, [novo], comodo)
     if s['local_anterior']:
         s['membros_anteriores'] = [n for n in s['membros_anteriores'] if n not in nomes_velhos]
         s['membros_anteriores'].extend(o.name for o in novos)

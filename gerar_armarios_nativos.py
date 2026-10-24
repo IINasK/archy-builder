@@ -8,6 +8,10 @@ Reta de giro, 1 ou 2 folhas, ou basculante nos aereos).
 NAO abre janela (a foto e' render Workbench por camera). Use o Blender
 5.x: os .blend sairao no formato dele (o 4.2 nao le os da biblioteca).
 Rodar de novo regrava os mesmos arquivos e as mesmas linhas do indice.
+
+ATENCAO: grava em `pasta_biblioteca()`, a biblioteca REAL, sem backup.
+Decisao do usuario: a biblioteca usa so' os modulos do Promob e os 39
+nativos foram apagados -- nao rode sem pedido (biblioteca/AGENTS.md).
 """
 import os
 import sys

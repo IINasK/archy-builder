@@ -104,6 +104,18 @@ class TestDivisorias(unittest.TestCase):
         for nome, coords in geometrias.items():
             self.assertEqual([tuple(v.co) for v in bpy.data.objects[nome].data.vertices], coords)
 
+    # Regressao (era BUG, corrigido na 302): com duas divisorias a 1a ja'
+    # tinha partido quando a 2a recusava, e a copia ficava orfa na cena.
+    def test_segunda_divisoria_recusada_nao_deixa_copia(self):
+        self.criar()
+        D.criar_divisorias(bpy.context, self.conj, (18, 18, 18, 650, 0),
+                           dict(quantidade=1, profundidade_mm=500, vaos_mm=[300, 646]))
+        nomes = set(bpy.data.objects.keys())
+        with self.assertRaises(ValueError):
+            G.criar_gavetas(bpy.context, self.conj, (18, 18, 18, 18, 0),
+                dict(quantidade=3, profundidade_mm=500, cobertura='EMBUTIDA', puxador='SEM'))
+        self.assertEqual(set(bpy.data.objects.keys()), nomes)
+
     def test_material_espessura_topologia_e_altura_da_prateleira_preservados(self):
         _g, p = self.sistemas()
         prateleira, = P.prateleiras_do_grupo(p)

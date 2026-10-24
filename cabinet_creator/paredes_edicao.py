@@ -259,13 +259,15 @@ def iniciar(context, obj):
     area = viewport(context)
     if face is None or area is None:
         return 'Selecione uma face plana vertical voltada para a vista'
-    encerrar()
-    perspectiva_anterior = area.spaces.active.region_3d.view_perspective
     ponto, normal, regiao = face
     n, u = _paredes.eixos_da_parede(normal)
     # A primeira versao nao projeta paredes inclinadas como se fossem verticais.
+    # Recusar ANTES de encerrar: a sessao atual nao some por uma face errada.
     if abs(normal.z) > 0.001:
         return 'A edicao 2D exige uma face vertical'
+    encerrar()
+    # depois de encerrar: trocando de parede, a vista ja' voltou a' do usuario
+    perspectiva_anterior = area.spaces.active.region_3d.view_perspective
     _sequencia[0] = time.monotonic_ns()
     _sessao[0] = {
         'id': _sequencia[0], 'janela': context.window.as_pointer(),
@@ -365,10 +367,7 @@ def encerrar(perspectiva=False):
 
 
 def _redesenhar():
-    for janela in bpy.context.window_manager.windows:
-        for area in janela.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
+    _paredes._redesenhar()
 
 
 def verificar(atualizar_previa=True):

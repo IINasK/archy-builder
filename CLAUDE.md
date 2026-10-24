@@ -38,7 +38,7 @@ Nova funcionalidade exige teste e tests/FUNCIONALIDADES.md; piso so' sobe.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 301).
+Cada entrega incrementa bl_info["version"] (atual 305).
 
 ## Preferencias globais
 

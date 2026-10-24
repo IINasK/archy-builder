@@ -1294,32 +1294,6 @@ class TestHUD(unittest.TestCase):
             self.assertEqual(atingida['tipo'], 'medida')
             self.assertEqual(atingida['eixo'], linha['eixo'])
 
-    def _segmentos_frontais_reais(self, folha):
-        """Oraculo pela malha nativa, independente do cache de frentes/HUD."""
-        bm = bmesh.new()
-        try:
-            bm.from_mesh(folha.data)
-            bm.normal_update()
-            frente = {f for f in bm.faces if f.normal.z > .001 and abs(f.normal.y) < .5}
-            segmentos = []
-            for aresta in bm.edges:
-                faces = [f for f in aresta.link_faces if f in frente]
-                if len(faces) == 1 or (len(faces) == 2 and
-                        faces[0].normal.dot(faces[1].normal) < math.cos(math.radians(30))):
-                    segmentos.append(tuple(folha.matrix_world@v.co for v in aresta.verts))
-            return segmentos
-        finally:
-            bm.free()
-
-    def _comparar_contorno_hud_com_malhas(self, geometria, folhas):
-        def chave(par):
-            return tuple(sorted(tuple(round(c, 6) for c in p) for p in par))
-        reais = {chave(par) for folha in folhas for par in self._segmentos_frontais_reais(folha)}
-        linhas = [l for l in geometria['linhas'] if l['tipo'] == 'contorno_porta']
-        self.assertTrue(reais)
-        self.assertEqual({chave(l['pontos']) for l in linhas}, reais)
-        return linhas
-
     def _conferir_contorno_modelado_no_modulo(self, tipo):
         from unittest.mock import patch
         modulo = self.modulo()
@@ -2102,12 +2076,6 @@ class TestHUD(unittest.TestCase):
                       key=lambda o: o.matrix_world.translation.x)
         return modulo, base, tampo, direita
 
-    @staticmethod
-    def vista_de_frente():
-        """Matriz de vista olhando de -Y para +Y: no espaco da vista a
-        camera olha para -Z, entao a frente (-Y) tem o MAIOR z."""
-        return Matrix.Rotation(math.radians(-90), 4, 'X')
-
     def afastar(self, peca, metros, eixo=0):
         peca.location[eixo] += metros
         bpy.context.view_layer.update()
@@ -2308,6 +2276,42 @@ class TestHUD(unittest.TestCase):
         alvo = addon.solda._vertice_da_assinatura(N, assinatura) + sentido * espessura
         return min((a + b + c for a in '+-' for b in '+-' for c in '+-'),
                    key=lambda s: (addon.solda._vertice_da_assinatura(N, s) - alvo).length)
+
+    # Regressao (era BUG, corrigido na 304): a bolinha projetava em Python os
+    # vertices da peca a cada movimento; agora e' o cursor + snap nativo.
+    def test_ancora_arrastada_pelo_snap_nativo(self):
+        S = addon.solda
+        self.assertIn(S.OBJECT_OT_mover_ancora_solda, addon.CLASSES)
+        self.assertIn(S.OBJECT_OT_confirmar_ancora_solda, addon.CLASSES)
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_ancora_solda(), {'CANCELLED'})
+        self.assertEqual(S.OBJECT_OT_arrastar_ancora.invoke(
+            SimpleNamespace(chapa='sem chapa', ponta='x_pos', indice=0, lado='b'),
+            bpy.context, None), {'CANCELLED'})
+        modulo, tampo, direita, ponta = self.solda_do_tampo()
+        ancoras = S._ancoras_da_ligacao(tampo, ponta, direita)
+        _f, u, _e = S._folga_com_sinal(tampo, ponta, direita)
+        sentido = u if ponta.endswith('pos') else -u
+        fora = self.vertice_do_outro_lado(direita, ancoras[0][1], sentido,
+                                          direita.chapa_espessura_mm / 1000.0)
+        cena = bpy.context.scene
+        cursor = cena.cursor.location.copy()
+        contexto = SimpleNamespace(
+            visible_objects=bpy.context.visible_objects, scene=cena,
+            region=SimpleNamespace(as_pointer=lambda: 1),
+            area=SimpleNamespace(as_pointer=lambda: 2),
+            space_data=SimpleNamespace(overlay=SimpleNamespace(show_cursor=True)))
+        self.addCleanup(S._terminar_ancora_solda)
+        parametros = S._preparar_ancora_solda(contexto, tampo, ponta, direita, 0, 'b')
+        self.assertEqual(parametros['snap_elements'], {'VERTEX'})
+        self.assertTrue(parametros['cursor_transform'])
+        self.assertTrue(tampo.hide_select)          # so' o lado 'b' e' alvo
+        self.assertFalse(direita.hide_select)
+        cena.cursor.location = S._vertice_da_assinatura(direita, fora)
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_ancora_solda(), {'FINISHED'})
+        self.assertIsNone(S._arraste_ancora[0])
+        self.assertFalse(tampo.hide_select)
+        self.assertLess((cena.cursor.location - cursor).length, 1e-6)
+        self.assertEqual(S._ancoras_gravadas(tampo, ponta), [(ancoras[0][0], fora), ancoras[1]])
 
     def test_ancoras_de_fabrica_trocar_e_apagar(self):
         modulo, tampo, direita, ponta = self.solda_do_tampo()
@@ -2873,35 +2877,39 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(alvo['tipo'], 'ancora')
         self.assertNotIn('lado', alvo)
 
-    def test_snap_da_quina_so_em_quinas_de_outros_armarios_e_chapas(self):
-        # Ctrl ao mover pela quina: gruda em quina de OUTRO armario (a caixa
-        # dele) ou de chapa solta -- nunca nas do proprio modulo.
+    # Regressao (era BUG, corrigido na 304): com Ctrl as quinas da cena eram
+    # juntadas e projetadas em Python a cada movimento. Agora o cursor anda
+    # pelo translate NATIVO (o Ctrl dele liga o snap) e o modulo o segue.
+    def test_quina_move_o_modulo_pelo_snap_nativo(self):
+        H = addon.hud
+        self.assertIn(H.OBJECT_OT_mover_quina_hud, addon.CLASSES)
+        self.assertIn(H.OBJECT_OT_confirmar_quina_hud, addon.CLASSES)
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_quina_hud(), {'CANCELLED'})
         primeiro, segundo = self.dois_modulos()
-        antes = set(bpy.data.objects)
-        bpy.ops.object.cabinet_criar_nicho()
-        soltas = [o for o in set(bpy.data.objects) - antes if addon.chapas.MARCA_CHAPA in o]
-        for chapa in soltas:
-            chapa.location.y += 3.0
-        bpy.context.view_layer.update()
-        quinas = addon.hud._quinas_de_snap(primeiro)
-        tem = lambda p: any((q - p).length < 1e-6 for q in quinas)
-        caixa = lambda m: addon.hud._caixa_hud_objetos(addon.modulos._chapas_do_conjunto(m))
-        self.assertTrue(all(tem(p) for p in caixa(segundo)))
-        self.assertTrue(all(tem(p) for c in soltas for p in addon.chapas._cantos(c)))
-        self.assertFalse(any(tem(p) for p in caixa(primeiro)))
-        self.assertFalse(any(tem(p) for c in addon.modulos._chapas_do_conjunto(primeiro)
-                             for p in addon.chapas._cantos(c)))
-        projetar = lambda p: Vector((300+p.x*500+p.y*150, 200+p.z*500+p.y*90))
-        original = addon.hud._projetar_hud
-        addon.hud._projetar_hud = lambda _c, p: projetar(p)
-        self.addCleanup(setattr, addon.hud, '_projetar_hud', original)
-        quina = caixa(segundo)[3]
-        perto = quina + Vector((0.01, 0.0, 0.01))           # ~7 px
-        # (a quina da chapa coincide com a da caixa: qualquer das duas)
-        grudou = addon.hud._snap_de_quina(bpy.context, perto, quinas)
-        self.assertLess((grudou - quina).length, 1e-6)
-        longe = quina + Vector((0.1, 0.0, 0.0))             # 50 px
-        self.assertIsNone(addon.hud._snap_de_quina(bpy.context, longe, quinas))
+        chapas = addon.modulos._chapas_do_conjunto
+        caixa = lambda m: H._caixa_hud_objetos(chapas(m))
+        origem = caixa(primeiro)[3].copy()
+        cena = bpy.context.scene
+        cursor = cena.cursor.location.copy()
+        contexto = SimpleNamespace(
+            visible_objects=bpy.context.visible_objects, scene=bpy.context.scene,
+            region=SimpleNamespace(as_pointer=lambda: 1),
+            area=SimpleNamespace(as_pointer=lambda: 2),
+            space_data=SimpleNamespace(overlay=SimpleNamespace(show_cursor=True)))
+        self.addCleanup(H._terminar_quina_nativa)
+        parametros = H._preparar_quina_nativa(contexto, primeiro, origem,
+                                              primeiro.matrix_world.copy())
+        self.assertFalse(parametros['snap'])          # o Ctrl do translate liga
+        self.assertEqual(parametros['snap_elements'], {'VERTEX'})
+        self.assertTrue(all(o.hide_select for o in chapas(primeiro)))
+        self.assertFalse(any(o.hide_select for o in chapas(segundo)))
+        destino = caixa(segundo)[3].copy()
+        cena.cursor.location = destino
+        self.assertEqual(bpy.ops.object.cabinet_confirmar_quina_hud(), {'FINISHED'})
+        self.assertIsNone(H._arraste_quina[0])
+        self.assertLess((caixa(primeiro)[3] - destino).length, 1e-5)
+        self.assertFalse(any(o.hide_select for o in chapas(primeiro)))
+        self.assertLess((cena.cursor.location - cursor).length, 1e-6)
 
     def teclar(self, estado, texto):
         for c in texto:
@@ -3017,6 +3025,11 @@ class TestHUD(unittest.TestCase):
         for texto in ('abc', '0', '-5'):
             with self.assertRaises(ValueError):
                 addon.gaveta_desenho._ler_medida_digitada(texto)
+        # Regressao (era BUG, corrigido na 302): folga/curva digitada como 0
+        # era recusada, embora o arraste aceite 0 nesses campos.
+        self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('0', 0.0), 0.0)
+        with self.assertRaises(ValueError):
+            addon.gaveta_desenho._ler_medida_digitada('-5', 0.0)
 
     def test_espessura_individual_livre_sem_alterar_outras_chapas(self):
         # A espessura nao arredonda mais para 15/18/20/30 (usuario).

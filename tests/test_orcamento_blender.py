@@ -158,6 +158,18 @@ class TestOrcamento(unittest.TestCase):
         self.assertIn('  - Sem portas\n  - Sem dobradicas\n', bloco)
         self.assertIn('  - Sem prateleiras internas\n', bloco)
 
+    # Regressao (era BUG, corrigido na 302): o modulo da porta saia do nome
+    # gravado, que nao ganha .001 quando o mesmo preset entra duas vezes.
+    def test_porta_pertence_ao_modulo_pai_mesmo_com_nome_antigo(self):
+        a = self.nicho('Armario')
+        b = self.nicho('Armario copia', x=1.0)
+        self.porta(a)
+        grupo = self.porta(b)
+        grupo[addon.portas.CHAVE_MODULO_PORTA] = a.name
+        folha = addon.portas._folhas_portas(grupo)[0]
+        self.assertIs(addon.orcamento._modulo_do_objeto(folha), b)
+        self.assertIs(addon.orcamento._modulo_do_objeto(grupo), b)
+
     def test_comodos_na_ordem_e_modulo_girado(self):
         # Cozinha antes da Sala (ordem fixa), e o modulo girado 90 graus
         # ainda acha a prateleira pelo referencial DELE.

@@ -22,7 +22,6 @@ _catalogos = [{}]
 _alturas = [{}]
 ALTURA_INICIAL = 180
 ALTURA_CATEGORIA = 18
-PASSO_CATEGORIA = 20
 TOPO_CATEGORIA = 26
 ALTURA_COMPACTA = 160
 INTERVALO_NIVEIS = 12
@@ -399,7 +398,7 @@ def widgets(context, largura, altura):
         return [(x * escala, y * escala, bw * escala, bh * escala, nome, acao)
                 for x, y, bw, bh, nome, acao in itens]
     linhas, daqui, prefixo = catalogo(context)
-    capacidade = _capacidade_niveis(h, w)
+    capacidade = _capacidade_niveis(w)
     chave_niveis = _chave_niveis(context)
     limite_niveis = max(0, len(linhas) - 1 - capacidade)
     inicio_niveis = max(0, min(limite_niveis, int(context.screen.get(chave_niveis, limite_niveis))))
@@ -492,7 +491,7 @@ def rolar(context, event):
     if getattr(event, 'shift', False):
         linhas, _itens, _p = catalogo(context)
         limite = max(0, len(linhas) - 1 - _capacidade_niveis(
-            context.region.height / escala, context.region.width / escala))
+            context.region.width / escala))
         chave = _chave_niveis(context)
         context.screen[chave] = max(0, min(limite, int(context.screen.get(chave, limite)) + passo))
         context.area.tag_redraw()
@@ -515,8 +514,6 @@ def rolar(context, event):
     if alvo:
         chave, limite = (alvo[3], alvo[4]) if alvo[0] == 'navegar' else (alvo[1], alvo[3])
         context.screen[chave] = max(0, min(limite, int(context.screen.get(chave, 0)) + passo))
-    else:
-        pass
     context.area.tag_redraw()
 
 
@@ -527,11 +524,8 @@ def _chave_niveis(context):
     return 'cabinet_faixa_niveis_' + hashlib.sha1(repr(caminho).encode('utf-8')).hexdigest()[:20]
 
 
-def _capacidade_niveis(altura, largura=None):
-    if largura is not None:
-        return max(1, int((largura - 137 - 12 - 112) // (56 + INTERVALO_NIVEIS)) - 1)
-    # Reserva uma foto e o nome; materiais ainda tem Editar/Apagar abaixo.
-    return max(1, int((altura - 112) // PASSO_CATEGORIA))
+def _capacidade_niveis(largura):
+    return max(1, int((largura - 137 - 12 - 112) // (56 + INTERVALO_NIVEIS)) - 1)
 
 
 def opcoes_do_item(it):

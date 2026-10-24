@@ -15,7 +15,8 @@ def main():
         for base, dirs, arquivos in os.walk(PKG):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for a in arquivos:
-                if a.endswith((".pyc", ".pyo")):
+                # backups do Blender e temporarios das gravacoes atomicas
+                if a.endswith((".pyc", ".pyo", ".blend1", ".blend2", ".tmp")):
                     continue
                 completo = os.path.join(base, a)
                 z.write(completo, os.path.relpath(completo, RAIZ))

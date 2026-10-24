@@ -266,6 +266,17 @@ class TestComposicaoParedes(unittest.TestCase):
             self.assertAlmostEqual(itens[0][k], antes[k], places=5)
         self.assertTrue(itens[0]['fixa'])
 
+    # Regressao (era BUG, corrigido na 302): o substituto ficava na raiz da
+    # cena, fora do comodo do original e, por isso, fora do orcamento.
+    def test_substituir_modelo_mantem_o_comodo(self):
+        antigo = self.preparar_troca()
+        self.assertEqual(addon.orcamento.definir_comodo(bpy.context.scene, [antigo], 'Cozinha'), 1)
+        self.assertEqual(bpy.ops.object.cabinet_distribuir_parede(), {'FINISHED'})
+        novo, = [o for o in bpy.data.objects if addon.chapas.MARCA_CONJUNTO in o]
+        comodo = addon.orcamento._comodo_do_modulo(novo)
+        self.assertIsNotNone(comodo)
+        self.assertEqual(addon.orcamento._nome_comodo(comodo), 'Cozinha')
+
     def test_substituicao_com_falha_preserva_original(self):
         antigo = self.preparar_troca()
         malhas = [o.data.as_pointer() for o in antigo.children_recursive if o.type == 'MESH']

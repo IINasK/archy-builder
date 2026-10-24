@@ -85,7 +85,10 @@ def linhas_hud(grupo, chapas):
                    cantos=(i, j), pontos=[cantos[i], cantos[j]])
               for eixo, arestas in enumerate(_hud.ARESTAS_EIXO) for i, j in arestas]
     p = parametros(grupo)
-    dados = calcular(largura, altura, p)
+    try:
+        dados = calcular(largura, altura, p)
+    except ValueError:      # callback de desenho: so' as medidas do vao
+        return cantos, linhas
     caixas = dados['divisorias']
     for k in range(len(dados['vaos'])):
         x0 = caixas[k - 1][1] if k else 0.0
@@ -455,12 +458,21 @@ def particionar_grupo(grupo):
             caixas.append((lo.x, hi.x, lo.y, hi.y, lo.z, hi.z))
         # Preflight e' independente da mutacao; vao estreito nao deixa
         # metades prontas de um conjunto cuja outra metade falhou.
-        for alvo in list(alvos):
-            anteriores = {o.name for o in conj.children}
-            planos = _plano(conj, div.matrix_basis, caixas, alvo=alvo)
-            _partir(conj, planos, chapas)
-            alvos.extend(o for o in conj.children if o.name not in anteriores
-                         and (_gavetas.MARCA_GRUPO in o or _prateleiras.MARCA_GRUPO in o))
+        try:
+            for alvo in list(alvos):
+                anteriores = {o.name for o in conj.children}
+                planos = _plano(conj, div.matrix_basis, caixas, alvo=alvo)
+                _partir(conj, planos, chapas)
+                alvos.extend(o for o in conj.children if o.name not in anteriores
+                             and (_gavetas.MARCA_GRUPO in o or _prateleiras.MARCA_GRUPO in o))
+        except ValueError:
+            # Com 2+ divisorias a 1a ja' partiu quando a 2a recusa: o
+            # chamador so' remove o `grupo`, as copias ficariam orfas.
+            for copia in alvos[1:]:
+                for o in list(reversed(copia.children_recursive)):
+                    _gavetas._remover(o)
+                _gavetas._remover(copia)
+            raise
 
 
 def atualizar_dependentes():
@@ -471,7 +483,12 @@ def atualizar_dependentes():
         antes = grupo.get(CHAVE_VAO)
         if antes and (max(abs(l - antes[0]), abs(a - antes[1])) > TOL or any(
                 abs(x - y) > 1e-7 for r, s in zip(m, grupo.matrix_basis) for x, y in zip(r, s))):
-            montar(grupo)
+            try:
+                montar(grupo)
+            except ValueError as erro:
+                # vao que deixou de caber: sem isto o timer falhava todo
+                # ciclo e parava o resto da manutencao
+                print("[Cabinet Creator] divisorias:", erro)
     pendentes = []
     for grupo in list(bpy.data.objects):
         dono = (_gavetas if _gavetas.MARCA_GRUPO in grupo else
@@ -576,7 +593,8 @@ def aplicar(context, grupo, chave, novo, lado=None):
     margens = list(antes)
     l, a, _m = vao(grupo)
     k = (0 if lado == 'max' else 1) if letra == 'L' else (2 if lado == 'max' else 3)
-    margens[k] -= float(novo) - (l if letra == 'L' else a)
+    # como gavetas/prateleiras: margem negativa poria tudo fora do modulo
+    margens[k] = max(0.0, margens[k] - (float(novo) - (l if letra == 'L' else a)))
     grupo[CHAVE_MARGENS] = margens
     try:
         l, a, _m = vao(grupo)
@@ -633,8 +651,8 @@ class OBJECT_OT_criar_divisorias(_gavetas.AssistenteDoVao, Operator):
         return dados['divisorias']
 
     def _comecar_no_modulo(self, conj, ponto):
+        # a profundidade sai de `_definir_vao` no 2o canto (ate' o fundo)
         self._w['p']['espessura_mm'] = float(_portas._espessura_do_vao(conj))
-        self._w['p']['profundidade_mm'] = _prateleiras.profundidade_ate_o_fundo(conj, ponto)
 
     def _depois_da_quantidade(self, context):
         return self._criar(context)

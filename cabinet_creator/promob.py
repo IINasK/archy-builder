@@ -904,20 +904,6 @@ def _dobradicas(frente, ferragens):
             and f['lo'][1] < plano + ALCANCE_DOBRADICA_MM and f['hi'][1] > plano - 5.0]
 
 
-def _lado_dobradica(frente, dobradicas):
-    """'ESQUERDA' | 'DIREITA' | 'CIMA' (basculante) | None."""
-    largura, altura = _tam(frente, 0), _tam(frente, 2)
-    xs = [_centro(d, 0) for d in dobradicas]
-    zs = [_centro(d, 2) for d in dobradicas]
-    if min(zs) >= frente['lo'][2] + 0.7 * altura:
-        return 'CIMA'
-    if max(xs) <= frente['lo'][0] + 0.3 * largura:
-        return 'ESQUERDA'
-    if min(xs) >= frente['hi'][0] - 0.3 * largura:
-        return 'DIREITA'
-    return None
-
-
 def _caixa_de_gaveta(frente, corpo, costas, multinivel=False):
     """As pecas da caixa atras da frente (laterais, contrafrente, traseira,
     fundo) ou [] se nao ha' caixa: >= 2 laterais (de pe', normal X)
@@ -1125,27 +1111,6 @@ def _pilhas(gavetas):
     return pilhas
 
 
-def _pares(portas):
-    """Portas de GIRO lado a lado (mesma altura, coladas, dobradicas para
-    fora) viram UMA porta dupla."""
-    soltas = sorted(portas, key=lambda p: p['frente']['lo'][0])
-    grupos = []
-    while soltas:
-        a = soltas.pop(0)
-        par = next((b for b in soltas
-                    if a['lado'] == 'ESQUERDA' and b['lado'] == 'DIREITA'
-                    and abs(a['frente']['lo'][2] - b['frente']['lo'][2]) <= 3.0
-                    and abs(a['frente']['hi'][2] - b['frente']['hi'][2]) <= 3.0
-                    and 0.0 <= b['frente']['lo'][0] - a['frente']['hi'][0] <= FOLGA_PAR_MM),
-                   None)
-        if par is not None:
-            soltas.remove(par)
-            grupos.append([a, par])
-        else:
-            grupos.append([a])
-    return grupos
-
-
 def portas_sem_faces_opostas(portas):
     """Uma frente por caixa (pedido do usuario: ilhas nao sao passantes).
     Canto perpendicular continua com duas frentes. Na face oposta, usar
@@ -1203,11 +1168,12 @@ def planejar(pecas, ferragens):
     cestos = [c for c in ferragens if c['cor'] == COR_ALUMINIO
               and all(_tam(c, k) >= CESTO_MINIMO_MM[k] for k in range(3))]
     com_frente = set()
-    portas, gavetas, usadas = [], [], set()
+    gavetas, usadas = [], set()
     for f in frentes:
         if id(f) in reconhecidas:
             continue
-        caixa = _caixa_de_gaveta(f, corpo, costas) if f['curva'] or 'normal' not in f else []
+        # so' a curva chega sem 'normal'; as portas planas ja' sairam acima
+        caixa = _caixa_de_gaveta(f, corpo, costas) if f['curva'] else []
         dob = _dobradicas(f, ferragens) if not f['curva'] else []
         atras = [c for c in cestos
                  if f['lo'][0] - 5.0 <= _centro(c, 0) <= f['hi'][0] + 5.0
@@ -1216,10 +1182,6 @@ def planejar(pecas, ferragens):
         if (caixa or atras) and not dob:
             gavetas.append({'frente': f, 'caixa': caixa})
             usadas.update(id(p) for p in caixa)
-        elif dob and not f['curva'] and 'normal' not in f:
-            lado = _lado_dobradica(f, dob)
-            if lado is not None:
-                portas.append({'frente': f, 'lado': lado})
     # a caixa de uma gaveta nao delimita o vao da outra
     corpo = [p for p in corpo if id(p) not in usadas]
     for pilha in _pilhas(gavetas):
@@ -1245,14 +1207,6 @@ def planejar(pecas, ferragens):
             'frentes': [], 'plano': ymin, 'vao': (x0, x1, z0, z1),
             'profundidade': _profundidade(corpo, caixa, ymin, 500.0),
             'curva': False})
-    for grupo in _pares(portas):
-        fs = [g['frente'] for g in grupo]
-        uniao = _uniao(fs)
-        face = max(f['hi'][1] for f in fs)
-        plano['portas'].append({
-            'folhas': fs, 'lado': grupo[0]['lado'] if len(grupo) == 1 else 'ESQUERDA',
-            'plano': face, 'vao': vao_atras(corpo, uniao, face, costas)})
-        plano['remover'] += fs
     # correr: os quadros de aluminio na frente do modulo (o vidro de
     # dentro e os trilhos do Promob ficam de fora)
     caixa_modulo = _uniao(pecas)
@@ -1472,13 +1426,6 @@ def _local(conj, ponto_mm):
 
 def _mundo(conj, x, y, z):
     return Vector((x, y, z)) / 1000.0
-
-
-def _chapa_vizinha(conj, x, z):
-    """Uma chapa do modulo para o `objeto_a` do operador de portas."""
-    chapas = _modulos._chapas_do_conjunto(conj)
-    return min(chapas, key=lambda c: (c.matrix_world.translation * 1000.0
-                                      - Vector((x, 0.0, z))).xz.length).name
 
 
 def _porta(conj, porta, vao, plano, referencia=None, **opcoes):

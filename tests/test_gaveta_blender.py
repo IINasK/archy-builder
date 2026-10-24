@@ -1032,32 +1032,6 @@ class TestGaveta(unittest.TestCase):
         self.assertNotIn('nome_objeto', {v[5][0] for v in addon.gaveta._widgets_gaveta(
             bpy.context, 320, 1400) if v[5]})
 
-    def modulo_com_porta(self, frente='NEG_Y'):
-        """Conjunto com um grupo de portas ligado, sem geometria real."""
-        bpy.ops.object.empty_add()
-        conj = bpy.context.object
-        conj[addon.chapas.MARCA_CONJUNTO] = 1
-        conj.conj_largura_mm = 636.0
-        conj.conj_altura_mm = 836.0
-        conj.conj_profundidade_mm = 400.0
-        bpy.ops.object.empty_add()
-        grupo = bpy.context.object
-        grupo[addon.chapas.MARCA_PORTAS] = 1
-        grupo[addon.portas.CHAVE_MODULO_PORTA] = conj.name
-        grupo['porta_vao_largura_mm'] = 600.0
-        grupo['porta_vao_altura_mm'] = 800.0
-        grupo['porta_frente'] = frente
-        for i in range(2):
-            malha = bpy.data.meshes.new('Folha')
-            folha = bpy.data.objects.new('Folha_%d' % i, malha)
-            bpy.context.collection.objects.link(folha)
-            folha[addon.chapas.MARCA_CHAPA] = 1
-            folha[addon.chapas.MARCA_FOLHA] = 1
-            folha.parent = grupo
-            folha.chapa_espessura_mm = 18.0
-        bpy.context.view_layer.objects.active = conj
-        return conj
-
     def test_sem_botoes_de_sincronizar_nem_recalcular(self):
         # Redundantes (usuario): o timer rele as medidas e o handler
         # normaliza as chapas sozinho.

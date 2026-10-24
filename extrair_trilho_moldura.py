@@ -41,8 +41,13 @@ def _poligonos_da_ponta(obj):
 
 
 def main():
-    saida = {'origem': os.path.basename(bpy.data.filepath) or 'autosave',
-             'versao_blender': bpy.app.version_string, 'trilhos': {}}
+    # Atualiza CIMA/BAIXO sem perder o LEVE (gravado por extrair_trilho_leve.py)
+    saida = {'trilhos': {}}
+    if os.path.exists(DESTINO):
+        with open(DESTINO, encoding='utf-8') as arq:
+            saida = json.load(arq)
+    saida.update(origem=os.path.basename(bpy.data.filepath) or 'autosave',
+                 versao_blender=bpy.app.version_string)
     for chave, nome in TRILHOS.items():
         faces = _poligonos_da_ponta(bpy.data.objects[nome])
         pontos = [p for f in faces for p in f]

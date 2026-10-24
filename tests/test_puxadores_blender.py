@@ -147,6 +147,20 @@ class TestPuxadores(unittest.TestCase):
                 for fracao in (.25,.5,.75):
                     self.assertTrue(addon.arame.preparar_previa(chapa,tipo,'Y+',1,fracao))
 
+    # Regressao (era BUG, corrigido na 302): a malha Quadro/Arco/canais saia
+    # de gerar_malha_chapa antes de posicionar o perfil, que ficava na origem.
+    def test_perfil_em_folha_quadro_acompanha_a_malha(self):
+        chapa = self.chapa()
+        chapa['chapa_quadro_mm'] = 40.0
+        addon.chapas.gerar_malha_chapa(chapa)
+        perfil = addon.puxadores.criar_puxador(bpy.context, chapa, 'PERFIL', 'Y-', 1)
+        self.assertTrue(perfil.data.vertices)
+        lo, hi = caixa_na_chapa(perfil, chapa)
+        self.assertEqual((lo[0], hi[0], lo[1]), (-300.0, 300.0, -200.0))
+        chapa.chapa_largura_mm = 800
+        lo, hi = caixa_na_chapa(perfil, chapa)
+        self.assertEqual((lo[0], hi[0]), (-400.0, 400.0))
+
     def test_perfil_corta_a_madeira_e_a_medida_continua_nominal(self):
         # O perfil e' o modelo de aluminio do usuario (extrair_puxador.py):
         # a borda inteira, da borda nominal ate' o corte da madeira, costas

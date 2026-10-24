@@ -31,7 +31,8 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   Curvar/deformar via Tab nao converte em curva parametrica nem autoriza
   solver/reencaixe. Ler contorno para medida/puxador nao ativa esse sistema.
   Preservar modelagem manual E a regressao de resize das curvas controladas.
-- Wizard `cabinet_apanhar_vao`, criar/repor: 2 CLIQUES nos limites opostos.
+- Wizard `cabinet_apanhar_vao`, criar/repor: 2 CLIQUES nos limites opostos,
+  pelo snap NATIVO (`AssistenteDoVao._iniciar_snap_nativo`).
   Solver normaliza vao interno; `cobertura_*_e` e' FRACAO da espessura:
   1 = Reta, 0.5 = Curva, 0 = Super Curva; dobradica AUTOMATICA.
   Nunca rente a' borda: padrao 2 mm (`RESPIRO_PORTA_MM`).
@@ -43,7 +44,8 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   nunca cortada. Reposicionar = 2 cliques. Nao usar popup_menu: release responderia.
 - Clique = porta inteira, nunca modulo; duplo = folha, sem contorno nativo.
   Selecionada POR SI: contorno branco, vao amarelo, fios e slider por folha.
-  Alt arrasta bolinhas de `_cantos_da_porta`: refeitas, nunca gravadas.
+  Alt arrasta bolinhas de `_cantos_da_porta`: refeitas, nunca gravadas;
+  o destino e' o snap NATIVO do cursor (macro `cabinet_mover_canto_porta`).
 - Espelhar: icone na aba Portas + contexto direito, grupo ou folha; inverter
   giro, cadeia zigzag INTEIRA, curso de correr ou basculante com pistoes.
   Puxador acompanha; nao espelhar a madeira.

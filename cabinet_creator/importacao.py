@@ -925,10 +925,6 @@ COMPRIMENTO_MINIMO_CURVA_MM = 150.0
 LATERAL_CURVA_MINIMO = 0.3
 
 
-def _eh_peca_curva(obj):
-    return _espessura_da_curva(obj) is not None
-
-
 def _espessura_da_curva(obj):
     """A espessura (mm) da peca curva, ou None se ela nao e' curva."""
     faces, vertices = _faces_em_mundo(obj)
@@ -1008,7 +1004,8 @@ def ler_dxf_promob(caminho):
         if valor == '3DFACE':
             vs, fs = peca(camada)
             pts = [ponto(n) for n in range(4)]
-            if pts[3] == pts[2]:
+            # sem 13/23/33 o 4o canto viraria a ORIGEM e esticaria a peca
+            if '13' not in dados or pts[3] == pts[2]:
                 pts = pts[:3]
             fs.append([len(vs) + k for k in range(len(pts))])
             vs.extend(pts)
@@ -1185,7 +1182,8 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
             # A placa fina da dobradica revela a face da folha, inclusive
             # no canto. Guardamos geometria de referencia, nunca o modelo.
             a = (_analisar_peca(obj) if cor == _promob.COR_FERRAGEM
-                 and max(hi - lo for lo, hi in zip(*caixas[obj.name])) <= 70 else None)
+                 and max(hi - lo for lo, hi in zip(*caixas[obj.name]))
+                 <= _promob.DOBRADICA_MAXIMA_MM else None)
             ferragens.append(_promob.peca(None, *caixas[obj.name], cor=cor,
                                           analise=a, pontos=[tuple(obj.matrix_world @ v.co * 1000)
                                                              for v in obj.data.vertices] if a else None))
@@ -1333,7 +1331,8 @@ def importar_portas_avulsas(context, caminho, prefixo):
     dados=ler_dxf_promob(caminho);cores=cores_dxf_promob(caminho)
     pecas=[];metais=[]
     for nome,(vs,fs) in dados.items():
-        cor=cores.get(nome)
+        # sem tabela de camadas tudo e' chapa (CORES_CHAPA aceita None)
+        cor=cores.get(nome,7)
         lo=[min(v[k] for v in vs) for k in range(3)]
         hi=[max(v[k] for v in vs) for k in range(3)]
         if cor==_promob.COR_FERRAGEM:
@@ -1461,9 +1460,10 @@ def destino_categoria_promob(caminho, raiz):
     partes=[_ascii(p) for p in os.path.relpath(os.path.dirname(caminho),raiz).split(os.sep)]
     ambiente=partes[0] if partes[0]!='.' else 'Diversos'
     aba,categoria,prefixo=categoria_promob(caminho)
-    if ambiente=='Cozinha' and partes[-1]!='Portas':
+    # sem caixa, como importar_promob_para_biblioteca decide a pasta de portas
+    if ambiente=='Cozinha' and partes[-1].lower()!='portas':
         return ('Armarios',ambiente,aba,categoria),prefixo
-    if partes[-1]=='Portas':
+    if partes[-1].lower()=='portas':
         return ('Armarios',ambiente,'Portas',categoria),'Porta '+categoria
     pastas=partes[1:]
     if len(pastas)>1 and pastas[-1]=='Cantos':pastas=pastas[:-1]

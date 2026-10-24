@@ -751,22 +751,22 @@ def _com_cursor(texto, cursor):
     return texto[:cursor] + '|' + texto[cursor:]
 
 
-def _ler_medida_digitada(texto):
+def _ler_medida_digitada(texto, minimo=0.001):
     """Texto digitado -> metros.
 
     Aceita conta e unidades misturadas: "600 + 500", "600cm + 500mm",
     "1m - 20mm", "(600+500)/2". Numero sem unidade vale a unidade padrao
     das opcoes (mm de fabrica); virgula decimal tambem. O parser do
     Blender devolve ruido de float (1100.0001): arredonda em 0,01 mm.
-    ValueError se nao for uma medida de 1 mm ou mais.
+    ValueError abaixo de `minimo` (m): 1 mm, ou 0 nas folgas/afastamentos.
     """
     texto = _arrumar_texto_medida(texto.strip().replace(',', '.'))
     sufixo = _opcoes.UNIDADES_MEDIDA[_opcoes._opcao('unidade_padrao')][1]
     texto = _unidade_nos_numeros_soltos(texto, sufixo)
     valor = bpy.utils.units.to_value('METRIC', 'LENGTH', texto,
                                      str_ref_unit='1 ' + sufixo)
-    if not math.isfinite(valor) or valor < 0.001 - 1e-9:
-        raise ValueError('Informe uma medida de pelo menos 1 mm')
+    if not math.isfinite(valor) or valor < minimo - 1e-9:
+        raise ValueError('Informe uma medida de pelo menos %g mm' % (minimo * 1000.0))
     return round(valor * 1000.0, 2) / 1000.0
 
 
