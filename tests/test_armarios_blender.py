@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 import bpy
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
@@ -435,6 +435,35 @@ class TestArmarios(unittest.TestCase):
         esq, dir_ = direcoes(M.criar_armario(bpy.context, "R", 900, 2400, 550), 2, 'GIRO', 'LADO')
         self.assertGreater(esq.dot(X), 0.99)     # folha da esquerda: perfil no meio
         self.assertGreater(dir_.dot(-X), 0.99)
+
+    def test_perfil_sempre_horizontal_salvo_guarda_roupa(self):
+        # Pedido do usuario (v308): torre ia na vertical. Agora so' o
+        # guarda-roupa; a torre pega a borda horizontal mais perto de 1 m.
+        Z = Vector((0, 0, 1))
+        self.assertEqual(addon.biblioteca.PERFIL_POR_TIPO['Torre'], 'ALTURA')
+        regra = addon.importacao.posicao_do_perfil
+        self.assertEqual([regra(a) for a in ('Inferiores', 'Sup Medios', 'Superiores',
+                                             'Altos', 'Armarios', 'Portas')],
+                         ['CIMA', 'BAIXO', 'BAIXO', 'ALTURA', 'LADO', 'CIMA'])
+
+        def sentido(grupo, posicao):
+            pux, = addon.puxadores.perfis_na_porta(bpy.context, grupo, posicao)
+            self.assertEqual(pux['puxador_borda'][0], 'Y')       # horizontal
+            rot = pux.parent.matrix_world.to_3x3()
+            return (rot.col[1] * (1 if pux['puxador_borda'][1] == '+' else -1)).normalized().dot(Z)
+        conj = M.criar_armario(bpy.context, "T", 600, 600, 550)
+        baixa = addon.portas.porta_no_modulo(conj, 1, 'GIRO')
+        self.assertGreater(sentido(baixa, 'ALTURA'), .99)          # 0..600: em cima
+        alta = addon.portas.porta_no_modulo(conj, 1, 'GIRO')
+        alta.matrix_world = Matrix.Translation((0, 0, 1.5)) @ alta.matrix_world
+        bpy.context.view_layer.update()
+        self.assertLess(sentido(alta, 'ALTURA'), -.99)             # 1500..2100: embaixo
+        # porta solta: o "cima" e' a altura dela, nao a frente (saia vertical)
+        solta = addon.portas.porta_no_modulo(M.criar_armario(bpy.context, "S", 600, 700, 550), 1, 'GIRO')
+        solta.parent = None
+        solta.pop(addon.portas.CHAVE_MODULO_PORTA, None)
+        bpy.context.view_layer.update()
+        self.assertGreater(sentido(solta, 'CIMA'), .99)
 
 
 addon.register()

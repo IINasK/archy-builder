@@ -675,13 +675,20 @@ def puxador_terminal(context, grupo):
     return puxadores[0]
 
 
+ALTURA_MAO_MM = 1000.0     # 'ALTURA': a borda horizontal mais perto da mao
+
+
 def perfis_na_porta(context, grupo, posicao):
     """Um perfil por folha, na face da FRENTE: 'CIMA' (balcao), 'BAIXO'
-    (aereo) ou 'LADO' (vertical, do lado oposto as dobradicas -- torre,
-    roupeiro). Porta FECHADA (a borda sai da matriz da folha)."""
+    (aereo), 'ALTURA' (torre: a borda de cima ou de baixo mais perto de
+    1 m do pe' do modulo, por folha) ou 'LADO' (vertical, do lado oposto as
+    dobradicas -- so' guarda-roupa, pedido do usuario). Porta FECHADA (a
+    borda sai da matriz da folha)."""
     modulo = (bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
               or grupo.parent or grupo)
-    cima = modulo.matrix_world.to_3x3().col[2].normalized()
+    # porta solta: "cima" e' a altura dela (Y); o Z do grupo e' a frente e
+    # dava o perfil vertical
+    cima = modulo.matrix_world.to_3x3().col[1 if modulo is grupo else 2].normalized()
     p = dict(grupo.get('porta_parametros') or {})
     if p.get('abertura') == 'ZIGZAG':
         return [puxador_terminal(context, grupo)]
@@ -692,6 +699,12 @@ def perfis_na_porta(context, grupo, posicao):
             direcao = cima
         elif posicao == 'BAIXO':
             direcao = -cima
+        elif posicao == 'ALTURA':
+            fechada = _ferragens._matriz_fechada(folha)
+            pe = modulo.matrix_world.translation
+            alturas = [(fechada @ v.co - pe).dot(cima) * 1000.0 for v in folha.data.vertices]
+            perto = (abs(max(alturas) - ALTURA_MAO_MM) < abs(min(alturas) - ALTURA_MAO_MM))
+            direcao = cima if perto else -cima
         else:
             lado = _ferragens._lado_da_folha(p, i, len(folhas))
             direita_folha = _ferragens._matriz_fechada(folha).to_3x3().col[0].normalized()

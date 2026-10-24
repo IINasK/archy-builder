@@ -1299,8 +1299,7 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
         if 'Quartos' in partes:
             if 'Armarios' in partes:aba='Armarios'
             elif 'Superiores' in partes:aba='Superiores'
-        plano['puxador_posicao'] = ('BAIXO' if aba.startswith('Sup') or aba=='Superiores'
-                                   else 'LADO' if aba in ('Altos','Armarios','Torres') else 'CIMA')
+        plano['puxador_posicao'] = posicao_do_perfil(aba)
         fora = {id(p['obj']) for p in plano['remover']}
         for p in {id(p['obj']):p for p in plano['remover']}.values():
             # tira das listas ANTES: objeto removido nao se compara mais
@@ -1481,6 +1480,16 @@ ABAS_PROMOB = ('Inferiores', 'Altos', 'Ilhas', 'Sup Baixos', 'Sup Medios',
 
 def _ascii(texto):
     return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode()
+
+
+def posicao_do_perfil(aba):
+    """Borda do perfil pela aba (nivel 3 da biblioteca). Pedido do usuario:
+    sempre na HORIZONTAL, salvo guarda-roupa (Quartos > Armarios)."""
+    if aba.startswith('Sup') or aba == 'Superiores':
+        return 'BAIXO'
+    if aba == 'Armarios':
+        return 'LADO'
+    return 'ALTURA' if aba in ('Altos', 'Torres') else 'CIMA'
 
 
 def categoria_promob(caminho):

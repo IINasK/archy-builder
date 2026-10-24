@@ -2157,11 +2157,11 @@ def preparar_abertura_foto(context, conj):
     context.view_layer.update()
 # Puxador padrao dos nativos = PERFIL (pedido do usuario), na borda da
 # pratica de cozinha planejada: balcao/gabinete em cima, aereo embaixo,
-# torre/roupeiro na vertical do lado da abertura
+# torre na horizontal perto da mao; so' o roupeiro na vertical (pedido do usuario)
 # Modulo de bancada (pedido do usuario): topo ABERTO, duas travessas
 TOPO_POR_TIPO = {'Balcao': 'TRAVESSAS', 'Gabinete': 'TRAVESSAS'}
 PERFIL_POR_TIPO = {'Balcao': 'CIMA', 'Gabinete': 'CIMA', 'Aereo': 'BAIXO',
-                   'Torre': 'LADO', 'Roupeiro': 'LADO'}
+                   'Torre': 'ALTURA', 'Roupeiro': 'LADO'}
 
 
 def _giro(L):

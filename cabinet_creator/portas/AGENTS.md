@@ -84,7 +84,8 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
 - Puxador: clique seleciona SO' ele e suas funcoes, inclusive nas gavetas;
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
   proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
-  chapa, nunca delta. PERFIL e' padrao; pontas/costas ANDAM.
+  chapa, nunca delta. PERFIL e' padrao, SEMPRE horizontal salvo guarda-roupa
+  (`importacao.posicao_do_perfil`); pontas/costas ANDAM.
 - Folha nativa: frente +Z LOCAL, nunca comparar com -Y da caixa (inverte no L).
   LADO segue X da folha FECHADA, nao modulo. MODELO do usuario vem da
   BIBLIOTECA; modelos de fabrica PROTEGIDOS. Retratos: `gerar_fotos_padrao.py` (GUI).
