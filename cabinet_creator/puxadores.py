@@ -443,9 +443,17 @@ def posicionar_puxador(pux):
         # no hover. A alca deve sentar na tangente real, nao na corda.
         vs=[v.co for v in chapa.data.vertices]
         esquerda=pux.get('puxador_borda')=='X-'
-        x=(min(v.x for v in vs)-.1 if esquerda else max(v.x for v in vs)+.1)
+        borda_x=min(v.x for v in vs) if esquerda else max(v.x for v in vs)
+        x=borda_x-.1 if esquerda else borda_x+.1
         # perfil (recuo 0): o raio na ponta exata passa rente e erra a madeira
-        z=max(v.z for v in vs)-max(.001,float(pux.get('puxador_recuo_mm',40))/1000)
+        recuo=max(.001,float(pux.get('puxador_recuo_mm',40))/1000)
+        # O lado Z da ponta vem dos vertices DELA, nao do referencial: com a
+        # frente virada (+Z para fora) a ponta curva fica no menor Z.
+        pontas=[v.z for v in vs if abs(v.x-borda_x)<.002]
+        if sum(pontas)/len(pontas)>=sum(v.z for v in vs)/len(vs):
+            z=max(pontas)-recuo
+        else:
+            z=min(pontas)+recuo
         y=(float(pux.get('puxador_fracao',.5))-.5)*chapa.chapa_comprimento_mm/1000
         hit,ponto,normal,_f=chapa.ray_cast(Vector((x,y,z)),Vector((1 if esquerda else -1,0,0)))
         if hit:

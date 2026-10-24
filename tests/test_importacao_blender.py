@@ -343,6 +343,38 @@ class TestImportacao(unittest.TestCase):
         _hit,co,_n,_i=f.closest_point_on_mesh(local)
         self.assertLess((co-local).length,.002)
 
+    # Regressao (era BUG, corrigido na 307): "Definir como Frente" numa
+    # porta curva tirava o vao da caixa da folha e a deslocava 10-76 cm.
+    # Agora a madeira fica; lado, coberturas e o abrir trocam de sentido.
+    def test_virar_frente_da_porta_curva_nao_mexe_na_madeira(self):
+        from unittest.mock import patch
+        conj,g,f=self._diagonal_modelada()
+        F=addon.ferragens
+        pux,=[o for o in f.children if addon.chapas.MARCA_PUXADOR in o]
+        pux['puxador_curvo']=True
+        p=dict(g['porta_parametros']);p.update(cobertura_esq_e=1.0,cobertura_dir_e=.5)
+        g['porta_parametros']=p
+        lado={'ESQUERDA':'DIREITA','DIREITA':'ESQUERDA'}[p['dobradica_lado']]
+        def centro(fracao):
+            F._definir_abertura(bpy.context,f,fracao);bpy.context.view_layer.update()
+            vs=[f.matrix_world@v.co for v in f.data.vertices];return sum(vs,Vector())/len(vs)
+        passo=centro(.5)-centro(0)
+        antes=[f.matrix_world@v.co for v in f.data.vertices]
+        z=g.matrix_world.to_3x3().col[2].copy()
+        with patch.object(addon.frentes,'referencia',return_value=None):
+            addon.puxadores.posicionar_puxador(pux);bpy.context.view_layer.update()
+            pux_antes=pux.matrix_world.translation.copy()
+            self.assertTrue(addon.importacao._definir_frente_porta(bpy.context,g,-z))
+            addon.puxadores.posicionar_puxador(pux);bpy.context.view_layer.update()
+            self.assertLess((pux.matrix_world.translation-pux_antes).length,.001)
+        bpy.context.view_layer.update()
+        self.assertLess(max((f.matrix_world@v.co-a).length for v,a in zip(f.data.vertices,antes)),1e-5)
+        self.assertLess(g.matrix_world.to_3x3().col[2].dot(z),-.999)
+        q=g['porta_parametros']
+        self.assertEqual(q['dobradica_lado'],lado)
+        self.assertEqual((q['cobertura_esq_e'],q['cobertura_dir_e']),(.5,1.0))
+        self.assertLess((centro(.5)-centro(0)).dot(passo),0)    # abre para o outro lado
+
     def test_diagonal_modelada_alinha_perfil_normal_abertura_e_apoios(self):
         conj,g,f=self._diagonal_modelada()
         self.assertTrue(addon.promob.alinhar_frente_ao_corpo(g))

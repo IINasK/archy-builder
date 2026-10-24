@@ -73,6 +73,9 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   copo precisa caber na folha. Curva/embutida obliqua: ray cast da face real +
   4 quinas coplanares; conservar cantos do PRISMA (AABB desorienta).
 - Encaixe antigo atualiza UMA vez pelo timer, sem mudar folha/abertura/puxador.
+- Frente da porta CURVA modelada (`_virar_porta_modelada`): gira o referencial
+  e reescreve os vertices no mesmo mundo; `_vao_inverso` (caixa da folha) a
+  deslocava. Frente invertida = dobradica por fora e abrindo para dentro.
   Texto novo (trilho/folha) entra nos enums de `_carregar_portas_na_cena` E
   `_valores_portas` em `../gaveta.py`. Copiar ID props aninhadas RECURSIVAMENTE
   antes de substituir: dict raso e acesso posterior derrubavam Blender 5.2.

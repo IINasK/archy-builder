@@ -790,6 +790,53 @@ class OBJECT_OT_corrente_porta(Operator):
 
 
 # ---------------------------------------------------- definir a frente
+def _virar_porta_modelada(grupo):
+    """Gira o referencial 180 graus em torno da altura SEM mexer na madeira.
+
+    A caixa da folha curva nao e' o vao: `_vao_inverso` a deslocava 10-76 cm.
+    Aqui o vao fica [0, L] (x -> L - x, z -> 2*Zc - z: o centro da folha
+    continua o que os parametros dao) e os vertices voltam ao mesmo mundo.
+    """
+    folhas = _portas._folhas_portas(grupo)
+    if len(folhas) != 1:
+        raise ValueError("Porta curva de varias folhas: vire uma folha por vez")
+    folha = folhas[0]
+    _ferragens._definir_abertura(bpy.context, folha, 0.0)
+    bpy.context.view_layer.update()
+    largura = float(grupo['porta_vao_largura_mm'])
+    centro = Vector(folha[_ferragens.CHAVE_CENTRO_FOLHA])
+    guardados = _guardar_puxadores(grupo)
+    giro = Matrix.Diagonal((-1.0, 1.0, -1.0, 1.0))
+    grupo.matrix_world = (grupo.matrix_world @ Matrix.Translation(
+        Vector((largura, 0.0, 2.0 * centro.z)) / 1000.0) @ giro)
+    folha[_ferragens.CHAVE_CENTRO_FOLHA] = (largura - centro.x, centro.y, centro.z)
+    folha.data.transform(giro)
+    folha.data.update()
+    p = _portas._copiar_parametros(grupo['porta_parametros'])
+    lados = {'ESQUERDA': 'DIREITA', 'DIREITA': 'ESQUERDA'}
+    p['dobradica_lado'] = lados.get(p.get('dobradica_lado'), p.get('dobradica_lado'))
+    esq, dir_ = _portas.COBERTURAS_LADOS[:2]
+    valores = (p.pop(esq, None), p.pop(dir_, None))
+    for chave, valor in zip((dir_, esq), valores):
+        if valor is not None:
+            p[chave] = valor
+    grupo['porta_parametros'] = p
+    grupo['porta_frente'] = _frente_no_mundo(grupo.matrix_world.to_3x3().col[2])
+    _ferragens._posicionar_folha(grupo, folha)
+    bpy.context.view_layer.update()
+    _devolver_puxadores(grupo, guardados)
+    for pux, _mundo in guardados:
+        # x virou -x: a mesma borda fisica troca de nome
+        borda = pux.get('puxador_borda', '')
+        if borda in ('X-', 'X+'):
+            pux['puxador_borda'] = 'X+' if borda == 'X-' else 'X-'
+    conj = _portas._modulo_da_chapa(folha)
+    if conj is not None and _portas.CHAVE_VAO_ORIENTADO in grupo:
+        # o redimensionar refaria o referencial antigo pelos cantos gravados
+        _portas.gravar_vao_orientado(grupo, conj)
+    _ferragens._refazer_ferragens(grupo)
+
+
 def _definir_frente_porta(context, grupo, normal):
     """A face clicada passa a ser a FRENTE da porta.
 
@@ -803,6 +850,9 @@ def _definir_frente_porta(context, grupo, normal):
         raise ValueError("Clique numa das faces grandes da porta")
     if alinhamento > 0:
         return False
+    if any(f.get('porta_curva_modelada') for f in _portas._folhas_portas(grupo)):
+        _virar_porta_modelada(grupo)
+        return True
     cima, nova = base.col[1].copy(), -base.col[2]
     direita = cima.cross(nova).normalized()
     referencial = Matrix((direita, cima, nova)).transposed()
