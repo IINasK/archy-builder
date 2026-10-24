@@ -565,7 +565,6 @@ def unregister():
     _biblioteca_faixa.esquecer()
     _prateleiras.esquecer()
     _divisorias.esquecer()
-    _geometria.esquecer()
     _gaveta._edicao_gaveta[0] = None
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)

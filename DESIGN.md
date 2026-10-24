@@ -288,12 +288,9 @@ Chapa | Quadro de aluminio (depois do trilho, com ou sem moldura). Quadro =
 o perfil de aluminio do despenseiro do Promob em volta de um painel fino,
 que tem material proprio (o vidro/espelho); o trilho continua o nosso.
 
-**Snap que diz o que pegou (pedido do usuario: detector de angulo).** O
-ima dos assistentes (porta, gaveta) mostra, ao lado da bolinha, o que o
-ponto e': "Quina reta", "Angulo 135", "Fim da curva", "Centro do arco". O
-meio de uma borda redonda nao e' mais oferecido (eram dezenas de pontos
-colados); as pontas e o centro sim. Com Ctrl, o modulo arrastado gruda
-tambem nas quinas e pontas de curva de pecas modeladas/curvas.
+**Snap = o nativo do Blender (v304).** Assistentes, cantos e Ctrl da
+quina usam o snap do Blender (vertice/meio de aresta). O detector de
+angulos com rotulos ("Quina reta", "Fim da curva") saiu na v309.
 Posicionar puxador (`OBJECT_OT_posicionar_puxador`): 1o a linha (borda da
 face sob o mouse), depois o ponto; scroll = n snaps (k/(n+1)); botao
 direito volta a linha. Linhas grossas em triangulos (`_quad_2d`).

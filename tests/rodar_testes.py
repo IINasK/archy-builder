@@ -32,6 +32,8 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # v304: portas -1, gavetas -3, geometria -1 de proposito -- os testes do
 # ima em Python (`_alvos_do_ima`, `IndiceSnapGavetas`, rotulos) sairam com
 # ele; o snap agora e' o nativo do Blender.
+# v309: geometria -3 de proposito -- o detector de angulos (`pontos_notaveis`)
+# saiu a pedido do usuario; ficam os testes de area e do snap da curva.
 PISO = {
     'paredes_composicao': 37,
     'paredes_edicao': 62,
@@ -41,7 +43,7 @@ PISO = {
     'importacao': 80, 'puxadores': 21, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
     'biblioteca': 82, 'cobertura': 4, 'gui_interacao': 58,
     'orcamento': 17, 'paredes': 12, 'armarios': 18, 'formas': 62, 'gavetas': 50,
-    'geometria': 8, 'prateleiras': 51, 'migracoes': 8,
+    'geometria': 5, 'prateleiras': 51, 'migracoes': 8,
     'biblioteca_faixa': 28, 'gui_biblioteca_faixa': 7,
 }
 LIMITE_SEGUNDOS = 300
