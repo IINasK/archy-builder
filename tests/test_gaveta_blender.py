@@ -118,7 +118,7 @@ class TestGaveta(unittest.TestCase):
         # sem rodape: nome, "Chapa" e "Auto-regenerar" sairam (usuario)
         self.assertFalse(por_tipo('auto') or por_tipo('chapa')
                          or por_tipo('nome_objeto'))
-        niveis = {v[5][1]: v[1] for v in por_tipo('navegar')}
+        niveis = {v[5][3]: v[1] for v in por_tipo('suspenso') if len(v[5]) > 3}
         for divisor, nivel in zip(por_tipo('separador'), (1, 2)):
             centro = divisor[1] + divisor[3] / 2
             self.assertEqual(centro, (niveis[nivel] + niveis[nivel + 1] + 25) / 2)
@@ -230,8 +230,8 @@ class TestGaveta(unittest.TestCase):
         self.assertEqual(len(cancelados), 2)
 
     def test_carrossel_arraste_nao_seleciona_categoria(self):
-        widgets = self.widgets()
-        acao = next(v[5] for v in widgets if v[5] and v[5][0] == 'navegar')
+        # O carrossel arrastavel e' o da faixa superior (o menu usa lista).
+        acao = ('navegar', 1, 'Armarios', 'cabinet_carrossel_1_None', 5, False)
         original = self.cena.chapa_n1
         op = SimpleNamespace(_carrossel=acao, _mouse_inicio=200,
                              _indice_inicio=0, _arrastou=False)
@@ -262,18 +262,37 @@ class TestGaveta(unittest.TestCase):
     def test_cascata_e_presets_com_acoes(self):
         widgets = self.widgets()
         tipos = [a[0] for *_, a in widgets if a]
-        self.assertIn('navegar', tipos)
+        self.assertIn('suspenso', tipos)
+        self.assertNotIn('navegar', tipos)
         self.assertEqual(tipos.count('separador'), 2)
         self.assertTrue(all(v[3] == 1 for v in widgets
                             if v[5] and v[5][0] == 'separador'))
         self.assertIn('preset', tipos)
-        self.assertIn('item', tipos)
+        # Inserir/Editar/Bloquear sao do clique DIREITO, como na faixa
+        self.assertNotIn('item', tipos)
         self.assertIn('slider', tipos)
-        self.assertIn('rolar_nivel', tipos)
+        self.assertNotIn('rolar_nivel', tipos)
         for nivel in (1, 2, 3):
-            linhas = {v[1] for v in widgets if v[5] and
-                      v[5][0] == 'navegar' and v[5][1] == nivel}
-            self.assertEqual(len(linhas), 1)
+            campos = [v for v in widgets if v[5] and v[5][0] == 'suspenso'
+                      and len(v[5]) > 3 and v[5][3] == nivel]
+            self.assertEqual(len(campos), 1)
+
+    def test_preset_no_menu_usa_clique_direito_como_na_faixa(self):
+        from unittest.mock import patch
+        presets = [v for v in self.widgets() if v[5] and v[5][0] == 'preset']
+        self.assertTrue(presets)
+        # Sem a fila de botoes, as linhas da grade so' guardam o vao de 8 px.
+        alturas = sorted({v[1] for v in presets}, reverse=True)
+        for cima, baixo in zip(alturas, alturas[1:]):
+            self.assertAlmostEqual(cima - baixo, presets[0][3] + 8)
+        alvo = presets[0]
+        ctx = SimpleNamespace(window_manager=SimpleNamespace(modal_handler_add=lambda op: None))
+        evento = SimpleNamespace(mouse_region_x=alvo[0] + 2, mouse_region_y=alvo[1] + 2)
+        op = SimpleNamespace()
+        with patch.object(addon.gaveta, '_widgets_interativos', return_value=[alvo]):
+            r = addon.gaveta_eventos.OBJECT_OT_interagir_gaveta._botao_direito(op, ctx, evento)
+        self.assertEqual(r, {'RUNNING_MODAL'})
+        self.assertEqual(op._menu_item['arquivo'], alvo[5][1]['arquivo'])
 
     def test_desmarcar_preserva_malha_e_limpa_vinculos(self):
         bpy.ops.object.cabinet_marcar()
@@ -294,10 +313,12 @@ class TestGaveta(unittest.TestCase):
             self.cena.cabinet_aba = aba
             _cab, _conteudo, rodape = addon.gaveta._partes_gaveta(
                 addon.gaveta._widgets_gaveta(bpy.context, 320, 1400))
-            # fechada: o rodape e' so' a engrenagem no pe' da gaveta. O
-            # "Criar Portas" subiu para o topo da aba (Epico 2.3) e o
+            # fechada: o rodape e' so' a engrenagem no pe' da gaveta e,
+            # com a biblioteca DENTRO do menu, o botao que a leva a' faixa.
+            # O "Criar Portas" subiu para o topo da aba (Epico 2.3) e o
             # "Criar Puxador" foi atras, no mesmo padrao (pedido do usuario).
-            self.assertEqual(len(rodape), 1, aba)
+            self.assertEqual([v[5] for v in rodape[1:]],
+                             [('operador', addon.biblioteca_faixa.OP_LUGAR)], aba)
             if aba in {'PORTAS', 'PUXADORES'}:
                 verbo = 'portas' if aba == 'PORTAS' else 'criar_puxador'
                 botao = next(v for v in _conteudo if v[5] and v[5][0] == verbo)
@@ -344,6 +365,7 @@ class TestGaveta(unittest.TestCase):
             self.assertEqual([v[5][1] for v in rodape
                               if v[5] and v[5][0] == 'operador'],
                              [addon.gaveta.OP_OPCOES,
+                              addon.biblioteca_faixa.OP_LUGAR,
                               addon.orcamento.OP_EXPORTAR_ORCAMENTO])
             self.assertNotIn(addon.orcamento.OP_EXPORTAR_ORCAMENTO,
                              [v[5][1] for v in _conteudo
@@ -1298,7 +1320,7 @@ class TestGaveta(unittest.TestCase):
             self.assertTrue(titulo[4].startswith('Biblioteca'), aba)
             # sempre aberta: o titulo nao e' mais botao de abrir/fechar
             self.assertIsNone(titulo[5])
-            self.assertTrue(any(v[5] and v[5][0] == 'navegar' for v in baixo))
+            self.assertTrue(any(v[5] and v[5][0] == 'suspenso' for v in baixo))
             self.assertLess(titulo[1] + titulo[3], meio)
             self.assertFalse([v for v in cima if v[4].startswith('Biblioteca')])
         self.cena.cabinet_aba = 'MODULOS'

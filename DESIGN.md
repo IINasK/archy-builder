@@ -81,7 +81,12 @@ o que possa nao caber (reduz a fonte de 12 a 9 antes de cortar).
 Ao abreviar rotulo com contagem, use `_abreviar` **so' no nome**:
 `Armarios (3)` vira `arm (3)`, nunca `Armarios (`. A CASCATA da biblioteca
 nao tem contagem (pedido do usuario: ocupava espaco) nem limite de niveis:
-um carrossel por nivel do caminho escolhido; ramo sem preset nao aparece.
+ramo sem preset nao aparece. LUGAR (pedido do usuario): faixa superior
+ou DENTRO do menu (padrao), embaixo da divisoria interativa (metade);
+botao `cabinet_lugar_biblioteca` no cabecalho da faixa e no pe' do menu,
+trocado no timer. No menu, cada nivel e' um campo SUSPENSO como no Promob
+("Escolha..."); a lista FLUTUA embaixo (em cima/colunas sem espaco),
+atende primeiro e tira do clique o que cobre. A faixa mantem suas filas.
 
 HUD do MODULO: sempre uma caixa convencional com 8 cantos e 12 arestas
 nos limites do envelope; rotulos A1/A2/A3. Vale para L, diagonal, curvo e chapas
@@ -617,8 +622,9 @@ clicar sem arrastar continua digitando. A cada etapa nova do
 wizard a aba rola ate' o fim, onde a etapa nasce (`_rolar_ate_o_fim`).
 Na biblioteca, Puxadores e Dobradicas mostram tambem os de fabrica,
 TRAVADOS (moram no add-on, fora do indice); clicar num puxador dela (foto
-ou "Ins.") abre o "Criar Puxador" com ele -- o arrasto nativo do Asset
-Browser traz so' o 3D.
+ou Inserir do clique direito) abre o "Criar Puxador" com ele -- o arrasto
+nativo do Asset Browser traz so' o 3D. Faixa e menu: modulo SEM fila de
+botoes embaixo; Inserir/Editar/Bloquear no clique DIREITO (v316).
 
 **Modulos | Materiais** (pedido do usuario): dois segmentos AO LADO do
 titulo "Biblioteca" (verbo `biblioteca`, nao `escolha`: a fila e' do
@@ -673,19 +679,13 @@ correr, basculantes e zig-zag. Fotografar nao muda lado, vao nem ferragens.
 
 ## 10. Animacao
 
-Glow e carrossel correm no MESMO timer (`_animar_realces`, 60 fps),
-que se desregistra sozinho. Nao crie um segundo. O carrossel desliza
-como roleta: o indice INTEIRO em `screen['cabinet_carrossel_*']` e' a verdade,
-`_deslizes` guarda so' a intermediaria. Tres regras:
+O glow corre num timer so' (`_animar_realces`, 60 fps), que se
+desregistra sozinho. Nao crie um segundo. O carrossel deslizante do
+menu foi substituido pela lista suspensa (v315, pedido do usuario).
 
-- Em repouso `_deslizar` devolve o proprio alvo: o layout parado fica
-  identico ao de antes e o teste ve posicoes inteiras.
 - As posicoes saem de `_widgets_gaveta`, nunca do desenho — o
-  retangulo de clique anda junto com a peca, senao o usuario erra o
-  alvo em movimento e o glow acende a peca errada.
-- O trilho e' recortado com `scissor_set`, senao a peca que entra
-  aparece por cima das setas; todo scissor ligado tem que ser
-  desligado no mesmo laco.
+  retangulo de clique e o glow acendem a peca certa.
+- Todo `scissor_set` ligado tem que ser desligado no mesmo laco.
 
 ## 11. Nunca faca
 

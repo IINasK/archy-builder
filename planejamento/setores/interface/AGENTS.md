@@ -101,8 +101,8 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Layout devolve `(x, y, w, h, rotulo, acao)`, desenho pinta, evento despacha.
   Nao hashear acao com dict. Gizmos em pool: ocultar/reusar; nao remover ou
   religar no redraw. Campo conserva operador ligado; atualizar so' dica.
-- Modulos | Materiais na FAIXA no topo, sobre menu E viewport; menu so' edita.
-  Screen `cabinet_layout=2`: biblioteca/menu/cena; reconectar/migrar layout.
+- Biblioteca: FAIXA no topo (`cabinet_layout=2`: faixa/menu/cena) ou NO MENU
+  (`cabinet_biblioteca_lugar=MENU`, nao migra; troca no timer): nivel = lista suspensa.
 - Niveis sem limite (`niveis`); abas 18 px/fonte 10/intervalo 2. Modos e niveis
   numa linha em qualquer altura; caixas CINZA, juntas cinza claro/vao 12.
   Contorno cinza claro SO' no hover de ABA; sem halo na navegacao.

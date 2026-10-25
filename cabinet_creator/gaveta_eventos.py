@@ -358,7 +358,7 @@ def _eh_modelo_do_criador(it):
 
 def _modelo_do_criador(op, context, it, indice):
     """Clique num modelo do criador na biblioteca (foto ou icone). O de
-    PUXADOR, na foto ou no "Ins.", abre o "Criar Puxador" com ele --
+    PUXADOR, na foto ou no Inserir do clique direito, abre o "Criar Puxador" com ele --
     funcional, nao so' o 3D (o arrasto nativo do Asset Browser traz so' o
     3D): devolve 'CRIAR' e quem chama abre no SOLTAR. O de fabrica e'
     protegido: "Edit." e cadeado so' avisam. O do usuario edita e trava
@@ -515,6 +515,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'rolar_nivel':
                 context.screen[acao[1]] = max(0, min(acao[3],
                     int(context.screen.get(acao[1], 0)) + acao[2]))
+            elif acao[0] == 'nivel':
+                # linha da lista suspensa da cascata (ja' fechada acima);
+                # a escolhida de novo nao fecha o nivel, como no Promob
+                if not acao[3]:
+                    bpy.ops.object.cabinet_navegar(nivel=acao[1], valor=acao[2])
             elif acao[0] == 'modo':
                 pass        # indicador: um objeto = individual, mais = grupo
             elif acao[0] == 'medida':
@@ -640,9 +645,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     pass
                 else:
                     bpy.ops.object.cabinet_apanhar_vao('INVOKE_DEFAULT')
-            elif acao[0] in {'preset', 'item'} and _eh_modelo_do_criador(acao[1]):
-                if _modelo_do_criador(self, context, acao[1],
-                                      acao[2] if acao[0] == 'item' else 0):
+            elif acao[0] == 'preset' and _eh_modelo_do_criador(acao[1]):
+                if _modelo_do_criador(self, context, acao[1], 0):
                     # abre modal: no SOLTAR, como `_solda.OPERADORES_NO_SOLTAR`
                     self._no_soltar = 'object.cabinet_posicionar_puxador'
                     context.window_manager.modal_handler_add(self)
@@ -680,20 +684,6 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 bpy.ops.object.cabinet_arrastar_preset(
                     'INVOKE_DEFAULT', pasta=it['pasta'],
                     arquivo=it['arquivo'], tipo=it.get('tipo', 'modulo'))
-            elif acao[0] == 'item':
-                it, indice = acao[1], acao[2]
-                if indice == 0:
-                    bpy.ops.object.cabinet_inserir_preset(
-                        pasta=it['pasta'], arquivo=it['arquivo'],
-                        tipo=it.get('tipo', 'modulo'))
-                elif indice == 1:
-                    if not _biblioteca.item_bloqueado(it):
-                        bpy.ops.object.cabinet_editar_modelo(
-                            'INVOKE_DEFAULT', pasta=it['pasta'],
-                            arquivo=it['arquivo'])
-                else:
-                    bpy.ops.object.cabinet_bloqueio(
-                        pasta=it['pasta'], arquivo=it['arquivo'])
             elif acao[0] == 'slider':
                 self._inicio, _, self._largura = _gaveta._trilho_slider_gaveta(
                     acao, wx, wy, w, h)
@@ -1045,6 +1035,13 @@ class OBJECT_OT_alternar_gaveta(Operator):
         if _biblioteca_faixa.area_da_faixa(screen) is not None:
             _biblioteca_faixa.fechar(context.window, screen)
             return {'FINISHED'}
+        if _biblioteca_faixa.acoplada(screen):
+            # biblioteca dentro do menu: abre/fecha so' a area do menu
+            if _gaveta._area_gaveta(screen) is not None:
+                _biblioteca_faixa.fechar(context.window, screen)
+            else:
+                _biblioteca_faixa.abrir_menu(context)
+            return {'FINISHED'}
         _biblioteca_faixa.abrir(context)
         return {'FINISHED'}
 
@@ -1103,16 +1100,13 @@ def _icone_acao_gaveta(acao):
                 'object.cabinet_vincular_porta': 'LINKED',
                 'object.cabinet_vincular_puxador': 'LINKED',
                 'object.cabinet_abrir_biblioteca': 'FILE_FOLDER',
-                'object.cabinet_prateleira': 'ASSET_MANAGER',
                 'object.cabinet_salvar_biblioteca': 'FILE_TICK',
-                'object.cabinet_novo_material': 'ADD'}.get(acao[1])
+                'object.cabinet_novo_material': 'ADD',
+                _biblioteca_faixa.OP_LUGAR: 'WINDOW'}.get(acao[1])
     if acao[0] == 'material_item':
         return ('GREASEPENCIL', 'TRASH')[acao[2]]
     if acao[0] == 'cadeado':
         return 'LOCKED' if acao[3] else 'UNLOCKED'
-    if acao[0] == 'item':
-        return ('IMPORT', 'GREASEPENCIL',
-                'LOCKED' if _biblioteca.item_bloqueado(acao[1]) else 'UNLOCKED')[acao[2]]
     if acao[0] == 'rolar_nivel':
         return 'TRIA_LEFT' if acao[2] < 0 else 'TRIA_RIGHT'
     return None
@@ -1282,20 +1276,8 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 elif acao[0] == 'operador':
                     botao.target_set_operator(acao[1])
                 elif acao[0] in {'rolar_nivel', 'cadeado', 'escolha',
-                                 'material_item'} or (
-                        acao[0] == 'item' and _eh_modelo_do_criador(acao[1])):
-                    # modelo do criador: a gaveta decide (`_modelo_do_criador`)
+                                 'material_item'}:
                     botao.target_set_operator('object.cabinet_interagir_gaveta')
-                elif acao[0] == 'item':
-                    it, indice = acao[1:]
-                    nome = ('object.cabinet_inserir_preset',
-                            'object.cabinet_editar_modelo',
-                            'object.cabinet_bloqueio')[indice]
-                    op = botao.target_set_operator(nome)
-                    op.pasta, op.arquivo = it['pasta'], it['arquivo']
-                    if indice == 0:
-                        op.tipo = it.get('tipo', 'modulo')
-                    botao.hide_select = indice == 1 and _biblioteca.item_bloqueado(it)
             self._preparar_hover(context, acesos_por_icone)
             _gaveta_desenho._desenhar_gaveta(tela=True)
             return

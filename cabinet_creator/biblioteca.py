@@ -3024,7 +3024,9 @@ class OBJECT_OT_abrir_pasta_biblioteca(Operator):
 # viewport. O arraste nativo vem LIGADO de fabrica: os pinceis do
 # Blender e' que pedem 'NO_ASSET_DRAG' para desliga-lo. Nao pedindo
 # nada, o item e' arrastavel e o solte cai no dropbox nativo da
-# viewport, identico ao do Asset Browser.
+# viewport, identico ao do Asset Browser. O botao "Assets" que a
+# mostrava foi descontinuado (pedido do usuario, 330): ela continua no
+# menu Ver do Blender.
 
 
 class VIEW3D_AST_cabinet_creator(bpy.types.AssetShelf):
@@ -3044,37 +3046,6 @@ class VIEW3D_AST_cabinet_creator(bpy.types.AssetShelf):
     @classmethod
     def asset_poll(cls, asset):
         return asset.id_type in {'OBJECT', 'COLLECTION'}
-
-
-class OBJECT_OT_prateleira(Operator):
-    """Mostra/esconde a prateleira de assets na viewport -- e' de la'
-    que se ARRASTA o modulo para a cena"""
-    bl_idname = "object.cabinet_prateleira"
-    bl_label = "Prateleira de Assets"
-
-    @classmethod
-    def poll(cls, context):
-        return context.area is not None and context.area.type == 'VIEW_3D'
-
-    def execute(self, context):
-        registrar_bibliotecas()
-        # Gravar show_region_asset_shelf direto falha com "read-only"
-        # dependendo do contexto (o botao vive na sidebar, nao na
-        # viewport). O operador de regiao do proprio Blender resolve
-        # sempre -- e' o mesmo que o menu Ver usa.
-        janela = next((r for r in context.area.regions
-                       if r.type == 'WINDOW'), None)
-        try:
-            with context.temp_override(area=context.area, region=janela):
-                bpy.ops.screen.region_toggle(region_type='ASSET_SHELF')
-        except Exception as e:
-            print("[Cabinet Creator] prateleira:", e)
-            self.report({'WARNING'}, "Use Ver > Prateleira de Assets")
-            return {'CANCELLED'}
-        if getattr(context.space_data, "show_region_asset_shelf", False):
-            self.report({'INFO'},
-                        "Escolha a biblioteca 'Cabinet Creator' e arraste")
-        return {'FINISHED'}
 
 
 class OBJECT_OT_registrar_bibliotecas(Operator):

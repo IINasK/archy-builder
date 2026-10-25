@@ -101,6 +101,7 @@ CLASSES = (
     _paredes_edicao.VIEW3D_MT_parede_cabinet,
     _biblioteca_faixa.OBJECT_OT_recolher_biblioteca,
     _biblioteca_faixa.OBJECT_OT_acao_item_biblioteca,
+    _biblioteca_faixa.OBJECT_OT_lugar_biblioteca,
     _opcoes.CabinetCreatorPreferences,
     _modulos.OBJECT_OT_sincronizar_grupo,
     _modulos.OBJECT_OT_sincronizar_conjunto,
@@ -118,7 +119,6 @@ CLASSES = (
     _biblioteca.OBJECT_OT_definir_tamanho,
     _biblioteca.OBJECT_OT_inserir_preset,
     _biblioteca.OBJECT_OT_arrastar_preset,
-    _biblioteca.OBJECT_OT_prateleira,
     _selecao.OBJECT_OT_selecionar,
     _biblioteca.OBJECT_OT_navegar,
     _materiais.OBJECT_OT_aplicar_material,
@@ -577,7 +577,6 @@ def unregister():
     if bpy.app.timers.is_registered(_gaveta._animar_realces):
         bpy.app.timers.unregister(_gaveta._animar_realces)
     _gaveta._realces.clear()
-    _gaveta._deslizes.clear()
     if bpy.app.timers.is_registered(_gaveta._limitar_largura_gaveta):
         bpy.app.timers.unregister(_gaveta._limitar_largura_gaveta)
     _selecao.remover_keymaps()

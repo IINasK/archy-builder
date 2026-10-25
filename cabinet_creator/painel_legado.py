@@ -406,8 +406,6 @@ class VIEW3D_PT_cabinet_creator(Panel):
                  text="Biblioteca (%d)" % len(itens), toggle=True)
         cab.operator("object.cabinet_abrir_biblioteca", text="",
                      icon='FILE_FOLDER')
-        # a prateleira nativa: unico lugar onde o arraste real existe
-        cab.operator("object.cabinet_prateleira", text="", icon='ASSET_MANAGER')
         # o "+" adiciona a selecao atual a biblioteca
         cab.operator("object.cabinet_salvar_biblioteca", text="", icon='ADD')
         if not s.chapa_bib_aberta:

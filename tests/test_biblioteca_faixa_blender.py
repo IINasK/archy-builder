@@ -58,6 +58,96 @@ class TestFaixa(unittest.TestCase):
         outros = [v for v in F.widgets(self.ctx, 1600, 240) if v[5] and v[5][0] == 'preset']
         self.assertEqual(outros[0][5][1]['nome'], 'Canto 00050')
 
+    def test_botao_assets_descontinuado(self):
+        # Pedido do usuario: o botao "Assets" (prateleira nativa) saiu da
+        # faixa e do menu; o operador dele nao existe mais.
+        operadores = {v[5][1] for v in F.widgets(self.ctx, 1600, 240)
+                      if v[5] and v[5][0] == 'operador'}
+        self.assertTrue(operadores)
+        self.assertNotIn('object.cabinet_prateleira', operadores)
+        for botoes in addon.gaveta.BOTOES_BIBLIOTECA.values():
+            self.assertNotIn('object.cabinet_prateleira', [op for _n, op in botoes])
+        self.assertFalse(hasattr(bpy.types, 'OBJECT_OT_cabinet_prateleira'))
+        self.assertFalse(hasattr(addon.biblioteca, 'OBJECT_OT_prateleira'))
+
+    def test_lugar_da_biblioteca_faixa_ou_menu(self):
+        tela = bpy.context.screen
+        tela.pop(F.CHAVE_LUGAR, None)
+        # padrao (pedido do usuario): na lateral esquerda, dentro do menu
+        self.assertEqual(addon.opcoes.OPCOES_INTERNAS['biblioteca_lugar'], 'MENU')
+        self.assertEqual(addon.opcoes.CabinetCreatorPreferences.__annotations__[
+            'biblioteca_lugar'].keywords['default'], 'MENU')
+        self.assertTrue(F.acoplada(tela))
+        self.assertIn(F.OBJECT_OT_lugar_biblioteca, addon.CLASSES)
+        # O botao: no cabecalho da faixa e no pe' da biblioteca do menu.
+        lugar = lambda ws: [v for v in ws if v[5] == ('operador', F.OP_LUGAR)]
+        faixa = F.widgets(self.ctx, 1600, 240)
+        self.assertEqual(len(lugar(faixa)), 1)
+        ferramentas = [v for v in faixa if v[5] and v[5][0] == 'operador']
+        self.assertFalse([(a, b) for i, a in enumerate(ferramentas) for b in ferramentas[i + 1:]
+                          if a[0] < b[0] + b[2] and b[0] < a[0] + a[2]])
+        self.assertEqual(len(lugar(addon.gaveta._widgets_gaveta(bpy.context, 320, 900))), 1)
+        tela[F.CHAVE_LAYOUT] = 2
+        self.assertFalse(lugar(addon.gaveta._widgets_gaveta(bpy.context, 320, 900)))
+        try:
+            # O clique so' agenda: fechar a area que atende o clique a
+            # liberaria debaixo do operador. A troca vem no timer.
+            with patch.object(F, '_trocar_agora') as trocar:
+                self.assertEqual(bpy.ops.object.cabinet_lugar_biblioteca(), {'FINISHED'})
+                trocar.assert_not_called()
+                self.assertIn(tela.name, F._menus_pendentes[0])
+                self.assertTrue(bpy.app.timers.is_registered(F._abrir_menus_pendentes))
+                self.assertIsNone(F._abrir_menus_pendentes())
+                trocar.assert_called_once()
+            # Escolhido o menu, reconectar nao o migra mais para a faixa.
+            tela[F.CHAVE_LAYOUT] = 1
+            for lugar_escolhido, migra in (('MENU', False), ('FAIXA', True)):
+                F.definir_lugar(lugar_escolhido, tela)
+                self.assertEqual(F.acoplada(tela), lugar_escolhido == 'MENU')
+                with patch.object(F, 'abrir') as abrir, \
+                     patch.object(addon.gaveta, '_area_gaveta',
+                                  return_value=SimpleNamespace(x=0, y=0, width=10, height=10)):
+                    addon.gaveta._reconectar_gavetas()
+                self.assertEqual(abrir.called, migra, lugar_escolhido)
+        finally:
+            tela.pop(F.CHAVE_LUGAR, None)
+            for nome, valor in addon.opcoes.OPCOES_INTERNAS.items():
+                addon.opcoes._definir_opcao(nome, valor)
+            F.esquecer()
+        self.assertFalse(F._menus_pendentes[0])
+        self.assertFalse(bpy.app.timers.is_registered(F._abrir_menus_pendentes))
+
+    def test_lugar_escolhido_vale_para_todo_arquivo(self):
+        # Pedido do usuario: lembrar a escolha do lugar da biblioteca. Ela
+        # ficava so' na screen do arquivo; agora fica nas preferencias.
+        O = addon.opcoes
+        tela = bpy.context.screen
+        try:
+            for nome, valor in O.OPCOES_INTERNAS.items():
+                O._definir_opcao(nome, valor)
+            # screen de arquivo antigo marcada: vira a preferencia, uma vez
+            tela[F.CHAVE_LUGAR] = 'MENU'
+            self.assertTrue(F.acoplada(tela))
+            self.assertEqual(O._opcao('biblioteca_lugar'), 'MENU')
+            self.assertTrue(O._opcao('biblioteca_lugar_definido'))
+            # outro arquivo, screen sem marca: segue a escolha
+            self.assertTrue(F.acoplada({'outra': 1}))
+            # o botao troca o que esta' aberto e grava na preferencia
+            F.definir_lugar('FAIXA', tela)
+            cena = SimpleNamespace(as_pointer=lambda: 1)
+            with patch.object(F, 'viewport', return_value=cena),                  patch.object(F, 'area_da_faixa', return_value=None),                  patch.object(addon.gaveta, '_area_gaveta', return_value=None):
+                F._trocar_agora(bpy.context.window, tela)
+            self.assertEqual(O._opcao('biblioteca_lugar'), 'MENU')
+            self.assertEqual(tela[F.CHAVE_LUGAR], 'MENU')
+            # screen antiga marcada nao desfaz mais a escolha feita
+            F.definir_lugar('FAIXA')
+            self.assertFalse(F.acoplada({F.CHAVE_LUGAR: 'MENU'}))
+        finally:
+            tela.pop(F.CHAVE_LUGAR, None)
+            for nome, valor in O.OPCOES_INTERNAS.items():
+                O._definir_opcao(nome, valor)
+            F.esquecer()
+
     def test_menu_novo_nao_tem_biblioteca_nem_divisoria(self):
         bpy.context.screen[F.CHAVE_LAYOUT] = 2
         widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 900)

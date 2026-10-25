@@ -68,14 +68,14 @@ def _chave_widget(acao):
         return None if _gaveta_eventos._operador_apagado(acao) else 'op:' + acao[1]
     if verbo == 'navegar':
         return 'nav:%s:%s' % (acao[1], acao[2])
+    if verbo == 'nivel':
+        return 'niv:%s:%s' % (acao[1], acao[2])
     if verbo == 'contador':
         return 'cont:%s' % acao[1]
     if verbo == 'rolar_nivel':
         return 'rol:%s:%s' % (acao[1], acao[2])
     if verbo == 'preset':
         return 'preset:%s' % acao[1]['arquivo']
-    if verbo == 'item':
-        return 'item:%s:%s' % (acao[1]['arquivo'], acao[2])
     if verbo == 'biblioteca':
         return 'bib:%s' % acao[1]
     if verbo == 'material':
@@ -514,7 +514,7 @@ def _desenhar_gaveta(tela=False):
 
         aceitar = bool(acao and acao[0] == 'escolha'
                        and acao[1] == _portas.CONFIRMAR_ETAPA)
-        ativo = bool(acao and (acao[0] in {'navegar', 'modo', 'biblioteca'} and acao[-1]
+        ativo = bool(acao and (acao[0] in {'navegar', 'modo', 'biblioteca', 'nivel'} and acao[-1]
                                or acao[0] == 'escolha' and acao[3]
                                or acao[0] == 'contador'
                                and not _eh_campo_contador(acao)

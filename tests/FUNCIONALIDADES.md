@@ -1,5 +1,15 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Lugar da biblioteca lembrado (331): a escolha faixa/menu vai para as
+preferencias do add-on (`biblioteca_lugar`) e vale em todo arquivo; a
+screen marcada de arquivo antigo vira a preferencia uma vez; o botao troca
+o que esta' aberto (biblioteca_faixa, 31). Padrao (332): 'MENU', na
+lateral esquerda (pedido do usuario).
+
+Botao "Assets" descontinuado (330): saiu da faixa, do menu e do painel
+legado, com o operador `object.cabinet_prateleira`; a AssetShelf continua
+no menu Ver do Blender (biblioteca_faixa, 30).
+
 Costas na parede = lado OPOSTO a' porta (324): a frente sai da posicao das
 folhas/frentes de gaveta, gravada em `parede_costas` ao associar; a roda do
 mouse no arraste (direito ou da biblioteca) troca a face de 90 em 90; no
@@ -15,6 +25,16 @@ Cena real pesada (321): regiao da parede em lote e uma vez por parede
 Preset solto numa parede fora da edicao 2D (318): costas na parede, cursor
 no centro do modulo, pontas/piso/teto grudam, sem sobrepor vizinho, e
 associa; fora da parede volta a' rotacao do preset (paredes_edicao, 63).
+
+Biblioteca no menu sem fila de botoes (316): Inserir/Editar/Bloquear so' no
+clique direito, como na faixa; grade com vao de 8 px (gaveta, 67).
+
+Cotas Promob e biblioteca no menu (315): Superior/Anterior/Afastamento/
+Posterior/Inferior em cruz no menu e na viewport; afastamento resiste ao
+timer/G (paredes_composicao, 49). Biblioteca na faixa OU dentro do menu
+(`cabinet_lugar_biblioteca`, troca no timer; biblioteca_faixa, 29); no menu
+cada nivel e' lista suspensa flutuante (estrutura, 51: lista, colunas,
+hover por linha, materiais, escolha). Carrossel do menu removido.
 
 Encaixe e cotas em parede (301): sete regressoes novas em paredes_edicao
 (62 testes) para colisao, parede cheia/rollback, limites nas quinas, preset

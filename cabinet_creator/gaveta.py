@@ -118,12 +118,6 @@ _edicao_gaveta = [None]
 # e' (ponteiro da area, nome do widget), porque agora a alca e os
 # campos de medida usam o MESMO glow.
 _realces = {}
-# Deslize do carrossel: chave da categoria -> [indice atual, alvo,
-# instante]. O indice inteiro continua sendo a verdade (clique, arraste
-# e testes leem ele da screen); isto aqui e' so' a posicao INTERMEDIARIA
-# por onde a fila passa, para a troca virar movimento e nao um corte.
-_deslizes = {}
-DURACAO_DESLIZE = 0.09
 _CHAVE_GAVETA = "cabinet_gaveta_area"
 _CHAVE_PENDENTE = "cabinet_gaveta_pendente"
 _CHAVE_ROLAGEM = "cabinet_gaveta_rolagem"
@@ -245,7 +239,10 @@ def _reconectar_gavetas():
         screen = janela.screen
         _biblioteca_faixa.reconectar(screen)
         painel = _area_gaveta(screen)
-        if painel is not None and screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
+        # Menu antigo migra para a faixa; o do lugar 'MENU' e' escolha.
+        migrar = (screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
+                  and not _biblioteca_faixa.acoplada(screen))
+        if painel is not None and migrar:
             principal = _biblioteca_faixa.viewport(screen)
             if principal is not None:
                 with bpy.context.temp_override(window=janela, area=principal):
@@ -261,7 +258,7 @@ def _reconectar_gavetas():
         if len(candidatos) == 1:
             screen[_CHAVE_GAVETA] = str(candidatos[0].as_pointer())
             candidatos[0].tag_redraw()
-            if screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
+            if migrar:
                 principal = _biblioteca_faixa.viewport(screen)
                 if principal is not None:
                     with bpy.context.temp_override(window=janela, area=principal):
@@ -609,37 +606,48 @@ def _medidas_gaveta(context):
 
 def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
                          indice=None, pai=None, prefixo='cabinet_carrossel'):
-    """`prefixo`: cada biblioteca (presets, materiais) rola a sua. Sem a
-    quantidade de itens no botao (pedido do usuario: ocupava espaco)."""
+    """Um nivel da cascata da biblioteca NO MENU = um campo suspenso,
+    como no Promob (pedido do usuario): a lista abre flutuando embaixo
+    dele (`_lista_da_cascata`). `prefixo` separa presets de materiais."""
     if not valores:
         return y
-    chave = '%s_%d_%s' % (prefixo, nivel, str(pai))
-    colunas = min(len(valores), max(1, int((largura - 48) // 110)))
-    limite = len(valores) - colunas
-    inicio = max(0, min(limite, int(bpy.context.screen.get(chave, 0))))
-    bw = (largura - 48 - 4 * (colunas - 1)) / colunas
-    itens.append((x, y, 20, 25, '', ('rolar_nivel', chave, -1, limite)))
-    itens.append((x + largura - 20, y, 20, 25, '',
-                  ('rolar_nivel', chave, 1, limite)))
-
-    # As posicoes saem daqui, nao do desenho: assim o retangulo de
-    # clique acompanha a peca enquanto ela anda. Desenhar por cima de
-    # um hit-test parado faria o usuario errar o alvo em movimento.
-    deslize = _deslizar(chave, inicio)
-    primeiro = int(math.floor(deslize))
-    sobra = deslize - primeiro
-    # Em movimento entra UMA peca a mais, a que esta' surgindo na
-    # borda; o recorte do desenho corta o que passa do trilho.
-    extra = 1 if sobra else 0
-    ordenados = sorted(valores, key=str.casefold)
-    for posicao in range(primeiro, primeiro + colunas + extra):
-        if not 0 <= posicao < len(ordenados):
-            continue
-        valor = ordenados[posicao]
-        itens.append((x + 24 + (posicao - primeiro - sobra) * (bw + 4), y,
-                      bw, 25, _abreviar(valor, 16),
-                      ('navegar', nivel, valor, chave, limite, selecionado == valor)))
+    nome = '%s_%d' % (prefixo, nivel)
+    aberto = bpy.context.screen.get(_CHAVE_SUSPENSO, '') == nome
+    ordenados = tuple(sorted(valores, key=str.casefold))
+    itens.append((x, y, largura, 25, selecionado or 'Escolha...',
+                  ('suspenso', nome, aberto, nivel, ordenados, selecionado)))
     return y - 39
+
+
+ALTURA_LINHA_LISTA = 24
+
+
+def _lista_da_cascata(itens, piso, teto):
+    """Lista flutuante do nivel aberto: (fundo, linhas...) ou []. Abre
+    embaixo do campo; sem espaco, em cima; sem espaco nenhum, em colunas.
+    So' existe com o campo inteiro visivel entre `piso` e `teto`."""
+    campo = next((v for v in itens if v[5] and v[5][0] == 'suspenso'
+                  and v[5][2] and len(v[5]) > 3), None)
+    if campo is None or campo[1] < piso or campo[1] + campo[3] > teto:
+        return []
+    cx, cy, cw, ch, _rotulo, (_v, _nome, _aberto, nivel, valores, atual) = campo
+    altura = len(valores) * ALTURA_LINHA_LISTA
+    embaixo, emcima = cy - 4 - piso, teto - (cy + ch + 4)
+    espaco = embaixo if altura <= embaixo or embaixo >= emcima else emcima
+    cabem = max(1, int((espaco - 6) // ALTURA_LINHA_LISTA))
+    colunas = max(1, math.ceil(len(valores) / cabem))
+    por_coluna = math.ceil(len(valores) / colunas)
+    largura = (cw - 6 - 4 * (colunas - 1)) / colunas
+    altura = por_coluna * ALTURA_LINHA_LISTA + 6
+    y0 = cy - 4 - altura if espaco == embaixo else cy + ch + 4
+    lista = [(cx, y0, cw, altura, '', ('fundo',))]
+    for i, valor in enumerate(valores):
+        coluna, linha = divmod(i, por_coluna)
+        lista.append((cx + 3 + coluna * (largura + 4),
+                      y0 + altura - 3 - (linha + 1) * ALTURA_LINHA_LISTA,
+                      largura, ALTURA_LINHA_LISTA, valor,
+                      ('nivel', nivel, valor, valor == atual)))
+    return lista
 
 
 def _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
@@ -1659,6 +1667,20 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
             if v[5] and v[5][0] == 'divisa' else v
             for v in itens[WIDGETS_CABECALHO:]
             if (v[5] and v[5][0] == 'divisa') or not coberto(v)]
+    # Lista suspensa da cascata: vai para a camada flutuante (desenhada
+    # por ultimo, atende primeiro) e o que ela cobre sai de desenho e
+    # clique. Fica no painel da biblioteca, abaixo da divisoria.
+    divisa = next((v for v in itens[WIDGETS_CABECALHO:]
+                   if v[5] and v[5][0] == 'divisa'), None)
+    lista = _lista_da_cascata(itens[WIDGETS_CABECALHO:], ALTURA_RODAPE_GAVETA,
+                              divisa[1] if divisa else altura - 48)
+    if lista:
+        fx, fy, fw, fh = lista[0][:4]
+        itens = itens[:WIDGETS_CABECALHO] + [
+            v for v in itens[WIDGETS_CABECALHO:]
+            if (v[5] and v[5][0] == 'divisa') or not (
+                v[0] < fx + fw and fx < v[0] + v[2] and v[1] < fy + fh and fy < v[1] + v[3])]
+        rodape = rodape + lista
     return itens + rodape
 
 
@@ -1761,6 +1783,10 @@ def _rodape_gaveta(context, x, w):
         # escolhendo vertices: o pe' vira o "Confirmar" (o mesmo do Enter)
         rodape.append((x + 32, 7, w - 32, 26, 'Confirmar conexao (Enter)',
                        ('operador', 'object.cabinet_confirmar_conexao')))
+    elif context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
+        # Biblioteca dentro do menu: o pe' dela leva de volta a' faixa.
+        # O cabecalho nao tem espaco sem empurrar Modulos | Materiais.
+        rodape.append((x + 32, 7, 26, 26, '', ('operador', _biblioteca_faixa.OP_LUGAR)))
     tela = context.screen
     if not tela.get(_CHAVE_OPCOES):
         return rodape
@@ -2152,8 +2178,8 @@ def _pergunta_na_gaveta(itens, x, topo, w, pergunta):
 # Icones a' direita do titulo, por biblioteca: presets (pasta, Asset
 # Browser, salvar a selecao) ou materiais (pasta, novo material)
 BOTOES_BIBLIOTECA = {
+    # 'Assets' (a prateleira nativa) foi descontinuado a pedido do usuario
     'MODULOS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
-                ('Assets', 'object.cabinet_prateleira'),
                 ('Salvar +', 'object.cabinet_salvar_biblioteca')),
     'MATERIAIS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
                   ('Novo +', 'object.cabinet_novo_material')),
@@ -2234,17 +2260,14 @@ def _biblioteca_gaveta(context, itens, x, y, w):
         y -= 12
         daqui.sort(key=lambda it: it.get('nome', '').casefold())
         bw, colunas, altura_bloco = _grade_biblioteca(s, w)
+        # Inserir/Editar/Bloquear: clique DIREITO na foto, como na faixa
+        # (pedido do usuario); sem a fila de botoes embaixo de cada modulo.
         for i, it in enumerate(daqui):
             linha, coluna = divmod(i, colunas)
             bx = x + coluna * (bw + 8)
-            by = y - altura_bloco - linha * (altura_bloco + 30)
+            by = y - altura_bloco - linha * (altura_bloco + 8)
             itens.append((bx, by, bw, altura_bloco,
                           _abreviar(it.get('nome', ''), 17), ('preset', it)))
-            acao = ('item', it)
-            for j, rotulo in enumerate(('Ins.', 'Edit.', 'Trava')):
-                sw = (bw - 8) / 3
-                itens.append((bx + j * (sw + 4), by - 24,
-                              sw, 21, rotulo, (*acao, j)))
     return itens
 
 
@@ -2459,22 +2482,6 @@ def _animar_realces():
         if estado[0] != valor:
             areas[chave[0]].tag_redraw()
         animando |= abs(estado[0] - alvo) > 0.0001
-
-    # O deslize usa decaimento exponencial, nao passo fixo: assim
-    # pular seis categorias de uma vez leva o mesmo tempo que pular
-    # uma, desacelerando no fim como uma roleta.
-    gavetas = [a for a in areas.values() if _eh_area_gaveta_bruto(a)]
-    for chave, estado in list(_deslizes.items()):
-        valor, alvo, instante = estado
-        fatia = min(1.0, max(0.0, agora - instante) / DURACAO_DESLIZE)
-        estado[0] = valor + (alvo - valor) * fatia
-        estado[2] = agora
-        if abs(estado[0] - alvo) < 0.002:
-            estado[0] = alvo
-        if estado[0] != valor:
-            for area in gavetas:
-                area.tag_redraw()
-        animando |= estado[0] != alvo
     return 1.0 / 60 if animando else None
 
 
@@ -2485,24 +2492,6 @@ def _eh_area_gaveta_bruto(area):
             return area in (_area_gaveta(janela.screen),
                             _biblioteca_faixa.area_da_faixa(janela.screen))
     return False
-
-
-def _deslizar(chave, alvo):
-    """Posicao ANIMADA do carrossel rumo a `alvo`.
-
-    Na primeira vez, e quando nada esta' em curso, devolve o proprio
-    alvo -- entao fora de uma transicao o layout continua identico ao
-    de antes, e os testes veem posicoes inteiras.
-    """
-    estado = _deslizes.get(chave)
-    if estado is None:
-        _deslizes[chave] = [float(alvo), float(alvo), time.monotonic()]
-        return float(alvo)
-    if estado[1] != alvo:
-        estado[1], estado[2] = float(alvo), time.monotonic()
-        if not bpy.app.timers.is_registered(_animar_realces):
-            bpy.app.timers.register(_animar_realces, first_interval=0.0)
-    return estado[0]
 
 
 def _realcar(context, nome, ativo):

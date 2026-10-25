@@ -960,9 +960,9 @@ class TestOperadores(BaseBiblioteca):
         addon.gaveta._biblioteca_gaveta(bpy.context, itens, 0, 2000, 900)
         niveis = {}
         for item in itens:
-            if item[5] and item[5][0] == 'navegar':
-                niveis.setdefault(item[5][1], []).append(item[4])
-        self.assertEqual(sorted(niveis), [1, 2, 3, 4, 5])      # um carrossel por nivel
+            if item[5] and item[5][0] == 'suspenso' and len(item[5]) > 3:
+                niveis.setdefault(item[5][3], []).extend(item[5][4])
+        self.assertEqual(sorted(niveis), [1, 2, 3, 4, 5])      # uma lista por nivel
         for rotulos in niveis.values():
             self.assertFalse([r for r in rotulos if '(' in r], rotulos)
         self.assertIn('Fundo', [i[4] for i in itens if i[5] and i[5][0] == 'preset'])

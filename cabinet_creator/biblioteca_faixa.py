@@ -12,12 +12,20 @@ from bpy.types import Operator
 from bpy.props import StringProperty, IntProperty
 
 _gaveta = _gaveta_eventos = _gaveta_desenho = _biblioteca = _materiais = _perguntas = None
+_opcoes = None
 CHAVE_AREA = 'cabinet_biblioteca_area'
 CHAVE_CENA = 'cabinet_viewport_area'
 CHAVE_LAYOUT = 'cabinet_layout'
 CHAVE_RECOLHIDA = 'cabinet_biblioteca_recolhida'
 CHAVE_ALTURA = 'cabinet_biblioteca_altura'
+# Lugar escolhido (pedido do usuario): 'MENU' (padrao: na lateral esquerda,
+# dentro do menu, embaixo da divisoria) ou 'FAIXA' (acima do menu e da cena). Vale
+# para TODO arquivo: fica nas preferencias (`lugar_escolhido`); na screen
+# fica so' a copia, e a de arquivo antigo vira a preferencia na 1a vez.
+CHAVE_LUGAR = 'cabinet_biblioteca_lugar'
+OP_LUGAR = 'object.cabinet_lugar_biblioteca'
 _pendentes = [{}]
+_menus_pendentes = [{}]     # screen -> ponteiro da cena a dividir
 _catalogos = [{}]
 _alturas = [{}]
 ALTURA_INICIAL = 180
@@ -189,6 +197,7 @@ def reconectar(screen):
 
 def esquecer():
     _pendentes[0].clear()
+    _menus_pendentes[0].clear()
     _catalogos[0].clear()
     for janela in bpy.context.window_manager.windows:
         _cancelar_altura(janela)
@@ -197,6 +206,116 @@ def esquecer():
         bpy.app.timers.unregister(_ajustar_alturas)
     if bpy.app.timers.is_registered(configurar_pendentes):
         bpy.app.timers.unregister(configurar_pendentes)
+    if bpy.app.timers.is_registered(_abrir_menus_pendentes):
+        bpy.app.timers.unregister(_abrir_menus_pendentes)
+
+
+def lugar_escolhido(screen=None):
+    """'FAIXA' ou 'MENU', das preferencias do add-on (pedido do usuario:
+    lembrar a escolha em qualquer arquivo). Antes da preferencia existir, a
+    escolha ficava so' na screen: a 1a screen marcada vira a preferencia."""
+    if not _opcoes._opcao('biblioteca_lugar_definido'):
+        antigo = screen.get(CHAVE_LUGAR) if screen else None
+        if antigo in ('FAIXA', 'MENU'):
+            definir_lugar(antigo)
+    return _opcoes._opcao('biblioteca_lugar')
+
+
+def definir_lugar(lugar, screen=None):
+    _opcoes._definir_opcao('biblioteca_lugar', lugar)
+    _opcoes._definir_opcao('biblioteca_lugar_definido', True)
+    if screen:
+        screen[CHAVE_LUGAR] = lugar
+
+
+def acoplada(screen):
+    """A biblioteca mora dentro do menu, e nao na faixa superior."""
+    return bool(screen) and lugar_escolhido(screen) == 'MENU'
+
+
+def abrir_menu(context):
+    """So' o menu a' esquerda da area atual, com a biblioteca dentro
+    dele (a divisoria interativa no meio, `gaveta.DIVISA_PADRAO`)."""
+    screen = context.screen
+    screen[CHAVE_LAYOUT] = 1
+    screen[_gaveta._CHAVE_PENDENTE] = str(context.area.as_pointer())
+    # Teto de metade: numa tela estreita o menu abre menor que o padrao.
+    fator = max(0.08, min(0.5, _gaveta._largura_inicial_gaveta(context)
+                          / max(1, context.area.width)))
+    with context.temp_override(area=context.area):
+        bpy.ops.screen.area_split(direction='VERTICAL', factor=fator)
+    if not bpy.app.timers.is_registered(_gaveta._configurar_gavetas):
+        bpy.app.timers.register(_gaveta._configurar_gavetas, first_interval=0.05)
+
+
+def trocar_lugar(context):
+    """Faixa <-> menu, no TIMER: o clique vem de dentro do menu ou da
+    faixa, e fechar a area que esta' atendendo o operador a liberaria
+    debaixo dele. Grava so' o nome da screen."""
+    screen = context.screen
+    if viewport(screen) is None:
+        return 'Nenhuma viewport para receber a biblioteca'
+    _menus_pendentes[0][screen.name] = None
+    if not bpy.app.timers.is_registered(_abrir_menus_pendentes):
+        bpy.app.timers.register(_abrir_menus_pendentes, first_interval=0.0)
+    return None
+
+
+def _trocar_agora(janela, screen):
+    principal = viewport(screen)
+    if principal is None:
+        return
+    # Troca o que esta' ABERTO: arquivo antigo pode abrir com a faixa
+    # enquanto a preferencia ja' e' o menu.
+    no_menu = (area_da_faixa(screen) is None
+               and (_gaveta._area_gaveta(screen) is not None or acoplada(screen)))
+    if no_menu:
+        definir_lugar('FAIXA', screen)
+        with bpy.context.temp_override(window=janela, area=principal):
+            abrir(bpy.context)
+        return
+    definir_lugar('MENU', screen)
+    ptr = principal.as_pointer()
+    if area_da_faixa(screen) is not None or _gaveta._area_gaveta(screen) is not None:
+        fechar(janela, screen)
+    # A geometria das areas juntadas so' existe no tique seguinte.
+    _menus_pendentes[0][screen.name] = ptr
+    if not bpy.app.timers.is_registered(_abrir_menus_pendentes):
+        bpy.app.timers.register(_abrir_menus_pendentes, first_interval=0.05)
+
+
+def _abrir_menus_pendentes():
+    for janela in bpy.context.window_manager.windows:
+        screen = janela.screen
+        if screen.name not in _menus_pendentes[0]:
+            continue
+        ptr = _menus_pendentes[0].pop(screen.name)
+        if ptr is None:
+            _trocar_agora(janela, screen)
+            continue
+        # A cena pode ter sido juntada: vale a maior viewport que sobrou.
+        principal = next((a for a in screen.areas if a.as_pointer() == ptr), None) or max(
+            (a for a in screen.areas if a.type == 'VIEW_3D'),
+            key=lambda a: a.width * a.height, default=None)
+        if principal is not None:
+            with bpy.context.temp_override(window=janela, area=principal):
+                abrir_menu(bpy.context)
+    # Registrar dentro do proprio tique e' ignorado: segue vivo enquanto
+    # a troca para o menu ainda espera a divisao da cena.
+    return 0.05 if _menus_pendentes[0] else None
+
+
+class OBJECT_OT_lugar_biblioteca(Operator):
+    """Leva a biblioteca da faixa superior para dentro do menu, ou volta"""
+    bl_idname = OP_LUGAR
+    bl_label = 'Lugar da biblioteca'
+
+    def execute(self, context):
+        erro = trocar_lugar(context)
+        if erro:
+            self.report({'WARNING'}, erro)
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 def _linha(context, itens, x, y, w, valores, nivel, selecionado, pai=None,
@@ -406,7 +525,8 @@ def widgets(context, largura, altura):
     modos = [nome for _modo, nome in _gaveta.MODOS_BIBLIOTECA]
     escolhido = dict(_gaveta.MODOS_BIBLIOTECA)[s.cabinet_bib_modo]
     grupos = [(0, modos, escolhido, None), *visiveis]
-    ferramentas = 74 + 21 * len(_gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo])
+    # +1: o botao que leva a biblioteca para dentro do menu (OP_LUGAR)
+    ferramentas = 74 + 21 * (len(_gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo]) + 1)
     _subcategorias_em_linha(context, itens, grupos, w - ferramentas,
                            h - TOPO_CATEGORIA, prefixo)
     y = h - 35
@@ -446,7 +566,7 @@ def widgets(context, largura, altura):
                 itens.append((bx + j * (sw + 4), by - 24, sw, 21, nome,
                               ('material_item', it, j)))
     # Ferramentas do catalogo permanecem acessiveis, sem abrir arquivos no draw.
-    botoes = _gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo]
+    botoes = _gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo] + (('Lugar', OP_LUGAR),)
     for i, (nome, op) in enumerate(botoes):
         itens.append((w - 87 - i * 21, h - TOPO_CATEGORIA, 18, ALTURA_CATEGORIA,
                       nome, ('operador', op)))

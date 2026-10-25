@@ -161,6 +161,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/MODULOS/320": [
@@ -325,6 +334,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/MODULOS/482": [
@@ -489,6 +507,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/MODULOS/564": [
@@ -653,6 +680,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PORTAS/190": [
@@ -736,6 +772,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PORTAS/320": [
@@ -819,6 +864,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PORTAS/482": [
@@ -902,6 +956,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PORTAS/564": [
@@ -985,6 +1048,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PUXADORES/190": [
@@ -1068,6 +1140,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PUXADORES/320": [
@@ -1151,6 +1232,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PUXADORES/482": [
@@ -1234,6 +1324,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "chapa/PUXADORES/564": [
@@ -1317,6 +1416,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/MODULOS/190": [
@@ -1490,6 +1598,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/MODULOS/320": [
@@ -1663,6 +1780,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/MODULOS/482": [
@@ -1836,6 +1962,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/MODULOS/564": [
@@ -2009,6 +2144,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PORTAS/190": [
@@ -2092,6 +2236,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PORTAS/320": [
@@ -2175,6 +2328,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PORTAS/482": [
@@ -2258,6 +2420,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PORTAS/564": [
@@ -2341,6 +2512,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PUXADORES/190": [
@@ -2424,6 +2604,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PUXADORES/320": [
@@ -2507,6 +2696,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PUXADORES/482": [
@@ -2590,6 +2788,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "modulo/PUXADORES/564": [
@@ -2673,6 +2880,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/MODULOS/190": [
@@ -2747,6 +2963,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/MODULOS/320": [
@@ -2821,6 +3046,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/MODULOS/482": [
@@ -2895,6 +3129,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/MODULOS/564": [
@@ -2969,6 +3212,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PORTAS/190": [
@@ -3052,6 +3304,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PORTAS/320": [
@@ -3135,6 +3396,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PORTAS/482": [
@@ -3218,6 +3488,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PORTAS/564": [
@@ -3301,6 +3580,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PUXADORES/190": [
@@ -3384,6 +3672,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PUXADORES/320": [
@@ -3467,6 +3764,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PUXADORES/482": [
@@ -3550,6 +3856,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ],
  "nada/PUXADORES/564": [
@@ -3633,6 +3948,15 @@
    "",
    "operador",
    "object.cabinet_opcoes_gaveta"
+  ],
+  [
+   44,
+   7,
+   26,
+   26,
+   "",
+   "operador",
+   "object.cabinet_lugar_biblioteca"
   ]
  ]
 }

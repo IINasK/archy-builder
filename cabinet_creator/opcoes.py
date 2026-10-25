@@ -39,9 +39,13 @@ OPCOES_PADRAO = {'unidade_padrao': 'MM', 'hud_espessura_linha': 1.5,
                  'ocultar_contorno_grupo': True, 'ocultar_origens_grupo': True,
                  'hud_pontos_apoio': True, 'hud_setas_quinas': True,
                  'tecla_corrente': 'ALT'}
+# Lembradas sem controle na engrenagem: o lugar da biblioteca escolhido
+# no botao "Lugar" (pedido do usuario: vale para todo arquivo, nao so' a
+# screen) e se ele ja' foi escolhido alguma vez (`lugar_escolhido`).
+OPCOES_INTERNAS = {'biblioteca_lugar': 'MENU', 'biblioteca_lugar_definido': False}
 # Sem preferencias (add-on carregado por script, testes) as opcoes
 # vivem aqui, para a engrenagem continuar funcionando.
-_opcoes_sem_preferencias = dict(OPCOES_PADRAO)
+_opcoes_sem_preferencias = {**OPCOES_PADRAO, **OPCOES_INTERNAS}
 
 
 def _opcao(nome):
@@ -159,6 +163,16 @@ class CabinetCreatorPreferences(bpy.types.AddonPreferences):
     hud_setas_quinas: bpy.props.BoolProperty(
         name="Guias nas quinas", default=True,
         description="Mostra a direcao do redimensionamento ao passar o mouse nas cotas")
+    biblioteca_lugar: bpy.props.EnumProperty(
+        name="Lugar da biblioteca", default='MENU',
+        items=[('FAIXA', "Faixa superior", "Acima do menu e da cena"),
+               ('MENU', "Dentro do menu", "Embaixo da divisoria do menu")],
+        description="Onde a biblioteca abre em qualquer arquivo. O botao "
+                    "Lugar da biblioteca troca e grava aqui")
+    biblioteca_lugar_definido: bpy.props.BoolProperty(
+        default=False, options={'HIDDEN'},
+        description="O lugar ja' foi escolhido no botao (antes ele ficava "
+                    "so' no arquivo)")
 
     def draw(self, context):
         layout = self.layout
@@ -166,6 +180,7 @@ class CabinetCreatorPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "foto_clicavel")
         for nome in OPCOES_PADRAO:
             layout.prop(self, nome)
+        layout.prop(self, "biblioteca_lugar")
         layout.separator()
         layout.prop(self, "pasta_biblioteca")
         layout.label(text="Em uso: " + _biblioteca.pasta_biblioteca(),

@@ -29,11 +29,11 @@ import cabinet_creator as addon
 # `OBJECT_OT_interagir_gaveta` despacha. Verbo novo que nao esteja aqui
 # e' quase sempre duplicata de um existente com outro nome.
 VERBOS = frozenset({
-    'aba', 'auto', 'biblioteca', 'chapa', 'item', 'medida', 'modo',
+    'aba', 'auto', 'biblioteca', 'chapa', 'medida', 'modo',
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
     'rolar_nivel', 'separador', 'slider', 'wireframe', 'escolha',
     'ler_portas', 'cadeado', 'suspenso', 'faixa', 'cor', 'fundo',
-    'divisa', 'pergunta', 'resposta',
+    'divisa', 'pergunta', 'resposta', 'nivel',
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
@@ -328,10 +328,12 @@ class TestGridDeMedidas(unittest.TestCase):
             addon.hud._campos_gaveta.clear()
 
 
-class TestCarrosselDeslizante(unittest.TestCase):
-    """O carrossel anda como roleta em vez de trocar os nomes secamente."""
+class TestListaSuspensaDaCascata(unittest.TestCase):
+    """Biblioteca DENTRO do menu: cada nivel da cascata e' um campo
+    suspenso e a lista abre flutuando, como no Promob (pedido do usuario;
+    substituiu o carrossel deslizante). A faixa superior tem as filas dela."""
 
-    CHAVE = 'cabinet_carrossel_1_None'
+    NOME = 'cabinet_carrossel_1'
 
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
@@ -339,92 +341,117 @@ class TestCarrosselDeslizante(unittest.TestCase):
         bpy.ops.mesh.primitive_cube_add()
         cena = bpy.context.scene
         cena.cabinet_aba = 'MODULOS'
+        cena.cabinet_bib_modo = 'MODULOS'
         cena.chapa_bib_aberta = True
         cena.chapa_n1 = ''
-        addon.gaveta._deslizes.clear()
-        bpy.context.screen[self.CHAVE] = 0
+        bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = ''
 
     def tearDown(self):
-        addon.gaveta._deslizes.clear()
-        bpy.context.screen[self.CHAVE] = 0
+        bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = ''
 
-    def navegar(self, largura=320):
-        return [v for v in addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
-                if v[5] and v[5][0] == 'navegar' and v[5][1] == 1]
+    def widgets(self):
+        return addon.gaveta._widgets_gaveta(bpy.context, 320, 1200)
 
-    def test_parado_o_layout_e_o_mesmo_de_antes(self):
-        # Sem transicao em curso, as posicoes tem que ser as inteiras
-        # de sempre: nada de meia peca sobrando na tela em repouso.
-        itens = self.navegar()
-        self.assertTrue(itens)
-        self.assertEqual(addon.gaveta._deslizes[self.CHAVE][0],
-                         addon.gaveta._deslizes[self.CHAVE][1])
-        largos = {round(v[2], 6) for v in itens}
-        self.assertEqual(len(largos), 1)
-        passo = round(itens[1][0] - itens[0][0], 6) if len(itens) > 1 else None
-        if passo is not None:
-            self.assertAlmostEqual(passo, largos.pop() + 4, places=5)
+    def campo(self, itens):
+        return next(v for v in itens if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3)
 
-    def test_em_movimento_entra_uma_peca_a_mais(self):
-        # A peca que surge na borda so' existe durante a transicao; e'
-        # ela que da' a impressao de fila andando.
-        parado = len(self.navegar())
-        addon.gaveta._deslizes[self.CHAVE] = [0.5, 1.0, 0.0]
-        andando = self.navegar()
-        self.assertEqual(len(andando), parado + 1)
-        # e a fila esta' deslocada meio passo para a esquerda
-        self.assertLess(andando[0][0], 12 + 24)
+    def test_um_campo_por_nivel_sem_carrossel(self):
+        itens = self.widgets()
+        campos = [v for v in itens if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3]
+        self.assertEqual([v[5][3] for v in campos], [1])
+        B = addon.biblioteca
+        esperado = sorted(B.filhos_de(B.indice_completo() + B.itens_de_fabrica(), ()), key=str.casefold)
+        self.assertEqual(list(campos[0][5][4]), esperado)
+        self.assertEqual(campos[0][4], 'Escolha...')
+        self.assertFalse([v for v in itens if v[5] and v[5][0] in ('navegar', 'rolar_nivel')])
 
-    def test_hit_test_acompanha_o_movimento(self):
-        # O retangulo de clique sai do MESMO lugar que o desenho. Se o
-        # desenho animasse sozinho, o usuario erraria o alvo em
-        # movimento -- e o glow acenderia a peca errada.
-        addon.gaveta._deslizes[self.CHAVE] = [0.0, 1.0, 0.0]
-        a = self.navegar()
-        addon.gaveta._deslizes[self.CHAVE] = [0.6, 1.0, 0.0]
-        b = self.navegar()
-        nome = lambda v: v[5][2]
-        comum = set(map(nome, a)) & set(map(nome, b))
-        self.assertTrue(comum)
-        for valor in comum:
-            xa = next(v[0] for v in a if nome(v) == valor)
-            xb = next(v[0] for v in b if nome(v) == valor)
-            self.assertLess(xb, xa)
+    def test_lista_flutua_embaixo_do_campo_e_cobre_o_conteudo(self):
+        bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = self.NOME
+        itens = self.widgets()
+        campo = self.campo(itens)
+        _cab, conteudo, rodape = addon.gaveta._partes_gaveta(itens)
+        _rodape, flutuante = addon.gaveta._separar_flutuante(rodape)
+        fundo, linhas = flutuante[0], flutuante[1:]
+        self.assertEqual(fundo[5], ('fundo',))
+        self.assertEqual([v[5][2] for v in linhas], list(campo[5][4]))
+        self.assertTrue(all(v[5][:2] == ('nivel', 1) for v in linhas))
+        self.assertLessEqual(fundo[1] + fundo[3], campo[1])
+        self.assertEqual((fundo[0], fundo[2]), (campo[0], campo[2]))
+        fx, fy, fw, fh = fundo[:4]
+        for v in conteudo:
+            if v[5] and v[5][0] == 'divisa':
+                continue
+            self.assertFalse(v[0] < fx + fw and fx < v[0] + v[2]
+                             and v[1] < fy + fh and fy < v[1] + v[3], v)
+        # Fechada, a lista some e o campo volta a ser o unico do nivel.
+        bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = ''
+        self.assertFalse([v for v in self.widgets() if v[5] and v[5][0] == 'nivel'])
 
-    def test_indice_inteiro_continua_sendo_a_verdade(self):
-        # O deslize e' so' visual: quem manda no conteudo e' o inteiro
-        # guardado na screen, que clique, arraste e testes leem.
-        todos = sorted(addon.biblioteca.ARVORE.keys(), key=str.casefold)
-        bpy.context.screen[self.CHAVE] = 2
-        addon.gaveta._deslizes.clear()
-        parados = [v[5][2] for v in self.navegar()]
-        self.assertEqual(parados[0], todos[2])
+    def test_sem_espaco_abre_em_cima_ou_em_colunas(self):
+        valores = tuple('Categoria %02d' % i for i in range(20))
+        def lista(y, piso, teto, n):
+            campo = (10, y, 200, 25, 'x', ('suspenso', self.NOME, True, 1, valores[:n], ''))
+            return addon.gaveta._lista_da_cascata([campo], piso, teto)
+        em_cima = lista(50, 40, 600, 5)
+        self.assertGreaterEqual(em_cima[0][1], 50 + 25)
+        colunas = lista(100, 40, 200, 20)
+        self.assertEqual(len(colunas) - 1, 20)
+        for v in colunas:
+            self.assertGreaterEqual(v[1], 40)
+            self.assertLessEqual(v[1] + v[3], 200)
+        linhas = colunas[1:]
+        for i, a in enumerate(linhas):
+            for b in linhas[i + 1:]:
+                self.assertFalse(a[0] < b[0] + b[2] and b[0] < a[0] + a[2]
+                                 and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
+        # Campo cortado pela rolagem: nada flutua solto pela tela.
+        self.assertEqual(lista(30, 40, 600, 5), [])
 
-        # No meio do caminho a fila mostra de ONDE veio, nao para onde
-        # vai -- e' isso que se ve andando. O alvo e' que segue o
-        # inteiro da screen.
-        addon.gaveta._deslizes[self.CHAVE] = [0.0, 2.0, 0.0]
-        em_transito = [v[5][2] for v in self.navegar()]
-        self.assertEqual(em_transito[0], todos[0])
-        self.assertEqual(addon.gaveta._deslizes[self.CHAVE][1], 2.0)
+    def test_cada_linha_acende_sozinha(self):
+        # Sem identidade propria, o hover de uma linha acenderia a lista toda.
+        bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = self.NOME
+        linhas = [v for v in self.widgets() if v[5] and v[5][0] == 'nivel']
+        chaves = [addon.gaveta_desenho._chave_widget(v[5]) for v in linhas]
+        self.assertGreater(len(chaves), 1)
+        self.assertEqual(len(set(chaves)), len(chaves))
 
-        # e ao terminar, para exatamente no que a screen manda
-        addon.gaveta._deslizes[self.CHAVE] = [2.0, 2.0, 0.0]
-        self.assertEqual([v[5][2] for v in self.navegar()], parados)
+    def test_materiais_tem_lista_propria(self):
+        # Presets e materiais tem cascatas distintas: abrir uma nao abre a outra.
+        cena = bpy.context.scene
+        cena.cabinet_bib_modo = 'MATERIAIS'
+        try:
+            bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = self.NOME
+            itens = self.widgets()
+            self.assertFalse([v for v in itens if v[5] and v[5][0] == 'nivel'])
+            campo = self.campo(itens)
+            self.assertEqual(campo[5][1], 'cabinet_carrossel_mat_1')
+            bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = campo[5][1]
+            linhas = [v[5][2] for v in self.widgets() if v[5] and v[5][0] == 'nivel']
+            self.assertEqual(linhas, list(campo[5][4]))
+        finally:
+            cena.cabinet_bib_modo = 'MODULOS'
 
-    def test_deslizar_nao_anima_na_primeira_vez(self):
-        # Abrir a biblioteca nao pode disparar uma roleta do nada.
-        addon.gaveta._deslizes.clear()
-        self.assertEqual(addon.gaveta._deslizar('novo', 3), 3.0)
-        self.assertEqual(addon.gaveta._deslizes['novo'][0],
-                         addon.gaveta._deslizes['novo'][1])
-
-    def test_desenho_recorta_o_trilho(self):
-        # Sem scissor a peca que entra apareceria por cima das setas.
-        fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
-        self.assertIn('scissor_test_set(True)', fonte)
-        self.assertIn('scissor_test_set(False)', fonte)
-        self.assertIn("acao[0] == 'navegar'", fonte)
+    def test_escolher_linha_navega_fecha_e_repetir_nao_fecha_nivel(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        tela = bpy.context.screen
+        tela[addon.gaveta._CHAVE_SUSPENSO] = self.NOME
+        linha = next(v for v in self.widgets() if v[5] and v[5][0] == 'nivel')
+        ctx = SimpleNamespace(screen=tela, scene=bpy.context.scene,
+                              area=SimpleNamespace(tag_redraw=lambda: None),
+                              region=SimpleNamespace(width=320, height=1200))
+        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS',
+                                 mouse_region_x=linha[0] + 2, mouse_region_y=linha[1] + 2)
+        classe = addon.gaveta_eventos.OBJECT_OT_interagir_gaveta
+        op = SimpleNamespace(report=lambda *a: None)
+        with patch.object(addon.gaveta, '_widgets_interativos', return_value=[linha]):
+            classe.invoke(op, ctx, evento)
+        self.assertEqual(list(addon.biblioteca.trilha_da_cena(bpy.context.scene)), [linha[5][2]])
+        self.assertEqual(tela[addon.gaveta._CHAVE_SUSPENSO], '')
+        repetida = linha[:5] + (('nivel', 1, linha[5][2], True),)
+        with patch.object(addon.gaveta, '_widgets_interativos', return_value=[repetida]):
+            classe.invoke(op, ctx, evento)
+        self.assertEqual(list(addon.biblioteca.trilha_da_cena(bpy.context.scene)), [linha[5][2]])
 
 
 class TestContratoDosWidgets(unittest.TestCase):
@@ -742,7 +769,7 @@ addon.register()
 carregar = unittest.defaultTestLoader.loadTestsFromTestCase
 suite = unittest.TestSuite([carregar(c) for c in (
     TestArquiteturaDaGaveta, TestAlca, TestHigieneDeGPU, TestGridDeMedidas,
-    TestCarrosselDeslizante,
+    TestListaSuspensaDaCascata,
     TestContratoDosWidgets, TestEstruturaDaChapa, TestRegistro,
     TestPacote)])
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)

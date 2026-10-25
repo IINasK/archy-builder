@@ -29,7 +29,6 @@ SEM_TESTE_ACEITO = {
         'abre o Explorer do Windows: efeito fora do Blender',
     'OBJECT_OT_abrir_asset_browser':
         "so' o painel legado (nao registrado) chama; divide area",
-    'OBJECT_OT_prateleira': 'alterna a AssetShelf: precisa de janela',
     'VIEW3D_AST_cabinet_creator': 'AssetShelf: arraste nativo do Blender',
     'OBJECT_OT_registrar_bibliotecas':
         'mexe nas preferencias do USUARIO (asset_libraries)',
