@@ -1,5 +1,9 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Biblioteca sem portas curvas (333): os 21 presets com folha curva sairam
+(376 restam; diagonais de porta reta ficam); os testes da curva legada
+usam copias em tests/fixtures (biblioteca, 83; importacao, 80).
+
 Lugar da biblioteca lembrado (331): a escolha faixa/menu vai para as
 preferencias do add-on (`biblioteca_lugar`) e vale em todo arquivo; a
 screen marcada de arquivo antigo vira a preferencia uma vez; o botao troca

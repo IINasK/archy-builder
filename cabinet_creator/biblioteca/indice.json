@@ -3252,34 +3252,6 @@
   }
  },
  {
-  "nome": "Diagonal 01 300x703x562",
-  "arquivo": "Diagonal_01_300x703x562.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Diagonais"
-  ]
- },
- {
-  "nome": "Diagonal 02 300x703x562",
-  "arquivo": "Diagonal_02_300x703x562.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Diagonais"
-  ]
- },
- {
   "nome": "Diagonal 03 306x703x550",
   "arquivo": "Diagonal_03_306x703x550.blend",
   "n1": "Armarios",
@@ -7804,34 +7776,6 @@
   }
  },
  {
-  "nome": "Diagonal Sup Baixo 02 300x356x369",
-  "arquivo": "Diagonal_Sup_Baixo_02_300x356x369.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Baixos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Baixos",
-   "Diagonais"
-  ]
- },
- {
-  "nome": "Diagonal Sup Baixo 03 300x356x369",
-  "arquivo": "Diagonal_Sup_Baixo_03_300x356x369.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Baixos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Baixos",
-   "Diagonais"
-  ]
- },
- {
   "nome": "Diagonal Sup Baixo 04 469x356x494",
   "arquivo": "Diagonal_Sup_Baixo_04_469x356x494.blend",
   "n1": "Armarios",
@@ -8642,20 +8586,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Canto 08B 901x703x963",
-  "arquivo": "Canto_08B_901x703x963.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Inferiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Inferiores",
-   "Cantos"
-  ]
  },
  {
   "nome": "Canto 10 950x703x945",
@@ -10658,20 +10588,6 @@
   }
  },
  {
-  "nome": "Canto Sup Alto 01 666x1056x685",
-  "arquivo": "Canto_Sup_Alto_01_666x1056x685.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Altos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Altos",
-   "Cantos"
-  ]
- },
- {
   "nome": "Canto Sup Alto 02 1176x1056x415",
   "arquivo": "Canto_Sup_Alto_02_1176x1056x415.blend",
   "n1": "Armarios",
@@ -11252,34 +11168,6 @@
   }
  },
  {
-  "nome": "Diagonal Sup Alto 01 300x1056x350",
-  "arquivo": "Diagonal_Sup_Alto_01_300x1056x350.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Altos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Altos",
-   "Diagonais"
-  ]
- },
- {
-  "nome": "Diagonal Sup Alto 02 300x1056x350",
-  "arquivo": "Diagonal_Sup_Alto_02_300x1056x350.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Altos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Altos",
-   "Diagonais"
-  ]
- },
- {
   "nome": "Diagonal Sup Alto 03 300x1056x350",
   "arquivo": "Diagonal_Sup_Alto_03_300x1056x350.blend",
   "n1": "Armarios",
@@ -11742,20 +11630,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Canto Sup Baixo 05 666x356x685",
-  "arquivo": "Canto_Sup_Baixo_05_666x356x685.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Baixos",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Baixos",
-   "Cantos"
-  ]
  },
  {
   "nome": "Canto Sup Baixo 06 800x356x795",
@@ -13092,20 +12966,6 @@
   }
  },
  {
-  "nome": "Canto Sup Medio 03 600x706x600",
-  "arquivo": "Canto_Sup_Medio_03_600x706x600.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Medios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Medios",
-   "Cantos"
-  ]
- },
- {
   "nome": "Canto Sup Medio 04 800x706x795",
   "arquivo": "Canto_Sup_Medio_04_800x706x795.blend",
   "n1": "Armarios",
@@ -13568,34 +13428,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Diagonal Sup Medio 01 300x706x350",
-  "arquivo": "Diagonal_Sup_Medio_01_300x706x350.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Medios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Medios",
-   "Diagonais"
-  ]
- },
- {
-  "nome": "Diagonal Sup Medio 02 300x706x369",
-  "arquivo": "Diagonal_Sup_Medio_02_300x706x369.blend",
-  "n1": "Armarios",
-  "n2": "Cozinha",
-  "n3": "Sup Medios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Cozinha",
-   "Sup Medios",
-   "Diagonais"
-  ]
  },
  {
   "nome": "Diagonal Sup Medio 03 300x706x350",
@@ -15070,20 +14902,6 @@
   }
  },
  {
-  "nome": "Canto Quarto Armario 02 993x2503x1019",
-  "arquivo": "Canto_Quarto_Armario_02_993x2503x1019.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Armarios",
-   "Cantos"
-  ]
- },
- {
   "nome": "Canto Quarto Armario 03 1416x2503x615",
   "arquivo": "Canto_Quarto_Armario_03_1416x2503x615.blend",
   "n1": "Armarios",
@@ -15604,34 +15422,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Diagonal Quarto Armario 01 350x2503x550",
-  "arquivo": "Diagonal_Quarto_Armario_01_350x2503x550.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Armarios",
-   "Diagonais"
-  ]
- },
- {
-  "nome": "Diagonal Quarto Armario 02 350x2503x550",
-  "arquivo": "Diagonal_Quarto_Armario_02_350x2503x550.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Armarios",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Armarios",
-   "Diagonais"
-  ]
  },
  {
   "nome": "Diagonal Quarto Armario 03 350x2503x550",
@@ -16214,30 +16004,6 @@
   }
  },
  {
-  "nome": "Bancada Quarto 01 300x720x550",
-  "arquivo": "Bancada_Quarto_01_300x720x550.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Bancadas",
-  "tipo": "modulo"
- },
- {
-  "nome": "Bancada Quarto 02 300x720x556",
-  "arquivo": "Bancada_Quarto_02_300x720x556.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Bancadas",
-  "tipo": "modulo"
- },
- {
-  "nome": "Bancada Quarto 03 730x720x804",
-  "arquivo": "Bancada_Quarto_03_730x720x804.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Bancadas",
-  "tipo": "modulo"
- },
- {
   "nome": "Bancada Quarto 04 600x720x550",
   "arquivo": "Bancada_Quarto_04_600x720x550.blend",
   "n1": "Armarios",
@@ -16288,14 +16054,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Bancada Quarto 05 700x720x631",
-  "arquivo": "Bancada_Quarto_05_700x720x631.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Bancadas",
-  "tipo": "modulo"
  },
  {
   "nome": "Bancada Quarto 06 500x720x550",
@@ -16400,20 +16158,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Canto Quarto Bancada 01 933x720x875",
-  "arquivo": "Canto_Quarto_Bancada_01_933x720x875.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Bancadas",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Bancadas",
-   "Cantos"
-  ]
  },
  {
   "nome": "Canto Quarto Bancada 02 950x720x950",
@@ -19980,20 +19724,6 @@
     "costas": "POS_Y"
    }
   }
- },
- {
-  "nome": "Canto Quarto Superior 02 666x506x685",
-  "arquivo": "Canto_Quarto_Superior_02_666x506x685.blend",
-  "n1": "Armarios",
-  "n2": "Quartos",
-  "n3": "Superiores",
-  "tipo": "modulo",
-  "niveis": [
-   "Armarios",
-   "Quartos",
-   "Superiores",
-   "Cantos"
-  ]
  },
  {
   "nome": "Canto Quarto Superior 03 800x506x800",

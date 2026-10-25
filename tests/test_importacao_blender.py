@@ -256,7 +256,9 @@ class TestImportacao(unittest.TestCase):
     def test_inserir_curva_legada_migra_copia_sem_alterar_arquivo_e_sem_rna_morto(self):
         if bpy.app.version < (5,):self.skipTest('Preset gravado no Blender 5.x')
         import hashlib
-        pasta=os.path.join(os.path.dirname(addon.__file__),'biblioteca');arquivo='Bancada_Quarto_02_300x720x556.blend'
+        # o preset saiu da biblioteca (porta curva, pedido do usuario); a
+        # copia dele em fixtures segue testando a migracao da curva legada
+        pasta=os.path.join(os.path.dirname(__file__),'fixtures');arquivo='Bancada_Quarto_02_300x720x556.blend'
         with open(os.path.join(pasta,arquivo),'rb') as arq:antes=hashlib.sha256(arq.read()).digest()
         novos,raizes,erro=addon.biblioteca.inserir_preset(bpy.context,pasta,arquivo,'modulo',destino=Vector((2,3,0)))
         self.assertFalse(erro);self.assertTrue(novos);self.assertTrue(raizes)
@@ -579,7 +581,8 @@ class TestImportacao(unittest.TestCase):
     def test_diagonal_curva_real_nao_atravessa_lateral_ou_tampo(self):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
-        path=os.path.join(os.path.dirname(addon.__file__),'biblioteca',
+        # copia do preset que saiu da biblioteca (porta curva)
+        path=os.path.join(os.path.dirname(__file__),'fixtures',
                           'Diagonal_Sup_Alto_02_300x1056x350.blend')
         with bpy.data.libraries.load(path,link=False) as (de,para):
             para.collections=list(de.collections);para.objects=list(de.objects)

@@ -283,6 +283,22 @@ class TestIndice(BaseBiblioteca):
         with open(arq) as f:
             self.assertEqual(f.read(), "[ pela metade")
 
+    def test_biblioteca_sem_portas_curvas(self):
+        # Pedido do usuario (333): os 21 presets com folha de porta CURVA
+        # sairam de todas as bibliotecas (as diagonais de porta reta
+        # chanfrada ficam). O codigo da curva segue nos testes de importacao.
+        curvas = ('Diagonal_01_300x703x562', 'Diagonal_Sup_Baixo_02_300x356x369',
+                  'Canto_08B_901x703x963', 'Canto_Sup_Medio_03_600x706x600',
+                  'Diagonal_Quarto_Armario_01_350x2503x550', 'Bancada_Quarto_01_300x720x550',
+                  'Bancada_Quarto_05_700x720x631', 'Canto_Quarto_Superior_02_666x506x685')
+        # a biblioteca REAL, so' leitura (a de self.pasta e' uma amostra)
+        arquivos = {i["arquivo"] for i in addon.biblioteca._ler_indice(PASTA_REAL)}
+        for base in curvas:
+            self.assertNotIn(base + ".blend", arquivos)
+            self.assertFalse(os.path.exists(os.path.join(PASTA_REAL, base + ".blend")), base)
+        # os de porta reta da mesma familia continuam
+        self.assertIn("Diagonal_Sup_Baixo_01_300x356x350.blend", arquivos)
+
     def test_ler_indice_le_a_copia_da_biblioteca(self):
         itens = addon.biblioteca._ler_indice(self.pasta)
         arquivos = {i["arquivo"] for i in itens}
