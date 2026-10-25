@@ -24,7 +24,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Cotas/hover/arraste | hud.py: `campos_cotas`, `_acertar_hud`, `OBJECT_OT_arrastar_hud` | hud, gaveta, snapshot |
 | Face da caixa/snap B | hud_volume.py: `controles`, `iniciar`, `atualizar`, `terminar` | hud, gui_interacao |
 | Grupo Paredes, edicao 2D e biblioteca na parede | paredes_edicao.py: `widgets`, `iniciar`, `encerrar`, `preparar_modelo` | paredes_edicao, gaveta |
-| Elevacao/cotas editaveis dos modulos e larguras Livre/Fixa | paredes_composicao.py: `widgets`, `desenhar`, `editar_modulo` | paredes_composicao |
+| Elevacao/cotas editaveis dos modulos (menu: so' a cruz do selecionado) | paredes_composicao.py: `widgets`, `desenhar`, `editar_modulo` | paredes_composicao |
 | Undo/contorno/timer | eventos.py: `_antes_de_desfazer`, `_fim_do_desfazer`, `sincronizar_contornos`, `verificar_periodicamente` | operadores, hud, estrutura |
 | Faixa/niveis/menu | biblioteca_faixa.py: `widgets`, `catalogo`, `rolar`, `abrir_menu_item` | biblioteca_faixa, gui_biblioteca_faixa |
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
@@ -36,11 +36,11 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   Na edicao 2D, cotas sao dos modulos/vaos; clique digita, Esc cancela.
   Parede e modulos solidos/OBJECT/FLAT com contornos pretos nativos. Estado
   anterior e' devolvido na saida; G/Tab continuam nativos. Redistribuir
-  exige comando, Livre/Fixa limita as larguras; troca so' apos confirmar.
+  exige comando (fora do menu desde 338); troca so' apos confirmar.
   Orbita volta a PERSP; biblioteca solta no cursor sem esticar. Duplo clique
   segue o ultimo para a direita ou centra na parede quando exceder.
   Chapas usam show_wire nativo temporario; ferragens ficam sem a sobreposicao.
-  So' nesta vista, clique na folha seleciona modulo; duplo isola folha.
+  So' nesta vista, clique em qualquer peca seleciona modulo; duplo isola.
   Interior: arestas avaliadas, cinza com alfa so' atras das frentes. Cotas
   proximas da peca; extracao no timer, redraw consulta somente cache numerico.
   Cotas (301): traco do tema sobre halo opaco, setas e fonte minima 14;
@@ -62,7 +62,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Ferragem: so' aparece criando ou selecionada, ARAME da peca real. Clique
   seleciona todas do tipo; Shift soma o outro; Alt controlador; duplo PECA
   com Tab/G/X nativos. Trilho das gavetas permanece com elas.
-- Puxador: clique SO' ele e suas funcoes, inclusive em gavetas. Alt arrasta
+- Puxador: clique = a peca dele (folha/frente); DUPLO = SO' ele e funcoes. Alt arrasta
   ancora para outra borda SO' do grupo dele, com snap de linha.
 - Gavetas/prateleiras: clique todas do vao, duplo uma; modulo absorve filhos
   na HUD. Divisorias: clique grupo, duplo chapa. Conservar escopo por tipo.

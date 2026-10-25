@@ -308,6 +308,22 @@ os cantos das costas -- agora a secao se divide no maior vao sem vertice
 reto acomoda. Porta tao fina que o reto sumiria: volta a' escala. A
 frente, o labio e a cava sao os dele.
 Tira 34,81 mm da madeira (o J de caixas, sem o asset, tira 30).
+Puxador BORDA (v322) = o slim de aba do usuario (`extrair_puxador_borda.py`):
+tampo de 1,1 mm na borda, enrolado 20 mm a' frente, aba de 13,4 mm nas
+costas com 2 furos (~4,3 mm). Padrao comercial pesquisado: 80 mm, furos a
+64 (8 mm das pontas: 144 -> 128). Comprimento e espessura da porta so'
+andam trechos retos (vaos sem vertice); furo/chanfro/enrolado nunca
+escalam. Weighted Normal no objeto (faces planas sem degrade).
+PARAFUSO padrao (v323; v326 = foto do usuario, `gerar_parafuso.py`):
+chipboard 3,5 x 14 cabeca CHATA escareada Phillips, haste lisa curta,
+rosca e ponta, bicromatizado, tamanho real; cabeca de 5,78 que NAO afunda
+ate' o fim, topo 0,876 acima da peca (v329, refinamento do usuario na cena
+dele; origem na superficie, `cabinet_versao` troca a malha velha); o
+arame (previa e selecao) e' so' o TOPO da cabeca, circulo e cruz (v328:
+fundo da cruz, borda dupla, cone e rosca por cima de tudo embaralhavam). Vai
+nos 2 furos da aba do BORDA (cabeca para tras, haste na porta; porta fina:
+a ponta para 3 mm antes da frente), nos 4 de fixacao da dobradica reta
+(placa e copo; o de regulagem e' o do modelo) e nas placas da articulada.
 Nomes de objeto em portugues e sem sublinhado (pedido do usuario):
 "Folha 01", "Puxador Perfil", "Pistao Corpo", "Dobradica Copo"...; o rig
 importado tambem (objetos, malhas, ossos, modificadores, material).
@@ -585,6 +601,9 @@ pendencias aparecem numa caixa preta logo abaixo, dentro do painel, por
 "Criar Puxador": mesmo padrao do "Criar Portas" -- LARANJA, no topo da
 aba Puxadores, largura inteira, texto centralizado, mais forte enquanto
 posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
+"Editar parede" / "Sair da edicao da parede" (v339, pedido do usuario):
+o mesmo padrao, 30 px, laranja para entrar e laranja forte para sair
+(`OPERADORES_DESTAQUE`, tupla: a acao nunca e' hasheada).
 Posicionando, aparece o MODELO num carrossel de RETRATOS (pedido do
 usuario: a foto a 45 graus, como na biblioteca, no lugar dos nomes; setas
 quando nao cabem): os de fabrica e os do usuario (categoria Puxadores da
@@ -593,7 +612,7 @@ cada puxador da selecao vira bolinha branca; arrastar leva-o a outra
 borda SO' das chapas do grupo dele (folhas da porta, ou chapas do
 modulo), snap de LINHA na face virada para quem olha, e ele sai virado
 conforme a borda; o perfil devolve a madeira e corta a nova (um por
-borda). Esc devolve. Clique no puxador (tambem de gaveta) seleciona SOMENTE ele e abre Puxadores; trilhos das gavetas permanecem com elas. Puxador do add-on selecionado: medidas e o modelo
+borda). Esc devolve. Clique simples no puxador vale pela peca em que ele esta' (porta, gavetas); DUPLO clique (v340) seleciona SOMENTE ele e abre Puxadores; trilhos das gavetas permanecem com elas. Puxador do add-on selecionado: medidas e o modelo
 (`_trocar_modelo_puxador` refaz AQUELE); objeto de fora: "Usar como
 puxador" -- encostado numa chapa vira o puxador dela no mesmo lugar;
 solto, a gaveta pede o clique na face que encosta na porta e o criador
@@ -666,7 +685,64 @@ no modulo o devolvem ao plano (so' desliza) -- pelo timer de seguranca,
 nunca no handler do depsgraph. Selecionado: contorno da parede e 4 guias
 (esquerda, direita, piso, teto, esq./dir. de quem olha a parede) na cor
 de realce; o NUMERO e' gizmo (ganha da selecao): clique digita, arrastar
-ao longo da guia muda. Solta: F3 "Desassociar da Parede".
+ao longo da guia muda. Solta (v319): arrastar com o direito e soltar
+FORA de qualquer parede (o limbo) desassocia e o movel fica onde estava;
+F3 "Desassociar da Parede" (v338: a secao Composicao do menu so' tem a
+cruz de medidas do selecionado; Livre/Fixa, Redistribuir, Trocar modelo e
+Desassociar sairam do menu a pedido do usuario; tambem os campos de folga
+Esquerda/Direita/Espacamento -- a distribuicao usa os valores da sessao).
+Cotas do modulo na parede, como no Promob (v315): A1/A2/A3 e, em CRUZ,
+Superior (cima), Anterior/Afastamento/Posterior (meio), Inferior (baixo);
+colunas de ate' 84 px (5 digitos), rotulos curtos abaixo de 76. Anterior/
+Posterior = vizinho na mesma altura ou ponta da face; Inferior/Superior =
+modulo na mesma faixa ou piso/teto; Afastamento = folga costas-parede,
+numero editavel no meio do modulo (profundidade nao tem linha de frente).
+Na viewport, DUAS ETAPAS (v335, pedido do usuario): selecionado, so' as
+distancias (Anterior/Posterior, Inferior/Superior, Afastamento); editando a
+geometria pela HUD, so' largura e altura. A HUD volta na parede reduzida:
+so' as bolinhas do centro das bordas NO plano (v337: cheias, 5 px, halo do
+tema; sem setas nas arestas, profundidade, letras, linhas da caixa nem
+ancora -- a quina e' do circulo do snap). Sem selecao,
+nenhuma cota. Guias de movimento (v336, linhas azuis do usuario): cada
+distancia sai do MEIO da sua face (laterais na meia altura, inferior e
+superior no meio da largura). Ponta fora da tela ou sob toolbar/cabecalho/
+prateleira vem para a borda da area livre, inteira.
+Na vista 2D (Editar parede), GUIAS DE ALTURA como no Promob: linhas da
+face inteira, DISCRETAS (v340): pontilhadas (tracos de 10 mm a cada 40 mm
+da propria malha, o snap continua) e rotulo "150 - Rodape" em texto cinza
+na ponta esquerda; a caixa preta da HUD so' com o mouse em cima
+(ou digitando); clicar digita. Menu: secao Guias com a fila Ocultas | Visiveis |
+Com snap, um campo por guia e "Restaurar guias padrao". Fora da vista
+2D nada aparece. Com snap, o G gruda a lateral do modulo na linha.
+Ao soltar o G/R/S na vista 2D, ima NO PLANO da parede (v317): as bordas da
+CAIXA do modulo grudam nas dos vizinhos, pontas/piso/teto e guias a ate'
+12 px, e o modulo associado volta para dentro da face. Sem profundidade:
+a quina da frente nao gruda na de tras de outro movel nem em vertice
+interno (fundo recuado). Medida digitada e distribuicao nao recebem ima.
+Mover na vista 2D (v319, `OBJECT_OT_mover_na_parede`): G com UM modulo
+selecionado, ou clique esquerdo + arraste num modulo. QUINA sem Alt
+(v325): o mouse a ate' 16 px de uma quina-alvo leva a quina mais perto
+da caixa ate' ela. CIRCULO de quina (v334, desenho do usuario): com o
+mouse a ate' 16 px da quina de um modulo, um circulo na cor de realce
+(7 px) acende nela; G/arraste com ele aceso PEGA essa quina, que gruda na
+quina-alvo mais perto dela e leva o circulo junto (com Alt, as laterais
+dela). O resto e' LIVRE; SEGURANDO Alt (v320) ligam tambem as
+laterais, soltar o Alt desliga; Ctrl nada faz. Com Alt, fora de quina,
+a LATERAL pega (a ate' 24 px do mouse ao comecar:
+esquerda, direita, base, topo; frente e fundo nao contam) gruda o LADO
+INTEIRO nos vizinhos, pontas/piso/teto e guias Com snap, o outro eixo
+livre; longe das laterais, a borda mais perto de cada eixo. Tudo no
+plano. Esc/direito cancela. A lateral pega e a linha-alvo acendem
+na cor de realce. Varios modulos: G e arraste nativos (ima ao soltar).
+Guias Visiveis so' orientam; quem gruda e' Com snap.
+O rotulo da guia tem tamanho fisico (70 mm): diminui com o zoom ate' o
+teto da cota e some abaixo de 7 px. Digitando cota ou guia, a barra do
+cursor pisca na posicao; o texto todo selecionado ganha realce.
+Arrastar da biblioteca (v321, como o BlenderKit): so' o WIREFRAME, pela
+`caixa` gravada no indice; nada e' carregado ate' soltar. Solto, o
+wireframe fica parado com "Carregando <nome>..." (caixa preta da HUD) e o
+.blend carrega no tique seguinte, ja' no lugar (parede/associacao
+inclusive). Preset sem `caixa`: o 1o arraste carrega antes e a grava.
 
 Zig-zag (pedido do usuario): o assistente oferece 1-8 folhas e filtra as
 aberturas pela quantidade; Zig-zag aceita 2-8. Escolher a borda determina

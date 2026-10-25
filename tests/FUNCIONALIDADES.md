@@ -1,5 +1,42 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Puxador no duplo clique e guias discretas (340): clique simples no
+puxador vale pela peca dele (porta, gavetas); o DUPLO entra na edicao do
+puxador (puxadores, 24; gavetas, 50). Guias de altura pontilhadas
+(tracos `TRACO_GUIA_M` a cada `PASSO_GUIA_M` na propria malha, snap
+mantido) e rotulo cinza; caixa preta so' sob o mouse (`atualizar_guia_hover`)
+ou digitando (composicao, 67).
+
+Entrar/sair da parede em destaque (339): "Editar parede" e "Sair da
+edicao da parede" no padrao do "Criar Prateleiras" -- 30 px, laranja,
+texto centrado; sair no laranja forte (`OPERADORES_DESTAQUE`) (paredes_edicao, 68).
+
+Menu da parede enxuto e digitacao sem sobrepor (338): a secao Composicao
+so' mostra a cruz de medidas do selecionado (sem Livre/Fixa, Redistribuir,
+Trocar modelo, Desassociar; some sem selecao) e o menu da parede perdeu
+as folgas Esquerda/Direita/Espacamento (paredes_edicao, 67). Clique na
+bolinha da borda: o texto digitado entra no numero da cota verde
+(`digitacao_hud`), sem a caixa da HUD ao lado (composicao, 66).
+
+So' bolinhas na parede (337): no editor de parede a HUD perde as setas
+das arestas (`so_faces`); edita so' pela bolinha do centro das bordas,
+agora disco cheio de 5 px com halo, 7 px acesa (composicao, 65).
+
+Guias de movimento no meio das faces (336): Anterior/Posterior na meia
+altura do modulo, Inferior/Superior no meio da largura, cada uma da face
+ate' o vizinho/ponta/piso/teto (composicao, 65).
+
+Cotas da parede em duas etapas (335): selecionado, so' distancias e
+afastamento; editando pela HUD (`modulo_em_edicao`), so' largura/altura,
+que acompanham o resize. HUD na parede so' no plano (`_geometria_na_parede`,
+sem ancora; quina acesa do snap ganha) e o clique nela nao move o modulo.
+Pontas de seta dentro da `area_livre` (`recortar_cota`) (composicao, 64).
+
+Circulo do snap de quina (334): na vista da parede, o mouse a ate' 16 px
+da quina de um modulo acende um circulo na cor de realce
+(`atualizar_quina_hover`, observador); G/arraste com ele aceso pega a
+quina, que gruda na quina-alvo mais perto e leva o circulo (composicao, 59).
+
 Biblioteca sem portas curvas (333): os 21 presets com folha curva sairam
 (376 restam; diagonais de porta reta ficam); os testes da curva legada
 usam copias em tests/fixtures (biblioteca, 83; importacao, 80).
@@ -14,6 +51,31 @@ Botao "Assets" descontinuado (330): saiu da faixa, do menu e do painel
 legado, com o operador `object.cabinet_prateleira`; a AssetShelf continua
 no menu Ver do Blender (biblioteca_faixa, 30).
 
+Parafuso no ponto do usuario (329): cabeca 5,78 com o topo 0,876 acima da
+peca (origem na superficie), medido na cena refinada dele; `cabinet_versao`
+na malha + `_anexar_sem_repetir` por origem e versao: a cena troca a chata
+rente (versao 1) pelo timer (portas, 145; puxadores, 23; snapshot BORDA).
+
+Linhas do parafuso na dobradica (328): arame = so' o TOPO da cabeca
+(circulo + cruz); selecao das ferragens sem rig desenha o contorno marcado
+(`_contorno_da_ferragem`, guardado), nao todas as arestas (a rosca);
+malha antiga da cena remarcada uma vez (`marcar_arame_parafuso`) (portas, 145).
+
+Dobradica antiga troca sozinha (327): a Reta original dos presets/cenas
+(versao 2) punha o parafuso de REGULAGEM nas placas de fixacao; o timer das
+ferragens (`_ferragens_antigas`) refaz UMA vez a porta com rig de outra
+versao ou parafuso panela; a regulagem fica no braco (portas, 145).
+
+Parafuso padrao = foto do usuario (326): chipboard 3,5x14 cabeca CHATA
+rente a' peca, haste lisa, rosca e ponta, bicromatizado; nome novo (as
+cenas nao reusam a panela); arestas abaixo da cabeca com
+`cabinet_sem_arame` ficam fora da previa e do contorno do puxador
+(puxadores, 23; portas, 144; snapshot BORDA 3 mm mais raso).
+
+Quina sem Alt no mover da parede (325): o mouse a ate' 16 px de uma
+quina-alvo gruda a quina mais perto do modulo nela; o Alt so' liga as
+laterais (composicao, 57).
+
 Costas na parede = lado OPOSTO a' porta (324): a frente sai da posicao das
 folhas/frentes de gaveta, gravada em `parede_costas` ao associar; a roda do
 mouse no arraste (direito ou da biblioteca) troca a face de 90 em 90; no
@@ -21,14 +83,37 @@ giro de 90 a largura na parede e' a profundidade do modulo (paredes, 15);
 o indice grava `costas` na caixa do preset e registro sem ela mede de novo
 (paredes_edicao, 66).
 
+Parafuso padrao chipboard 3,5x14 panela (323): 2 nos furos da aba do
+BORDA (cabeca na aba, ponta nunca na frente, previa = peca; puxadores, 23),
+4 de fixacao da dobradica reta em escala 1 e os da articulada (portas, 144).
+
+Puxador BORDA = slim de aba do usuario em tamanho real (322): 80 mm com
+furos a 64 (144 -> 128), aba nas costas e enrolado 20 mm a' frente em
+qualquer espessura, furos sem escalar, faces planas sem degrade, previa =
+arame do modelo (puxadores, 23).
+
 Cena real pesada (321): regiao da parede em lote e uma vez por parede
 (paredes, 13); arraste da biblioteca so' wireframe pela `caixa` do indice,
 "Carregando..." e o .blend so' ao soltar; sem caixa, o 1o arraste a grava;
 .blend alterado invalida (paredes_edicao, 65).
 
+Snap do mover na parede so' com Alt segurado (320): quinas e laterais;
+solto = livre; Ctrl nada faz (composicao, 57).
+
+Mover na parede (319): G ou arraste do esquerdo num modulo da vista 2D
+pega a lateral sob o mouse e gruda o lado inteiro (vizinhos, face, guias
+Com snap), outro eixo livre; Alt quina com quina no plano; Ctrl sem ima;
+Esc restaura (composicao, 57). Arrastar com o direito para fora de
+qualquer parede desassocia sem mover; botao "Desassociar da parede" na
+Composicao (paredes_edicao, 64; composicao).
+
 Preset solto numa parede fora da edicao 2D (318): costas na parede, cursor
 no centro do modulo, pontas/piso/teto grudam, sem sobrepor vizinho, e
 associa; fora da parede volta a' rotacao do preset (paredes_edicao, 63).
+
+Ima 2D na parede (317): ao soltar G/R/S, bordas da caixa grudam em vizinhos,
+face e guias a ate' 12 px, no plano (sem confundir frente/fundo); modulo
+associado volta para dentro da face; medida digitada intacta (composicao, 51).
 
 Biblioteca no menu sem fila de botoes (316): Inserir/Editar/Bloquear so' no
 clique direito, como na faixa; grade com vao de 8 px (gaveta, 67).
@@ -39,6 +124,24 @@ timer/G (paredes_composicao, 49). Biblioteca na faixa OU dentro do menu
 (`cabinet_lugar_biblioteca`, troca no timer; biblioteca_faixa, 29); no menu
 cada nivel e' lista suspensa flutuante (estrutura, 51: lista, colunas,
 hover por linha, materiais, escolha). Carrossel do menu removido.
+
+Guias de altura da parede (313): so' na vista 2D, linhas Rodape 150, Bancada
+900, Peitoril 1100, Base do aereo 1500 e Altura maxima 2150 (mm do piso da
+face), editaveis no rotulo da viewport e no menu, por projeto. Modo Ocultas |
+Visiveis | Com snap: o snap NATIVO de aresta usa um objeto temporario so' de
+arestas, removido ao sair; marcas limpam objeto e snap restaurados pelo undo.
+`test_paredes_composicao_blender.py`: 44 testes, quatro novos.
+Rotulo com tamanho fisico (314): 70 mm na parede, teto da cota, some abaixo
+de 7 px. Cotas e guias em edicao: barra PISCA na posicao do cursor (0,5 s,
+tique do proprio operador) e realce do texto todo selecionado. 46 testes.
+
+Mover modulo na parede (312): na vista 2D, clique simples em QUALQUER peca
+(porta, gaveta, prateleira, divisoria, puxador) seleciona o modulo e o G
+nativo leva o movel; duplo continua isolando a peca. Snap nativo de vertice
+(CLOSEST) ligado so' durante a vista e devolvido ao sair. Cotas seguem o
+arraste pelo depsgraph (caixa local guardada + matriz, sem reler malha).
+`test_paredes_composicao_blender.py`: 40 testes, tres novos. Resize da
+porta curva (311): ida e volta exata (bancada curva 5.2 aprovada).
 
 Encaixe e cotas em parede (301): sete regressoes novas em paredes_edicao
 (62 testes) para colisao, parede cheia/rollback, limites nas quinas, preset
