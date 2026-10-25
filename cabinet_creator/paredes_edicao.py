@@ -7,6 +7,7 @@ Geometria e coordenadas pertencem a paredes; resize pertence a modulos.
 import math
 import time
 import bpy
+import numpy as np
 import blf
 import gpu
 from bpy.props import StringProperty
@@ -32,6 +33,10 @@ ALVO_QUANTIDADE = 'paredes_quantidade'
 CHAVE_VISUAL = 'cabinet_parede_exibicao_2d'
 CHAVE_ORDEM = 'parede_ordem_posicionamento'
 CHAVE_FIOS = 'cabinet_parede_arestas_2d'
+CHAVE_SNAP = 'cabinet_parede_snap_2d'
+SNAP_DA_VISTA = {'use_snap': True, 'snap_elements': {'VERTEX'},
+                 'snap_target': 'CLOSEST', 'use_snap_translate': True,
+                 'use_snap_selectable': False}
 
 
 def superficie(obj):
@@ -184,17 +189,52 @@ def esta_na_vista(obj, espaco, context):
     return obj.local_view_get(espaco)
 
 
-def modulo_da_porta(context, folha):
-    """Excecao frontal so' na viewport isolada e na face associada."""
-    if (folha is None or _chapas.MARCA_FOLHA not in folha
-            or not ativa(context) or context.area is None
+def modulo_da_peca(context, obj):
+    """Na viewport isolada, qualquer peca de um modulo da face (porta,
+    gaveta, prateleira, puxador) responde pelo modulo: o G nativo leva
+    o movel inteiro (pedido do usuario)."""
+    if (obj is None or not ativa(context) or context.area is None
             or context.area.as_pointer() != _sessao[0]['area']):
         return None
-    modulo = _paredes.modulo_de(folha)
+    modulo = _paredes.modulo_de(obj)
     resumo = _paredes_composicao._resumo[0]
     if modulo and resumo and any(f['nome'] == modulo.name for f in resumo['itens']):
         return modulo
     return None
+
+
+def _tecla_de_mover(context, event):
+    """O atalho do G nativo no keymap do usuario (ele pode ter trocado)."""
+    configs = context.window_manager.keyconfigs.user
+    mapas = (configs.keymaps.get(nome) for nome in ('Object Mode', '3D View'))
+    return any(getattr(km and km.keymap_items.match_event(event), 'idname', '')
+               == 'transform.translate' for km in mapas)
+
+
+def modulo_para_mover(context, event, regiao):
+    """Nome do modulo que o G (o do keymap do usuario) ou o arraste do
+    esquerdo levam no plano da parede (`OBJECT_OT_mover_na_parede`), ou
+    None para o Blender seguir. Com varios modulos selecionados o G e o
+    arraste continuam nativos: o ima 2D age ao soltar."""
+    if event.value != 'PRESS' or event.shift or event.ctrl or event.alt or event.oskey:
+        return None
+    if event.type == 'LEFTMOUSE':
+        atingido = _hud._raio_hud(context, (event.mouse_x - regiao.x, event.mouse_y - regiao.y))
+        obj = atingido[0] if atingido else None
+        modulo = modulo_da_peca(context, obj)
+        if modulo is None or (obj.select_get() and any(
+                _paredes.modulo_de(o) != modulo
+                for o in context.selected_objects)):
+            return None
+        return modulo.name
+    if not _tecla_de_mover(context, event):
+        return None
+    obj = context.object
+    modulo = modulo_da_peca(context, obj) if obj is not None and obj.select_get() else None
+    if modulo is None or any(_paredes.modulo_de(o) != modulo
+                             for o in context.selected_objects):
+        return None
+    return modulo.name
 
 
 def _preparar_fios(objetos):
@@ -235,6 +275,38 @@ def _preparar_visual(area, parede):
     parede[CHAVE_VISUAL] = parede.display_type
     parede.display_type = 'SOLID'
     _preparar_fios(o for o in bpy.context.scene.objects if o.visible_get(viewport=espaco))
+    # Snap NATIVO de vertice enquanto durar a vista: o G encaixa quina com
+    # quina sem Ctrl; B escolhe o vertice de origem. Devolvido ao sair.
+    _guardar_snap(bpy.context.scene)
+
+
+def _guardar_snap(cena):
+    # O anterior fica NA CENA: o undo restaura tool_settings do snapshot
+    # e a marca volta junto, para o timer devolver o snap do usuario.
+    ajustes = cena.tool_settings
+    cena[CHAVE_SNAP] = {k: ','.join(sorted(getattr(ajustes, k))) if k == 'snap_elements'
+                        else getattr(ajustes, k) for k in SNAP_DA_VISTA}
+    for k, valor in SNAP_DA_VISTA.items():
+        setattr(ajustes, k, valor)
+
+
+def _devolver_snap(cena):
+    anterior = cena.get(CHAVE_SNAP)
+    if anterior is None:
+        return
+    ajustes = cena.tool_settings
+    for k in SNAP_DA_VISTA:
+        if k not in anterior:
+            continue
+        valor = anterior[k]
+        if k == 'snap_elements':
+            valor = {e for e in str(valor).split(',') if e}
+        elif k == 'snap_target':
+            valor = str(valor)
+        else:
+            valor = bool(valor)
+        setattr(ajustes, k, valor)
+    del cena[CHAVE_SNAP]
 
 
 def _restaurar_visual(area, s):
@@ -251,6 +323,9 @@ def _restaurar_visual(area, s):
         parede.display_type = visual['parede_exibicao']
     if parede and CHAVE_VISUAL in parede:
         del parede[CHAVE_VISUAL]
+    cena = bpy.data.scenes.get(s['cena'])
+    if cena is not None:
+        _devolver_snap(cena)
     _restaurar_fios()
 
 
@@ -309,6 +384,7 @@ def iniciar(context, obj):
         ultimo = max(modulos, key=lambda o: o.get(CHAVE_ORDEM, 0), default=None)
         _sessao[0]['ultimo_modulo'] = ultimo.name if ultimo else ''
         _paredes_composicao.atualizar(context)
+        _paredes_composicao.sincronizar_guias(context)
     except Exception as erro:
         encerrar()
         return str(erro)
@@ -359,6 +435,7 @@ def encerrar(perspectiva=False):
             janela.view_layer = cena_atual.view_layers.get(camada_atual) or cena_atual.view_layers[0]
         _sessao[0] = None
         _paredes_composicao.esquecer()
+        _paredes_composicao.remover_objeto_guias()
         _plano[0] = None
         if _handler[0] is not None:
             bpy.types.SpaceView3D.draw_handler_remove(_handler[0], 'WINDOW')
@@ -377,11 +454,17 @@ def verificar(atualizar_previa=True):
         _restaurar_fios()
         # Undo/redo pode restaurar a aparencia temporaria gravada no
         # snapshot. A marca identifica so' o que o modo 2D alterou.
+        guias = False
         for obj in bpy.context.scene.objects:
             if CHAVE_VISUAL in obj:
                 if obj.display_type in {'WIRE', 'SOLID'}:
                     obj.display_type = obj[CHAVE_VISUAL]
                 del obj[CHAVE_VISUAL]
+            guias = guias or _paredes_composicao.MARCA_OBJETO_GUIAS in obj
+        if guias:
+            _paredes_composicao.remover_objeto_guias()
+        for cena in bpy.data.scenes:
+            _devolver_snap(cena)
         return
     s = _sessao[0]
     janela, area, regiao = _janela_da_sessao()
@@ -397,6 +480,7 @@ def verificar(atualizar_previa=True):
         with bpy.context.temp_override(window=janela, area=area, region=regiao):
             if s.get('enquadrando') and not bpy.app.background:
                 _enquadrar(bpy.context, s)
+            _paredes_composicao.encaixar_movidos(bpy.context)
             _paredes_composicao.atualizar(bpy.context)
             if s['modelo'] is None:
                 return
@@ -453,26 +537,25 @@ def widgets(context, itens, x, topo, w):
     if obj is None:
         return topo
     topo = _gaveta._titulo_secao(itens, x, topo + 26, w, 'Paredes')
-    def botao(rotulo, operador):
+    def botao(rotulo, operador, altura=28):
         nonlocal topo
-        topo -= 28
-        itens.append((x, topo, w, 28, rotulo, ('operador', operador)))
+        topo -= altura
+        itens.append((x, topo, w, altura, rotulo, ('operador', operador)))
         topo -= 6
+    # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
+    # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
-        botao('Editar parede', 'object.cabinet_editar_parede')
+        botao('Editar parede', 'object.cabinet_editar_parede', 30)
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26
         return topo - 58
     s = _sessao[0]
-    botao('Sair da edicao da parede', 'object.cabinet_sair_parede')
+    botao('Sair da edicao da parede', 'object.cabinet_sair_parede', 30)
     topo = _paredes_composicao.widgets(context, itens, x, topo - 12, w)
-    # Folgas da composicao tambem ficam acessiveis sem preparar um novo modelo.
-    campos_folgas = [('%s: %s' % (rotulo, _opcoes._texto_medida(s[nome])),
-                     ('medida', 'paredes', nome, rotulo, s[nome]))
-                    for nome, rotulo in (('esquerda', 'Esquerda'), ('direita', 'Direita'),
-                                         ('espacamento', 'Espacamento'))]
-    topo = _gaveta._campos_em_linhas(context, itens, x, topo, w, campos_folgas)
+    topo = _paredes_composicao.widgets_guias(context, itens, x, topo, w)
+    # Folgas Esquerda/Direita/Espacamento sairam do menu (pedido do usuario);
+    # a distribuicao segue usando os valores da sessao.
     if s['modelo'] is None:
         mensagem = 'Escolha o novo modelo na biblioteca' if s.get('substituir') else 'Escolha um modulo na biblioteca'
         itens.append((x, topo - 20, w, 20, mensagem, None))
@@ -570,7 +653,7 @@ def posicao_do_modelo(context, modulo, ponto=None, caixa=None):
     if caixa is None:
         return None, 'O modelo precisa conter um modulo completo'
     lo, hi = caixa
-    escala = modulo.matrix_world.to_scale()
+    escala = _paredes.escala_no_referencial(modulo)
     largura, altura = (hi.x - lo.x) * escala.x, (hi.z - lo.z) * escala.z
     s0, s1, z0, z1 = s['regiao']['retangulo']
     esquerda, direita = s0 + s['esquerda'] / 1000, s1 - s['direita'] / 1000
@@ -684,6 +767,7 @@ def preparar_modelo(context, pasta, arquivo, tipo):
         medidas = _modulos.medir_conjunto(modulo)
         if not medidas or min(medidas) <= 0:
             return 'O modelo nao tem dimensoes validas'
+        medidas = _paredes.medidas_na_parede(modulo, medidas)
         s = _sessao[0]
         s.update(modelo={'pasta': pasta, 'arquivo': arquivo, 'tipo': tipo,
                          'nome': modulo.name}, altura=medidas[1], profundidade=medidas[2],
@@ -713,15 +797,14 @@ def preparar_modelo(context, pasta, arquivo, tipo):
     return None
 
 
-def _intersecoes_contorno(regiao, u, z):
-    cruzamentos = []
-    for inicio, fim in regiao['contorno']:
-        a, b = Vector(inicio), Vector(fim)
-        if (a.z <= z < b.z) or (b.z <= z < a.z):
-            t = (z - a.z) / (b.z - a.z)
-            cruzamentos.append((a + (b - a) * t).dot(u))
-    cruzamentos.sort()
-    return list(zip(cruzamentos[::2], cruzamentos[1::2]))
+def _contorno_em_lote(regiao):
+    """Contorno como numpy (k, 2, 3), guardado na propria regiao."""
+    lote = regiao.get('_contorno_np')
+    if lote is None:
+        lote = np.array([(tuple(a), tuple(b)) for a, b in regiao['contorno']],
+                        dtype=np.float64).reshape(-1, 2, 3)
+        regiao['_contorno_np'] = lote
+    return lote
 
 
 def _intersectar_faixas(faixas, outras):
@@ -734,15 +817,23 @@ def faixas_da_face(regiao, u, base, topo):
     s0, s1, z0, z1 = regiao['retangulo']
     if base < z0 - 1e-6 or topo > z1 + 1e-6 or topo <= base:
         return []
-    alturas = {base + 1e-7, topo - 1e-7}
-    for a, b in regiao['contorno']:
-        for p in (a, b):
-            if base < p[2] < topo:
-                alturas.update((max(base + 1e-7, p[2] - 1e-7),
-                                min(topo - 1e-7, p[2] + 1e-7)))
+    # Em lote: a parede de uma casa real tem centenas de arestas no
+    # contorno, e o laco em Python pesava a cada passo do mouse (v321).
+    lote = _contorno_em_lote(regiao)
+    az, bz = lote[:, 0, 2], lote[:, 1, 2]
+    u = np.array(tuple(u), dtype=np.float64)
+    sa, sb = lote[:, 0] @ u, lote[:, 1] @ u
+    pontas = np.concatenate((az, bz))
+    pontas = pontas[(pontas > base) & (pontas < topo)]
+    alturas = np.unique(np.concatenate((
+        [base + 1e-7, topo - 1e-7], np.maximum(base + 1e-7, pontas - 1e-7),
+        np.minimum(topo - 1e-7, pontas + 1e-7))))
     faixas = [(s0, s1)]
-    for z in sorted(alturas):
-        faixas = _intersectar_faixas(faixas, _intersecoes_contorno(regiao, u, z))
+    for z in alturas:
+        corta = ((az <= z) & (z < bz)) | ((bz <= z) & (z < az))
+        t = (z - az[corta]) / (bz[corta] - az[corta])
+        cruzamentos = np.sort(sa[corta] + (sb[corta] - sa[corta]) * t).tolist()
+        faixas = _intersectar_faixas(faixas, list(zip(cruzamentos[::2], cruzamentos[1::2])))
     return faixas
 
 
@@ -765,7 +856,7 @@ def encaixar_na_face(context, modulo, ponto, s, caixa=None, tolerancia=0):
     if caixa is None:
         return None, 'O modelo precisa conter um modulo completo'
     lo, hi = caixa
-    escala = modulo.matrix_world.to_scale()
+    escala = _paredes.escala_no_referencial(modulo)
     largura, altura, profundidade = (abs((hi[i] - lo[i]) * escala[i]) for i in (0, 2, 1))
     s0, s1, z0, z1 = s['regiao']['retangulo']
     esquerda, direita = s0 + s.get('esquerda', 0) / 1000, s1 - s.get('direita', 0) / 1000
@@ -858,7 +949,7 @@ def obstaculos(context, s, base, topo, profundidade, excluir=()):
         if caixa is None:
             continue
         lo, hi = caixa
-        pontos = [modulo.matrix_world @ Vector((x, y, z)) for x in (lo.x, hi.x)
+        pontos = [_paredes.referencial(modulo) @ Vector((x, y, z)) for x in (lo.x, hi.x)
                   for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
         if min(p.z for p in pontos) < topo - 1e-6 and max(p.z for p in pontos) > base + 1e-6:
             resultado.append((min(p.dot(u) for p in pontos), max(p.dot(u) for p in pontos)))
@@ -952,16 +1043,19 @@ def criar_modulos(context):
             if len(conjuntos) != 1:
                 raise ValueError('O modelo deixou de conter um unico modulo')
             conj = conjuntos[0]
+            # o plano esta' nos eixos da parede; o modulo pode estar girado
+            largura, altura, profundidade = _paredes.medidas_na_parede(
+                conj, (plano['largura'], plano['altura'], plano['profundidade']))
             ocupado = _chapas._ocupado[0]
             _chapas._ocupado[0] = True
             try:
-                conj.conj_largura_mm = plano['largura'] * 1000
-                conj.conj_altura_mm = plano['altura'] * 1000
-                conj.conj_profundidade_mm = plano['profundidade'] * 1000
+                conj.conj_largura_mm = largura * 1000
+                conj.conj_altura_mm = altura * 1000
+                conj.conj_profundidade_mm = profundidade * 1000
             finally:
                 _chapas._ocupado[0] = ocupado
             _modulos.redimensionar_conjunto(conj)
-            real = _modulos.medir_conjunto(conj)
+            real = _paredes.medidas_na_parede(conj, _modulos.medir_conjunto(conj))
             if any(abs(a / 1000 - plano[k]) > 0.00005 for a, k in zip(real, ('largura', 'altura', 'profundidade'))):
                 raise ValueError('O modelo nao permite estas dimensoes sem perder seus encaixes')
             u, n, ponto = (Vector(s[k]) for k in ('u', 'normal', 'ponto'))
@@ -1000,6 +1094,7 @@ def desenhar():
     if not ativa(context) or context.area.as_pointer() != _sessao[0]['area']:
         return
     s = _sessao[0]
+    _paredes_composicao.desenhar_guias(context)
     _paredes_composicao.desenhar(context)
     if s['modelo'] is None or _eventos._desfazendo[0]:
         return
@@ -1147,6 +1242,23 @@ class OBJECT_OT_observar_parede(Operator):
                         bpy.ops.object.cabinet_editar_cota_parede('INVOKE_DEFAULT',
                             objeto=cota[4], propriedade=cota[5])
                         return {'RUNNING_MODAL'}
+                if event.type == 'MOUSEMOVE' and not s['escolhendo']:
+                    # o circulo da quina perto do mouse (snap de quina)
+                    _paredes_composicao.atualizar_quina_hover(event, regiao, context.region_data)
+                    _paredes_composicao.atualizar_guia_hover(event.mouse_x - regiao.x,
+                                                             event.mouse_y - regiao.y)
+                if (not s['escolhendo'] and event.type == 'LEFTMOUSE' and event.value == 'PRESS'
+                        and _hud._acertar_hud(context, (event.mouse_x - regiao.x,
+                                                        event.mouse_y - regiao.y))):
+                    # Ponto da face ou seta da quina: o gizmo da HUD edita a geometria.
+                    return {'PASS_THROUGH'}
+                modulo = None if s['escolhendo'] else modulo_para_mover(context, event, regiao)
+                if modulo is not None:
+                    arrastar = event.type == 'LEFTMOUSE'
+                    bpy.ops.object.cabinet_mover_na_parede('INVOKE_DEFAULT', modulo=modulo,
+                                                           arrastar=arrastar)
+                    # O clique segue para a selecao; o G e' todo daqui.
+                    return {'PASS_THROUGH'} if arrastar else {'RUNNING_MODAL'}
                 if s['escolhendo']:
                     if event.type == 'ESC' and event.value == 'PRESS':
                         s['modelo'] = None
@@ -1170,6 +1282,11 @@ class OBJECT_OT_observar_parede(Operator):
                     _plano[0] = None
                     _redesenhar()
                     return {'RUNNING_MODAL'}
+        else:
+            if _paredes_composicao._quina_hover[0] is not None:
+                _paredes_composicao._quina_hover[0] = None      # o mouse saiu da vista
+                _redesenhar()
+            _paredes_composicao.atualizar_guia_hover(None, None)
         verificar(atualizar_previa=False)
         return {'PASS_THROUGH'}
 

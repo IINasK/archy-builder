@@ -52,6 +52,35 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   direito, biblioteca, insercao, cotas e distribuicao. Excluir o proprio
   modulo; respeitar sobreposicao vertical, face, buracos e profundidade.
   Previa e mira usam o envelope/centro aceito, nunca o alvo bruto do mouse.
+  Mover (312): clique em qualquer peca = modulo (G nativo leva tudo);
+  snap VERTEX/CLOSEST temporario em `visual['snap']`, devolvido ao sair.
+  `acompanhar_arraste` (depsgraph) refaz so' numeros com `_caixas`; o
+  timer segue dono da lista de modulos, interiores e caixas.
+  Guias (313): alturas na cena (`parede_guias`, `parede_guias_modo`);
+  snap nas guias = objeto SO' de arestas (`MARCA_OBJETO_GUIAS`,
+  hide_select) + EDGE; sem snap, `use_snap_selectable` o exclui.
+  Snap anterior em `cabinet_parede_snap_2d` na cena: undo devolve a
+  marca e o timer restaura; objeto marcado sem sessao e' removido.
+  Cotas Promob (315): `_medir_vaos` da' Inferior/Superior; afastamento em
+  `parede_afastamento_mm` (CHAVES_ASSOCIACAO): ponto gravado fica NO plano
+  e `matriz_na_parede` soma a folga -- timer, arraste e insercao respeitam.
+  Ima 2D (317): `acompanhar_arraste` so' marca `_movidos` sob `_transformando`;
+  `encaixar_movidos` (timer, sem modal) gruda bordas e limita a' face.
+  Preset solto em parede FORA do 2D (318): `_mover_contra_parede` usa
+  `encaixar_na_face` + `matriz_na_parede` e associa no `_confirmar`.
+  Mover 2D (319): o observador manda G (keymap do usuario) e PRESS num
+  modulo a `OBJECT_OT_mover_na_parede`: `lado_sob` + `posicao_com_ima`
+  (caixas, sem malha; o snap nativo nao pega "lado inteiro" e confundia
+  quina da frente/fundo) e `encaixar_na_face`. Arraste espera o limiar.
+  Cena real (321): `regiao_da_parede` em numpy (atributos `.corner_*`) e
+  cache por FACE da regiao; `faixas_da_face` em lote. Nada de laco por face.
+  Costas (324): `caixa_do_modulo` vem no referencial da PAREDE (giro de
+  `parede_costas`, oposto a' porta); com ela use `referencial(conj)` e
+  `escala_no_referencial`, nunca `matrix_world`. Medidas: `medidas_na_parede`.
+  Cotas em 2 etapas (335): `modulo_em_edicao` (HUD) troca as distancias
+  por largura/altura; HUD na parede via `_geometria_na_parede`/`_hud_na_parede`
+  (so' bolinhas das bordas, `so_faces`; quina do snap ganha); observador
+  deixa o clique para o gizmo; digitado vai no numero da cota (`digitacao_hud`).
 
 - Solda manual usa o translate/snap NATIVO compartilhado e identifica MeshVertex por KDTree nativa, sem cantos nominais. Ancorar/Juntar preserva a posicao atual e registra o afastamento 3D por par no referencial do destino (`adj_<ponta>_origens`); Resetar volta a esse gap, nunca o zera. Trocar a ancora por Alt conserva a origem cadastrada da junta.
 

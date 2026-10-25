@@ -538,8 +538,13 @@ def _desenhar_gaveta(tela=False):
         # "Criar Portas" LARANJA desde o inicio (pedido do usuario): e' o
         # ponto de partida da aba; mais forte enquanto marca o vao
         cor = None
+        destaque = bool(acao and acao[0] == 'operador'
+                        and acao[1] in _gaveta.OPERADORES_DESTAQUE)
         if acao and acao[0] in _gaveta.BOTOES_CRIAR and not apagado:
             cor = _gaveta.COR_CRIAR_PORTAS_ATIVO if acao[2] else _gaveta.COR_CRIAR_PORTAS
+        elif destaque and not apagado:
+            cor = (_gaveta.COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO
+                   else _gaveta.COR_CRIAR_PORTAS)
         elif aceitar:
             cor = COR_ACEITAR       # o "aceitar" da etapa (mockup do usuario)
         if not acao or acao[0] != 'cadeado':
@@ -565,7 +570,7 @@ def _desenhar_gaveta(tela=False):
                 valor = texto[:cursor] + '|' + texto[cursor:]
             _gaveta._texto_cabivel_gaveta(x + 7, y + 6,
                                    valor, w - 14, 12, cor=alerta)
-        elif acao and acao[0] in _gaveta.BOTOES_CRIAR:
+        elif acao and (acao[0] in _gaveta.BOTOES_CRIAR or destaque):
             # "Criar Portas"/"Criar Puxador": largo, texto CENTRALIZADO
             blf.size(0, 12)
             largura_texto = min(blf.dimensions(0, rotulo)[0], w - 18)

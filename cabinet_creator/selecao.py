@@ -184,6 +184,25 @@ class OBJECT_OT_selecionar(Operator):
         # qualquer outro clique sai do modo de edicao das ferragens
         _ferragens._ferragens_selecionadas[0] = None
         atingido = _hud._raio_hud(context, self.location)
+        modulo_parede = (_paredes_edicao.modulo_da_peca(context, atingido[0])
+                         if atingido is not None else None)
+        if modulo_parede is not None and self.modo != 'INDIVIDUAL':
+            # Vista da parede: clique simples em QUALQUER peca e' o modulo
+            # (pedido do usuario), para o G nativo levar o movel inteiro.
+            # O duplo continua nos ramos de cada tipo, abaixo.
+            obj = atingido[0]
+            if self.toggle or self.extend:
+                _hud._somar_peca(context, obj)
+                return {'FINISHED'}
+            if self.select_passthrough and obj.select_get():
+                familia = set(_hud._familia_do_clique(obj))
+                if any(o not in familia for o in context.selected_objects):
+                    # varios modulos: o arraste leva todos; o CLICK sem
+                    # arrastar deixa so' este (`_soltou`)
+                    _hud._clique_pendente[chave] = obj.name
+                    return {'PASS_THROUGH', 'CANCELLED'}
+            _hud._selecionar_chapa_hud(context, obj)
+            return {'FINISHED'}
         puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
         if puxador is not None and self.modo == 'INDIVIDUAL':
             # Edicao do puxador so' no DUPLO clique (pedido do usuario)
@@ -222,23 +241,18 @@ class OBJECT_OT_selecionar(Operator):
                 # inteira (nunca o modulo); duplo = UMA folha ("aba").
                 # Shift soma. Ferragens nao entram (selecao propria).
                 somar = self.toggle or self.extend
-                modulo_parede = _paredes_edicao.modulo_da_porta(context, obj)
                 if (self.modo != 'INDIVIDUAL' and self.select_passthrough
                         and not somar and obj.select_get()):
-                    familia = (set(_hud._familia_do_clique(obj)) if modulo_parede else
-                               {_portas._grupo_portas(obj), *_portas._folhas_portas(_portas._grupo_portas(obj))})
+                    familia = {_portas._grupo_portas(obj), *_portas._folhas_portas(_portas._grupo_portas(obj))}
                     if any(o not in familia for o in context.selected_objects):
                         # varios selecionados: o arraste leva todos; se
                         # soltar sem arrastar, o CLICK deixa so' a porta
                         _hud._clique_pendente[chave] = obj.name
                         return {'PASS_THROUGH', 'CANCELLED'}
-                if modulo_parede:
-                    if somar:
-                        _hud._somar_peca(context, obj, duplo=self.modo == 'INDIVIDUAL')
-                    elif self.modo == 'INDIVIDUAL':
-                        _hud._selecionar_porta_hud(context, obj, 'FOLHA')
-                    else:
-                        _hud._selecionar_chapa_hud(context, obj)
+                if modulo_parede is not None and somar:
+                    # Shift+duplo na vista da parede isola a folha DENTRO
+                    # do modulo que o primeiro clique somou
+                    _hud._somar_peca(context, obj, duplo=True)
                     return {'FINISHED'}
                 _hud._selecionar_porta_hud(
                     context, obj,
@@ -280,7 +294,7 @@ class OBJECT_OT_selecionar(Operator):
                 or atingido[0].name != pendente):
             return {'PASS_THROUGH'}
         if _chapas.MARCA_FOLHA in atingido[0] and _portas._grupo_portas(atingido[0]) is not None:
-            if _paredes_edicao.modulo_da_porta(context, atingido[0]):
+            if _paredes_edicao.modulo_da_peca(context, atingido[0]):
                 _hud._selecionar_chapa_hud(context, atingido[0])
             else:
                 _hud._selecionar_porta_hud(context, atingido[0], 'PORTA')

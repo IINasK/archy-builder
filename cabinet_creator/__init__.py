@@ -90,6 +90,8 @@ CLASSES = (
     _paredes_composicao.OBJECT_OT_redistribuir_parede,
     _paredes_composicao.OBJECT_OT_trocar_modelo_parede,
     _paredes_composicao.OBJECT_OT_editar_cota_parede,
+    _paredes_composicao.OBJECT_OT_mover_na_parede,
+    _paredes_composicao.OBJECT_OT_restaurar_guias_parede,
     _paredes_edicao.OBJECT_OT_editar_parede,
     _paredes_edicao.OBJECT_OT_sair_parede,
     _paredes_edicao.OBJECT_OT_escolher_vao_parede,
@@ -486,6 +488,8 @@ def register():
         bpy.app.handlers.depsgraph_update_post.append(_chapas.ao_atualizar_depsgraph)
     if _paredes_composicao.invalidar_interiores not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_paredes_composicao.invalidar_interiores)
+    if _paredes_composicao.acompanhar_arraste not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_paredes_composicao.acompanhar_arraste)
     for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao not in lista:
@@ -634,6 +638,8 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(_chapas.ao_atualizar_depsgraph)
     if _paredes_composicao.invalidar_interiores in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_paredes_composicao.invalidar_interiores)
+    if _paredes_composicao.acompanhar_arraste in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_paredes_composicao.acompanhar_arraste)
     for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao in lista:

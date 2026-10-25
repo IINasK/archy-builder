@@ -1270,6 +1270,11 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None,
 BOTOES_CRIAR = ('portas', 'gavetas', 'prateleiras', 'divisorias', 'criar_puxador')
 COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # laranja
 COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
+# Entrar/sair da edicao da parede no MESMO padrao (pedido do usuario):
+# laranja para entrar, o laranja forte da etapa em andamento para sair.
+# Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
+OPERADORES_DESTAQUE = ('object.cabinet_editar_parede', 'object.cabinet_sair_parede')
+OPERADOR_DESTAQUE_ATIVO = 'object.cabinet_sair_parede'
 
 
 def _botao_criar_portas(context):

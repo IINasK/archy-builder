@@ -24,6 +24,7 @@ _solda = None
 _portas_viewport = None
 _paredes = None
 _paredes_edicao = None
+_paredes_composicao = None
 _gaveta_desenho = None
 _formas = None
 _gavetas = None
@@ -75,6 +76,7 @@ _hover_hud = {}             # regiao -> alvo espacial; nao vaza entre vistas
 _edicao_hud = [None]
 RAIO_ARESTA_HUD = 7.0
 RAIO_CANTO_HUD = 10.0
+RAIO_PONTO_PAREDE_PX = 5.0  # bolinha do centro da borda na parede: cheia e com halo
 LIMIAR_ARRASTE_HUD_PX = 4.0  # abaixo disto o gesto e' clique, nao arraste
 GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
 
@@ -301,8 +303,31 @@ def _itens_hud(context):
 
 
 def _geometrias_hud(context):
-    return [g for g in (_geometria_do_item(*item) for item in _itens_hud(context))
-            if g is not None]
+    geometrias = [g for g in (_geometria_do_item(*item) for item in _itens_hud(context))
+                  if g is not None]
+    if _paredes_edicao.ativa(context):
+        geometrias = [_geometria_na_parede(g) for g in geometrias]
+    return geometrias
+
+
+def _geometria_na_parede(geometria):
+    """Na vista da parede, so' as medidas NO plano dela: a profundidade
+    se ve de ponta e seus pontos de face cairiam no meio do modulo, em
+    cima do clique que move."""
+    normal = Vector(_paredes_edicao._sessao[0]['normal'])
+    linhas = [l for l in geometria['linhas']
+              if abs((l['pontos'][-1] - l['pontos'][0]).normalized().dot(normal)) < .5]
+    return dict(geometria, linhas=linhas)
+
+
+def _hud_na_parede():
+    """Na parede a HUD so' edita a geometria (pontos das faces e setas das
+    quinas, pedido do usuario): a quina acesa do snap e o mover sao da
+    composicao. Durante a edicao ela continua ate' o fim."""
+    if _edicao_hud[0] is not None or _hud_volume._estado[0] is not None:
+        return True
+    return (_paredes_composicao._quina_hover[0] is None
+            and _paredes_composicao._movendo[0] is None)
 
 
 def _alvo_e_do_item(geometria, alvo):
@@ -755,19 +780,24 @@ def _identidade_hud(alvo):
             alvo.get('borda_real'))
 
 
-def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True):
+def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True, so_faces=False):
     """Distancia em pixels: funciona em perspectiva, ortografica e orbitando.
 
     `cantos=False` ignora as quinas: escolhendo a linha do proximo item
-    so' medidas interessam, nunca mover o modulo."""
+    so' medidas interessam, nunca mover o modulo. `so_faces=True` (parede,
+    pedido do usuario) deixa so' as bolinhas do centro das bordas: sem
+    setas nas arestas e sem ancora na quina, que e' do snap."""
     mouse = Vector(mouse)
     obj = geometria['objeto']
     if cantos:
+        raio = (RAIO_PONTO_PAREDE_PX + 3 if so_faces else 8) * escala
         centros = [(c, projetar(c['pontos'][1])) for c in _hud_volume.controles(geometria)]
         perto = [(c, (mouse-p).length) for c, p in centros
-                 if p is not None and (mouse-p).length <= 8 * escala]
+                 if p is not None and (mouse-p).length <= raio]
         if perto:
             return min(perto, key=lambda par: par[1])[0]
+    if so_faces:
+        return None
     if cantos and geometria['modo'] == 'GRUPO' and _chapas.MARCA_CONJUNTO in obj:
         cantos = [(i, projetar(p)) for i, p in enumerate(geometria['cantos'])]
         proximos = [(mouse-p).length for i, p in cantos if p is not None]
@@ -841,7 +871,8 @@ def _distancia_alvo_hud(alvo, mouse, projetar):
 def _acertar_hud(context, posicao):
     """Quina ou linha mais perto do mouse entre TODOS os itens da
     selecao; quina antes de linha, como dentro de um item."""
-    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
+    parede = _paredes_edicao.ativa(context)
+    if not _contexto_hud(context) or (parede and not _hud_na_parede()):
         return None
     geometrias = _geometrias_hud(context)
     if not geometrias:
@@ -850,7 +881,7 @@ def _acertar_hud(context, posicao):
     projetar = lambda p: _projetar_hud(context, p)
     melhor = None
     for geometria in geometrias:
-        alvo = _acertar_linhas_hud(geometria, posicao, projetar, escala)
+        alvo = _acertar_linhas_hud(geometria, posicao, projetar, escala, so_faces=parede)
         if alvo is None:
             continue
         chave = (alvo['tipo'] != 'ancora',
@@ -863,7 +894,7 @@ def _acertar_hud(context, posicao):
     # continua sendo editada na gaveta, mesmo com ela aberta.
     chapas = [c for g in geometrias if g['modo'] == 'INDIVIDUAL'
               for c in g['chapas']]
-    if chapas:
+    if chapas and not parede:
         return _face_espessura_hud(context, posicao, chapas)
     return None
 
@@ -1017,13 +1048,16 @@ def _espessura_principal_hud(espessura):
 
 
 def _desenhar_hud_3d(context):
-    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
+    parede = _paredes_edicao.ativa(context)
+    if not _contexto_hud(context) or (parede and not _hud_na_parede()):
         return
     normais, acesos, pendentes, principais = [], {}, [], []
     desenhos = _desenhos_hud(context)
     principal = _principal_hud(context, desenhos)
     for indice, (geometria, alvo) in enumerate(desenhos):
         n, a = _segmentos_hud(geometria, alvo)
+        if parede:
+            n = []      # o contorno do modulo ja' e' o nativo: so' a aresta acesa
         if indice == principal:
             principais += n
         else:
@@ -1036,7 +1070,7 @@ def _desenhar_hud_3d(context):
                               []).extend(a)
     # Pecas associadas que se separaram: linha acesa (a corrente no meio
     # dela e' um botao do VIEW3D_GGT_correntes_cabinet)
-    for corrente in _solda._correntes_hud(context):
+    for corrente in ([] if parede else _solda._correntes_hud(context)):
         acesos.setdefault(_cor_realce_hud(), []).extend(corrente['pontos'])
     if not normais and not acesos and not principais:
         return
@@ -1204,18 +1238,20 @@ def _rotulos_hud(context, geometria, alvo):
 
 def _desenhar_hud_texto():
     context = bpy.context
-    if not _contexto_hud(context) or _paredes_edicao.ativa(context):
+    parede = _paredes_edicao.ativa(context)
+    if not _contexto_hud(context) or (parede and not _hud_na_parede()):
         return
-    if _prateleiras._referencia_pendente[0]:
-        _assistente._desenhar_assistente_2d(_prateleiras._referencia_pendente[0])
-    # porta selecionada nao tem HUD de medida, mas tem os 4 cantos e o
-    # slider de abertura de cada folha; ferragens selecionadas, o realce
-    _ferragens._desenhar_ferragens_selecionadas(context)
-    _puxadores._desenhar_ancoras_puxador(context)
-    _portas_viewport._desenhar_cantos_porta(context)
-    _portas_viewport._desenhar_sliders_porta(context)
-    _paredes.desenhar_guias(context)     # modulo associado a uma parede
-    _gavetas.desenhar(context)           # sliders e, com Alt, os 3 pontos
+    if not parede:
+        if _prateleiras._referencia_pendente[0]:
+            _assistente._desenhar_assistente_2d(_prateleiras._referencia_pendente[0])
+        # porta selecionada nao tem HUD de medida, mas tem os 4 cantos e o
+        # slider de abertura de cada folha; ferragens selecionadas, o realce
+        _ferragens._desenhar_ferragens_selecionadas(context)
+        _puxadores._desenhar_ancoras_puxador(context)
+        _portas_viewport._desenhar_cantos_porta(context)
+        _portas_viewport._desenhar_sliders_porta(context)
+        _paredes.desenhar_guias(context)     # modulo associado a uma parede
+        _gavetas.desenhar(context)           # sliders e, com Alt, os 3 pontos
     desenhos = _desenhos_hud(context)
     if not desenhos:
         return
@@ -1226,12 +1262,12 @@ def _desenhar_hud_texto():
     edicao = _edicao_hud[0]
     nesta = edicao is not None and edicao['regiao'] == context.region.as_pointer()
     digitando = nesta and edicao.get('texto') is not None
-    if digitando:
-        edicao['caixas'] = []
+    if digitando and not parede:
+        edicao['caixas'] = []   # na parede a caixa e' o numero da cota verde
     try:
         for geometria, alvo in desenhos:
             _desenhar_controles_volume(context, geometria, alvo)
-            for letra, ponto, aceso in _rotulos_hud(context, geometria, alvo):
+            for letra, ponto, aceso in ([] if parede else _rotulos_hud(context, geometria, alvo)):
                 blf.size(0, tamanho)
                 # o ponto e' o CENTRO da letra (ja' fora da peca)
                 largura_letra, altura_letra = blf.dimensions(0, letra)
@@ -1252,9 +1288,9 @@ def _desenhar_hud_texto():
                     _caixa_texto_hud(x_texto, y, _gaveta_desenho._com_cursor(
                         edicao['texto'], edicao.get('cursor', len(edicao['texto']))),
                         tamanho, escala)
-            if alvo and alvo.get('lado'):
+            if alvo and alvo.get('lado') and not parede:
                 _desenhar_seta_hud(context, alvo, geometria)
-            if nesta and edicao.get('nativo') and alvo:
+            if nesta and edicao.get('nativo') and alvo and not parede:
                 ponto = _projetar_hud(context, alvo['pontos'][1])
                 if ponto is not None:
                     texto = '%s: %s' % (alvo.get('rotulo', alvo.get('letra', '')),
@@ -1263,7 +1299,8 @@ def _desenhar_hud_texto():
                         texto += ' (limite)'
                     _caixa_texto_hud(ponto.x + 12 * escala, ponto.y + 12 * escala,
                                       texto, tamanho, escala)
-        _solda._desenhar_bolinhas_correntes(context)
+        if not parede:
+            _solda._desenhar_bolinhas_correntes(context)
         alvo = _realce_hud(context)
         if alvo and alvo['tipo'] == 'ancora':
             ponto = _projetar_hud(context, alvo['pontos'][0])
@@ -1296,12 +1333,30 @@ def _desenhar_controles_volume(context, geometria, alvo):
                   and _identidade_hud(alvo) == _identidade_hud(controle)
                   and alvo['lado'] == controle['lado'])
         cor = _cor_realce_hud() if aceso else _cor_linhas_hud(context)
+        if _paredes_edicao.ativa(context):
+            # Na parede ela e' o unico controle (pedido do usuario: mais
+            # visivel): disco cheio sobre halo do tema, maior aceso.
+            raio = (RAIO_PONTO_PAREDE_PX + (2 if aceso else 0)) * escala
+            halo = _paredes_composicao.estilo_cotas(context)['halo']
+            shader.bind()
+            for r, c in ((raio + 2 * escala, halo), (raio, cor)):
+                shader.uniform_float('color', (*c[:3], 1.0))
+                batch_for_shader(shader, 'TRIS', {'pos': _disco_2d(ponto, r)}).draw(shader)
+            continue
         raio = (3 if aceso else 2) * escala
         circulo = [(ponto.x + raio * math.cos(i*math.tau/24),
                     ponto.y + raio * math.sin(i*math.tau/24)) for i in range(25)]
         shader.bind()
         shader.uniform_float('color', cor)
         batch_for_shader(shader, 'LINE_STRIP', {'pos': circulo}).draw(shader)
+
+
+def _disco_2d(centro, raio, passos=24):
+    """Triangulos de um disco cheio em pixels."""
+    volta = [centro + Vector((math.cos(i * math.tau / passos),
+                              math.sin(i * math.tau / passos))) * raio
+             for i in range(passos + 1)]
+    return [p for a, b in zip(volta, volta[1:]) for p in (centro, a, b)]
 
 
 def _cor_tema_linha():

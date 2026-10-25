@@ -4,6 +4,7 @@ import sys
 import math
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import bpy
@@ -26,6 +27,9 @@ class TestComposicaoParedes(unittest.TestCase):
         E._alvo_contexto[0] = None
         C.esquecer()
         P.esquecer()
+        for chave in (C.CHAVE_GUIAS, C.CHAVE_GUIAS_MODO):
+            if chave in bpy.context.scene:
+                del bpy.context.scene[chave]
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
         for col in list(bpy.data.collections):
@@ -329,7 +333,7 @@ class TestComposicaoParedes(unittest.TestCase):
     def test_composicao_nao_sobrepoe_widgets_nas_larguras_suportadas(self):
         self.tres()
         for largura in (190, 320, 564):
-            caixas = [w[:4] for w in addon.gaveta._widgets_gaveta(bpy.context, largura, 2400)]
+            caixas = [w[:4] for w in addon.gaveta._widgets_gaveta(bpy.context, largura, 2900)]
             for i, (ax, ay, aw, ah) in enumerate(caixas):
                 for bx, by, bw, bh in caixas[i + 1:]:
                     self.assertFalse(ax < bx + bw - .01 and bx < ax + aw - .01
@@ -378,16 +382,24 @@ class TestComposicaoParedes(unittest.TestCase):
         E.verificar()
         self.assertNotIn(nome, bpy.data.objects)
 
-    def test_livre_fixa_tem_um_unico_segmento_ativo_por_modulo(self):
+    def test_menu_da_composicao_sem_livre_fixa_nem_botoes(self):
+        # Print do usuario: "remova tudo isso" (Livre/Fixa, Redistribuir,
+        # Trocar modelo, Desassociar). Fica so' a cruz de medidas.
         a, b, c = self.tres()
         C.fixar(bpy.context, b.name, True)
-        widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 2400)
-        escolhas = [w[5] for w in widgets if w[5] and w[5][:2] == ('escolha', C.CHAVE_FIXA)]
-        for modulo in (a, b, c):
-            linha = [a for a in escolhas if a[5] == modulo.name]
-            self.assertEqual(len(linha), 2)
-            self.assertEqual(sum(a[3] for a in linha), 1)
-            self.assertTrue(all(a[4] for a in linha))
+        itens = []
+        C.widgets(bpy.context, itens, 0, 2000, 300)
+        self.assertFalse([i for i in itens if i[5] and i[5][0] in {'escolha', 'operador'}])
+        self.assertFalse([i for i in itens if i[4] in {'Livre', 'Fixa'} or i[4].startswith('M1 ')])
+        self.assertTrue([i for i in itens if i[5] and i[5][:2] == ('medida', 'parede_modulo')])
+
+    def test_menu_da_composicao_some_sem_modulo_selecionado(self):
+        self.tres()
+        for o in bpy.context.selected_objects:
+            o.select_set(False)
+        itens = []
+        self.assertEqual(C.widgets(bpy.context, itens, 0, 2000, 300), 2000)
+        self.assertEqual(itens, [])
 
     def test_cotas_e1_e2_movem_apenas_modulo_selecionado(self):
         a, b, c = self.tres()
@@ -458,6 +470,543 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertFalse(b.select_get())
         self.assertFalse(grupo.select_get())
 
+    def test_gaveta_e_prateleira_na_parede_clique_modulo_duplo_peca(self):
+        a, b, c = self.tres()
+        gavetas = addon.gavetas.criar_gavetas(bpy.context, a, (18, 18, 18, 300, 0),
+                                              dict(quantidade=2, profundidade_mm=400))
+        prateleiras = addon.prateleiras.criar_prateleiras(bpy.context, b, (18, 18, 18, 18, 0),
+                                                          dict(quantidade=1, profundidade_mm=400))
+        gaveta = next(o for o in gavetas.children_recursive
+                      if o.type == 'MESH' and addon.chapas.MARCA_CHAPA in o)
+        prateleira = addon.prateleiras.prateleiras_do_grupo(prateleiras)[0]
+        C.atualizar(bpy.context)
+        for modulo, peca in ((a, gaveta), (b, prateleira)):
+            self.assertEqual(self.clicar_porta(peca), {'FINISHED'})
+            self.assertEqual(bpy.context.object, modulo)
+            familia = addon.hud._familia_do_clique(peca)
+            self.assertTrue(all(o.select_get() for o in familia))
+            self.assertEqual(self.clicar_porta(peca, 'INDIVIDUAL'), {'FINISHED'})
+            self.assertFalse(modulo.select_get())
+            self.assertTrue(peca.select_get())
+        # Fora da vista da parede, cada tipo volta a' propria selecao.
+        E.encerrar()
+        self.assertEqual(self.clicar_porta(gaveta), {'FINISHED'})
+        self.assertFalse(a.select_get())
+
+    def test_snap_de_vertice_temporario_e_devolvido(self):
+        ajustes = bpy.context.scene.tool_settings
+        ajustes.use_snap, ajustes.snap_elements, ajustes.snap_target = False, {'INCREMENT'}, 'CENTER'
+        self.iniciar()
+        self.assertTrue(ajustes.use_snap)
+        # VERTEX sempre; EDGE vem das guias (modo padrao Com snap).
+        self.assertIn('VERTEX', ajustes.snap_elements)
+        self.assertEqual(ajustes.snap_target, 'CLOSEST')
+        E.encerrar()
+        self.assertFalse(ajustes.use_snap)
+        self.assertEqual(set(ajustes.snap_elements), {'INCREMENT'})
+        self.assertEqual(ajustes.snap_target, 'CENTER')
+
+    def soltar_g(self, *modulos):
+        # O G nativo marca os modulos; o timer encaixa ao soltar.
+        bpy.context.view_layer.update()
+        C._movidos[0] = {m.name for m in modulos}
+        with bpy.context.temp_override(area=self.area, region=self.regiao), \
+             patch.object(P, '_px_por_metro', return_value=1000.0):     # ima = 12 mm
+            return C.encaixar_movidos(bpy.context)
+
+    def test_ima_2d_gruda_bordas_da_caixa_e_mantem_na_face(self):
+        a, b, c = self.tres()
+        b.location.x -= .195            # fresta de 5 mm para a borda de A
+        b.location.z += .004            # 4 mm acima do piso
+        self.assertTrue(self.soltar_g(b))
+        f = C.ficha(b, E._sessao[0])
+        self.assertAlmostEqual(f['inicio'], -.8, places=5)
+        self.assertAlmostEqual(f['base'], 0, places=5)
+        self.assertFalse(C._movidos[0])
+        # Longe do alcance do ima: fica onde o usuario soltou.
+        b.location.x += .05
+        self.assertFalse(self.soltar_g(b))
+        self.assertAlmostEqual(C.ficha(b, E._sessao[0])['inicio'], -.75, places=5)
+        # Fora da face (antes da ponta e abaixo do piso): volta para dentro.
+        a.location.x -= 1.0
+        a.location.z -= .5
+        self.assertTrue(self.soltar_g(a))
+        f = C.ficha(a, E._sessao[0])
+        self.assertAlmostEqual(f['inicio'], -1.5, places=5)
+        self.assertAlmostEqual(f['base'], 0, places=5)
+
+    def test_lado_sob_o_mouse_e_ima_do_lado_inteiro(self):
+        f = dict(inicio=0.0, fim=.6, base=0.0, largura=.6, altura=.72)
+        self.assertEqual(C.lado_sob(f, .01, .3, .024), 'esquerda')
+        self.assertEqual(C.lado_sob(f, .59, .3, .024), 'direita')
+        self.assertEqual(C.lado_sob(f, .3, .71, .024), 'topo')
+        self.assertEqual(C.lado_sob(f, .3, -.01, .024), 'base')
+        # No meio da caixa, ou na altura de outra coisa, nenhuma lateral.
+        self.assertIsNone(C.lado_sob(f, .3, .36, .024))
+        self.assertIsNone(C.lado_sob(f, .01, 1.5, .024))
+        alvos = ([-.2, 1.0], [0.0, .9])
+        # So' a lateral pega gruda; o outro eixo fica livre.
+        self.assertEqual(C.posicao_com_ima(f, -.195, .004, alvos, 'esquerda', .012),
+                         (-.2, .004, [('x', -.2)]))
+        inicio, base, _l = C.posicao_com_ima(f, .395, .004, alvos, 'esquerda', .012)
+        self.assertAlmostEqual(inicio, .395)          # a direita nao conta
+        inicio, base, _l = C.posicao_com_ima(f, .395, .004, alvos, 'direita', .012)
+        self.assertAlmostEqual(inicio, .4)
+        self.assertAlmostEqual(base, .004)
+        # Sem lateral: a borda mais perto de cada eixo, como ao soltar o G.
+        inicio, base, linhas = C.posicao_com_ima(f, -.195, .175, alvos, None, .012)
+        self.assertAlmostEqual(inicio, -.2)
+        self.assertAlmostEqual(base, .18)              # topo .895 -> .9
+        self.assertEqual(len(linhas), 2)
+
+    def test_alt_gruda_quina_com_quina_no_plano(self):
+        f = dict(inicio=0.0, fim=.6, base=0.0, largura=.6, altura=.72)
+        quinas = [(-.2, .72)]
+        # O mouse sobre a quina-alvo leva a quina da caixa mais perto dela.
+        inicio, base, linhas = C.posicao_com_ima(f, -.195, .725, ([], []), None, .012,
+                                                 quinas, (-.195, .725))
+        self.assertAlmostEqual(inicio, -.2)
+        self.assertAlmostEqual(base, .72)
+        self.assertEqual(linhas, [('x', -.2), ('z', .72)])
+        # Longe da quina: sem alvo, nada mexe; com laterais, valem elas.
+        self.assertEqual(C.posicao_com_ima(f, -.1, .5, ([], []), None, .012, quinas, (-.1, .5))[:2],
+                         (-.1, .5))
+        inicio, base, linhas = C.posicao_com_ima(f, -.195, .5, ([-.2], []), None, .012,
+                                                 quinas, (-.1, .5))
+        self.assertAlmostEqual(inicio, -.2)
+        self.assertEqual(linhas, [('x', -.2)])
+        # Sem Alt (`laterais` False) so' a quina gruda, com a tolerancia dela.
+        self.assertEqual(C.posicao_com_ima(f, -.195, .5, ([-.2], []), None, .012,
+                                           quinas, (-.1, .5), laterais=False), (-.195, .5, []))
+        inicio, base, linhas = C.posicao_com_ima(f, -.19, .73, ([], []), None, .012,
+                                                 quinas, (-.19, .73), laterais=False,
+                                                 tolerancia_quina=.016)
+        self.assertEqual((round(inicio, 6), round(base, 6)), (-.2, .72))
+
+    def mover(self, modulo, grudar_em, destino, arrastar=False, alt=False, ctrl=False, esc=False):
+        """G (ou arraste) no modulo, pegando em `grudar_em` (x, z) da face e
+        soltando em `destino`: os eventos reais do operador."""
+        from types import MethodType
+        from bpy_extras import view3d_utils
+        s = E._sessao[0]
+        rv3d = self.area.spaces.active.region_3d
+        u, ponto = Vector(s['u']), Vector(s['ponto'])
+
+        def evento(x, z, tipo='MOUSEMOVE', valor='NOTHING'):
+            p = ponto + u * (x - ponto.dot(u))
+            p.z = z
+            xy = view3d_utils.location_3d_to_region_2d(self.regiao, rv3d, p)
+            return SimpleNamespace(type=tipo, value=valor, mouse_x=self.regiao.x + xy.x,
+                                   mouse_y=self.regiao.y + xy.y, ctrl=ctrl, alt=alt,
+                                   shift=False, oskey=False)
+        op = SimpleNamespace(modulo=modulo.name, arrastar=arrastar)
+        for nome in dir(C.OBJECT_OT_mover_na_parede):
+            metodo = getattr(C.OBJECT_OT_mover_na_parede, nome)
+            if callable(metodo) and nome.startswith(('_', 'invoke', 'modal', 'cancel')) \
+                    and not nome.startswith('__'):
+                setattr(op, nome, MethodType(metodo, op))
+
+        class Contexto:
+            window_manager = SimpleNamespace(modal_handler_add=lambda op: None)
+            def __getattr__(self, nome):
+                return getattr(bpy.context, nome)
+        contexto = Contexto()
+        with bpy.context.temp_override(area=self.area, region=self.regiao), \
+             patch.object(P, '_px_por_metro', return_value=1000.0):     # ima = 12 mm
+            self.assertEqual(op.invoke(contexto, evento(*grudar_em, 'G', 'PRESS')), {'RUNNING_MODAL'})
+            if arrastar:
+                self.assertEqual(op.modal(contexto, evento(*grudar_em)), {'PASS_THROUGH'})
+            op.modal(contexto, evento(*destino))
+            self.assertIsNotNone(C._movendo[0])
+            fim = (evento(*destino, 'ESC', 'PRESS') if esc else
+                   evento(*destino, 'LEFTMOUSE', 'RELEASE' if arrastar else 'PRESS'))
+            return op, op.modal(contexto, fim)
+
+    def test_g_perto_da_lateral_gruda_so_ela_no_vizinho(self):
+        a, b, c = self.tres()
+        # Sem Alt o movimento e' livre (pedido do usuario): nada gruda.
+        op, fim = self.mover(b, (-.6, .36), (-.795, .364))
+        self.assertAlmostEqual(C.ficha(b, E._sessao[0])['inicio'], -.795, delta=.002)
+        op, fim = self.mover(b, (-.795, .364), (-.6, .36))
+        # Alt: pega B pela lateral esquerda, a 5 mm da borda de A, 4 mm acima.
+        op, fim = self.mover(b, (-.6, .36), (-.795, .364), alt=True)
+        self.assertEqual(fim, {'FINISHED'})
+        self.assertEqual(op._lado, 'esquerda')
+        f = C.ficha(b, E._sessao[0])
+        self.assertAlmostEqual(f['inicio'], -.8, places=5)
+        # livre: nem grudou no piso (12 mm); a tela e' float32, dai' o delta
+        self.assertAlmostEqual(f['base'], .004, delta=.001)
+        self.assertAlmostEqual(f['afastamento'], 0, places=5)   # nunca sai do plano
+        self.assertIsNone(C._movendo[0])
+        # Pelo meio: cada eixo gruda a borda mais perto (piso).
+        op, fim = self.mover(b, (-.5, .3), (-.48, .296), alt=True)
+        self.assertIsNone(op._lado)
+        self.assertAlmostEqual(C.ficha(b, E._sessao[0])['base'], 0, places=5)
+
+    def test_circulo_na_quina_sob_o_mouse_e_a_quina_pega_gruda(self):
+        # Pedido do usuario (print do Paint): passar o mouse perto da quina
+        # de um modulo acende o circulo do snap de quina; G/arraste com ele
+        # aceso pega ESSA quina, que gruda na quina-alvo mais perto dela.
+        from bpy_extras import view3d_utils
+        a, b, c = self.tres()
+        s = E._sessao[0]
+        f = C.ficha(b, s)
+        self.assertEqual(C.quina_sob(f, -.595, .715, .016), (0, 1))
+        self.assertIsNone(C.quina_sob(f, -.3, .36, .016))
+        rv3d = self.area.spaces.active.region_3d
+        u, ponto = Vector(s['u']), Vector(s['ponto'])
+
+        def evento(x, z):
+            p = ponto + u * (x - ponto.dot(u))
+            p.z = z
+            xy = view3d_utils.location_3d_to_region_2d(self.regiao, rv3d, p)
+            return SimpleNamespace(type='MOUSEMOVE', mouse_x=self.regiao.x + xy.x,
+                                   mouse_y=self.regiao.y + xy.y)
+        with patch.object(P, '_px_por_metro', return_value=1000.0):     # 16 px = 16 mm
+            C.atualizar_quina_hover(evento(-.595, .715), self.regiao, rv3d)
+            nome, (x, z) = C._quina_hover[0]
+            self.assertEqual(nome, b.name)
+            self.assertAlmostEqual(x, -.6, places=5)
+            self.assertAlmostEqual(z, .72, places=5)
+            C.atualizar_quina_hover(evento(-.3, .36), self.regiao, rv3d)
+            self.assertIsNone(C._quina_hover[0])
+        # Pega pela quina de cima-esquerda e a leva a 11 mm da de cima de A.
+        op, fim = self.mover(b, (-.595, .715), (-.79, .725), arrastar=True)
+        self.assertEqual(op._quina, (0, 1))
+        self.assertIsNone(op._lado)                 # a quina vale mais que a lateral
+        self.assertEqual(fim, {'FINISHED'})
+        f = C.ficha(b, s)
+        self.assertAlmostEqual(f['inicio'], -.8, places=5)
+        self.assertAlmostEqual(f['base'], 0.0, places=5)
+        # com a quina pega, o ima e' dela: longe de quina-alvo, nada gruda
+        inicio, base, linhas = C.posicao_com_ima(f, -.3, .2, ([], []), None, .012,
+                                                 [(-.8, .72)], (-.3, .2), quina=(0, 1))
+        self.assertEqual((inicio, base, linhas), (-.3, .2, []))
+
+    def test_arraste_esquerdo_gruda_na_quina_sem_alt_e_esc_restaura(self):
+        a, b, c = self.tres()
+        # Pedido do usuario: a quina gruda so' de o mouse passar perto dela,
+        # sem Alt. Arraste do esquerdo pela quina de baixo de B ate' a de
+        # cima de A (mouse a 14 px dela; o ima das laterais e' de 12).
+        op, fim = self.mover(b, (-.6, 0), (-.79, .73), arrastar=True)
+        self.assertEqual(fim, {'FINISHED'})
+        f = C.ficha(b, E._sessao[0])
+        self.assertAlmostEqual(f['inicio'], -.8, places=5)
+        self.assertAlmostEqual(f['base'], .72, places=5)
+        # Ctrl nao faz nada (so' o Alt liga as laterais); Esc devolve posicao e ponto.
+        antes = b.matrix_world.copy()
+        ponto = tuple(b[P.CHAVE_PAREDE_PONTO])
+        op, fim = self.mover(b, (-.6, .9), (-.3, 1.0), ctrl=True, esc=True)
+        self.assertEqual(fim, {'CANCELLED'})
+        for x, y in zip(sum(map(list, b.matrix_world), []), sum(map(list, antes), [])):
+            self.assertAlmostEqual(x, y, places=5)
+        for x, y in zip(b[P.CHAVE_PAREDE_PONTO], ponto):
+            self.assertAlmostEqual(x, y, places=6)
+        self.assertIsNone(C._movendo[0])
+
+    def test_g_e_clique_no_modulo_da_parede_vao_para_o_mover(self):
+        a, b, c = self.tres()
+        porta = b.children_recursive[0]
+        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS', mouse_x=10, mouse_y=10,
+                                 shift=False, ctrl=False, alt=False, oskey=False)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            with patch.object(addon.hud, '_raio_hud', return_value=(porta,)):
+                self.assertEqual(E.modulo_para_mover(bpy.context, evento, self.regiao), b.name)
+                evento.shift = True
+                self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
+                evento.shift = False
+                # Varios modulos selecionados: o arraste segue nativo.
+                for o in (a, b):
+                    o.select_set(True)
+                porta.select_set(True)
+                self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
+            # G (o atalho do usuario): o modulo selecionado, sozinho.
+            self.selecionar(b)
+            evento.type = 'G'
+            with patch.object(E, '_tecla_de_mover', return_value=True):
+                self.assertEqual(E.modulo_para_mover(bpy.context, evento, self.regiao), b.name)
+                a.select_set(True)
+                self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
+            with patch.object(E, '_tecla_de_mover', return_value=False):
+                self.selecionar(b)
+                self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
+
+    def test_ima_so_para_o_gesto_nativo_nunca_para_medida_digitada(self):
+        a, b, c = self.tres()
+        with patch.object(C._eventos, '_transformando', return_value=True):
+            c.location.x += .01
+            bpy.context.view_layer.update()
+        self.assertIn(c.name, C._movidos[0])
+        C._movidos[0] = set()
+        with patch.object(C._eventos, '_transformando', return_value=False):
+            c.location.x += .01
+            bpy.context.view_layer.update()
+        self.assertFalse(C._movidos[0])
+        # 5 mm digitados ficam 5 mm, mesmo com o ima de 12 mm.
+        C._movidos[0] = {b.name}
+        self.assertIsNone(C.editar_modulo(bpy.context, b.name, 'vao_esquerdo', 5))
+        self.assertFalse(self.soltar_g())
+        self.assertAlmostEqual(self.ficha_de(b)['vao_esquerdo'], .005, places=5)
+
+    def test_cotas_acompanham_o_arraste_sem_reler_malhas(self):
+        a, b, c = self.tres()
+        antes = next(f for f in C._resumo[0]['itens'] if f['nome'] == b.name)
+        with patch.object(P, 'caixa_do_modulo', side_effect=AssertionError('Releu a malha')), \
+             patch.object(E, 'associados', side_effect=AssertionError('Refez a busca')):
+            b.location.x += .1
+            bpy.context.view_layer.update()
+        depois = next(f for f in C._resumo[0]['itens'] if f['nome'] == b.name)
+        self.assertAlmostEqual(depois['inicio'] - antes['inicio'], .1, places=5)
+        self.assertAlmostEqual(depois['largura'], antes['largura'], places=6)
+        self.assertAlmostEqual(depois['vao_esquerdo'], .3, places=5)
+        vizinho = next(f for f in C._resumo[0]['itens'] if f['nome'] == c.name)
+        self.assertAlmostEqual(vizinho['vao_esquerdo'], .1, places=5)
+        # O tique normal chega ao mesmo numero.
+        C.atualizar(bpy.context)
+        conferido = next(f for f in C._resumo[0]['itens'] if f['nome'] == b.name)
+        self.assertAlmostEqual(conferido['inicio'], depois['inicio'], places=6)
+
+    def objeto_guias(self):
+        return next((o for o in bpy.data.objects if C.MARCA_OBJETO_GUIAS in o), None)
+
+    def alturas_das_guias(self):
+        obj = self.objeto_guias()
+        return sorted({round((obj.matrix_world @ v.co).z, 6) for v in obj.data.vertices})
+
+    def ficha_de(self, obj):
+        return next(f for f in C.itens_da_face(bpy.context) if f['nome'] == obj.name)
+
+    def test_cotas_do_promob_inferior_superior_e_vizinhos(self):
+        a, b, c = self.tres()
+        alto = self.modulo(inicio=-1.4, base=1.5, nome='Alto')
+        C.atualizar(bpy.context)
+        baixo, cima = self.ficha_de(a), self.ficha_de(alto)
+        self.assertAlmostEqual(baixo['cota_inferior'], 0, places=5)
+        self.assertAlmostEqual(baixo['cota_superior'], 1.5 - .72, places=5)
+        self.assertAlmostEqual(cima['cota_inferior'], 1.5 - .72, places=5)
+        self.assertAlmostEqual(cima['cota_superior'], 2.7 - 1.5 - .72, places=5)
+        # O vizinho de baixo nao conta para Anterior/Posterior do de cima.
+        self.assertAlmostEqual(cima['vao_esquerdo'], .1, places=5)
+        self.assertAlmostEqual(cima['vao_direito'], 1.5 + .8, places=5)
+        self.assertIsNone(C.editar_modulo(bpy.context, alto.name, 'cota_inferior', 900))
+        self.assertAlmostEqual(self.ficha_de(alto)['base'], .72 + .9, places=5)
+        self.assertIsNone(C.editar_modulo(bpy.context, alto.name, 'cota_superior', 100))
+        self.assertAlmostEqual(self.ficha_de(alto)['base'], 2.7 - .1 - .72, places=5)
+        antes = alto.matrix_world.copy()
+        self.assertIsNotNone(C.editar_modulo(bpy.context, alto.name, 'cota_superior', 5000))
+        self.assertEqual(alto.matrix_world, antes)
+
+    def test_afastamento_da_parede_resiste_ao_timer_e_ao_g(self):
+        a, b, c = self.tres()
+        self.assertAlmostEqual(self.ficha_de(b)['afastamento'], 0, places=6)
+        self.assertIsNone(C.editar_modulo(bpy.context, b.name, 'afastamento', 50))
+        self.assertAlmostEqual(self.ficha_de(b)['afastamento'], .05, places=5)
+        self.assertAlmostEqual(b[P.CHAVE_AFASTAMENTO], 50)
+        b.location.x += .05
+        bpy.context.view_layer.update()
+        P.manter_nas_paredes()
+        f = self.ficha_de(b)
+        self.assertAlmostEqual(f['afastamento'], .05, places=5)
+        self.assertAlmostEqual(f['vao_esquerdo'], .25, places=5)
+        self.assertIsNone(C.editar_modulo(bpy.context, b.name, 'afastamento', 0))
+        self.assertNotIn(P.CHAVE_AFASTAMENTO, b)
+        self.assertAlmostEqual(self.ficha_de(b)['afastamento'], 0, places=5)
+        P.desassociar(b)
+        self.assertNotIn(P.CHAVE_AFASTAMENTO, b)
+
+    def test_menu_mostra_cotas_em_cruz_simetrica_e_estreita(self):
+        a, b, c = self.tres()
+        for largura, rotulos in ((564, ('Superior', 'Anterior', 'Afastamento', 'Posterior', 'Inferior')),
+                                 (190, ('Sup', 'Ant', 'Afast', 'Post', 'Inf'))):
+            itens = []
+            C.widgets(bpy.context, itens, 12, 1000, largura - 24)
+            campos = {i[5][2]: i for i in itens if i[5] and i[5][0] == 'medida'}
+            self.assertEqual(set(campos), {'largura', 'altura', 'profundidade', 'cota_superior',
+                                           'vao_esquerdo', 'afastamento', 'vao_direito', 'cota_inferior'})
+            self.assertEqual(tuple(campos[n][5][3] for n in ('cota_superior', 'vao_esquerdo', 'afastamento',
+                                                           'vao_direito', 'cota_inferior')), rotulos)
+            self.assertTrue(all(i[2] <= C.LARGURA_CAMPO_COTA for i in campos.values()))
+            meio = lambda n: campos[n][0] + campos[n][2] / 2
+            for n in ('cota_superior', 'cota_inferior', 'altura'):
+                self.assertAlmostEqual(meio(n), meio('afastamento'))
+            self.assertAlmostEqual(meio('vao_esquerdo') + meio('vao_direito'), 2 * meio('afastamento'))
+            self.assertAlmostEqual(meio('afastamento'), 12 + (largura - 24) / 2)
+            self.assertGreater(campos['cota_superior'][1], campos['afastamento'][1])
+            self.assertGreater(campos['afastamento'][1], campos['cota_inferior'][1])
+
+    def test_guias_padrao_so_na_vista_da_parede_com_snap_de_aresta(self):
+        ajustes = bpy.context.scene.tool_settings
+        ajustes.snap_elements, ajustes.use_snap_selectable = {'INCREMENT'}, True
+        self.assertIsNone(self.objeto_guias())
+        self.iniciar()
+        obj = self.objeto_guias()
+        self.assertIsNotNone(obj)
+        self.assertEqual(self.alturas_das_guias(), [a / 1000 for _n, a in C.GUIAS_PADRAO])
+        # Cada guia vai de ponta a ponta da face, rente a' frente dela, em
+        # tracos curtos (pontilhada, pedido do usuario) da propria malha.
+        s0, s1 = E._sessao[0]['regiao']['retangulo'][:2]
+        xs = [v.co.x for v in obj.data.vertices]
+        self.assertAlmostEqual(min(xs), s0, places=6)
+        self.assertAlmostEqual(max(xs), s1, places=6)
+        tracos = math.ceil((s1 - s0) / C.PASSO_GUIA_M - 1e-9)
+        self.assertIn(len(obj.data.edges), (tracos * len(C.GUIAS_PADRAO),
+                                            (tracos + 1) * len(C.GUIAS_PADRAO)))
+        for aresta in obj.data.edges:
+            a, b = (obj.data.vertices[i].co for i in aresta.vertices)
+            self.assertLessEqual((b - a).length, C.TRACO_GUIA_M + 1e-6)
+        self.assertTrue(obj.hide_select)
+        self.assertEqual(set(ajustes.snap_elements), {'VERTEX', 'EDGE'})
+        self.assertFalse(ajustes.use_snap_selectable)
+        E.encerrar()
+        self.assertIsNone(self.objeto_guias())
+        self.assertEqual(set(ajustes.snap_elements), {'INCREMENT'})
+        self.assertTrue(ajustes.use_snap_selectable)
+
+    def test_guia_editada_no_menu_e_na_viewport(self):
+        from types import SimpleNamespace, MethodType
+        self.iniciar()
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(bpy.context, 'parede_guia', '', '1', .85))
+        self.assertAlmostEqual(C.guias(bpy.context.scene)[1]['altura_mm'], 850)
+        self.assertIn(.85, self.alturas_das_guias())
+        self.assertIsNotNone(C.editar_guia(bpy.context, 1, 5000))
+        self.assertIsNotNone(C.editar_guia(bpy.context, 1, 0))
+        self.assertAlmostEqual(C.guias(bpy.context.scene)[1]['altura_mm'], 850)
+        # Rotulo na viewport: o mesmo hit-test e a mesma digitacao das cotas.
+        C._rotulos_guias[0] = ((10, 20, 60, 20, '', 'guia_4', 2150.0),)
+        self.assertEqual(C.cota_sob(15, 25)[5], 'guia_4')
+        op = SimpleNamespace(objeto='', propriedade='guia_4', report=lambda *a: None)
+        op._guia = MethodType(C.OBJECT_OT_editar_cota_parede._guia, op)
+        op.cancel = MethodType(C.OBJECT_OT_editar_cota_parede.cancel, op)
+        C._edicao[0] = dict(objeto='', propriedade='guia_4', texto='2200', cursor=4, selecionado=False)
+        evento = SimpleNamespace(value='PRESS', type='RET', ctrl=False, unicode='')
+        self.assertEqual(C.OBJECT_OT_editar_cota_parede._modal(op, bpy.context, evento), {'FINISHED'})
+        self.assertAlmostEqual(C.guias(bpy.context.scene)[4]['altura_mm'], 2200)
+        self.assertIn(2.2, self.alturas_das_guias())
+        self.assertIsNone(C._edicao[0])
+        bpy.ops.object.cabinet_restaurar_guias_parede()
+        self.assertEqual(self.alturas_das_guias(), [a / 1000 for _n, a in C.GUIAS_PADRAO])
+
+    def test_guias_e_snap_ligam_e_desligam(self):
+        ajustes = bpy.context.scene.tool_settings
+        self.iniciar()
+        self.assertIsNone(C.definir_modo_guias(bpy.context, 'VISIVEIS'))
+        self.assertIsNotNone(self.objeto_guias())
+        self.assertEqual(set(ajustes.snap_elements), {'VERTEX'})
+        # As arestas continuam visiveis, mas o filtro nativo as tira do snap.
+        self.assertTrue(ajustes.use_snap_selectable)
+        self.assertIsNone(C.definir_modo_guias(bpy.context, 'OCULTAS'))
+        self.assertIsNone(self.objeto_guias())
+        self.assertEqual(set(ajustes.snap_elements), {'VERTEX'})
+        self.assertIsNotNone(C.definir_modo_guias(bpy.context, 'OUTRO'))
+        itens = []
+        C.widgets_guias(bpy.context, itens, 0, 600, 300)
+        modos = [i[5][2] for i in itens if i[5] and i[5][0] == 'escolha']
+        self.assertEqual(modos, [m for m, _r in C.MODOS_GUIAS])
+        self.assertEqual([i[5][2] for i in itens if i[5] and i[5][0] == 'escolha' and i[5][3]], ['OCULTAS'])
+        self.assertIsNone(C.definir_modo_guias(bpy.context, 'SNAP'))
+        self.assertIsNotNone(self.objeto_guias())
+        self.assertEqual(set(ajustes.snap_elements), {'VERTEX', 'EDGE'})
+
+    def test_rotulo_da_guia_acompanha_o_zoom(self):
+        from types import SimpleNamespace
+        self.iniciar()
+        # Em --background o ui_scale e' 0: contexto com escala 1 e cota de 14 px.
+        maximo = 14
+        contexto = SimpleNamespace(
+            preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=1.0)),
+            region=self.regiao, region_data=self.area.spaces.active.region_3d,
+            scene=bpy.context.scene)
+        def tamanhos(px_por_metro):
+            desenhados = []
+            def projetar(regiao, rv, ponto):
+                return Vector((300 + ponto.x * px_por_metro, 200 + ponto.z * px_por_metro))
+            with patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
+                 patch.object(C, 'estilo_cotas', return_value={'tamanho': maximo}), \
+                 patch.object(C._hud, '_caixa_texto_hud', side_effect=lambda *a: desenhados.append(a[3])), \
+                 patch.object(C, 'texto_discreto', side_effect=lambda *a: desenhados.append(a[3])), \
+                 patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
+                C.desenhar_guias(contexto)
+            return desenhados
+        perto, longe = tamanhos(1000), tamanhos(150)
+        self.assertEqual(perto, [maximo] * len(C.GUIAS_PADRAO))
+        self.assertAlmostEqual(longe[0], C.ALTURA_ROTULO_GUIA_M * 150, places=4)
+        self.assertEqual(len(C._rotulos_guias[0]), len(C.GUIAS_PADRAO))
+        # Longe demais: nenhum rotulo nem alvo de clique.
+        self.assertEqual(tamanhos(50), [])
+        self.assertEqual(C._rotulos_guias[0], ())
+
+    def test_rotulo_da_guia_so_ganha_caixa_preta_com_o_mouse_em_cima(self):
+        from types import SimpleNamespace
+        self.iniciar()
+        contexto = SimpleNamespace(
+            preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=1.0)),
+            region=self.regiao, region_data=self.area.spaces.active.region_3d,
+            scene=bpy.context.scene)
+        def desenhar():
+            caixas, discretos = [], []
+            def projetar(regiao, rv, ponto):
+                return Vector((300 + ponto.x * 1000, 200 + ponto.z * 1000))
+            with patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
+                 patch.object(C, 'estilo_cotas', return_value={'tamanho': 14}), \
+                 patch.object(C._hud, '_caixa_texto_hud', side_effect=lambda *a: caixas.append(a[2])), \
+                 patch.object(C, 'texto_discreto', side_effect=lambda *a: discretos.append(a[2])), \
+                 patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
+                C.desenhar_guias(contexto)
+            return caixas, discretos
+        caixas, discretos = desenhar()
+        self.assertEqual(caixas, [])
+        self.assertEqual(len(discretos), len(C.GUIAS_PADRAO))
+        r = C._rotulos_guias[0][1]
+        C.atualizar_guia_hover(r[0] + 2, r[1] + 2)
+        self.assertEqual(C._guia_hover[0], 'guia_1')
+        caixas, discretos = desenhar()
+        self.assertEqual(len(caixas), 1)
+        self.assertIn(C.GUIAS_PADRAO[1][0], caixas[0])
+        self.assertEqual(len(discretos), len(C.GUIAS_PADRAO) - 1)
+        C.atualizar_guia_hover(None, None)
+        self.assertIsNone(C._guia_hover[0])
+
+    def test_cursor_de_digitacao_pisca_na_posicao(self):
+        desenhos = []
+        def batch(shader, tipo, dados):
+            from types import SimpleNamespace
+            desenhos.append((tipo, dados['pos']))
+            return SimpleNamespace(draw=lambda s: None)
+        edicao = dict(objeto='', propriedade='guia_0', texto='1500', cursor=2, selecionado=False)
+        with patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader', side_effect=batch), \
+             patch.object(C._hud, '_caixa_texto_hud'):
+            with patch.object(C, 'cursor_aceso', return_value=True):
+                C.caixa_editavel(100, 50, '1500 - Base do aereo', edicao, 14, 1)
+            with patch.object(C, 'cursor_aceso', return_value=False):
+                C.caixa_editavel(100, 50, '1500 - Base do aereo', edicao, 14, 1)
+            edicao['selecionado'] = True
+            with patch.object(C, 'cursor_aceso', return_value=False):
+                C.caixa_editavel(100, 50, '1500 - Base do aereo', edicao, 14, 1)
+        C.blf.size(0, 14)
+        x = 100 + C.blf.dimensions(0, '15')[0]
+        self.assertEqual([d[0] for d in desenhos], ['LINES', 'TRIS'])
+        self.assertAlmostEqual(desenhos[0][1][0][0], x)
+        self.assertTrue(C.cursor_aceso(0.1))
+        self.assertFalse(C.cursor_aceso(C.PISCA_CURSOR_S + .1))
+
+    def test_undo_que_devolve_guias_e_snap_e_limpo_pelo_timer(self):
+        ajustes = bpy.context.scene.tool_settings
+        ajustes.snap_elements, ajustes.snap_target = {'INCREMENT'}, 'CENTER'
+        self.iniciar()
+        guardado = dict(bpy.context.scene[E.CHAVE_SNAP])
+        E.encerrar()
+        # O snapshot do undo devolve objeto, marca e snap da vista sem sessao.
+        bpy.context.scene[E.CHAVE_SNAP] = guardado
+        ajustes.snap_elements, ajustes.snap_target = {'VERTEX', 'EDGE'}, 'CLOSEST'
+        sobra = bpy.data.objects.new('Guias da parede', bpy.data.meshes.new('Guias da parede'))
+        sobra[C.MARCA_OBJETO_GUIAS] = 1
+        bpy.context.scene.collection.objects.link(sobra)
+        E.verificar()
+        self.assertIsNone(self.objeto_guias())
+        self.assertNotIn(E.CHAVE_SNAP, bpy.context.scene)
+        self.assertEqual(set(ajustes.snap_elements), {'INCREMENT'})
+        self.assertEqual(ajustes.snap_target, 'CENTER')
+
     def test_interior_usa_arestas_reais_sem_alterar_malha_e_ignora_portas_e_fundo(self):
         m = self.modulo()
         grupo, folha = self.porta(m)
@@ -520,6 +1069,8 @@ class TestComposicaoParedes(unittest.TestCase):
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
              patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
              patch.object(C._hud, '_caixa_texto_hud'), \
+             patch.object(C, 'modulo_em_edicao', return_value=a.name), \
+             patch.object(C, 'area_livre', return_value=(0, 0, 2000, 2000)), \
              patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
             C.desenhar(ContextoCotas())
         altura = next(r for r in C._rotulos[0] if r[5] == 'altura')
@@ -558,6 +1109,178 @@ class TestComposicaoParedes(unittest.TestCase):
         escala = bpy.context.preferences.system.ui_scale
         self.assertIn(4 * escala, [c.args[0] for c in gpu.state.line_width_set.call_args_list])
         self.assertTrue(C._rotulos[0])
+
+    def test_circulo_da_quina_e_desenhado_no_realce(self):
+        # O circulo do snap de quina (print do usuario) na quina sob o mouse.
+        a, b, c = self.tres()
+        posicoes = []
+        def batch(*args, **kwargs):
+            from types import SimpleNamespace
+            posicoes.append(kwargs['pos'] if 'pos' in kwargs else args[2]['pos'])
+            return SimpleNamespace(draw=lambda shader: None)
+        def projetar(regiao, rv, ponto):
+            return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
+        C._quina_hover[0] = (b.name, (-.6, .72))
+        try:
+            with bpy.context.temp_override(area=self.area, region=self.regiao), \
+                 patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader', side_effect=batch), \
+                 patch.object(C._hud, '_caixa_texto_hud'), \
+                 patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
+                C.desenhar(bpy.context)
+        finally:
+            C._quina_hover[0] = None
+        centro = Vector((300 - 60, 200 + 72))
+        raio = C.RAIO_QUINA_PX * bpy.context.preferences.system.ui_scale
+        no_circulo = [p for pos in posicoes for p in pos
+                      if abs((Vector(p[:2]) - centro).length - raio) < 1e-3]
+        self.assertGreaterEqual(len(no_circulo), 2 * 24)
+
+    def desenhar_rotulos(self):
+        """{(modulo, propriedade)} das cotas desenhadas agora."""
+        def projetar(regiao, rv, ponto):
+            return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
+        with bpy.context.temp_override(area=self.area, region=self.regiao), \
+             patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
+             patch.object(C._hud, '_caixa_texto_hud'), \
+             patch.object(C, 'area_livre', return_value=(0, 0, 2000, 2000)), \
+             patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
+            C.desenhar(bpy.context)
+        return {(r[4], r[5]) for r in C._rotulos[0]}
+
+    def test_cotas_em_duas_etapas_selecionado_e_editando(self):
+        # Pedido do usuario: selecionado, so' as distancias (laranjas);
+        # editando a geometria pela HUD, so' largura e altura (verdes).
+        a, b, c = self.tres()
+        rotulos = self.desenhar_rotulos()
+        self.assertIn((a.name, 'afastamento'), rotulos)
+        self.assertIn((a.name, 'vao_direito'), rotulos)
+        self.assertFalse({p for _n, p in rotulos} & {'largura', 'altura'})
+        self.assertEqual({n for n, _p in rotulos}, {a.name})
+        with patch.object(C, 'modulo_em_edicao', return_value=a.name):
+            self.assertEqual(self.desenhar_rotulos(), {(a.name, 'largura'), (a.name, 'altura')})
+        for o in bpy.context.selected_objects:
+            o.select_set(False)
+        C.atualizar(bpy.context)
+        self.assertEqual(self.desenhar_rotulos(), set())
+
+    def test_guias_de_movimento_saem_do_meio_de_cada_face(self):
+        # Desenho do usuario (linhas azuis): esquerda/direita na meia
+        # altura, inferior/superior no meio da largura do modulo.
+        a, b, c = self.tres()
+        f = next(x for x in C._resumo[0]['itens'] if x['nome'] == a.name)
+        self.desenhar_rotulos()
+        rotulos = {r[5]: r for r in C._rotulos[0]}
+        meio_x = 300 + (f['inicio'] + f['fim']) / 2 * 100
+        meio_z = 200 + (f['base'] + f['altura'] / 2) * 100
+        escala = bpy.context.preferences.system.ui_scale
+        for prop in ('vao_esquerdo', 'vao_direito'):
+            r = rotulos[prop]
+            self.assertAlmostEqual(r[1] + r[3] / 2, meio_z, places=3)
+        self.assertLess(rotulos['vao_esquerdo'][0], 300 + f['inicio'] * 100)
+        self.assertGreater(rotulos['vao_direito'][0], 300 + f['fim'] * 100)
+        r = rotulos['cota_superior']
+        self.assertAlmostEqual(r[0] + 5, meio_x + 4 * escala, places=3)
+        self.assertGreater(r[1], 200 + (f['base'] + f['altura']) * 100)
+
+    def test_digitacao_pela_bolinha_entra_no_numero_da_cota_verde(self):
+        # Print do usuario: a caixa da HUD sobrepunha o rotulo "703.0 mm".
+        a, b, c = self.tres()
+        desenhados = []
+        def projetar(regiao, rv, ponto):
+            return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
+        estado = dict(regiao=0, alvo=dict(objeto=a, pontos=[Vector((0, 0, 0)), Vector((0, 0, 1))]),
+                      texto='750', cursor=3, selecionado=True)
+        addon.hud._edicao_hud[0] = estado
+        try:
+            self.assertEqual(C.digitacao_hud(), ('altura', estado))
+            with bpy.context.temp_override(area=self.area, region=self.regiao), \
+                 patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
+                 patch.object(C, 'caixa_editavel', side_effect=lambda *x: desenhados.append(x[2:4])), \
+                 patch.object(C, 'area_livre', return_value=(0, 0, 2000, 2000)), \
+                 patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
+                C.desenhar(bpy.context)
+        finally:
+            addon.hud._edicao_hud[0] = None
+        self.assertIn(('750', estado), desenhados)
+        self.assertEqual(len(desenhados), 2)        # largura + altura, sem caixa extra
+        altura = next(r for r in C._rotulos[0] if r[5] == 'altura')
+        self.assertEqual(estado['caixas'], [(altura[0] + 5, altura[1] + 4,
+                                             estado['caixas'][0][2], estado['caixas'][0][3])])
+
+    def test_modulo_em_edicao_pelo_arraste_ou_pelo_ponto_da_face(self):
+        a, b, c = self.tres()
+        try:
+            self.assertIsNone(C.modulo_em_edicao())
+            addon.hud._edicao_hud[0] = dict(regiao=0, alvo=dict(objeto=a))
+            self.assertEqual(C.modulo_em_edicao(), a.name)
+            addon.hud_volume._estado[0] = dict(objeto=b.name)
+            self.assertEqual(C.modulo_em_edicao(), b.name)
+        finally:
+            addon.hud._edicao_hud[0] = None
+            addon.hud_volume._estado[0] = None
+
+    def test_seta_da_cota_fica_inteira_dentro_da_area_livre(self):
+        # Nota do usuario: as pontas das setas eram cortadas na borda.
+        livre = (40, 0, 800, 600)
+        a, b = C.recortar_cota(Vector((-200, 100)), Vector((300, 100)), livre, 8)
+        self.assertEqual((a.x, b.x, a.y), (48, 300, 100))
+        a, b = C.recortar_cota(Vector((100, 500)), Vector((100, 900)), livre, 8)
+        self.assertEqual((a.y, b.y), (500, 592))
+        self.assertEqual(C.recortar_cota(Vector((-300, 1)), Vector((-100, 1)), livre, 8), (None, None))
+        janela = SimpleNamespace(type='WINDOW', x=0, y=0, width=800, height=600, alignment='NONE')
+        regioes = [janela,
+                   SimpleNamespace(type='TOOLS', x=0, y=0, width=40, height=600, alignment='LEFT'),
+                   SimpleNamespace(type='ASSET_SHELF', x=0, y=0, width=800, height=70, alignment='BOTTOM'),
+                   SimpleNamespace(type='HEADER', x=0, y=600, width=800, height=26, alignment='TOP'),
+                   SimpleNamespace(type='UI', x=799, y=0, width=1, height=600, alignment='RIGHT')]
+        contexto = SimpleNamespace(region=janela, area=SimpleNamespace(regions=regioes))
+        self.assertEqual(C.area_livre(contexto), (40, 70, 800, 600))
+
+    def test_hud_na_parede_so_edita_a_geometria_no_plano(self):
+        # Pontos das faces e setas das quinas na parede; a profundidade se
+        # ve de ponta e a quina e' do snap (circulo da v334).
+        a, b, c = self.tres()
+        H = addon.hud
+        normal = Vector(E._sessao[0]['normal'])
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            geometria = H._geometrias_hud(bpy.context)[0]
+            self.assertEqual({l['letra'] for l in geometria['linhas']}, {'L', 'A'})
+            for l in geometria['linhas']:
+                self.assertLess(abs((l['pontos'][1] - l['pontos'][0]).normalized().dot(normal)), .5)
+            controles = addon.hud_volume.controles(geometria)
+            self.assertEqual(len(controles), 4)
+            ponto = H._projetar_hud(bpy.context, controles[0]['pontos'][1])
+            self.assertIsNotNone(ponto)
+            self.assertTrue(H._acertar_hud(bpy.context, ponto).get('controle_face'))
+            canto = H._projetar_hud(bpy.context, geometria['cantos'][0])
+            self.assertIsNone(H._acertar_hud(bpy.context, canto))
+            # Sem setas nas arestas (pedido do usuario): so' a bolinha edita.
+            linha = geometria['linhas'][0]
+            quarto = H._projetar_hud(bpy.context, linha['pontos'][0].lerp(linha['pontos'][1], .25))
+            self.assertIsNone(H._acertar_hud(bpy.context, quarto))
+            desenhos = []
+            with patch.object(H, 'gpu'), \
+                 patch.object(H, 'batch_for_shader', side_effect=lambda s, tipo, d: desenhos.append(tipo)
+                              or SimpleNamespace(draw=lambda shader: None)):
+                H._desenhar_controles_volume(bpy.context, geometria, None)
+            self.assertEqual(desenhos, ['TRIS'] * 8)    # 4 bolinhas cheias com halo
+            C._quina_hover[0] = (a.name, (0.0, 0.0))
+            try:
+                self.assertIsNone(H._acertar_hud(bpy.context, ponto))
+            finally:
+                C._quina_hover[0] = None
+
+    def test_clique_no_ponto_da_face_vai_para_a_hud_e_nao_move(self):
+        self.tres()
+        janela, area, regiao = E._janela_da_sessao()
+        op = SimpleNamespace(sessao=E._sessao[0]['id'])
+        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS', mouse_x=regiao.x + 5,
+                                 mouse_y=regiao.y + 5, shift=False, ctrl=False, alt=False, oskey=False)
+        with patch.object(E, 'navegacao_de_saida', return_value=False), \
+             patch.object(E._hud, '_acertar_hud', return_value={'tipo': 'medida'}), \
+             patch.object(E, 'modulo_para_mover') as mover:
+            self.assertEqual(E.OBJECT_OT_observar_parede._modal(op, bpy.context, evento), {'PASS_THROUGH'})
+        mover.assert_not_called()
 
 
 addon.register()

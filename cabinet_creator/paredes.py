@@ -10,9 +10,14 @@ nele. Selecionado, mostra as guias ate' as pontas, o piso e o teto; clicar
 no numero digita, arrastar de lado muda.
 
 Referencial do modulo (ver `_portas._folgas_do_vao`): Empty no centro X/Y
-e na base Z, frente em -Y -- as costas sao a face +Y."""
+e na base Z. As costas sao o lado OPOSTO a' porta (pedido do usuario: o
+preset com a porta em X encostava a lateral), gravado em `parede_costas`;
+a roda do mouse no arraste troca. A caixa das funcoes daqui ja' vem girada
+para o "referencial da parede" (`caixa_do_modulo`): X ao longo dela, costas
+em +Y."""
 
-import bpy, uuid
+import bpy, math, uuid
+import numpy as np
 import blf, gpu
 from gpu_extras.batch import batch_for_shader
 from bpy_extras import view3d_utils
@@ -21,7 +26,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = None
+_chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = _gavetas = None
 _gaveta_desenho = None
 _paredes_edicao = None
 
@@ -32,6 +37,14 @@ CHAVE_PAREDE_NOME = 'parede_nome'           # dica (Shift+D copia o UID)
 CHAVE_PAREDE_PONTO = 'parede_ponto'         # costas no referencial dela
 CHAVE_PAREDE_NORMAL = 'parede_normal'       # normal no referencial dela
 CHAVE_PAREDE_FACE = 'parede_face'           # a FACE: indice na malha avaliada
+CHAVE_AFASTAMENTO = 'parede_afastamento_mm' # folga costas-parede (Promob)
+CHAVE_COSTAS = 'parede_costas'              # lado do modulo contra a parede
+
+# lado das costas -> quartos de volta em Z que o levam a +Y; nesta ordem a
+# roda gira o modulo de 90 em 90 graus
+GIRO_COSTAS = {'POS_Y': 0, 'POS_X': 1, 'NEG_Y': 2, 'NEG_X': 3}
+LADOS_COSTAS = tuple(GIRO_COSTAS)
+OPOSTO = {'POS_Y': 'NEG_Y', 'NEG_Y': 'POS_Y', 'POS_X': 'NEG_X', 'NEG_X': 'POS_X'}
 
 INCLINACAO_MAX = 0.5        # |normal.z| acima disto e' piso/teto/tampo
 TOLERANCIA_PLANO_M = 0.002  # faces a ate' 2 mm do plano sao a mesma parede
@@ -47,7 +60,7 @@ Z = Vector((0.0, 0.0, 1.0))
 # Estado global: so' NOMES e vetores, nunca objetos (Ctrl+Z libera a
 # memoria deles; ver CLAUDE.md, armadilhas da API)
 _conferidos = {}        # modulo -> (assinatura da parede, do modulo)
-_retangulos = {}        # chave da face -> `regiao_da_parede`
+_retangulos = {}        # (objeto, matriz, malha) -> [regioes de `regiao_da_parede`]
 _guias = [None]         # guias do modulo ativo (ver `calcular_guias`)
 _rotulos = {}           # regiao -> [(lado, x0, y0, x1, y1, direcao, mm/px)]
 _hover_guia = [None]    # lado sob o mouse
@@ -102,38 +115,142 @@ def _normal_no_mundo(parede, normal_local):
             @ Vector(normal_local)).normalized()
 
 
-def _mapa_de_vizinhas(malha):
-    """aresta (v1, v2) -> faces que a usam."""
-    mapa = {}
-    for poly in malha.polygons:
-        for chave in poly.edge_keys:
-            mapa.setdefault(chave, []).append(poly.index)
-    return mapa
+def _ler(colecao, atributo, n, largura=1, tipo=np.float64):
+    # foreach_get so' e' rapido no tipo nativo (float32/int32); a conta e'
+    # feita depois, no tipo pedido.
+    dados = np.empty(n * largura, dtype=np.int32 if np.issubdtype(tipo, np.integer) else np.float32)
+    colecao.foreach_get(atributo, dados)
+    dados = dados.astype(tipo)
+    return dados.reshape(n, largura) if largura > 1 else dados
 
 
-def _face_semente(malha, mundo, ponto, normal, face):
-    """A face clicada; se o indice sumiu (malha refeita) ou nao bate mais
-    com o plano, a face do plano mais perto do ponto."""
-    rotacao_normal = mundo.to_3x3().inverted_safe().transposed()
+def _ler_atributo(malha, nome, campo, n, largura, reserva):
+    """Atributo interno da malha (`.corner_edge`, `position`...): lido em
+    bloco, ~100x mais rapido que `loops.edge_index` numa casa real.
+    `reserva` = (colecao, atributo) antigo, se o atributo nao existir."""
+    atributo = malha.attributes.get(nome)
+    inteiro = nome.startswith('.')
+    tipo = np.int64 if inteiro else np.float64
+    if atributo is not None and len(atributo.data) == n:
+        return _ler(atributo.data, campo, n, largura, tipo)
+    return _ler(reserva[0], reserva[1], n, largura, tipo)
 
-    def no_plano(poly):
-        return ((rotacao_normal @ poly.normal).normalized().dot(normal) >= COPLANAR_MIN
-                and abs((mundo @ poly.center - ponto).dot(normal)) <= TOLERANCIA_PLANO_M)
-    if face is not None and 0 <= face < len(malha.polygons) and no_plano(malha.polygons[face]):
-        return face
-    candidatas = [poly for poly in malha.polygons if no_plano(poly)]
-    if not candidatas:
+
+def _faixas(inicios, totais):
+    """Indices de todas as faixas [inicio, inicio + total), concatenados."""
+    if not len(totais):
+        return np.empty(0, dtype=np.int64)
+    fins = np.cumsum(totais)
+    return np.repeat(inicios - (fins - totais), totais) + np.arange(fins[-1])
+
+
+def _calcular_regiao(malha, mundo, ponto, normal, face, u):
+    """Regiao da face em lote (numpy): uma casa real tem centenas de milhares
+    de faces, e o laco em Python por face travava o Blender a cada passo do
+    mouse (relato do usuario, v321)."""
+    n_faces = len(malha.polygons)
+    if not n_faces:
         return None
-    return min(candidatas, key=lambda poly: (mundo @ poly.center - ponto).length).index
+    m3 = np.array(mundo.to_3x3(), dtype=np.float64)
+    desloc = np.array(mundo.translation, dtype=np.float64)
+    rot_normal = np.array(mundo.to_3x3().inverted_safe().transposed(), dtype=np.float64)
+    lidas = getattr(malha, 'polygon_normals', None)
+    normais = (_ler(lidas, 'vector', n_faces, 3) if lidas is not None
+               else _ler(malha.polygons, 'normal', n_faces, 3)) @ rot_normal.T
+    normais /= np.maximum(np.linalg.norm(normais, axis=1), 1e-12)[:, None]
+    n_lacos = len(malha.loops)
+    inicios = _ler(malha.polygons, 'loop_start', n_faces, tipo=np.int64)
+    totais = np.diff(np.append(inicios, n_lacos))
+    vertices_dos_lacos = _ler_atributo(malha, '.corner_vert', 'value', n_lacos, 1,
+                                       (malha.loops, 'vertex_index'))
+    vertices = _ler_atributo(malha, 'position', 'vector', len(malha.vertices), 3,
+                             (malha.vertices, 'co')) @ m3.T + desloc
+    # centro = media dos vertices, como o `poly.center` do Blender
+    centros = np.add.reduceat(vertices[vertices_dos_lacos], inicios) / totais[:, None]
+    n = np.array(normal, dtype=np.float64)
+    coplanar = normais @ n >= COPLANAR_MIN
+    distancias = (centros - np.array(ponto)) @ n
+    if face is not None and 0 <= face < n_faces and coplanar[face] \
+            and abs(distancias[face]) <= TOLERANCIA_PLANO_M:
+        semente = int(face)
+    else:
+        candidatas = np.flatnonzero(coplanar & (np.abs(distancias) <= TOLERANCIA_PLANO_M))
+        if not len(candidatas):
+            return None
+        semente = int(candidatas[np.argmin(np.linalg.norm(
+            centros[candidatas] - np.array(ponto), axis=1))])
+    no_plano = np.flatnonzero(coplanar & (np.abs((centros - centros[semente]) @ n)
+                                          <= TOLERANCIA_PLANO_M))
+    # Vizinhas por aresta, so' entre as faces do plano.
+    arestas_dos_lacos = _ler_atributo(malha, '.corner_edge', 'value', n_lacos, 1,
+                                      (malha.loops, 'edge_index'))
+    lacos = _faixas(inicios[no_plano], totais[no_plano])
+    dona = np.repeat(np.arange(len(no_plano)), totais[no_plano])
+    arestas = arestas_dos_lacos[lacos]
+    ordem = np.argsort(arestas, kind='stable')
+    arestas_ord, dona_ord = arestas[ordem], dona[ordem]
+    par = np.flatnonzero(arestas_ord[1:] == arestas_ord[:-1])
+    a, b = dona_ord[par], dona_ord[par + 1]
+    origem = np.concatenate((a, b))
+    destino = np.concatenate((b, a))
+    ordem = np.argsort(origem, kind='stable')
+    origem, destino = origem[ordem], destino[ordem]
+    ponteiro = np.searchsorted(origem, np.arange(len(no_plano) + 1))
+    visitada = np.zeros(len(no_plano), dtype=bool)
+    fronteira = np.array([int(np.searchsorted(no_plano, semente))])
+    visitada[fronteira] = True
+    while len(fronteira):
+        vizinhas = destino[_faixas(ponteiro[fronteira], ponteiro[fronteira + 1]
+                                   - ponteiro[fronteira])]
+        vizinhas = np.unique(vizinhas[~visitada[vizinhas]])
+        visitada[vizinhas] = True
+        fronteira = vizinhas
+    faces = no_plano[visitada]
+    # Pontos, contorno (aresta de uma face so') e leque de triangulos.
+    lacos = _faixas(inicios[faces], totais[faces])
+    usadas, vezes = np.unique(arestas_dos_lacos[lacos], return_counts=True)
+    borda = usadas[vezes == 1]
+    pontas = _ler_atributo(malha, '.edge_verts', 'value', len(malha.edges), 2,
+                           (malha.edges, 'vertices'))[borda]
+    usados = vertices[np.unique(vertices_dos_lacos[lacos])]
+    posicao = lacos - np.repeat(inicios[faces], totais[faces])
+    total = np.repeat(totais[faces], totais[faces])
+    meio = lacos[(posicao >= 1) & (posicao <= total - 2)]
+    primeiro = np.repeat(inicios[faces], totais[faces] - 2)
+    triangulos = np.stack((vertices[vertices_dos_lacos[primeiro]],
+                           vertices[vertices_dos_lacos[meio]],
+                           vertices[vertices_dos_lacos[meio + 1]]), axis=1).reshape(-1, 3)
+    u = np.array(u, dtype=np.float64)
+    return {
+        'face': semente,
+        'faces': frozenset(faces.tolist()),
+        'retangulo': (float((usados @ u).min()), float((usados @ u).max()),
+                      float(usados[:, 2].min()), float(usados[:, 2].max())),
+        'contorno': [(Vector(vertices[i]), Vector(vertices[j])) for i, j in pontas],
+        # numpy (n, 3), float32: vai direto para a GPU
+        'triangulos': triangulos.astype(np.float32),
+        'normal': tuple(n), 'plano': tuple(centros[semente]),
+    }
+
+
+def _face_no_plano(malha, mundo, ponto, normal, face):
+    if face is None or not 0 <= face < len(malha.polygons):
+        return False
+    poly = malha.polygons[face]
+    return ((mundo.to_3x3().inverted_safe().transposed() @ poly.normal).normalized().dot(normal)
+            >= COPLANAR_MIN and abs((mundo @ poly.center - ponto).dot(normal)) <= TOLERANCIA_PLANO_M)
 
 
 def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
     """A PAREDE e' a face clicada mais as vizinhas no mesmo plano (pedido
     do usuario: associar a' FACE, nao ao objeto -- uma sala inteira num
     objeto so' tem uma parede por face). Devolve {'face' (semente),
-    'retangulo' (s0, s1, z0, z1 em m: s ao longo de u a partir da origem do
-    mundo, z de mundo), 'contorno' [(a, b)] e 'triangulos' em mundo} ou
-    None se a superficie nao e' parede."""
+    'faces', 'retangulo' (s0, s1, z0, z1 em m: s ao longo de u a partir da
+    origem do mundo, z de mundo), 'contorno' [(a, b)] e 'triangulos' (numpy)
+    em mundo} ou None se a superficie nao e' parede.
+
+    A regiao calculada vale para TODAS as faces dela: o mouse andando pela
+    mesma parede so' consulta o cache."""
     eixos = eixos_da_parede(normal)
     if eixos is None or parede is None or parede.type != 'MESH':
         return None
@@ -143,56 +260,29 @@ def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
     origem = parede.evaluated_get(dep) if dep is not None else parede
     malha = origem.data
     mundo = parede.matrix_world
-    chave = (parede.name, _assinatura(mundo), len(malha.polygons),
-             len(malha.vertices), face, round(ponto.dot(normal), 4),
-             tuple(round(c, 4) for c in normal))
-    if chave in _retangulos:
-        return _retangulos[chave]
-    semente = _face_semente(malha, mundo, ponto, normal, face)
-    regiao = None
-    if semente is not None:
-        rotacao_normal = mundo.to_3x3().inverted_safe().transposed()
-        base = malha.polygons[semente]
-        plano = mundo @ base.center
-        vizinhas = _mapa_de_vizinhas(malha)
-        faces, fila = {semente}, [semente]
-        while fila:
-            for chave_aresta in malha.polygons[fila.pop()].edge_keys:
-                for outra in vizinhas[chave_aresta]:
-                    if outra in faces:
-                        continue
-                    poly = malha.polygons[outra]
-                    if ((rotacao_normal @ poly.normal).normalized().dot(normal) < COPLANAR_MIN
-                            or abs((mundo @ poly.center - plano).dot(normal))
-                            > TOLERANCIA_PLANO_M):
-                        continue
-                    faces.add(outra)
-                    fila.append(outra)
-        pontos = {i: mundo @ malha.vertices[i].co
-                  for f in faces for i in malha.polygons[f].vertices}
-        uso = {}
-        triangulos = []
-        for f in faces:
-            poly = malha.polygons[f]
-            for chave_aresta in poly.edge_keys:
-                uso[chave_aresta] = uso.get(chave_aresta, 0) + 1
-            vs = list(poly.vertices)
-            for a, b in zip(vs[1:], vs[2:]):     # leque: face de parede e' convexa
-                triangulos += [pontos[vs[0]], pontos[a], pontos[b]]
-        regiao = {
-            'face': semente,
-            'faces': tuple(sorted(faces)),
-            'retangulo': (min(p.dot(u) for p in pontos.values()),
-                          max(p.dot(u) for p in pontos.values()),
-                          min(p.z for p in pontos.values()),
-                          max(p.z for p in pontos.values())),
-            # aresta de uma face so' da regiao = borda da parede
-            'contorno': [(pontos[a], pontos[b]) for (a, b), n in uso.items() if n == 1],
-            'triangulos': triangulos,
-        }
-    if len(_retangulos) > 64:
-        _retangulos.clear()
-    _retangulos[chave] = regiao
+    chave = (parede.name, _assinatura(mundo), len(malha.polygons), len(malha.vertices))
+    conhecidas = _retangulos.setdefault(chave, [])
+    no_plano = [r for r in conhecidas
+                if normal.dot(Vector(r['normal'])) >= COPLANAR_MIN
+                and abs((ponto - Vector(r['plano'])).dot(normal)) <= TOLERANCIA_PLANO_M]
+    for regiao in no_plano:
+        if face in regiao['faces']:
+            return regiao if regiao['face'] == face else dict(regiao, face=face)
+    if no_plano and not _face_no_plano(malha, mundo, ponto, normal, face):
+        # Sem indice valido (associacao antiga, malha refeita): o timer
+        # pergunta a cada tique, e recalcular a casa toda travava.
+        s, z = ponto.dot(u), ponto.z
+        for regiao in no_plano:
+            s0, s1, z0, z1 = regiao['retangulo']
+            if s0 - TOLERANCIA_PLANO_M <= s <= s1 + TOLERANCIA_PLANO_M \
+                    and z0 - TOLERANCIA_PLANO_M <= z <= z1 + TOLERANCIA_PLANO_M:
+                return regiao
+    regiao = _calcular_regiao(malha, mundo, ponto, normal, face, u)
+    if regiao is not None:
+        if len(_retangulos) > 16 or len(conhecidas) > 64:
+            _retangulos.clear()
+            conhecidas = _retangulos.setdefault(chave, [])
+        conhecidas.append(regiao)
     return regiao
 
 
@@ -202,7 +292,7 @@ def retangulo_da_parede(parede, ponto, normal, dep=None, face=None):
     return regiao['retangulo'] if regiao is not None else None
 
 
-def caixa_do_modulo(conj):
+def caixa_local_do_modulo(conj):
     """(lo, hi) da caixa das chapas nos eixos do modulo, em m, ou None."""
     limites = _portas._limites_locais_modulo(conj)
     if limites is None:
@@ -211,25 +301,142 @@ def caixa_do_modulo(conj):
     return lo / 1000.0, hi / 1000.0
 
 
+def frente_do_modulo(conj, caixa_local=None):
+    """Lado ('NEG_Y', 'POS_X'...) das folhas de porta e frentes de gaveta,
+    ou None. Pela POSICAO de cada uma (o centro fica na face que ela
+    fecha): nao depende de como a peca foi girada."""
+    caixa_local = caixa_local or caixa_local_do_modulo(conj)
+    if caixa_local is None:
+        return None
+    lo, hi = caixa_local
+    centro, meio = (lo + hi) / 2.0, (hi - lo) / 2.0
+    inversa = conj.matrix_world.inverted_safe()
+    frentes = [f for g in _portas._portas_do_conjunto(conj) for f in _portas._folhas_portas(g)]
+    frentes += [o for o in conj.children_recursive if o.get(_gavetas.MARCA_PECA) == 'FRENTE']
+    votos = {}
+    for peca in frentes:
+        if peca.type != 'MESH':
+            continue
+        p = inversa @ (peca.matrix_world @ (sum((Vector(c) for c in peca.bound_box), Vector()) / 8.0))
+        razoes = [abs(p[i] - centro[i]) / meio[i] if meio[i] > 1e-6 else 0.0 for i in (0, 1)]
+        eixo = 0 if razoes[0] > razoes[1] else 1
+        if razoes[eixo] < 0.5:          # no meio do modulo: nao e' frente
+            continue
+        lado = ('NEG_' if p[eixo] < centro[eixo] else 'POS_') + 'XY'[eixo]
+        votos[lado] = votos.get(lado, 0) + 1
+    if not votos:
+        return None
+    # empate fica com a frente comum (-Y)
+    return max(votos, key=lambda lado: (votos[lado], lado == 'NEG_Y'))
+
+
+def lado_das_costas(conj, caixa_local=None):
+    """O lado gravado (roda do mouse ou associacao), senao o oposto a'
+    porta; sem porta, +Y (a frente comum e' -Y)."""
+    lado = conj.get(CHAVE_COSTAS)
+    if lado in GIRO_COSTAS:
+        return lado
+    frente = frente_do_modulo(conj, caixa_local)
+    return OPOSTO[frente] if frente else 'POS_Y'
+
+
+def giro_das_costas(lado):
+    """Rotacao (3x3) dos eixos do modulo para os da parede (costas em +Y)."""
+    return Matrix.Rotation(math.pi / 2.0 * GIRO_COSTAS[lado], 3, 'Z')
+
+
+def girar_caixa(caixa_local, lado):
+    """A caixa local vista no referencial da parede (`giro_das_costas`)."""
+    lo, hi = caixa_local
+    giro = giro_das_costas(lado)
+    cantos = [giro @ Vector((x, y, 0.0)) for x in (lo.x, hi.x) for y in (lo.y, hi.y)]
+    return (Vector((min(p.x for p in cantos), min(p.y for p in cantos), lo.z)),
+            Vector((max(p.x for p in cantos), max(p.y for p in cantos), hi.z)))
+
+
+def caixa_do_modulo(conj):
+    """(lo, hi) da caixa das chapas no referencial da PAREDE (X ao longo
+    dela, costas em +Y; ver `referencial`), em m, ou None."""
+    local = caixa_local_do_modulo(conj)
+    if local is None:
+        return None
+    return girar_caixa(local, lado_das_costas(conj, local))
+
+
+def referencial(conj):
+    """Matriz de mundo do referencial da parede: leva a caixa de
+    `caixa_do_modulo` ao mundo."""
+    return conj.matrix_world @ giro_das_costas(lado_das_costas(conj)).transposed().to_4x4()
+
+
+def girar_costas(conj, passos):
+    """Roda do mouse no arraste: a face seguinte do modulo vai contra a
+    parede (pedido do usuario)."""
+    i = LADOS_COSTAS.index(lado_das_costas(conj))
+    conj[CHAVE_COSTAS] = LADOS_COSTAS[(i + passos) % len(LADOS_COSTAS)]
+    return conj[CHAVE_COSTAS]
+
+
+def passos_da_roda(event):
+    """+1/-1 na roda do mouse, 0 nos outros eventos."""
+    return {'WHEELUPMOUSE': 1, 'WHEELDOWNMOUSE': -1}.get(event.type, 0)
+
+
+def medidas_na_parede(conj, medidas):
+    """(L, A, P) do modulo como a parede ve: no giro de 90 a largura ao
+    longo dela e' a profundidade do modulo (e vice-versa)."""
+    if GIRO_COSTAS[lado_das_costas(conj)] % 2:
+        return (medidas[2], medidas[1], medidas[0])
+    return tuple(medidas)
+
+
+def escala_no_referencial(conj):
+    """Escala do Empty nos eixos da parede: o giro de 90 troca X e Y."""
+    escala = conj.matrix_world.to_scale()
+    if GIRO_COSTAS[lado_das_costas(conj)] % 2:
+        escala.x, escala.y = escala.y, escala.x
+    return escala
+
+
+def afastamento(conj):
+    """Folga (m) entre as costas do modulo e o plano da parede."""
+    return max(0.0, float(conj.get(CHAVE_AFASTAMENTO, 0.0))) / 1000.0
+
+
+def definir_afastamento(conj, valor_m):
+    if valor_m > 1e-9:
+        conj[CHAVE_AFASTAMENTO] = round(valor_m * 1000.0, 4)
+    elif CHAVE_AFASTAMENTO in conj:
+        del conj[CHAVE_AFASTAMENTO]
+
+
 def ponto_das_costas(conj, caixa=None):
     """Centro da base das costas do modulo, em mundo."""
     caixa = caixa or caixa_do_modulo(conj)
     if caixa is None:
         return None
     lo, hi = caixa
-    return conj.matrix_world @ Vector(((lo.x + hi.x) / 2.0, hi.y, lo.z))
+    return referencial(conj) @ Vector(((lo.x + hi.x) / 2.0, hi.y, lo.z))
 
 
 def matriz_na_parede(conj, costas, n, u, caixa=None):
     """Matriz de mundo do modulo com o centro da base das costas em
-    `costas` e virado para fora da parede. A escala do Empty fica."""
+    `costas` (NO plano da parede) mais o afastamento dele, virado para
+    fora da parede. A escala do Empty fica."""
     caixa = caixa or caixa_do_modulo(conj)
     lo, hi = caixa
     escala = conj.matrix_world.to_scale()
-    local = Vector(((lo.x + hi.x) / 2.0, hi.y, lo.z))
+    lado = lado_das_costas(conj)
+    if conj.get(CHAVE_COSTAS) != lado:
+        # gravado ANTES de mover: depois, as filhas ficam defasadas ate' o
+        # proximo update e a porta seria lida no lugar antigo
+        conj[CHAVE_COSTAS] = lado
+    giro = giro_das_costas(lado)
+    local = giro.transposed() @ Vector(((lo.x + hi.x) / 2.0, hi.y, lo.z))
     local = Vector((local.x * escala.x, local.y * escala.y, local.z * escala.z))
-    rotacao = rotacao_na_parede(n, u)
-    return (Matrix.Translation(Vector(costas) - rotacao @ local)
+    rotacao = rotacao_na_parede(n, u) @ giro
+    costas = Vector(costas) + Vector(n).normalized() * afastamento(conj)
+    return (Matrix.Translation(costas - rotacao @ local)
             @ rotacao.to_4x4() @ Matrix.Diagonal((*escala, 1.0)))
 
 
@@ -259,9 +466,11 @@ def associar(conj, parede, costas, normal, face=None):
     """Grava a associacao a' FACE: o objeto (UID), o indice da face e o
     ponto das costas e a normal no referencial dele (assim a parede pode
     andar e girar levando o modulo). Se a malha mudar e o indice nao bater
-    mais, vale a face do mesmo plano mais perto (`_face_semente`)."""
+    mais, vale a face do mesmo plano mais perto (`_calcular_regiao`)."""
     conj[CHAVE_PAREDE] = _uid_da_parede(parede)
     conj[CHAVE_PAREDE_NOME] = parede.name
+    # gravado: a porta mudada depois nao gira o modulo associado
+    conj[CHAVE_COSTAS] = lado_das_costas(conj)
     if face is not None:
         conj[CHAVE_PAREDE_FACE] = int(face)
     elif CHAVE_PAREDE_FACE in conj:
@@ -277,7 +486,8 @@ def gravar_ponto(conj, parede, costas):
 
 
 CHAVES_ASSOCIACAO = (CHAVE_PAREDE, CHAVE_PAREDE_NOME, CHAVE_PAREDE_PONTO,
-                     CHAVE_PAREDE_NORMAL, CHAVE_PAREDE_FACE)
+                     CHAVE_PAREDE_NORMAL, CHAVE_PAREDE_FACE, CHAVE_AFASTAMENTO,
+                     CHAVE_COSTAS)
 
 
 def desassociar(conj):
@@ -330,6 +540,11 @@ def manter_nas_paredes(context=None):
             continue
         costas_gravadas, normal = plano
         eixos = eixos_da_parede(normal)
+        if CHAVE_COSTAS not in conj:
+            # associado antes de `parede_costas`: grava o lado oposto a' porta
+            # (o arraste mede a caixa dos vizinhos a cada movimento)
+            conj[CHAVE_COSTAS] = lado_das_costas(conj)
+            mudou = True
         caixa = caixa_do_modulo(conj)
         if eixos is None or caixa is None:
             continue
@@ -375,7 +590,7 @@ def calcular_guias(conj, dep=None):
         return None
     s0, s1, z0, z1 = regiao['retangulo']
     lo, hi = caixa
-    escala = conj.matrix_world.to_scale()
+    escala = escala_no_referencial(conj)
     largura = (hi.x - lo.x) * escala.x
     altura = (hi.z - lo.z) * escala.z
     sc, base = costas.dot(u), costas.z
@@ -475,7 +690,7 @@ def desenhar_guias(context):
     realce = _hud._cor_realce_hud()
     arraste = _arraste_parede[0]
     if arraste is not None and arraste.get('valido'):
-        _desenhar_face_alvo(arraste, tela, realce)
+        _desenhar_face_alvo(arraste, tela, realce, regiao, rv3d)
     guias = _guias[0]
     if guias is None:
         return
@@ -544,15 +759,30 @@ def _segmentos_na_tela(segmentos, tela):
     return pares
 
 
-def _desenhar_face_alvo(arraste, tela, realce):
+def _na_tela_em_lote(regiao, rv3d, pontos):
+    """`location_3d_to_region_2d` em lote (numpy); None se algum ponto
+    fica atras da camera. A parede de uma casa real tem milhares de
+    triangulos: um a um, o desenho travava."""
+    if not len(pontos):
+        return None
+    pm = np.array(rv3d.perspective_matrix, dtype=np.float64)
+    h = np.c_[pontos, np.ones(len(pontos))] @ pm.T
+    if (h[:, 3] <= 1e-9).any():
+        return None
+    xy = h[:, :2] / h[:, 3:4]
+    return np.stack(((1 + xy[:, 0]) * regiao.width / 2,
+                     (1 + xy[:, 1]) * regiao.height / 2), axis=1).astype(np.float32)
+
+
+def _desenhar_face_alvo(arraste, tela, realce, regiao, rv3d):
     """A face que vai receber o modulo: veu translucido e contorno
     grosso na cor de realce."""
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     try:
         gpu.state.blend_set('ALPHA')
         shader.bind()
-        triangulos = [tela(p) for p in arraste['triangulos']]
-        if triangulos and all(p is not None for p in triangulos):
+        triangulos = _na_tela_em_lote(regiao, rv3d, arraste['triangulos'])
+        if triangulos is not None:
             shader.uniform_float('color', (*realce[:3], 0.18))
             batch_for_shader(shader, 'TRIS', {'pos': triangulos}).draw(shader)
         pares = _segmentos_na_tela(arraste['contorno'], tela)
@@ -676,6 +906,8 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         self._rv3d = context.region_data
         self._caixa = caixa_do_modulo(conj)
         self._parede = None
+        # Solto onde nao ha' parede (o "limbo"): desassocia sem mover.
+        self._limbo = False
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -721,11 +953,15 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         if regiao is None:
             # fora de parede: o modulo volta para onde estava
             self._parede = None
+            self._limbo = True
             conj.matrix_world = self._matriz
             _arraste_parede[0] = {'modulo': self._modulo, 'valido': False}
             _guias[0] = None
+            if self._associacao:
+                motivo = "Solte para desassociar da parede (o movel fica onde estava)"
             self._status(context, motivo)
             return
+        self._limbo = False
         n, u = eixos_da_parede(normal)
         sessao = dict(parede=parede.name, regiao=regiao, ponto=tuple(ponto),
                       normal=tuple(n), u=tuple(u))
@@ -751,7 +987,7 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         _arraste_parede[0] = {
             'modulo': self._modulo, 'valido': True,
             'contorno': [(a + frente, b + frente) for a, b in regiao['contorno']],
-            'triangulos': [p + frente for p in regiao['triangulos']]}
+            'triangulos': regiao['triangulos'] + np.array(frente, dtype=np.float32)}
         context.view_layer.update()
         _guias[0] = calcular_guias(conj, dep)
         self._status(context, "Solte para associar a' parede %s (face %d)"
@@ -759,7 +995,7 @@ class OBJECT_OT_arrastar_na_parede(Operator):
 
     def _status(self, context, texto):
         try:
-            context.workspace.status_text_set(texto + " | Esc: cancelar")
+            context.workspace.status_text_set(texto + " | Roda: trocar a face | Esc: cancelar")
         except Exception:
             pass
 
@@ -774,6 +1010,15 @@ class OBJECT_OT_arrastar_na_parede(Operator):
             self._mover(context, event)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
+        passos = passos_da_roda(event)
+        if passos and self._arrastou:
+            conj = bpy.data.objects.get(self._modulo)
+            if conj is not None:
+                girar_costas(conj, passos)
+                self._caixa = caixa_do_modulo(conj)
+                self._mover(context, event)
+                context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
         if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
             if not self._arrastou:
                 # clique simples: o menu de contexto, como sempre (no
@@ -783,6 +1028,14 @@ class OBJECT_OT_arrastar_na_parede(Operator):
                                      name='VIEW3D_MT_object_context_menu')
                 return {'CANCELLED'}
             self._mover(context, event)
+            if self._parede is None and self._limbo and self._associacao:
+                # Pedido do usuario: arrastar para fora de qualquer parede
+                # solta a associacao; o movel fica na posicao de origem.
+                self._restaurar(context)
+                desassociar(bpy.data.objects[self._modulo])
+                self._encerrar(context)
+                self.report({'INFO'}, "Modulo desassociado da parede")
+                return {'FINISHED'}
             if self._parede is None:
                 self._restaurar(context)
                 self._encerrar(context)

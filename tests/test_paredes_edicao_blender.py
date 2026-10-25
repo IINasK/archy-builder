@@ -175,11 +175,46 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertIn('Paredes', [i[4] for i in itens])
         self.assertIn('object.cabinet_editar_parede', str(itens))
 
+    def test_entrar_e_sair_da_parede_em_destaque_como_criar(self):
+        # Pedido do usuario: o mesmo padrao do "Criar Prateleiras" (laranja,
+        # 30 px, texto centrado); sair = laranja forte da etapa em andamento.
+        import inspect
+        G = addon.gaveta
+        itens = []
+        E.widgets(bpy.context, itens, 12, 700, 400)
+        entrar = next(i for i in itens if i[5] == ('operador', 'object.cabinet_editar_parede'))
+        self.assertEqual(entrar[3], 30)
+        self.assertIn(entrar[5][1], G.OPERADORES_DESTAQUE)
+        self.modelo()
+        itens = []
+        E.widgets(bpy.context, itens, 12, 2000, 400)
+        sair = next(i for i in itens if i[5] == ('operador', 'object.cabinet_sair_parede'))
+        self.assertEqual(sair[3], 30)
+        self.assertEqual(sair[5][1], G.OPERADOR_DESTAQUE_ATIVO)
+        self.assertIsInstance(G.OPERADORES_DESTAQUE, tuple)     # nunca hashear a acao
+        fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
+        self.assertIn('OPERADORES_DESTAQUE', fonte)
+        self.assertIn('COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO', fonte)
+
+    def test_menu_da_parede_sem_folgas_esquerda_direita_espacamento(self):
+        # Print do usuario: "remover esses controladores do menu da parede".
+        s = self.modelo()
+        self.assertTrue(E.ativa(bpy.context))
+        for modelo in (s['modelo'], None):
+            s['modelo'] = modelo
+            itens = []
+            E.widgets(bpy.context, itens, 12, 2000, 400)
+            nomes = {i[5][2] for i in itens if i[5] and i[5][:2] == ('medida', 'paredes')}
+            self.assertFalse(nomes & {'esquerda', 'direita', 'espacamento'})
+            self.assertFalse([i for i in itens if i[4].split(':')[0] in {'Esquerda', 'Direita', 'Espacamento'}])
+
     def test_modelo_e_inspecionado_sem_residuos(self):
         s = self.modelo()
         self.assertEqual(s['quantidade'], 1)
         self.assertGreater(s['altura'], 20)
-        self.assertEqual({o.name for o in bpy.context.scene.objects}, {'Parede', 'Outro objeto'})
+        self.assertEqual({o.name for o in bpy.context.scene.objects
+                          if addon.paredes_composicao.MARCA_OBJETO_GUIAS not in o},
+                         {'Parede', 'Outro objeto'})
         self.assertFalse(any(addon.chapas.MARCA_CONJUNTO in o for o in bpy.data.objects))
 
     def test_distribuicao_desconta_folgas_e_espacamentos(self):
@@ -303,7 +338,7 @@ class TestEdicaoParedes(unittest.TestCase):
     def test_menu_ativo_sem_sobreposicao_em_todas_as_larguras(self):
         self.modelo()
         for largura in (190, 320, 564):
-            widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1800)
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 2300)
             caixas = [v[:4] for v in widgets]
             for i, (ax, ay, aw, ah) in enumerate(caixas):
                 for bx, by, bw, bh in caixas[i + 1:]:
@@ -536,13 +571,144 @@ class TestEdicaoParedes(unittest.TestCase):
         # Apenas o registro no event loop e' substituido; append, preview,
         # cancelamento e associacao usam seus contratos reais do Blender.
         class ContextoDoArraste:
-            window_manager = SimpleNamespace(modal_handler_add=lambda op: None)
+            window_manager = SimpleNamespace(modal_handler_add=lambda op: None,
+                                             event_timer_add=lambda *a, **k: object(),
+                                             event_timer_remove=lambda tique: None)
             def __getattr__(self, nome):
                 return getattr(bpy.context, nome)
         contexto = ContextoDoArraste()
         evento = SimpleNamespace(mouse_x=-100, mouse_y=-100)
         self.assertEqual(op.invoke(contexto, evento), {'RUNNING_MODAL'})
         return op
+
+    def test_arraste_com_caixa_no_indice_so_carrega_ao_soltar(self):
+        # Pedido do usuario (cena real travava): com a caixa gravada no
+        # indice o arraste e' so' o wireframe; o .blend carrega ao soltar,
+        # depois do aviso "Carregando...".
+        B = addon.biblioteca
+        caminho = self.fixture(math.pi / 2)
+        arquivo = os.path.basename(caminho)
+        B.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)      # 1o: carrega e grava a caixa
+            op._cancelar(bpy.context)
+        registro = B.caixa_do_preset(self.tmp.name, arquivo)
+        self.assertIsNotNone(registro)
+        self.assertIn('modulo', registro)
+        # o lado das costas vai no registro: a previa nao tem a porta
+        self.assertEqual(registro['modulo']['costas'], 'POS_Y')
+        antigo = dict(registro, modulo={k: v for k, v in registro['modulo'].items()
+                                        if k != 'costas'})
+        B._atualizar_item(self.tmp.name, arquivo, {B.CHAVE_CAIXA: antigo})
+        self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))   # mede de novo
+        B._atualizar_item(self.tmp.name, arquivo, {B.CHAVE_CAIXA: registro})
+        acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
+        objetos = len(bpy.data.objects)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.assertIsNotNone(op._previa)
+            self.assertEqual(len(bpy.data.objects), objetos)    # nada carregado
+            op._arrastando, op._moveu = True, True
+            evento = SimpleNamespace(type='LEFTMOUSE', value='RELEASE',
+                      mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(P, 'raio_ate_parede', return_value=acerto),                     patch.object(P, '_px_por_metro', return_value=None):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
+            self.assertTrue(op._carregando)
+            self.assertEqual(len(bpy.data.objects), objetos)    # so' o aviso
+            evento.type, evento.value = 'MOUSEMOVE', 'NOTHING'
+            self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
+            evento.type = 'TIMER'
+            self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
+        self.assertIsNone(op._handler_aviso)
+        modulo = bpy.context.object     # o operador terminado ja' soltou os dados
+        self.assertEqual(P.parede_do_modulo(modulo), self.parede)
+        bpy.context.view_layer.update()
+        lo, hi = P.caixa_do_modulo(modulo)
+        pontos = [modulo.matrix_world @ Vector((x, y, z)) for x in (lo.x, hi.x)
+                  for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=4)
+        self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2, -.4, places=4)
+        self.assertAlmostEqual((min(p.z for p in pontos) + max(p.z for p in pontos)) / 2, 1.2, places=4)
+        # Duplo clique na foto (cursor 3D) tambem so' carrega no tique.
+        cursor = bpy.context.scene.cursor
+        cursor.location = (1.0, -2.0, .5)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.assertEqual(op._no_cursor(bpy.context), {'RUNNING_MODAL'})
+            self.assertEqual(op._carregar(bpy.context), {'FINISHED'})
+        lo, hi = B.medir_caixa(bpy.context, op._novos, op._raizes)
+        for real, esperado in zip(((lo + hi) / 2).xy[:] + (lo.z,), (1.0, -2.0, .5)):
+            self.assertAlmostEqual(real, esperado, places=4)
+        cursor.location = (0, 0, 0)
+        # .blend alterado (outro tamanho): a caixa gravada deixa de valer.
+        with open(caminho, 'ab') as f:
+            f.write(b'0')
+        self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))
+
+    def test_arraste_da_biblioteca_fora_da_edicao_encosta_as_costas_na_parede(self):
+        # Relato do usuario: solto na parede, o armario ficava de pe' pela
+        # base no ponto do raio e de lado. Fora da edicao 2D ele gira as
+        # costas para a parede, centra no cursor e associa.
+        caminho = self.fixture(math.pi / 2)
+        acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
+        self.assertEqual(acerto[0], self.parede)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            op._arrastando, op._moveu = True, True
+            evento = SimpleNamespace(type='LEFTMOUSE', value='RELEASE',
+                      mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            modulo = op._raizes[0]
+            with patch.object(P, 'raio_ate_parede', return_value=acerto),                     patch.object(P, '_px_por_metro', return_value=None):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            # costas (+Y) contra a parede, frente (-Y) para fora
+            costas = modulo.matrix_world.to_3x3() @ Vector((0, 1, 0))
+            self.assertGreater(costas.dot(Vector((0, 1, 0))), .999)
+            # fora da parede o preset volta a' rotacao original
+            with patch.object(P, 'raio_ate_parede', return_value=None):
+                op._mover(bpy.context, evento)
+            self.assertIsNone(op._na_parede)
+            self.assertAlmostEqual(modulo.matrix_world.to_euler().z, math.pi / 2, places=4)
+            with patch.object(P, 'raio_ate_parede', return_value=acerto),                     patch.object(P, '_px_por_metro', return_value=None):
+                op._mover(bpy.context, evento)
+            self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
+        self.assertEqual(P.parede_do_modulo(modulo), self.parede)
+        lo, hi = P.caixa_do_modulo(modulo)
+        bpy.context.view_layer.update()
+        pontos = [modulo.matrix_world @ Vector((x, y, z)) for x in (lo.x, hi.x)
+                  for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=4)
+        self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2, -.4, places=4)
+        # o cursor e' o centro do modulo, nao a base
+        self.assertAlmostEqual((min(p.z for p in pontos) + max(p.z for p in pontos)) / 2, 1.2, places=4)
+
+    def test_roda_no_arraste_da_biblioteca_troca_a_face_da_parede(self):
+        # Pedido do usuario: rodar o scroll muda a face de referencia.
+        caminho = self.fixture()
+        acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            op._arrastando, op._moveu = True, True
+            evento = SimpleNamespace(type='WHEELUPMOUSE', value='PRESS',
+                      mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            modulo = op._raizes[0]
+            with patch.object(P, 'raio_ate_parede', return_value=acerto), \
+                    patch.object(P, '_px_por_metro', return_value=None):
+                op._mover(bpy.context, evento)
+                self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
+                self.assertTrue(op._valido)
+                # +X do modulo contra a parede (+Y do mundo)
+                self.assertGreater((modulo.matrix_world.to_3x3() @ Vector((1, 0, 0)))
+                                   .dot(Vector((0, 1, 0))), .999)
+                evento.type, evento.value = 'LEFTMOUSE', 'RELEASE'
+                self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
+        self.assertEqual(modulo[P.CHAVE_COSTAS], 'POS_X')
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(P.ponto_das_costas(modulo).y, 1.0, places=4)
+        self.assertFalse(P.manter_nas_paredes())
 
     def test_arraste_da_biblioteca_soltar_usa_coordenada_final_e_tamanho_original(self):
         caminho = self.fixture()
@@ -584,7 +750,8 @@ class TestEdicaoParedes(unittest.TestCase):
             self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
         # Dados anexados e materiais auxiliares sao do appender; os objetos
         # e pastas da tentativa devem sair, os anteriores devem permanecer.
-        self.assertEqual(set(bpy.data.objects.keys()), antes['objects'])
+        # As guias sao da sessao: saem com ela, como a previa.
+        self.assertEqual(set(bpy.data.objects.keys()), antes['objects'] - {'Guias da parede'})
         self.assertEqual(set(bpy.data.collections.keys()), antes['collections'])
 
     def test_raycast_do_posicionador_consulta_a_face_real_da_parede(self):
@@ -728,6 +895,33 @@ class TestEdicaoParedes(unittest.TestCase):
         for nome in ('modal', '_mover', '_encerrar', '_status', '_restaurar'):
             setattr(op, nome, MethodType(getattr(P.OBJECT_OT_arrastar_na_parede, nome), op))
         return op
+
+    def test_arraste_direito_para_o_limbo_desassocia_sem_mover(self):
+        # Pedido do usuario: soltar fora de qualquer parede solta a
+        # associacao; o movel fica na posicao de origem.
+        modulo = self.modulo()
+        n = Vector((0, -1, 0))
+        P.colocar_na_parede(modulo, self.parede, Vector((0, 1, 0)), n)
+        P.associar(modulo, self.parede, Vector((0, 1, 0)), n)
+        bpy.context.view_layer.update()
+        antes = modulo.matrix_world.copy()
+        evento = SimpleNamespace(type='RIGHTMOUSE', value='RELEASE', mouse_region_x=300, mouse_region_y=300)
+        acerto = (self.parede, Vector((.4, 1, 1)), n, 0)
+        op = self.arraste_direito(modulo)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            # passa por outra parede e termina no vazio
+            with patch.object(P, '_raio_ignorando', return_value=acerto):
+                op._mover(bpy.context, evento)
+            with patch.object(P, '_raio_ignorando', return_value=None):
+                self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
+        self.assertIsNone(P.parede_do_modulo(modulo))
+        self.assertFalse(any(k in modulo for k in P.CHAVES_ASSOCIACAO))
+        for x, y in zip(sum(map(list, modulo.matrix_world), []), sum(map(list, antes), [])):
+            self.assertAlmostEqual(x, y, places=5)
+        # Sem associacao, soltar no vazio continua so' cancelando.
+        op = self.arraste_direito(modulo)
+        with bpy.context.temp_override(area=self.area, region=self.regiao),              patch.object(P, '_raio_ignorando', return_value=None):
+            self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
 
     def test_arraste_direito_tambem_limita_quina_e_evitar_colisao(self):
         caminho = self.fixture()

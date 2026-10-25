@@ -12,10 +12,11 @@ import math
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 import bpy
 import bmesh
-from mathutils import Euler, Vector
+from mathutils import Euler, Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
@@ -102,6 +103,41 @@ class TestParedes(unittest.TestCase):
         retangulo = P.retangulo_da_parede(
             self.parede, Vector((0.4, 1.15, 1.0)), Vector((0.0, 1.0, 0.0)))
         self.assertVetor(retangulo, (-1.5, 1.5, 0.0, 2.7))
+
+    def test_regiao_de_malha_pesada_em_lote_e_uma_vez_por_parede(self):
+        # Cena real (relato do usuario): uma casa de centenas de milhares de
+        # faces travava a cada passo do mouse. A regiao sai em lote e vale
+        # para TODAS as faces dela: andar pela parede nao recalcula.
+        import time
+        from unittest.mock import patch
+        casa = caixa('Casa', (3.0, 0.15, 2.7), (0.0, 5.075, 1.35))
+        bm = bmesh.new()
+        bm.from_mesh(casa.data)
+        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=120, use_grid_fill=True)
+        bm.to_mesh(casa.data)
+        bm.free()
+        bpy.context.view_layer.update()
+        self.assertGreater(len(casa.data.polygons), 80000)
+        normal = Vector((0, -1, 0))
+        dep = bpy.context.evaluated_depsgraph_get()
+        inicio = time.perf_counter()
+        a = P.regiao_da_parede(casa, Vector((-1.0, 5.0, .5)), normal, dep)
+        self.assertLess(time.perf_counter() - inicio, 2.0)
+        s0, s1, z0, z1 = a['retangulo']
+        self.assertAlmostEqual(s1 - s0, 3.0, places=4)
+        self.assertAlmostEqual(z1 - z0, 2.7, places=4)
+        self.assertEqual(len(a['faces']), 121 * 121)
+        # contorno = so' a borda da face (4 lados de 121 arestas)
+        self.assertEqual(len(a['contorno']), 4 * 121)
+        self.assertEqual(len(a['triangulos']), 3 * 2 * 121 * 121)
+        outra = next(f for f in a['faces'] if f != a['face'])
+        with patch.object(P, '_calcular_regiao', side_effect=AssertionError('recalculou')):
+            b = P.regiao_da_parede(casa, Vector((1.0, 5.0, 2.0)), normal, dep, outra)
+            # associacao antiga, sem indice: o retangulo do plano basta
+            c = P.regiao_da_parede(casa, Vector((0.0, 5.0, 1.0)), normal, dep)
+        self.assertEqual(b['face'], outra)
+        self.assertEqual(b['retangulo'], a['retangulo'])
+        self.assertEqual(c['faces'], a['faces'])
 
     def test_soltar_encosta_as_costas_e_mede_as_guias(self):
         conj = self.modulo()
@@ -302,6 +338,66 @@ class TestParedes(unittest.TestCase):
                                500.0 - largura / 2, places=2)
         P.desassociar(conj)
         self.assertNotIn(P.CHAVE_PAREDE_FACE, conj)
+
+    def modulo_com_porta_em_x(self):
+        """Modulo com a porta na face +X (preset girado por dentro)."""
+        conj = self.modulo()
+        grupo = addon.portas.porta_no_modulo(conj)
+        bpy.context.view_layer.update()
+        self.assertEqual(P.frente_do_modulo(conj), 'NEG_Y')
+        # gira a porta 90 graus em volta do Empty: da face -Y para a +X
+        giro = (conj.matrix_world @ Matrix.Rotation(math.radians(90), 4, 'Z')
+                @ conj.matrix_world.inverted())
+        grupo.matrix_world = giro @ grupo.matrix_world
+        bpy.context.view_layer.update()
+        return conj
+
+    def test_costas_sao_o_lado_oposto_a_porta(self):
+        # Relato do usuario: o preset com a porta em X encostava a lateral
+        # na parede. As costas sao SEMPRE o lado oposto a' porta.
+        conj = self.modulo_com_porta_em_x()
+        self.assertEqual(P.frente_do_modulo(conj), 'POS_X')
+        self.assertEqual(P.lado_das_costas(conj), 'NEG_X')
+        lo, hi = P.caixa_local_do_modulo(conj)
+        self.encostar(conj, s=0.2, base=0.5)
+        self.assertEqual(conj[P.CHAVE_COSTAS], 'NEG_X')      # gravado ao associar
+        # a porta (+X do modulo) olha para fora da parede (-Y do mundo)
+        self.assertVetor(conj.matrix_world.to_3x3() @ Vector((1, 0, 0)), (0, -1, 0))
+        pontos = [conj.matrix_world @ Vector((x, y, z)) for x in (lo.x, hi.x)
+                  for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=5)   # costas no plano
+        self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2,
+                               0.2, places=5)
+        self.assertAlmostEqual(min(p.z for p in pontos), 0.5, places=5)
+        # ao longo da parede vale a PROFUNDIDADE do modulo
+        largura, _altura = self.medidas(conj)
+        self.assertAlmostEqual(largura, (hi.y - lo.y) * 1000, places=3)
+        guias = P.calcular_guias(conj)['valores']
+        self.assertAlmostEqual(guias['esquerda'], 1700.0 - largura / 2, places=2)
+        # o timer nao desfaz o giro
+        self.assertFalse(P.manter_nas_paredes())
+
+    def test_roda_do_mouse_troca_a_face_contra_a_parede(self):
+        conj = self.modulo()
+        self.encostar(conj)
+        self.assertEqual(conj[P.CHAVE_COSTAS], 'POS_Y')
+        dentro = {'POS_X': (1, 0, 0), 'NEG_Y': (0, -1, 0), 'NEG_X': (-1, 0, 0),
+                  'POS_Y': (0, 1, 0)}
+        vistos = []
+        for _ in range(4):
+            vistos.append(P.girar_costas(conj, P.passos_da_roda(
+                SimpleNamespace(type='WHEELUPMOUSE'))))
+            P.colocar_na_parede(conj, self.parede, Vector((0.0, 1.0, 0.5)), Vector((0, -1, 0)))
+            bpy.context.view_layer.update()
+            # o lado escolhido aponta para dentro da parede (+Y do mundo)
+            self.assertVetor(conj.matrix_world.to_3x3() @ Vector(dentro[vistos[-1]]), (0, 1, 0))
+            self.assertAlmostEqual(P.ponto_das_costas(conj).y, 1.0, places=5)
+        self.assertEqual(vistos, ['POS_X', 'NEG_Y', 'NEG_X', 'POS_Y'])   # volta inteira
+        self.assertEqual(P.girar_costas(conj, P.passos_da_roda(
+            SimpleNamespace(type='WHEELDOWNMOUSE'))), 'NEG_X')
+        self.assertEqual(P.passos_da_roda(SimpleNamespace(type='MOUSEMOVE')), 0)
+        P.desassociar(conj)
+        self.assertNotIn(P.CHAVE_COSTAS, conj)
 
 
 addon.register()
