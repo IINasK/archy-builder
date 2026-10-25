@@ -17,14 +17,23 @@ _opcoes = _portas = _ferragens = _puxadores = _hud = None
 # asset (`extrair_arame_dobradica.py`) e desenhado em lote, peca a peca.
 ANGULO_VINCO_ARAME = 30.0        # o mesmo do extrator (contorno do perfil)
 LADOS_CILINDRO_ARAME = 16
+# aresta (INT 1) que nao entra no contorno: haste e rosca do parafuso
+# padrao, que ficam na madeira (`gerar_parafuso.py`); a marca vai junto
+# quando o parafuso e' copiado para a malha do puxador
+ATRIBUTO_SEM_ARAME = 'cabinet_sem_arame'
+MARCA_ARAME_TOPO = 'cabinet_arame_topo'     # na malha: so' o topo marcado
+_contornos_ferragem = {}         # geometria da malha -> contorno (selecao)
 _arame_rig = [None]              # o arame do asset, lido uma vez
 _arame_perfil = [None]           # contorno do modelo do perfil
+_arame_borda = [None]            # contorno do modelo da borda
+_arame_parafuso = [None]         # contorno do parafuso padrao
 _lotes_arame = {}                # malha do rig -> lote na GPU
 
 
 def _dados_arame_rig():
     """{'malhas': {malha: [pontos aos pares, m, espaco do objeto]},
-    'pecas': [(malha, pose em m na raiz, porta fechada)]} ou None."""
+    'pecas': [(malha, pose em m na raiz, porta fechada, parte do calco)]}
+    ou None."""
     if _arame_rig[0] is None:
         bruto = (_ferragens._dados_dobradica_reta() or {}).get('arame')
         if not bruto:
@@ -36,7 +45,10 @@ def _dados_arame_rig():
         for peca in bruto['pecas']:
             pose = Matrix([peca['pose'][i * 4:i * 4 + 4] for i in range(4)])
             pose.translation = pose.translation / 1000.0
-            pecas.append((peca['malha'], pose))
+            # parte do calco pelo PAI (JSON novo: o parafuso padrao e' a
+            # mesma malha na placa e no copo); o antigo, pelo nome da malha
+            parte = peca.get('calco', _ferragens.MALHAS_CALCO.get(peca['malha'], ''))
+            pecas.append((peca['malha'], pose, parte))
         _arame_rig[0] = {'malhas': malhas, 'pecas': pecas}
     return _arame_rig[0]
 
@@ -82,9 +94,8 @@ def _arame_dos_itens(itens):
             raiz.translation = raiz.translation / 1000.0
             # a placa e o suporte no calco (`_calco_rig`), como na peca
             calco = item.get('calco', {})
-            pecas += [(raiz @ _ferragens._matriz_calco(calco.get(
-                _ferragens.MALHAS_CALCO.get(malha), 0.0)) @ pose, malha)
-                for malha, pose in rig['pecas']]
+            pecas += [(raiz @ _ferragens._matriz_calco(calco.get(parte, 0.0))
+                       @ pose, malha) for malha, pose, parte in rig['pecas']]
         elif forma in {'CAIXA', 'CAIXAS', 'PRISMA'}:
             for cantos in item.get('caixas') or [item['cantos']]:
                 pontos += [p / 1000.0 for p in _arame_caixa(cantos)]
@@ -115,6 +126,13 @@ def _arame_dos_itens(itens):
             pontos += [p / 1000.0 for p in _arame_cilindro(
                 Vector(item['origem']) - meio, eixo,
                 item['raio'], item['comprimento'])]
+        elif forma == 'PARAFUSO':
+            # so' o circulo do topo da cabeca, um pouco acima da placa (como
+            # o arame da peca: `marcar_arame_parafuso`)
+            eixo = Vector((0, 0, 1 if item.get('sentido', 1) >= 0 else -1))
+            topo = Vector(item['origem']) + eixo * _ferragens.SALIENCIA_PARAFUSO_MM
+            pontos += [p / 1000.0 for p in _arame_cilindro(
+                topo, eixo, _ferragens.RAIO_CABECA_PARAFUSO_MM, 0.0)[:2 * LADOS_CILINDRO_ARAME]]
         elif forma == 'HASTE' and item.get('mira') in por_id:
             origem = Vector(item['origem'])
             pontos += [p / 1000.0 for p in _arame_cilindro(
@@ -138,6 +156,11 @@ def _arame_ferragens(grupo, tipos):
             pecas.append((o.matrix_world.copy(), chave))
             continue
         mundo, vertices = o.matrix_world, o.data.vertices
+        if ATRIBUTO_SEM_ARAME in o.data.attributes:
+            # o parafuso: todas as arestas davam a rosca inteira (print do
+            # usuario); o contorno marcado e' so' o topo da cabeca
+            pontos += [mundo @ p for p in _contorno_da_ferragem(o.data)]
+            continue
         pontos += [mundo @ vertices[i].co for e in o.data.edges
                    for i in e.vertices]
     return pecas, pontos
@@ -152,8 +175,25 @@ def _modelo_perfil_carregado():
                  and not m.library), None)
 
 
+def _modelo_borda_carregado():
+    dados = _puxadores._dados_borda()
+    return next((m for m in bpy.data.meshes if dados is not None
+                 and m.get('cabinet_origem') == dados['malha']
+                 and not m.library), None)
+
+
 def preparar_modelos(tipo='PERFIL', arquivo=''):
     """Extrai contornos no evento, antes de instalar o desenho."""
+    if _arame_borda[0] is None:
+        modelo = _modelo_borda_carregado()
+        if modelo is not None:
+            _arame_borda[0] = _contorno_malha(modelo)
+    if _arame_parafuso[0] is None:
+        parafuso = next((m for m in bpy.data.meshes if not m.library
+                         and m.get('cabinet_origem') == _ferragens.NOME_PARAFUSO), None)
+        if parafuso is not None:
+            # so' a cabeca (`ATRIBUTO_SEM_ARAME` tira a rosca)
+            _arame_parafuso[0] = _contorno_malha(parafuso)
     if _arame_perfil[0] is None:
         modelo = _modelo_perfil_carregado()
         if modelo is not None:
@@ -170,6 +210,40 @@ def _contorno_perfil():
     return _arame_perfil[0]
 
 
+def _contorno_da_ferragem(malha):
+    """`_contorno_malha` guardado: a selecao redesenha a cada quadro e o
+    parafuso tem centenas de arestas. A chave leva a geometria (nome,
+    contagens e o 1o vertice), nunca o objeto."""
+    v = malha.vertices[0].co if len(malha.vertices) else Vector()
+    chave = (malha.name, len(malha.vertices), len(malha.edges),
+             tuple(round(c, 7) for c in v))
+    if chave not in _contornos_ferragem:
+        if len(_contornos_ferragem) > 256:
+            _contornos_ferragem.clear()
+        _contornos_ferragem[chave] = _contorno_malha(malha)
+    return _contornos_ferragem[chave]
+
+
+def marcar_arame_parafuso(malha):
+    """So' o TOPO da cabeca do parafuso padrao (o circulo e a cruz, rentes
+    a' peca) no arame; o resto ganha `ATRIBUTO_SEM_ARAME`. A regra de
+    `gerar_parafuso.py`, refeita UMA vez na malha que a cena ja' tinha
+    (deduplicada pelo `cabinet_origem`, ela vale no lugar da do asset):
+    marcada ate' o cone, ou sem marca, embaralhava a cabeca."""
+    if malha.get(MARCA_ARAME_TOPO):
+        return
+    camada = malha.attributes.get(ATRIBUTO_SEM_ARAME)
+    if camada is None or camada.domain != 'EDGE' or camada.data_type != 'INT':
+        if camada is not None:
+            malha.attributes.remove(camada)
+        camada = malha.attributes.new(ATRIBUTO_SEM_ARAME, 'INT', 'EDGE')
+    vertices = malha.vertices
+    topo = max((v.co.z for v in vertices), default=0.0) - 1e-6
+    for e in malha.edges:
+        camada.data[e.index].value = int(min(vertices[i].co.z for i in e.vertices) < topo)
+    malha[MARCA_ARAME_TOPO] = True
+
+
 def _contorno_malha(malha):
     """Arestas de contorno (pontos aos pares, espaco da malha)."""
     bm = bmesh.new()
@@ -181,7 +255,10 @@ def _contorno_malha(malha):
 
 def _contorno_bmesh(bm):
     pares = []
+    fora = bm.edges.layers.int.get(ATRIBUTO_SEM_ARAME)
     for e in bm.edges:
+        if fora is not None and e[fora]:
+            continue
         if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
                 > math.radians(ANGULO_VINCO_ARAME)):
             pares += [v.co.copy() for v in e.verts]
@@ -271,7 +348,15 @@ def _arame_puxador_legado(chapa, tipo, borda, face, fracao, comprimento=None,
         tipo = 'ALCA'
     contorno = (_contorno_perfil() if tipo == 'PERFIL'
                 and _puxadores._corte_perfil[0] is not None else None)
-    if contorno is not None:
+    if tipo == 'BORDA' and _arame_borda[0] is not None:
+        # a mesma deformacao da malha (`_malha_borda_do_modelo`)
+        ajuste = _puxadores._ajuste_da_borda(espessura, comprimento)
+        local = [_puxadores._deformar_borda(p, *ajuste) for p in _arame_borda[0]]
+        # os parafusos da aba, como na peca (`_parafusos_da_borda`)
+        for lugar in (_puxadores.lugares_dos_parafusos_borda(espessura, comprimento)
+                      if _arame_parafuso[0] is not None else ()):
+            local += [_puxadores.ponta_do_parafuso(lugar @ p) for p in _arame_parafuso[0]]
+    elif contorno is not None:
         # a mesma deformacao da malha (`_malha_perfil_do_modelo`)
         ajuste = _puxadores._ajuste_do_perfil(None, espessura,
                                    comprimento)

@@ -1,0 +1,28 @@
+{
+ "origem": "David V2.blend (Plane.047, corrigido)",
+ "objeto": "Plane.047",
+ "versao_blender": "4.2.1 LTS",
+ "malha": "Puxador Borda",
+ "espessura_porta_mm": 18.0,
+ "comprimento_mm": 80.0,
+ "entre_furos_mm": 64.0,
+ "projecao_mm": 20.0,
+ "aba_mm": 13.4051,
+ "tampo_mm": 1.0956,
+ "corte_x": 0.0148284,
+ "vao_x": 0.0296568,
+ "corte_costas": -0.0008929,
+ "vao_costas": 0.0169645,
+ "furos": [
+  [
+   -0.032,
+   0.0062195,
+   -0.0189432
+  ],
+  [
+   0.032,
+   0.0062195,
+   -0.0189432
+  ]
+ ]
+}

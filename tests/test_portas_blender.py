@@ -3510,6 +3510,83 @@ class TestPortas(unittest.TestCase):
         addon.hud._selecionar_porta_hud(bpy.context, folhas[0], 'PORTA')
         self.assertEqual(addon.portas_viewport._folhas_com_slider(bpy.context), folhas[-1:])
 
+    def test_parafusos_padrao_nas_dobradicas(self):
+        # Pedido do usuario: o MESMO parafuso (chipboard 3,5 x 14 de cabeca
+        # chata, a foto dele) nas dobradicas e nos puxadores, em tamanho real.
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj, folhas=3, abertura='ZIGZAG')
+        ferragens = addon.ferragens._ferragens_portas(grupo)
+        parafuso = addon.ferragens.malha_parafuso()
+        nome = addon.ferragens.NOME_PARAFUSO
+        # reta (rig): os 2 da placa e os 2 do copo de cada dobradica
+        rig = [o for o in ferragens if o.type == 'MESH' and 'cabinet_peca' in o
+               and o.data.get('cabinet_origem') == nome]
+        raizes = [o for o in ferragens if o.get('cabinet_peca') == 'raiz']
+        self.assertEqual(len(rig), 4 * len(raizes))
+        for o in rig:
+            for s in o.matrix_world.to_scale():
+                self.assertAlmostEqual(s, 1.0, places=4)
+        # articulada: os discos viraram o parafuso, com o aco dele
+        articulados = [o for o in ferragens if 'Parafuso' in o.get('porta_ferragem_id', '')]
+        self.assertTrue(articulados)
+        for o in articulados:
+            self.assertEqual(len(o.data.vertices), len(parafuso.vertices))
+            self.assertEqual([m.get('cabinet_origem') for m in o.data.materials], ['Aco Bicromatizado'])
+            # linhas da selecao (print do usuario): so' o topo da cabeca --
+            # o circulo e a cruz --, nem rosca nem o fundo da cruz
+            contorno = addon.arame._contorno_da_ferragem(o.data)
+            self.assertTrue(contorno)
+            self.assertLess(len(contorno), len(o.data.edges) // 2)
+            # o topo fica SALIENCIA para fora (girado: o sinal vira)
+            for p in contorno:
+                self.assertAlmostEqual(abs(p.z), addon.ferragens.SALIENCIA_PARAFUSO_MM / 1000.0,
+                                       places=6)
+        # malha que a cena ja' tinha (sem a marca do topo): refeita uma vez
+        velha = parafuso.copy()
+        del velha[addon.arame.MARCA_ARAME_TOPO]
+        velha.attributes.remove(velha.attributes[addon.arame.ATRIBUTO_SEM_ARAME])
+        self.assertGreater(len(addon.arame._contorno_malha(velha)),
+                           len(addon.arame._contorno_malha(parafuso)))
+        addon.arame.marcar_arame_parafuso(velha)
+        self.assertEqual(addon.arame._contorno_malha(velha), addon.arame._contorno_malha(parafuso))
+
+    def test_dobradica_antiga_da_cena_troca_sozinha(self):
+        # Relato do usuario: preset/cena com a Reta original punha o
+        # parafuso de REGULAGEM nas placas de fixacao, e so' refazendo a
+        # porta ela vinha nova. O timer das ferragens troca a copia antiga.
+        F = addon.ferragens
+        conj = self.nicho()
+        grupo = addon.portas.porta_no_modulo(conj)
+        raizes = [o for o in F._ferragens_portas(grupo) if o.get('cabinet_peca') == 'raiz']
+        self.assertTrue(raizes)
+        self.assertFalse(F._ferragens_antigas(grupo))
+        for raiz in raizes:
+            raiz['cabinet_versao'] = 2              # a dos presets da biblioteca
+        self.assertTrue(F._ferragens_antigas(grupo))
+        F._conferir_ferragens()
+        self.assertFalse(F._ferragens_antigas(grupo))
+        ferragens = F._ferragens_portas(grupo)
+        raizes = [o for o in ferragens if o.get('cabinet_peca') == 'raiz']
+        self.assertTrue(raizes)
+        # fixacao (placa e copo) com o padrao; a regulagem fica no braco
+        malhas = [o for o in ferragens if o.type == 'MESH']
+        padrao = [o for o in malhas if o.data.get('cabinet_origem') == F.NOME_PARAFUSO]
+        self.assertEqual(len(padrao), 4 * len(raizes))
+        regulagem = [o for o in malhas if o.data.get('cabinet_origem') == 'Dobradica Parafuso']
+        self.assertEqual(len(regulagem), len(raizes))
+        for o in regulagem:
+            self.assertTrue(o.parent.name.startswith('Dobradica Suporte'), o.parent.name)
+        # a chata de 7 mm rente (versao 1) tambem: a cena a reusava pelo nome
+        rente = padrao[0].data.copy()
+        rente['cabinet_versao'] = 1
+        padrao[0].data = rente
+        self.assertTrue(F._ferragens_antigas(grupo))
+        self.assertTrue(F.parafuso_atual(F.malha_parafuso()))
+        # parafuso panela (323) numa ferragem tambem conta como antigo
+        padrao[0].data = bpy.data.meshes.new('Panela')
+        padrao[0].data['cabinet_origem'] = 'Parafuso Chipboard 3,5x14'
+        self.assertTrue(F._ferragens_antigas(grupo))
+
     def test_zigzag_volumes_presos_as_duas_folhas(self):
         conj = self.nicho()
         grupo = addon.portas.porta_no_modulo(conj, folhas=3, abertura='ZIGZAG')

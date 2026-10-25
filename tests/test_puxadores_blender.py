@@ -72,7 +72,8 @@ class TestPuxadores(unittest.TestCase):
         return conj, addon.portas._portas_do_conjunto(conj)[0]
 
     def test_modelos_geram_as_medidas_de_exemplo(self):
-        for tipo, esperado in (('ALCA', (148, 10, 30)), ('BORDA', (60, 20, 26)),
+        # BORDA: caixas so' sem o asset; 80 mm = o padrao comercial (v322)
+        for tipo, esperado in (('ALCA', (148, 10, 30)), ('BORDA', (80, 20, 26)),
                                ('PERFIL', (500, 30, 18))):
             caixas = addon.puxadores._caixas_puxador(tipo, 18.0, 500.0 if tipo == 'PERFIL'
                                            else addon.puxadores.MODELOS_PUXADOR[tipo][1])
@@ -115,7 +116,8 @@ class TestPuxadores(unittest.TestCase):
         self.assertAlmostEqual((lo[1] + hi[1]) / 2, 0.0, places=3)     # no meio
         self.assertAlmostEqual(hi[1] - lo[1], 148.0, places=3)         # mesmo tamanho
         lo, hi = caixa_na_chapa(borda, chapa)
-        self.assertAlmostEqual(hi[1], 355.0, places=3)                 # na borda nova
+        # na borda nova: o tampo do slim (1,1 mm) sentado nela
+        self.assertAlmostEqual(hi[1], 350.0 + addon.puxadores._dados_borda()['tampo_mm'], places=2)
         # 1/4 da borda continua 1/4: x de 150 (de 600) vira 200 (de 800)
         self.assertAlmostEqual(abs((lo[0] + hi[0]) / 2), 200.0, places=3)
         self.assertAlmostEqual(abs(x_antes), 150.0, places=3)
@@ -124,6 +126,117 @@ class TestPuxadores(unittest.TestCase):
         addon.puxadores.posicionar_puxador(alca)
         lo, hi = caixa_na_chapa(alca, chapa)
         self.assertGreaterEqual(lo[1], -350.0 - 1e-6)
+
+    def furos_da_borda(self, pux, chapa):
+        """(entre furos, diametro do furo) em mm, pelos vertices do furo no
+        asset (a deformacao conserva os indices)."""
+        modelo = addon.puxadores._malha_modelo_borda()
+        dados = addon.puxadores._dados_borda()
+        meio = dados['entre_furos_mm'] / 2000.0
+        furo = [v.index for v in modelo.vertices
+                if (Vector((abs(v.co.x), v.co.y)) - Vector((meio, .0062))).length < .0025]
+        inversa = chapa.matrix_world.inverted()
+        pontos = [inversa @ (pux.matrix_world @ pux.data.vertices[i].co) * 1000 for i in furo]
+        direita = [p for p in pontos if p.x > 0]
+        esquerda = [p for p in pontos if p.x < 0]
+        centro = lambda ps: (min(p.x for p in ps) + max(p.x for p in ps)) / 2
+        return (centro(direita) - centro(esquerda),
+                max(p.x for p in direita) - min(p.x for p in direita))
+
+    def test_borda_slim_em_tamanho_real_acompanha_a_porta(self):
+        # Pedido do usuario: o slim de aba dele vira o BORDA padrao, em
+        # tamanho real (80 mm, furos a 64, 20 mm a' frente), mais largo
+        # para os lados e acompanhando a espessura da chapa SEM escalar
+        # furo, chanfro nem o enrolado da frente.
+        chapa = self.chapa()                                   # 600 x 400 x 18
+        pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'BORDA', 'Y+', 1, .5)
+        # o modelo e, depois, os 2 parafusos padrao da aba
+        parafuso = addon.ferragens.malha_parafuso()
+        self.assertEqual(len(pux.data.vertices),
+                         len(addon.puxadores._malha_modelo_borda().vertices)
+                         + 2 * len(parafuso.vertices))
+        self.assertEqual([m.get('cabinet_origem') for m in pux.data.materials][1:], ['Aco Bicromatizado'])
+        # a previa desenha so' o topo da cabeca chata: a rosca fica na madeira
+        F = addon.ferragens
+        addon.arame._arame_parafuso[0] = None
+        addon.arame.preparar_modelos()
+        cabeca = addon.arame._arame_parafuso[0]
+        self.assertTrue(cabeca)
+        for p in cabeca:
+            self.assertAlmostEqual(p.z, F.SALIENCIA_PARAFUSO_MM / 1000.0, places=6)
+        self.assertLess(len(cabeca), len(parafuso.edges) * 2)
+        lo, hi = caixa_na_chapa(pux, chapa)
+        self.assertAlmostEqual(hi[0] - lo[0], 80.0, places=2)
+        self.assertAlmostEqual(hi[2], 9.0 + 20.0, places=2)          # 20 a' frente
+        # aba nas costas (0,94); a cabeca do parafuso fica 0,876 para fora
+        # dela (o refinamento do usuario)
+        saliencia = F.SALIENCIA_PARAFUSO_MM
+        self.assertAlmostEqual(lo[2], -9.0 - 0.94 - saliencia, delta=.1)
+        self.assertAlmostEqual(hi[1], 200.0 + 1.0956, places=2)      # tampo na borda
+        entre, furo = self.furos_da_borda(pux, chapa)
+        self.assertAlmostEqual(entre, 64.0, places=2)
+        # Parafusos (pedido do usuario): um em cada furo, cabeca de 5,78 mm
+        # na face de fora da aba, haste dentro da porta sem chegar a' frente.
+        inversa = chapa.matrix_world.inverted()
+        n = len(addon.puxadores._malha_modelo_borda().vertices)
+        pontos = [inversa @ (pux.matrix_world @ v.co) * 1000 for v in pux.data.vertices[n:]]
+        for lado in (-1, 1):
+            ps = [p for p in pontos if p.x * lado > 0]
+            self.assertAlmostEqual((min(p.x for p in ps) + max(p.x for p in ps)) / 2, 32.0 * lado, places=2)
+            self.assertAlmostEqual(max(p.x for p in ps) - min(p.x for p in ps),
+                                   2 * F.RAIO_CABECA_PARAFUSO_MM, places=2)
+            self.assertAlmostEqual(min(p.z for p in ps), -9.0 - 0.94 - saliencia, delta=.05)
+            self.assertLess(max(p.z for p in ps), 9.0 - 3.0 + 1e-3)
+        # Porta mais grossa: so' a aba recua; frente, tampo e furos iguais.
+        chapa.chapa_espessura_mm = 25.0
+        lo, hi = caixa_na_chapa(pux, chapa)
+        self.assertAlmostEqual(hi[2], 12.5 + 20.0, places=2)
+        self.assertAlmostEqual(lo[2], -12.5 - 0.94 - saliencia, delta=.1)
+        self.assertAlmostEqual(self.furos_da_borda(pux, chapa)[1], furo, places=3)
+        # Mais comprida: as pontas andam com os furos (144 -> 128, comercial).
+        pux['puxador_comprimento_mm'] = 144.0
+        addon.puxadores.posicionar_puxador(pux)
+        lo, hi = caixa_na_chapa(pux, chapa)
+        self.assertAlmostEqual(hi[0] - lo[0], 144.0, places=2)
+        entre, largura = self.furos_da_borda(pux, chapa)
+        self.assertAlmostEqual(entre, 128.0, places=2)
+        self.assertAlmostEqual(largura, furo, places=3)
+        # Porta fina (6 mm) ainda cabe sem escalar.
+        chapa.chapa_espessura_mm = 6.0
+        lo, hi = caixa_na_chapa(pux, chapa)
+        self.assertAlmostEqual(lo[2], -3.0 - 0.94 - saliencia, delta=.1)
+        self.assertAlmostEqual(self.furos_da_borda(pux, chapa)[1], furo, places=3)
+        # Faces planas sem degrade: Weighted Normal no puxador, refeito a
+        # cada medida; trocar de modelo o tira.
+        self.assertIn(addon.puxadores.NOME_NORMAIS_BORDA, pux.modifiers)
+        bpy.context.view_layer.update()
+        avaliada = pux.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+        def lado_menor(p):
+            vs = [avaliada.vertices[i].co for i in p.vertices]
+            return min((a - b).length for a, b in zip(vs, vs[1:] + vs[:1]))
+        # planas de verdade: as faixas (0,27 mm nas quinas, 1,3 mm antes do
+        # enrolado) SAO a transicao para a curva, suaves de proposito
+        planas = [p for p in avaliada.polygons if lado_menor(p) > .003
+                  and max(abs(c) for c in p.normal) > .999]
+        self.assertGreater(len(planas), 6)
+        desvio = max(max(avaliada.corner_normals[li].vector.angle(p.normal)
+                         for li in p.loop_indices) for p in planas)
+        self.assertLess(desvio * 57.3, 1.0)
+        addon.puxadores._trocar_modelo_puxador(pux, 'ALCA')
+        self.assertNotIn(addon.puxadores.NOME_NORMAIS_BORDA, pux.modifiers)
+
+    def test_previa_da_borda_e_o_arame_do_modelo(self):
+        chapa = self.chapa()
+        addon.puxadores._malha_modelo_borda()
+        addon.arame.preparar_modelos('BORDA')
+        pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'BORDA', 'Y+', 1, .5)
+        pontos = addon.arame.preparar_previa(chapa, 'BORDA', 'Y+', 1, .5)
+        inversa = chapa.matrix_world.inverted()
+        local = [inversa @ p * 1000 for p in pontos]
+        lo, hi = caixa_na_chapa(pux, chapa)
+        for i in range(3):
+            self.assertAlmostEqual(min(p[i] for p in local), lo[i], places=1)
+            self.assertAlmostEqual(max(p[i] for p in local), hi[i], places=1)
 
     def test_material_do_objeto_sobrevive_migracao_e_redimensionamento(self):
         chapa=self.chapa()
@@ -238,6 +351,34 @@ class TestPuxadores(unittest.TestCase):
         lo, hi = caixa_na_chapa(perfil, unica)
         self.assertAlmostEqual(hi[0] - lo[0], unica.chapa_largura_mm, places=3)
         self.assertEqual(unica.get('chapa_rebaixos'), 'Y+')
+
+    def test_clique_simples_no_puxador_da_porta_seleciona_a_porta(self):
+        # Pedido do usuario: entrar na edicao do puxador so' com DUPLO clique;
+        # o simples vale pela folha em que ele esta' (a porta inteira).
+        conj, grupo = self.nicho_com_porta()
+        esquerda = addon.portas._folhas_portas(grupo)[0]
+        alca = addon.puxadores.criar_puxador(bpy.context, esquerda, 'ALCA', 'X+', 1)
+        S = addon.selecao
+        evento = SimpleNamespace(mouse_region_x=50, mouse_region_y=60)
+        def clicar(duplo):
+            op = SimpleNamespace(clique=False, modo='INDIVIDUAL' if duplo else 'GRUPO',
+                                 toggle=False, extend=False, select_passthrough=False)
+            ctx = SimpleNamespace(region=SimpleNamespace(as_pointer=lambda: 1),
+                view_layer=bpy.context.view_layer, selected_objects=list(bpy.context.selected_objects),
+                area=None)
+            with patch.object(addon.hud, '_raio_hud', return_value=(alca, None)), \
+                 patch.object(addon.hud, '_ferragem_sob_mouse', return_value=None), \
+                 patch.object(addon.portas_viewport, '_slider_sob_mouse', return_value=None), \
+                 patch.object(addon.gavetas, 'slider_sob_mouse', return_value=None):
+                return S.OBJECT_OT_selecionar._invoke(op, ctx, evento)
+        bpy.ops.object.select_all(action='DESELECT')
+        self.assertEqual(clicar(False), {'FINISHED'})
+        self.assertEqual(set(bpy.context.selected_objects),
+                         {grupo, *addon.portas._folhas_portas(grupo)})
+        self.assertFalse(alca.select_get())
+        self.assertEqual(clicar(True), {'FINISHED'})
+        self.assertEqual(set(bpy.context.selected_objects), {alca})
+        self.assertEqual(bpy.context.view_layer.objects.active, alca)
 
     def test_linha_snaps_e_fracao(self):
         self.assertEqual(addon.puxadores._snaps(0), [])
@@ -411,7 +552,12 @@ class TestPuxadores(unittest.TestCase):
             plo, phi = self.caixa_dos_pontos(cantos)
             for a, b in zip(lo + hi, plo + phi):
                 self.assertAlmostEqual(a, b, places=4, msg=tipo)
-            self.assertEqual(addon.arame._arame_do_objeto_puxador(pux), previa)
+            # os mesmos pontos na mesma ordem; o parafuso girado e' gravado
+            # em float32 na malha (diferenca de 1e-9 m)
+            objeto = addon.arame._arame_do_objeto_puxador(pux)
+            self.assertEqual(len(objeto), len(previa), tipo)
+            for a, b in zip(objeto, previa):
+                self.assertLess((a - b).length, 1e-7, tipo)
 
     def test_alt_leva_o_puxador_a_outra_borda_do_grupo(self):
         # Pedido do usuario: Alt + arrastar a ancora leva o puxador a outra

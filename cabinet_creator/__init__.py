@@ -533,12 +533,16 @@ def unregister():
     _ferragens._ferragens_selecionadas[0] = None
     _ferragens._dobradica_reta[0] = None
     _puxadores._puxador_perfil[0] = None
+    _puxadores._puxador_borda[0] = None
     _puxadores._arraste_puxador[0] = None
     _puxadores._usando_como_puxador[0] = None
     _arame._arame_rig[0] = None
     _arame._arame_perfil[0] = None
+    _arame._arame_borda[0] = None
+    _arame._arame_parafuso[0] = None
     _puxadores._corte_perfil[0] = None
     _arame._lotes_arame.clear()
+    _arame._contornos_ferragem.clear()
     _portas_viewport._arraste_slider_porta[0] = None
     _portas_viewport._slider_hover[0] = None
     _solda._nome_grupo_gaveta[0] = None

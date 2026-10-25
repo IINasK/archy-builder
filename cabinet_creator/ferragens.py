@@ -22,6 +22,7 @@ _gaveta = None
 _orcamento = None
 _hud = None
 _solda = None
+_arame = None
 
 # ============================== FERRAGENS, PIVO E ABERTURA (Fase 3)
 # Backlog do usuario (Epico 1.7/1.8 e Epico 4). A folha continua uma
@@ -94,6 +95,21 @@ def _lado_da_folha(p, indice, n):
 # se passar da face) anda ate' a face interna -- copo e porta ficam.
 PASTA_FERRAGENS = os.path.join(os.path.dirname(__file__), 'ferragens')
 ARQUIVO_DOBRADICA_RETA = os.path.join(PASTA_FERRAGENS, 'dobradica_reta.blend')
+# Parafuso padrao (pedido do usuario: o mesmo nas dobradicas e puxadores):
+# chipboard 3,5 x 14 cabeca CHATA Phillips de `gerar_parafuso.py` (a foto
+# de referencia do usuario), em tamanho real. Origem = centro da cabeca NA
+# SUPERFICIE da peca; +Z = para fora, cabeca escareada e haste em -Z. A
+# cabeca (5,78) nao afunda ate' o fim: o topo fica SALIENCIA acima (o
+# refinamento do usuario). O nome novo (era a panela) e a VERSAO fazem as
+# cenas carregarem este, nao reusarem a malha velha (`_anexar_sem_repetir`
+# deduplica por origem + versao).
+ARQUIVO_PARAFUSO = os.path.join(PASTA_FERRAGENS, 'parafuso.blend')
+NOME_PARAFUSO = 'Parafuso Chipboard 3,5x14 Chata'
+VERSAO_PARAFUSO = 2          # 1 = cabeca de 7 mm rente (326)
+COMPRIMENTO_PARAFUSO_MM = 14.0
+RAIO_CABECA_PARAFUSO_MM = 2.889
+SALIENCIA_PARAFUSO_MM = 0.876
+PARAFUSOS_ANTIGOS = {'Parafuso Chipboard 3,5x14'}   # a panela (323): trocar
 # Trilhos da porta de correr COM MOLDURA: os perfis de aluminio do
 # guarda-roupa do usuario (`extrair_trilho_moldura.py`), como poligonos da
 # secao (u = das costas para a frente, v = da base para cima), extrudados
@@ -551,9 +567,10 @@ def _volume_articulacao(p, folhas, i, y, sufixo):
                 origem=Vector((q.x, y + (baixo + cima) / 2, q.z)),
                 raio=4.5, comprimento=cima - baixo, eixo='Y'))
         for k, dy in enumerate((-17, 17)):
+            # o parafuso padrao, assentado na face de fora da placa
             saida.append(dict(id=sufixo + 'Parafuso' + nome + str(k), nome='Dobradica Articulada Parafuso',
-                tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='CILINDRO',
-                origem=Vector((q.x + direcao * 23, y + dy, plano + face * 3.5)), raio=3, comprimento=1))
+                tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='PARAFUSO',
+                origem=Vector((q.x + direcao * 23, y + dy, plano + face * 3)), sentido=face))
     saida.append(dict(id=sufixo + 'Eixo', nome='Dobradica Articulada Eixo', tipo='DOBRADICA',
         folha=apoio, forma='CILINDRO', origem=q, raio=2.5, comprimento=53, eixo='Y'))
     return saida
@@ -843,6 +860,17 @@ def _malha_da_ferragem(malha, item):
                 bmesh.ops.scale(bm, vec=(hi - lo) / 1000.0, verts=novos)
                 bmesh.ops.translate(bm, vec=((lo + hi) / 2.0 - origem) / 1000.0,
                                     verts=novos)
+        elif item['forma'] == 'PARAFUSO':
+            # cabeca para fora da placa (`sentido` em Z), haste na madeira
+            modelo = malha_parafuso()
+            if modelo is not None:
+                bm.from_mesh(modelo)
+                if item.get('sentido', 1) < 0:
+                    bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
+                                     matrix=Matrix.Rotation(math.pi, 3, 'X'))
+                malha.materials.clear()
+                for material in modelo.materials:
+                    malha.materials.append(material)
         else:
             raio = item['raio'] / 1000.0
             fundo = item['comprimento'] / 1000.0
@@ -947,25 +975,45 @@ def ocultar_pecas_do_rig(objetos=None):
 def _anexar_sem_repetir(caminho, tipo, nomes=None):
     """Anexa os `tipo` ('objects', 'meshes'...) de um asset do add-on e
     devolve os novos. Malhas, materiais, imagens e node groups que ja'
-    vieram antes (mesmo `cabinet_origem`) voltam aos de antes: o arquivo
-    nao incha a cada porta."""
+    vieram antes (mesmo `cabinet_origem` e `cabinet_versao`) voltam aos de
+    antes: o arquivo nao incha a cada porta. A versao separa o asset
+    refeito com o mesmo nome (o parafuso) da copia velha da cena."""
     antes = {nome: set(getattr(bpy.data, nome)) for nome in COLECOES_DO_RIG}
     with bpy.data.libraries.load(caminho, link=False) as (origem, destino):
         setattr(destino, tipo, sorted(n for n in getattr(origem, tipo)
                                       if nomes is None or n in nomes))
     novos = [d for d in getattr(destino, tipo) if d is not None]
+    chave_de = lambda d: (d.get('cabinet_origem'), d.get('cabinet_versao'))
     for nome in COLECOES_DO_RIG:
         dados = getattr(bpy.data, nome)
-        velhos = {d.get('cabinet_origem'): d for d in antes[nome]
-                  if d.get('cabinet_origem')}
+        velhos = {chave_de(d): d for d in antes[nome] if d.get('cabinet_origem')}
         for novo in [d for d in dados if d not in antes[nome]]:
-            chave = novo.get('cabinet_origem')
-            if chave and chave in velhos:
+            chave = chave_de(novo)
+            if chave[0] and chave in velhos:
                 novo.user_remap(velhos[chave])
                 dados.remove(novo)
-            elif chave:
+            elif chave[0]:
                 velhos[chave] = novo
     return [d for d in novos if _vivo(d)]
+
+
+def parafuso_atual(malha):
+    """A malha e' o parafuso padrao DESTA versao?"""
+    return (malha.get('cabinet_origem') == NOME_PARAFUSO
+            and malha.get('cabinet_versao') == VERSAO_PARAFUSO)
+
+
+def malha_parafuso():
+    """A malha do parafuso padrao (carregada uma vez; deduplicada pelo
+    `cabinet_origem`), ou None sem o asset. A da cena vale no lugar da do
+    asset: o arame dela e' acertado aqui (`marcar_arame_parafuso`)."""
+    malha = next((m for m in bpy.data.meshes if parafuso_atual(m) and not m.library), None)
+    if malha is None and os.path.exists(ARQUIVO_PARAFUSO):
+        novas = _anexar_sem_repetir(ARQUIVO_PARAFUSO, 'meshes', {NOME_PARAFUSO})
+        malha = novas[0] if novas else None
+    if malha is not None:
+        _arame.marcar_arame_parafuso(malha)
+    return malha
 
 
 def _instanciar_rig(colecao, raiz_id):
@@ -1224,6 +1272,8 @@ def _conferir_ferragens():
                       if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')]:
             if _portas._folhas_portas(grupo) and not _ferragens_portas(grupo):
                 _refazer_ferragens(grupo)
+            elif _ferragens_antigas(grupo):
+                _refazer_ferragens(grupo)
             elif not grupo.get('porta_ferragens_encaixe'):
                 atualizar_encaixe_antigo(grupo)
         _modulos.limpar_organizacao_vazia()
@@ -1231,6 +1281,25 @@ def _conferir_ferragens():
     except Exception as e:
         print("[Cabinet Creator] ferragens:", e)
     return None
+
+
+def _ferragens_antigas(grupo):
+    """Rig da Reta de outra versao do asset ou parafuso que nao e' o padrao
+    atual. Relato do usuario: os presets da biblioteca e as cenas guardam a
+    Reta original, com o parafuso de REGULAGEM do braco nas placas de
+    fixacao, e so' refazendo a porta ela vinha nova. O timer troca UMA vez
+    (refeita, a versao bate)."""
+    dados = _dados_dobradica_reta()
+    versao = int(dados.get('versao', 1)) if dados else None
+    for o in _ferragens_portas(grupo):
+        if (versao is not None and o.get('cabinet_peca') == 'raiz'
+                and int(o.get('cabinet_versao', 1)) != versao):
+            return True
+        malha = o.data if o.type == 'MESH' else None
+        if malha is not None and (malha.get('cabinet_origem') in PARAFUSOS_ANTIGOS or (
+                malha.get('cabinet_origem') == NOME_PARAFUSO and not parafuso_atual(malha))):
+            return True
+    return False
 
 
 def atualizar_encaixe_antigo(grupo):

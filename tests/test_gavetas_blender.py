@@ -688,7 +688,7 @@ class TestGavetas(unittest.TestCase):
         self.assertTrue(overlay.show_cursor)
         self.assertEqual(bloqueados, {o.name: o.hide_select for o in bpy.context.scene.objects})
 
-    def test_clique_no_puxador_isola_acessorio_e_abre_suas_funcoes(self):
+    def test_duplo_clique_no_puxador_isola_acessorio_e_abre_suas_funcoes(self):
         grupo = self.gavetas()
         gavetas = G.gavetas_do_grupo(grupo)
         puxadores = [next(o for o in G.frente_da_gaveta(g).children
@@ -698,8 +698,9 @@ class TestGavetas(unittest.TestCase):
         op = SimpleNamespace(clique=False, modo='GRUPO', toggle=False, extend=False)
         evento = SimpleNamespace(mouse_region_x=50, mouse_region_y=60)
 
-        def clicar(obj, somar=False):
+        def clicar(obj, somar=False, duplo=False):
             op.toggle = somar
+            op.modo = 'INDIVIDUAL' if duplo else 'GRUPO'
             ctx = SimpleNamespace(region=SimpleNamespace(as_pointer=lambda: 1),
                 view_layer=bpy.context.view_layer, selected_objects=list(bpy.context.selected_objects),
                 area=None)
@@ -709,16 +710,21 @@ class TestGavetas(unittest.TestCase):
                  patch.object(G, 'slider_sob_mouse', return_value=None):
                 return S.OBJECT_OT_selecionar._invoke(op, ctx, evento)
 
+        # Pedido do usuario: o clique simples vale pela frente (as gavetas);
+        # a edicao do puxador so' no DUPLO clique.
         self.assertEqual(clicar(puxadores[0]), {'FINISHED'})
+        self.assertEqual(bpy.context.view_layer.objects.active, grupo)
+        self.assertFalse(any(p.select_get() for p in puxadores))
+        self.assertEqual(clicar(puxadores[0], duplo=True), {'FINISHED'})
         self.assertEqual(set(bpy.context.selected_objects), {puxadores[0]})
         self.assertFalse(S.familia_de(puxadores[0]))
         S._seguir_selecao_na_gaveta(bpy.context)
         self.assertEqual(bpy.context.scene.cabinet_aba, 'PUXADORES')
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]
         self.assertTrue(any(a[0] == 'escolha' and addon.gaveta.ALVO_PUXADOR in a for a in acoes))
-        clicar(puxadores[1], somar=True)
+        clicar(puxadores[1], somar=True, duplo=True)
         self.assertEqual(set(bpy.context.selected_objects), set(puxadores[:2]))
-        clicar(puxadores[1], somar=True)
+        clicar(puxadores[1], somar=True, duplo=True)
         self.assertEqual(set(bpy.context.selected_objects), {puxadores[0]})
         self.assertEqual(bpy.context.view_layer.objects.active, puxadores[0])
         trilho = next(o for o in grupo.children if o.get(G.MARCA_PECA) == 'TRILHO')

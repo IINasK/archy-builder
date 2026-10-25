@@ -11,8 +11,10 @@ pesada. Daqui sai so' o CONTORNO -- bordas e vincos acima de
 `ANGULO_VINCO` -- da malha espelhada SEM a subdivisao, em mm:
   'malhas': {nome da malha (cabinet_origem): [x1,y1,z1,x2,y2,z2, ...]}
             no espaco do OBJETO (a selecao usa o matrix_world da copia);
-  'pecas':  [{'malha', 'pose'}] com a pose (4x4, mm) de cada peca na
-            RAIZ com a porta fechada (o wizard, sem objeto ainda).
+  'pecas':  [{'malha', 'pose', 'calco'}] com a pose (4x4, mm) de cada peca
+            na RAIZ com a porta fechada (o wizard, sem objeto ainda) e a
+            parte que o calco leva ('base'/'suporte'/''), pelo PAI: o
+            parafuso padrao e' a mesma malha na placa e no copo.
 """
 import json
 import math
@@ -25,6 +27,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 JSON = os.path.join(AQUI, 'cabinet_creator', 'ferragens', 'dobradica_reta.json')
 ANGULO_VINCO = 30.0          # graus entre as faces para a aresta aparecer
 FORA = ('furo', 'controle')  # cortador e controlador: nao sao a peca
+ATRIBUTO_SEM_ARAME = 'cabinet_sem_arame'    # `arame.ATRIBUTO_SEM_ARAME`
 
 
 def arame():
@@ -49,7 +52,11 @@ def arame():
                 bm.from_mesh(avaliado.to_mesh())
                 avaliado.to_mesh_clear()
                 pontos = []
+                # do parafuso padrao, so' a cabeca: a rosca fica na madeira
+                fora = bm.edges.layers.int.get(ATRIBUTO_SEM_ARAME)
                 for e in bm.edges:
+                    if fora is not None and e[fora]:
+                        continue
                     if (len(e.link_faces) != 2 or e.calc_face_angle(0.0)
                             > math.radians(ANGULO_VINCO)):
                         for v in e.verts:
@@ -57,7 +64,11 @@ def arame():
                 bm.free()
                 malhas[chave] = pontos
             pose = raiz.matrix_world.inverted() @ o.matrix_world
-            pecas.append({'malha': chave, 'pose': [
+            parte = o
+            while parte is not None and parte.get('cabinet_peca') not in ('base', 'suporte'):
+                parte = parte.parent
+            pecas.append({'calco': parte.get('cabinet_peca') if parte else '',
+                          'malha': chave, 'pose': [
                 round(pose[i][j] * (1000.0 if j == 3 and i < 3 else 1.0), 4)
                 for i in range(4) for j in range(4)]})
         finally:

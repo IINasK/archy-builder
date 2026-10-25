@@ -2646,6 +2646,13 @@ def test_clique_no_puxador_da_gaveta_abre_puxadores(janela, m):
     yield
     yield from _clicar_no_mundo(m, regiao, rv3d, pux.matrix_world.translation)
     yield esperar(0.4)
+    # clique simples = a frente (as gavetas); duplo = o puxador
+    assert bpy.context.view_layer.objects.active == grupo, bpy.context.object
+    assert not pux.select_get()
+    yield from _clicar_no_mundo(m, regiao, rv3d, pux.matrix_world.translation)
+    yield
+    _duplo_clique_do_keymap(janela)
+    yield esperar(0.4)
     assert set(bpy.context.selected_objects) == {pux}, bpy.context.selected_objects
     assert bpy.context.view_layer.objects.active == pux
     assert bpy.context.scene.cabinet_aba == 'PUXADORES'

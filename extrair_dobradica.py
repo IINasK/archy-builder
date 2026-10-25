@@ -16,6 +16,7 @@ no 4.2. Gera, em cabinet_creator/ferragens/:
       fica a costa da porta e a tabela do movimento da cabeca (o que a
       porta faz) para cada angulo do controlador.
 Referencial da raiz: -X = para dentro do movel, +Y = frente, Z = eixo.
+Depois rode `trocar_parafusos_dobradica.py` (parafuso padrao, versao 3).
 """
 import json
 import math

@@ -185,9 +185,14 @@ class OBJECT_OT_selecionar(Operator):
         _ferragens._ferragens_selecionadas[0] = None
         atingido = _hud._raio_hud(context, self.location)
         puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
-        if puxador is not None:
+        if puxador is not None and self.modo == 'INDIVIDUAL':
+            # Edicao do puxador so' no DUPLO clique (pedido do usuario)
             _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
             return {'FINISHED'}
+        if puxador is not None and puxador.parent is not None:
+            # Clique simples vale pela peca em que ele esta' (folha, frente
+            # da gaveta ou chapa): segue os ramos abaixo como se fosse nela.
+            atingido = (puxador.parent, *atingido[1:])
         if atingido is not None and _gavetas.grupo_de(atingido[0]) is not None:
             # GAVETA (pedido do usuario, como a porta): clique = todas as
             # gavetas do vao, duplo = so' aquela; Shift soma. O corpo do

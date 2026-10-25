@@ -36,7 +36,8 @@ MODELOS_PUXADOR = {
     # (nome, comprimento, recuo) em mm; perfil = borda inteira
     'PERFIL': ('Perfil', 0.0, 0.0),
     'ALCA': ('Alca', 148.0, 40.0),
-    'BORDA': ('Borda', 60.0, 0.0),
+    # 80 mm com furos a 64: o padrao comercial do slim de aba (asset abaixo)
+    'BORDA': ('Borda', 80.0, 0.0),
     # do USUARIO: a malha e o comprimento vem do .blend dele (abaixo)
     'MODELO': ('Modelo', 0.0, 40.0),
 }
@@ -238,6 +239,166 @@ def _malha_perfil_do_modelo(pux, modelo, espessura, comprimento):
         pux.data.materials.append(material)
 
 
+# ---- Puxador BORDA de verdade: o slim de aba do usuario
+# (`extrair_puxador_borda.py`), no referencial da linha: tampo sobre a
+# borda, enrolado a' frente da face, aba com 2 furos nas costas. Medida
+# nova NUNCA escala detalhe (pedido do usuario): no comprimento, cada
+# metade anda inteira a partir de um vao sem vertice entre o meio e um
+# furo -- os furos ficam a 8 mm das pontas (80 -> 64, 144 -> 128 entre
+# furos, como os comerciais); na espessura da porta, a aba e o que fica
+# atras do corte das costas andam. Furo, chanfros e enrolado sao do modelo.
+ARQUIVO_PUXADOR_BORDA = os.path.join(_ferragens.PASTA_FERRAGENS, 'puxador_borda.blend')
+_puxador_borda = [None]      # o .json do asset, lido uma vez
+
+
+def _dados_borda():
+    if _puxador_borda[0] is None:
+        try:
+            with open(os.path.join(_ferragens.PASTA_FERRAGENS, 'puxador_borda.json'),
+                      encoding='utf-8') as f:
+                dados = json.load(f)
+            for chave in ('espessura_porta_mm', 'comprimento_mm', 'corte_x', 'vao_x',
+                          'corte_costas', 'vao_costas'):
+                dados[chave] = float(dados[chave])
+            _puxador_borda[0] = dados
+        except (OSError, ValueError, KeyError, TypeError):
+            _puxador_borda[0] = {}
+    if not _puxador_borda[0] or not os.path.exists(ARQUIVO_PUXADOR_BORDA):
+        return None
+    return _puxador_borda[0]
+
+
+def _malha_modelo_borda():
+    """A malha do modelo (carregada uma vez; nenhum objeto a usa)."""
+    dados = _dados_borda()
+    if dados is None:
+        return None
+    for malha in bpy.data.meshes:
+        if malha.get('cabinet_origem') == dados['malha'] and not malha.library:
+            return malha
+    novas = _ferragens._anexar_sem_repetir(ARQUIVO_PUXADOR_BORDA, 'meshes', {dados['malha']})
+    return novas[0] if novas else None
+
+
+def _ajuste_da_borda(espessura, comprimento):
+    """(estica, fator_x, recua, fator_z, corte_x, corte_costas). Mais
+    curto ou mais fino do que os vaos aguentam: cai na escala (fator)."""
+    dados = _dados_borda()
+    estica = (comprimento - dados['comprimento_mm']) / 2000.0
+    recua = -(espessura - dados['espessura_porta_mm']) / 1000.0
+    fator_x = (comprimento / dados['comprimento_mm']
+               if -2.0 * estica > 0.9 * dados['vao_x'] else None)
+    fator_z = (espessura / dados['espessura_porta_mm']
+               if recua > 0.9 * dados['vao_costas'] else None)
+    return estica, fator_x, recua, fator_z, dados['corte_x'], dados['corte_costas']
+
+
+def _deformar_borda(co, estica, fator_x, recua, fator_z, corte_x, corte_costas):
+    """Ponto do modelo da borda nesta porta (so' translacoes: as normais
+    gravadas do Weighted Normal continuam valendo)."""
+    x, y, z = co
+    if fator_x is not None:
+        x *= fator_x
+    else:
+        x += estica if x > corte_x else -estica
+    if fator_z is not None:
+        z = z * fator_z if z < 0.0 else z
+    elif z < corte_costas:
+        z += recua
+    return Vector((x, y, z))
+
+
+def _bmesh_borda(modelo, espessura, comprimento):
+    ajuste = _ajuste_da_borda(espessura, comprimento)
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(modelo)
+        for v in bm.verts:
+            v.co = _deformar_borda(v.co, *ajuste)
+        bm.normal_update()
+        return bm
+    except Exception:
+        bm.free()
+        raise
+
+
+NOME_NORMAIS_BORDA = 'Normais da borda'
+
+
+def _normais_da_borda(pux, ligar):
+    """Weighted Normal no puxador BORDA: as quinas arredondadas (22,5
+    graus, abaixo dos 30 do Smooth by Angle) davam degrade nas faces
+    planas. Modificador, nao normal gravada: a malha estica a cada medida."""
+    modificador = pux.modifiers.get(NOME_NORMAIS_BORDA)
+    if ligar and modificador is None:
+        modificador = pux.modifiers.new(NOME_NORMAIS_BORDA, 'WEIGHTED_NORMAL')
+        modificador.mode, modificador.weight = 'FACE_AREA', 100
+        modificador.keep_sharp = True
+    elif not ligar and modificador is not None:
+        pux.modifiers.remove(modificador)
+
+
+FOLGA_PONTA_PARAFUSO_M = 0.003     # a ponta nunca chega a menos disto da frente
+
+
+def lugares_dos_parafusos_borda(espessura, comprimento):
+    """Matriz (referencial da linha) de cada parafuso da aba: assento no
+    furo, que anda com a aba e com a ponta; cabeca para tras (-Z)."""
+    dados = _dados_borda()
+    if dados is None:
+        return []
+    ajuste = _ajuste_da_borda(espessura, comprimento)
+    vira = Matrix.Rotation(math.pi, 4, 'X')
+    return [Matrix.Translation(_deformar_borda(Vector(furo), *ajuste)) @ vira
+            for furo in dados.get('furos', ())]
+
+
+def ponta_do_parafuso(co):
+    """Porta fina demais para os 14 mm: a ponta encurta, nunca aparece
+    na frente."""
+    return Vector((co.x, co.y, min(co.z, -FOLGA_PONTA_PARAFUSO_M)))
+
+
+def _parafusos_da_borda(bm, espessura, comprimento):
+    """Os parafusos padrao nos furos da aba (pedido do usuario), na MESMA
+    malha do puxador (indices do modelo primeiro). Cabeca na face de fora
+    da aba, haste entrando nas costas da porta; porta fina demais para os
+    14 mm: a ponta encurta. Devolve o material do parafuso, ou None."""
+    parafuso = _ferragens.malha_parafuso()
+    lugares = lugares_dos_parafusos_borda(espessura, comprimento)
+    if parafuso is None or not lugares:
+        return None
+    for lugar in lugares:
+        # from_mesh ACRESCENTA ao BMesh: so' os vertices novos andam
+        vertices, faces = len(bm.verts), len(bm.faces)
+        bm.from_mesh(parafuso)
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        novos = bm.verts[vertices:]
+        bmesh.ops.transform(bm, verts=novos, matrix=lugar)
+        for v in novos:
+            v.co = ponta_do_parafuso(v.co)
+        for f in bm.faces[faces:]:
+            f.material_index = 1
+    return parafuso.materials[0] if parafuso.materials else None
+
+
+def _malha_borda_do_modelo(pux, modelo, espessura, comprimento):
+    bm = _bmesh_borda(modelo, espessura, comprimento)
+    material_parafuso = _parafusos_da_borda(bm, espessura, comprimento)
+    # slots ANTES da malha: limpar depois zerava o indice do parafuso
+    pux.data.materials.clear()
+    for material in modelo.materials[:1]:
+        pux.data.materials.append(material)
+    if not pux.data.materials:
+        pux.data.materials.append(_material_puxador())
+    if material_parafuso is not None:
+        pux.data.materials.append(material_parafuso)
+    bm.to_mesh(pux.data)
+    bm.free()
+    pux.data.update()
+
+
 # ---- Puxador do USUARIO ("Usar como puxador"): um objeto qualquer vira
 # MODELO, gravado na categoria Puxadores da biblioteca. A biblioteca e' a
 # FONTE (pedido do usuario): editar e salvar o .blend la' muda o que o
@@ -358,6 +519,11 @@ def _copiar_malha_modelo(pux, modelo):
 
 def gerar_malha_puxador(pux, espessura, comprimento):
     """Malha real por bmesh, como a da chapa (nada de escala)."""
+    borda = _malha_modelo_borda() if pux['puxador_tipo'] == 'BORDA' else None
+    _normais_da_borda(pux, borda is not None)
+    if borda is not None:
+        _malha_borda_do_modelo(pux, borda, espessura, comprimento)
+        return
     if pux['puxador_tipo'] == 'PERFIL':
         modelo = _malha_modelo_perfil()
         if modelo is not None:
@@ -918,9 +1084,11 @@ class OBJECT_OT_posicionar_puxador(Operator):
             self.report({'ERROR'}, "Sem viewport 3D para posicionar")
             return {'CANCELLED'}
         self._area, self._regiao, self._rv3d = alvo
-        # a previa do perfil e' o arame do modelo: carregado aqui (no
+        # a previa do perfil/borda e' o arame do modelo: carregado aqui (no
         # desenho nao se carrega nada)
         _malha_modelo_perfil()
+        _malha_modelo_borda()
+        _ferragens.malha_parafuso()
         _ferragens._ferragens_selecionadas[0] = None    # criar encerra aquela selecao
         tipo, arquivo = modelo_escolhido(context.scene)
         if tipo == 'MODELO':

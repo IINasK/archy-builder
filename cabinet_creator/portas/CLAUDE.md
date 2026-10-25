@@ -73,6 +73,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   copo precisa caber na folha. Curva/embutida obliqua: ray cast da face real +
   4 quinas coplanares; conservar cantos do PRISMA (AABB desorienta).
 - Encaixe antigo atualiza UMA vez pelo timer, sem mudar folha/abertura/puxador.
+  Rig de outra versao/parafuso panela tambem (`_ferragens_antigas`, 327).
 - Frente da porta CURVA modelada (`_virar_porta_modelada`): gira o referencial
   e reescreve os vertices no mesmo mundo; `_vao_inverso` (caixa da folha) a
   deslocava. Frente invertida = dobradica por fora e abrindo para dentro.
@@ -85,7 +86,10 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
   proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
   chapa, nunca delta. PERFIL e' padrao, SEMPRE horizontal salvo guarda-roupa
-  (`importacao.posicao_do_perfil`); pontas/costas ANDAM.
+  (`importacao.posicao_do_perfil`); pontas/costas ANDAM. BORDA (322) e' o
+  slim do usuario (`_deformar_borda`): metades e aba andam; furos nao escalam.
+  PARAFUSO padrao (323): `ferragens.malha_parafuso`; dobradica reta v3
+  (`trocar_parafusos_dobradica.py`; arame: parte do calco pelo PAI).
 - Folha nativa: frente +Z LOCAL, nunca comparar com -Y da caixa (inverte no L).
   LADO segue X da folha FECHADA, nao modulo. MODELO do usuario vem da
   BIBLIOTECA; modelos de fabrica PROTEGIDOS. Retratos: `gerar_fotos_padrao.py` (GUI).
