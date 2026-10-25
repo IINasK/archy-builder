@@ -28,6 +28,8 @@ Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
 | Salvar/inserir/foto | biblioteca.py: `salvar_na_biblioteca`, `inserir_preset`, `gravar_modulo_na_biblioteca`, `preparar_abertura_foto` | biblioteca |
 | Face de parede/guias | paredes.py: `associar`, `manter_nas_paredes`, `aplicar_guia` | paredes |
 | Lote/publicacao | integrar_bibliotecas_promob.py: `preparar`, `publicar`; ajustar_encaixes_promob.py: `validar_destino`, `publicar` | migracoes |
+| Corrigir internos dos presets com backup e validacao | corrigir_internos_biblioteca.py: `preparar`, `publicar` | correcao_internos, migracoes, biblioteca |
+| Auditoria dos vaos/colisoes de internos (so leitura) | auditar_internos_biblioteca.py: `auditar`, `auditar_modulo` | auditoria_internos, biblioteca |
 | Auditoria/reparo | auditar_integracao_promob.py: `capturar`, `verificar_funcoes`, `preparar`; ajustar_portas_promob.py: `preparar` | importacao, migracoes |
 
 ## Presets e publicacao

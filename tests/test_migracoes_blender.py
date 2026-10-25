@@ -22,7 +22,7 @@ import cabinet_creator as addon
 import ajustar_encaixes_promob as base
 import integrar_bibliotecas_promob as integracao
 
-SCRIPTS = ('ajustar_encaixes_promob', 'ajustar_abertura_esquerda',
+SCRIPTS = ('corrigir_internos_biblioteca', 'ajustar_encaixes_promob', 'ajustar_abertura_esquerda',
            'ajustar_dobradicas_promob', 'ajustar_fundos_portas_promob',
            'ajustar_portas_promob', 'atualizar_fotos_biblioteca',
            'auditar_integracao_promob', 'integrar_bibliotecas_promob',
@@ -82,7 +82,7 @@ class TestMigracoes(unittest.TestCase):
                 mod.preparar(**args)
             self.assertEqual(list(self.biblioteca.iterdir()), [])
 
-    def test_ajuda_dos_doze_scripts_nao_executa_migracao(self):
+    def test_ajuda_dos_scripts_nao_executa_migracao(self):
         diag = importlib.import_module('refinar_diagonais251')
         anterior = diag.validar
         try:

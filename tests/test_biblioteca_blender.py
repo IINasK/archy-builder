@@ -299,6 +299,22 @@ class TestIndice(BaseBiblioteca):
         # os de porta reta da mesma familia continuam
         self.assertIn("Diagonal_Sup_Baixo_01_300x356x350.blend", arquivos)
 
+    def test_frentes_curvas_restantes_saem_mas_recepcoes_ficam(self):
+        # Regra 341: curvas em chapas comuns e em gavetas tambem saem;
+        # as recepcoes curvas foram mantidas por escolha do usuario.
+        arquivos = {i['arquivo'] for i in addon.biblioteca._ler_indice(PASTA_REAL)}
+        for base in ('Balcao_09_811x703x737', 'Balcao_15_817x703x614',
+                     'Gaveteiro_01_400x703x600', 'Gaveteiro_03_400x703x550'):
+            self.assertNotIn(base + '.blend', arquivos)
+            for extensao in ('.blend', '.png'):
+                self.assertFalse(os.path.exists(os.path.join(PASTA_REAL, base + extensao)))
+        for base in ('Recepcao_Quarto_Escritorio_01_1690x1000x1553',
+                     'Recepcao_Quarto_Escritorio_02_2900x1000x1776',
+                     'Recepcao_Quarto_Escritorio_03_1692x1000x1553',
+                     'Recepcao_Quarto_Escritorio_04_2898x1000x1669'):
+            self.assertIn(base + '.blend', arquivos)
+        self.assertIn('Diagonal_Sup_Baixo_01_300x356x350.blend', arquivos)
+
     def test_ler_indice_le_a_copia_da_biblioteca(self):
         itens = addon.biblioteca._ler_indice(self.pasta)
         arquivos = {i["arquivo"] for i in itens}

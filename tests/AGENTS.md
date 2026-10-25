@@ -17,7 +17,8 @@ do Windows nao existe nesta maquina). O executor acha todas as versoes
 em `C:\Program Files\Blender Foundation`, roda cada suite num Blender
 SEPARADO (`--factory-startup`, em paralelo; GUI uma por vez) e sai com
 codigo 1 se algo falhar. Sem GUI ~1 min (versoes em paralelo; as mais lentas: biblioteca
-e portas); durante o trabalho rode so' a suite da area.
+e portas); durante o trabalho rode so' a suite da area. Biblioteca tem limite de
+600 s para refiliar/regravar a amostra e as miniaturas; demais suites, 300 s.
 
 **Antes de entregar: o executor inteiro, com `--gui` se a pessoa
 liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.

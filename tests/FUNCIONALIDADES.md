@@ -1,5 +1,28 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Correcao dos internos da biblioteca (342): preparo externo com backup,
+restauracao das laterais indevidamente convertidas em gavetas, adocao das
+quatro caixas internas do Armario Quarto 08, frentes livres da carcaca,
+profundidade limitada pelo ray cast nativo e vaos de prateleiras restritos
+ao compartimento. Conserva geometrias, UID e materiais ao unificar
+familias; separadores/travessas permanecem estruturais. Recorte booleano
+local mantem a Mesh e a topologia reparada conserva recortes vazios.
+Confere edicao sem deslocar as chapas, catalogos, reabertura, fotos e
+indice antes de publicar com verificacao de hashes e rollback
+(correcao_internos, 10; migracoes). Auditoria mede portas e gavetas fechadas
+e reconhece tambem a topologia nativa apos pequenos recortes.
+
+Auditoria dos internos e remocao das frentes curvas restantes (341):
+`auditar_internos_biblioteca.py` abre TODOS os modulos sem gravar na
+biblioteca, mede os vaos nos referenciais reais e distingue sobreposicao
+de envelopes de colisao volumetrica das pecas. SAT e BVH nativos,
+tolerancia de 0,25 mm, ray cast por paridade, recortes em L e malhas
+abertas sem confirmacao de volume; confere excesso das pecas e desalinhamento
+de origem/rotacao/escala no vao (auditoria_internos, 9). Balcao 09/15 e
+Gaveteiro 01/03 retirados do indice, .blend e fotos; recepcoes curvas e
+diagonais chanfrados preservados (biblioteca, 84). Auditoria registra
+problemas encontrados: nao remonta automaticamente os presets.
+
 Puxador no duplo clique e guias discretas (340): clique simples no
 puxador vale pela peca dele (porta, gavetas); o DUPLO entra na edicao do
 puxador (puxadores, 24; gavetas, 50). Guias de altura pontilhadas

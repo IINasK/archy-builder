@@ -35,13 +35,15 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # v309: geometria -3 de proposito -- o detector de angulos (`pontos_notaveis`)
 # saiu a pedido do usuario; ficam os testes de area e do snap da curva.
 PISO = {
+    'correcao_internos': 10,
+    'auditoria_internos': 9,
     'paredes_composicao': 67,
     'paredes_edicao': 68,
     'organizacao': 9,
     'divisorias': 24,
     'estrutura': 51, 'gaveta': 67, 'portas': 145, 'hud': 142,
     'importacao': 80, 'puxadores': 24, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
-    'biblioteca': 83, 'cobertura': 4, 'gui_interacao': 58,
+    'biblioteca': 84, 'cobertura': 4, 'gui_interacao': 58,
     'orcamento': 17, 'paredes': 15, 'armarios': 18, 'formas': 62, 'gavetas': 50,
     'geometria': 5, 'prateleiras': 51, 'migracoes': 8,
     'biblioteca_faixa': 31, 'gui_biblioteca_faixa': 7,
@@ -107,7 +109,9 @@ def _rodar(blender, suite, caminho, gui, atualizar=False):
             ambiente['CABINET_ATUALIZAR_SNAPSHOTS'] = '1'
         saida = subprocess.run(comando, cwd=RAIZ, capture_output=True, env=ambiente,
                                text=True, encoding='utf-8', errors='replace',
-                               timeout=LIMITE_SEGUNDOS)
+                               # A biblioteca regrava a amostra e as miniaturas;
+                               # esse I/O excedeu 300 s com os presets reparados.
+                               timeout=600 if suite == 'biblioteca' else LIMITE_SEGUNDOS)
         texto, codigo = saida.stdout + saida.stderr, saida.returncode
     except subprocess.TimeoutExpired as e:
         texto = (e.stdout or '') + (e.stderr or '') if isinstance(
