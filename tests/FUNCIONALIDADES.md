@@ -1,5 +1,21 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Costas na parede = lado OPOSTO a' porta (324): a frente sai da posicao das
+folhas/frentes de gaveta, gravada em `parede_costas` ao associar; a roda do
+mouse no arraste (direito ou da biblioteca) troca a face de 90 em 90; no
+giro de 90 a largura na parede e' a profundidade do modulo (paredes, 15);
+o indice grava `costas` na caixa do preset e registro sem ela mede de novo
+(paredes_edicao, 66).
+
+Cena real pesada (321): regiao da parede em lote e uma vez por parede
+(paredes, 13); arraste da biblioteca so' wireframe pela `caixa` do indice,
+"Carregando..." e o .blend so' ao soltar; sem caixa, o 1o arraste a grava;
+.blend alterado invalida (paredes_edicao, 65).
+
+Preset solto numa parede fora da edicao 2D (318): costas na parede, cursor
+no centro do modulo, pontas/piso/teto grudam, sem sobrepor vizinho, e
+associa; fora da parede volta a' rotacao do preset (paredes_edicao, 63).
+
 Encaixe e cotas em parede (301): sete regressoes novas em paredes_edicao
 (62 testes) para colisao, parede cheia/rollback, limites nas quinas, preset
 girado/previa/mira/confirmacao, arraste direito e altura/face oposta.

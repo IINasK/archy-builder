@@ -3,7 +3,7 @@ preset, miniaturas, foto clicavel, barra de tamanho, bloquear e salvar,
 Asset Browser e prateleira. Mora aqui tambem o wireframe das medidas
 (usado pela gaveta e pelo painel N)."""
 
-import bpy, math, os, uuid, json, gpu, time
+import bpy, math, os, uuid, json, gpu, time, blf
 _frentes = None
 import bpy.utils.previews
 from gpu_extras.batch import batch_for_shader
@@ -804,6 +804,102 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
     return novos, raizes, ""
 
 
+# Caixa do preset no indice (pedido do usuario, v321): o arraste mostra so'
+# o wireframe e carrega o .blend ao SOLTAR, como o BlenderKit -- numa cena
+# real, carregar no comeco do arraste prendia a tela. Sem a caixa, o 1o
+# arraste carrega como antes e a grava para os proximos.
+CHAVE_CAIXA = 'caixa'
+
+
+def _arredondar(valores):
+    return [round(float(v), 6) for v in valores]
+
+
+def medir_caixa(context, novos, raizes):
+    """(lo, hi) da caixa avaliada do preset recem-inserido, em mundo."""
+    context.view_layer.update()
+    try:
+        dep = context.evaluated_depsgraph_get()
+    except Exception:
+        dep = None
+    pontos = []
+    for obj in novos:
+        if obj.type in _modulos.TIPOS_COM_VOLUME:
+            pontos.extend(_modulos._cantos_avaliados(obj, dep))
+    if not pontos:
+        pontos = [o.matrix_world.translation.copy() for o in raizes]
+    if not pontos:
+        raise RuntimeError("preset sem geometria")
+    return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),
+            Vector(tuple(max(p[i] for p in pontos) for i in range(3))))
+
+
+def registro_da_caixa(caminho, lo, hi, modulo=None):
+    """O que o arraste le do preset sem carrega-lo. `bytes` invalida o
+    registro quando o .blend muda (a data muda no git; o tamanho, nao)."""
+    registro = {'bytes': os.path.getsize(caminho), 'lo': _arredondar(lo),
+                'hi': _arredondar(hi)}
+    caixa = _paredes.caixa_local_do_modulo(modulo) if modulo is not None else None
+    if caixa is not None:
+        registro['modulo'] = {'lo': _arredondar(caixa[0]), 'hi': _arredondar(caixa[1]),
+                              'matriz': _arredondar(v for linha in modulo.matrix_world
+                                                    for v in linha),
+                              # lado que vai contra a parede (oposto a' porta)
+                              'costas': _paredes.lado_das_costas(modulo, caixa)}
+    return registro
+
+
+def caixa_do_preset(pasta, arquivo):
+    """O registro gravado no indice, se ainda vale para o arquivo."""
+    item = next((i for i in _ler_indice(pasta) if i.get('arquivo') == arquivo), None)
+    registro = item.get(CHAVE_CAIXA) if item else None
+    try:
+        if registro and registro.get('modulo') and 'costas' not in registro['modulo']:
+            return None         # registro de antes de `costas`: mede de novo
+        if registro and registro.get('bytes') == os.path.getsize(os.path.join(pasta, arquivo)):
+            return registro
+    except OSError:
+        pass
+    return None
+
+
+def _matriz_do_registro(valores):
+    return Matrix([valores[i:i + 4] for i in range(0, 16, 4)])
+
+
+class _PresetPrevisto:
+    """O preset ainda NAO carregado: o que o posicionamento le da raiz
+    (matriz, location, nome vazio, as ID props dadas). Ao soltar, a raiz
+    real recebe a matriz/deslocamento e as props dele."""
+
+    def __init__(self, matriz, props=None):
+        self.name = ''
+        self.matrix_world = matriz.copy()
+        self.props = dict(props or {})
+
+    @property
+    def location(self):
+        return self.matrix_world.translation.copy()
+
+    @location.setter
+    def location(self, valor):
+        matriz = self.matrix_world.copy()
+        matriz.translation = Vector(valor)
+        self.matrix_world = matriz
+
+    def get(self, chave, padrao=None):
+        return self.props.get(chave, padrao)
+
+    def __contains__(self, chave):
+        return chave in self.props
+
+    def __getitem__(self, chave):
+        return self.props[chave]
+
+    def __setitem__(self, chave, valor):
+        self.props[chave] = valor
+
+
 class OBJECT_OT_inserir_preset(Operator):
     """Traz o preset da biblioteca para o cursor 3D"""
     bl_idname = "object.cabinet_inserir_preset"
@@ -909,38 +1005,57 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._raizes = []
         self._colecoes_novas = []
 
-        # O preset entra oculto como staging. So' se torna visivel quando
-        # o usuario solta dentro da viewport; cancelar apaga tudo.
-        novos, raizes, erro = inserir_preset(
-            context, self.pasta, self.arquivo, self.tipo,
-            destino=Vector((0.0, 0.0, 0.0)))
-        self._novos = list(novos or [])
-        self._raizes = list(raizes or [])
-        self._colecoes_novas = [c for c in bpy.data.collections
-                                if c not in colecoes_antes]
-        if erro:
-            self._apagar()
-            self._restaurar_selecao(context)
-            self.report({'ERROR'}, erro)
-            return {'CANCELLED'}
-        if not self._novos:
-            self._apagar()
-            self._restaurar_selecao(context)
-            self.report({'WARNING'}, "O preset nao trouxe nenhum objeto")
-            return {'CANCELLED'}
+        self._previa = caixa_do_preset(self.pasta, self.arquivo)
+        self._carregando = False
+        self._handler_aviso = self._tique = None
+        if self._previa is not None:
+            # So' o wireframe; o .blend carrega ao soltar (`_carregar`).
+            modulo = self._previa.get('modulo')
+            self._raizes = [_PresetPrevisto(_matriz_do_registro(modulo['matriz']),
+                                            {_paredes.CHAVE_COSTAS: modulo['costas']})
+                            if modulo else _PresetPrevisto(Matrix.Identity(4))]
+        else:
+            # O preset entra oculto como staging. So' se torna visivel
+            # quando o usuario solta dentro da viewport; cancelar apaga.
+            novos, raizes, erro = inserir_preset(
+                context, self.pasta, self.arquivo, self.tipo,
+                destino=Vector((0.0, 0.0, 0.0)))
+            self._novos = list(novos or [])
+            self._raizes = list(raizes or [])
+            self._colecoes_novas = [c for c in bpy.data.collections
+                                    if c not in colecoes_antes]
+            if erro:
+                self._apagar()
+                self._restaurar_selecao(context)
+                self.report({'ERROR'}, erro)
+                return {'CANCELLED'}
+            if not self._novos:
+                self._apagar()
+                self._restaurar_selecao(context)
+                self.report({'WARNING'}, "O preset nao trouxe nenhum objeto")
+                return {'CANCELLED'}
 
         self._base = {o: o.location.copy() for o in self._raizes}
         self._sessao_parede = (_paredes_edicao._sessao[0]['id']
                                 if _paredes_edicao.ativa(context) else 0)
-        if self._sessao_parede:
-            if (self.tipo != 'modulo' or len(self._raizes) != 1
-                    or _chapas.MARCA_CONJUNTO not in self._raizes[0]):
-                self._apagar()
-                self._restaurar_selecao(context)
-                self.report({'WARNING'}, 'Escolha um unico modulo completo')
-                return {'CANCELLED'}
+        self._modulo_unico = self.tipo == 'modulo' and (
+            bool(self._previa.get('modulo')) if self._previa is not None else
+            len(self._raizes) == 1 and _chapas.MARCA_CONJUNTO in self._raizes[0])
+        if self._sessao_parede and not self._modulo_unico:
+            self._apagar()
+            self._restaurar_selecao(context)
+            self.report({'WARNING'}, 'Escolha um unico modulo completo')
+            return {'CANCELLED'}
+        self._na_parede = None
+        self._caixa_parede_base = self._caixa_local = None
+        if self._modulo_unico:
             self._matriz_parede_base = self._raizes[0].matrix_world.copy()
-            self._caixa_parede_base = _paredes.caixa_do_modulo(self._raizes[0])
+            if self._previa is not None:
+                modulo = self._previa['modulo']
+                self._caixa_local = (Vector(modulo['lo']), Vector(modulo['hi']))
+            else:
+                self._caixa_local = _paredes.caixa_local_do_modulo(self._raizes[0])
+            self._girar_caixa()
         self._automatico_parede = False
         self._altura = context.scene.cursor.location.z
         self._alvo = None
@@ -962,12 +1077,12 @@ class OBJECT_OT_arrastar_preset(Operator):
             self.report({'ERROR'}, "Nao consegui preparar o preview")
             return {'CANCELLED'}
 
+        item = next((i for i in _ler_indice(self.pasta) if i.get('arquivo') == self.arquivo), None)
+        self._nome = item.get("nome", self.arquivo) if item else self.arquivo
         try:
-            item = _achar_item(self.pasta, self.arquivo)
-            nome = item.get("nome", self.arquivo) if item else self.arquivo
             context.workspace.status_text_set(
                 "Arrastando %s | Solte: inserir | Botao direito: cancelar"
-                % nome)
+                % self._nome)
         except Exception:
             pass
         self._mover(context, event)
@@ -975,23 +1090,13 @@ class OBJECT_OT_arrastar_preset(Operator):
         return {'RUNNING_MODAL'}
 
     def _preparar_bbox(self, context):
-        """Mede o staging avaliado e define a ancora no centro da base."""
-        context.view_layer.update()
-        try:
-            dep = context.evaluated_depsgraph_get()
-        except Exception:
-            dep = None
-        pontos = []
-        for obj in self._novos:
-            if obj.type in _modulos.TIPOS_COM_VOLUME:
-                pontos.extend(_modulos._cantos_avaliados(obj, dep))
-        if not pontos:
-            pontos = [o.matrix_world.translation.copy() for o in self._raizes]
-        if not pontos:
-            raise RuntimeError("preset sem geometria")
-
-        lo = Vector(tuple(min(p[i] for p in pontos) for i in range(3)))
-        hi = Vector(tuple(max(p[i] for p in pontos) for i in range(3)))
+        """Mede o staging avaliado (ou le a caixa gravada) e define a
+        ancora no centro da base."""
+        if getattr(self, '_previa', None) is not None:
+            lo, hi = Vector(self._previa['lo']), Vector(self._previa['hi'])
+        else:
+            lo, hi = medir_caixa(context, self._novos, self._raizes)
+            self._gravar_caixa(lo, hi)
         self._bbox_base = (
             Vector((lo.x, lo.y, lo.z)), Vector((hi.x, lo.y, lo.z)),
             Vector((hi.x, hi.y, lo.z)), Vector((lo.x, hi.y, lo.z)),
@@ -1001,7 +1106,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         if getattr(self, '_sessao_parede', 0):
             # A caixa do staging inteiro inclui puxadores/folhas abertas e
             # pode estar girada. A previa deve usar o envelope validado.
-            lo, hi = self._caixa_parede_base
+            lo, hi = self._caixa_local
             matriz = self._matriz_parede_base
             self._bbox_base = tuple(matriz @ Vector((x, y, z)) for z in (lo.z, hi.z)
                 for x, y in ((lo.x, lo.y), (hi.x, lo.y), (hi.x, hi.y), (lo.x, hi.y)))
@@ -1009,6 +1114,103 @@ class OBJECT_OT_arrastar_preset(Operator):
             (lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0, lo.z))
         diagonal = (hi - lo).length
         self._tamanho_mira = max(0.04, min(diagonal * 0.08, 0.35))
+
+    def _gravar_caixa(self, lo, hi):
+        """1o arraste de um preset sem caixa no indice: grava-a, e os
+        proximos arrastes so' carregam ao soltar."""
+        try:
+            if not any(i.get('arquivo') == self.arquivo for i in _ler_indice(self.pasta)):
+                return
+            registro = registro_da_caixa(os.path.join(self.pasta, self.arquivo), lo, hi,
+                                         self._raizes[0] if self._modulo_unico else None)
+            _atualizar_item(self.pasta, self.arquivo, {CHAVE_CAIXA: registro})
+        except Exception as e:
+            print("[Cabinet Creator] caixa do preset nao gravada:", e)
+
+    def _esperar_carga(self, context):
+        """Solto: o wireframe fica parado com "Carregando..." e o .blend
+        carrega no proximo tique, DEPOIS de a tela mostrar o aviso (o
+        carregamento prende a interface enquanto dura)."""
+        self._carregando = True
+        try:
+            context.workspace.status_text_set("Carregando %s..." % self._nome)
+        except Exception:
+            pass
+        self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
+            self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
+        self._tique = context.window_manager.event_timer_add(0.05, window=context.window)
+        self._area_preview.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    def _encerrar_carga(self, context):
+        if self._tique is not None:
+            context.window_manager.event_timer_remove(self._tique)
+            self._tique = None
+        if self._handler_aviso is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handler_aviso, 'WINDOW')
+            self._handler_aviso = None
+
+    def _carregar(self, context):
+        """Carrega o .blend e leva a raiz real para onde o wireframe ficou."""
+        self._encerrar_carga(context)
+        self._carregando = False
+        previsto = self._raizes[0]
+        colecoes_antes = set(bpy.data.collections)
+        novos, raizes, erro = inserir_preset(context, self.pasta, self.arquivo, self.tipo,
+                                             destino=Vector((0.0, 0.0, 0.0)))
+        self._novos = list(novos or [])
+        self._colecoes_novas = [c for c in bpy.data.collections if c not in colecoes_antes]
+        modulo_ok = not self._modulo_unico or (
+            len(raizes) == 1 and _chapas.MARCA_CONJUNTO in raizes[0])
+        if erro or not self._novos or not modulo_ok:
+            self.report({'ERROR'}, erro or "O preset mudou; arraste de novo")
+            return self._cancelar(context)
+        self._previa = None
+        self._raizes = list(raizes)
+        if self._modulo_unico and (self._na_parede is not None or self._sessao_parede):
+            self._raizes[0].matrix_world = previsto.matrix_world
+            # a face escolhida na roda (ou a gravada no indice)
+            if _paredes.CHAVE_COSTAS in previsto:
+                self._raizes[0][_paredes.CHAVE_COSTAS] = previsto[_paredes.CHAVE_COSTAS]
+        else:
+            deslocamento = previsto.location - self._base[previsto]
+            for o in self._raizes:
+                o.location = o.location + deslocamento
+        self._base = {o: o.location.copy() for o in self._raizes}
+        context.view_layer.update()
+        return self._confirmar(context)
+
+    def _desenhar_aviso(self):
+        """"Carregando <nome>..." sobre o wireframe solto, na caixa preta da HUD."""
+        try:
+            regiao = bpy.context.region
+            if (regiao is None or regiao.as_pointer() != self._regiao_ptr
+                    or self._alvo is None):
+                return
+            xy = view3d_utils.location_3d_to_region_2d(regiao, bpy.context.region_data,
+                                                       self._alvo)
+            if xy is None:
+                return
+            escala = bpy.context.preferences.system.ui_scale
+            texto = "Carregando %s..." % self._nome
+            blf.size(0, 13 * escala)
+            largura, altura = blf.dimensions(0, texto)
+            x, y = xy.x - largura / 2, xy.y - altura / 2
+            folga = 6 * escala
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            gpu.state.blend_set('ALPHA')
+            shader.bind()
+            shader.uniform_float('color', (0.0, 0.0, 0.0, 0.8))
+            x0, y0, x1, y1 = x - folga, y - folga, x + largura + folga, y + altura + folga
+            batch_for_shader(shader, 'TRIS', {'pos': ((x0, y0), (x1, y0), (x1, y1),
+                                                      (x0, y0), (x1, y1), (x0, y1))}).draw(shader)
+            blf.color(0, 1.0, 1.0, 1.0, 1.0)
+            blf.position(0, x, y, 0)
+            blf.draw(0, texto)
+        except Exception as e:
+            print("[Cabinet Creator] aviso de carregamento:", e)
+        finally:
+            gpu.state.blend_set('NONE')
 
     def _ocultar_staging(self, context):
         """Esconde a geometria real para deixar somente o preview GPU."""
@@ -1043,6 +1245,8 @@ class OBJECT_OT_arrastar_preset(Operator):
             pass
 
     def _encerrar_visual(self, context):
+        if getattr(self, '_tique', None) is not None or getattr(self, '_handler_aviso', None) is not None:
+            self._encerrar_carga(context)
         if self._handler_preview is not None:
             try:
                 bpy.types.SpaceView3D.draw_handler_remove(
@@ -1137,6 +1341,9 @@ class OBJECT_OT_arrastar_preset(Operator):
                 self._regiao, self._rv3d, coord)
         except Exception:
             return
+        self._largar_parede()
+        if self._mover_contra_parede(context, origem, direcao):
+            return
         alvo = None
         normal = Vector((0.0, 0.0, 1.0))
         self._em_superficie = False
@@ -1170,6 +1377,85 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._bbox_atual = [p + deslocamento for p in self._bbox_base]
         self._valido = True
         self._area_preview.tag_redraw()
+
+    def _girar_caixa(self):
+        """A caixa no referencial da parede, pelo lado das costas da raiz.
+        O lado fica gravado na raiz: deduzi-lo da porta a cada movimento
+        do mouse varreria as chapas."""
+        if self._caixa_local is None:
+            self._caixa_parede_base = None
+            return
+        raiz = self._raizes[0]
+        raiz[_paredes.CHAVE_COSTAS] = _paredes.lado_das_costas(raiz, self._caixa_local)
+        self._caixa_parede_base = _paredes.girar_caixa(self._caixa_local,
+                                                       raiz[_paredes.CHAVE_COSTAS])
+
+    def _trocar_face(self, context, event):
+        """Roda do mouse sobre a parede: a face seguinte vai contra ela."""
+        _paredes.girar_costas(self._raizes[0], _paredes.passos_da_roda(event))
+        self._girar_caixa()
+        self._mover(context, event)
+        return {'RUNNING_MODAL'}
+
+    def _largar_parede(self):
+        """Saiu da parede: o modulo volta a' rotacao do preset."""
+        if getattr(self, '_na_parede', None) is not None:
+            self._raizes[0].matrix_world = self._matriz_parede_base
+            self._na_parede = None
+            self._status(bpy.context, "Solte: inserir")
+
+    def _mover_contra_parede(self, context, origem, direcao):
+        """Modulo solto numa parede fora da edicao 2D: costas nela, como
+        no arraste com o botao direito. Antes o centro da BASE ia ao ponto
+        do raio sem girar e o armario ficava de lado (relato do usuario).
+        O cursor e' o centro do modulo; pontas, piso e teto grudam e o
+        vizinho nao e' sobreposto (`encaixar_na_face`)."""
+        if not getattr(self, '_modulo_unico', False) or self._caixa_parede_base is None:
+            return False
+        acerto = _paredes.raio_ate_parede(context, origem, direcao,
+                                          {o.name for o in self._novos})
+        if acerto is None:
+            return False
+        parede, ponto, normal, face = acerto
+        if (parede.type != 'MESH' or _paredes.eh_movel(parede)
+                or _paredes.eixos_da_parede(normal) is None):
+            return False
+        regiao = _paredes.regiao_da_parede(parede, ponto, normal,
+                                           context.evaluated_depsgraph_get(), face)
+        if regiao is None:
+            return False
+        n, u = _paredes.eixos_da_parede(normal)
+        sessao = dict(parede=parede.name, regiao=regiao, ponto=tuple(ponto),
+                      normal=tuple(n), u=tuple(u))
+        modulo = self._raizes[0]
+        px = _paredes._px_por_metro(self._regiao, self._rv3d, ponto, u)
+        costas, erro = _paredes_edicao.encaixar_na_face(
+            context, modulo, ponto, sessao, self._caixa_parede_base,
+            _paredes.SNAP_PX / px if px else 0)
+        if erro:
+            self._valido = False
+            self._status(context, erro)
+            self._area_preview.tag_redraw()
+            return True
+        modulo.matrix_world = _paredes.matriz_na_parede(
+            modulo, costas, n, u, caixa=self._caixa_parede_base)
+        context.view_layer.update()
+        matriz = modulo.matrix_world @ self._matriz_parede_base.inverted_safe()
+        self._bbox_atual = [matriz @ p for p in self._bbox_base]
+        lo, hi = self._caixa_parede_base
+        self._alvo = costas + Vector((0, 0, (hi.z - lo.z) * modulo.matrix_world.to_scale().z / 2))
+        self._normal = n.copy()
+        self._na_parede = (parede.name, tuple(costas), tuple(n), regiao['face'])
+        self._em_superficie = self._valido = True
+        self._status(context, "Solte para associar a' parede %s" % parede.name)
+        self._area_preview.tag_redraw()
+        return True
+
+    def _status(self, context, texto):
+        try:
+            context.workspace.status_text_set(texto + " | Roda: trocar a face | Botao direito: cancelar")
+        except Exception:
+            pass
 
     def _mover_na_parede(self, context, event):
         self._valido = False
@@ -1246,6 +1532,8 @@ class OBJECT_OT_arrastar_preset(Operator):
             context.view_layer.update()
             self._automatico_parede = True
             return self._confirmar(context)
+        if hasattr(self, '_largar_parede'):
+            self._largar_parede()
         deslocamento = context.scene.cursor.location - self._ancora_base
         for o in self._raizes:
             base = self._base.get(o)
@@ -1255,6 +1543,8 @@ class OBJECT_OT_arrastar_preset(Operator):
         return self._confirmar(context)
 
     def _confirmar(self, context):
+        if getattr(self, '_previa', None) is not None:
+            return self._esperar_carga(context)
         if getattr(self, '_sessao_parede', 0):
             self._raizes[0].matrix_world = self._matriz_parede_base
             self._restaurar_staging()
@@ -1266,6 +1556,12 @@ class OBJECT_OT_arrastar_preset(Operator):
                 return self._cancelar(context)
         self._encerrar_visual(context)
         self._restaurar_staging()
+        if getattr(self, '_na_parede', None) is not None:
+            nome, costas, n, face = self._na_parede
+            parede = bpy.data.objects.get(nome)
+            if parede is not None:
+                _paredes.associar(self._raizes[0], parede, Vector(costas), Vector(n), face)
+                _paredes_edicao.registrar_posicionado(context, self._raizes[0], self._novos)
         try:
             for obj in context.selected_objects:
                 obj.select_set(False)
@@ -1282,6 +1578,9 @@ class OBJECT_OT_arrastar_preset(Operator):
         return {'FINISHED'}
 
     def modal(self, context, event):
+        if getattr(self, '_carregando', False):
+            # solto: so' espera o tique que carrega o .blend
+            return self._carregar(context) if event.type == 'TIMER' else {'RUNNING_MODAL'}
         if getattr(self, '_sessao_parede', 0) and (not _paredes_edicao.ativa(context)
                 or _paredes_edicao._sessao[0]['id'] != self._sessao_parede):
             return self._cancelar(context)
@@ -1294,6 +1593,9 @@ class OBJECT_OT_arrastar_preset(Operator):
                 self._moveu = (dx * dx + dy * dy) >= 36
             self._mover(context, event)
             return {'RUNNING_MODAL'}
+        if (_paredes.passos_da_roda(event) and self._caixa_local is not None
+                and (self._na_parede is not None or getattr(self, '_sessao_parede', 0))):
+            return self._trocar_face(context, event)
 
         if self._duplo_clique_na_foto(context, event):
             # Duplo clique na FOTO (o primeiro clique abriu este

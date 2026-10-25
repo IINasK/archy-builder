@@ -197,6 +197,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
+    if dono == 'parede_guia':
+        return _paredes_composicao.editar_guia(context, int(propriedade), valor * 1000)
     if dono in {'livre', 'objeto', 'cota'} and _paredes_composicao.parede(bpy.data.objects.get(objeto)):
         return 'As medidas da parede sao editadas apenas pelas ferramentas nativas do Blender'
     if dono == 'paredes':
@@ -558,6 +560,12 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 elif not acao[4] or (len(acao) > 5
                                    and acao[5] == _portas.ALVO_ASSISTENTE):
                     pass        # a fila do wizard e' atendida pelo modal dele
+                elif len(acao) > 5 and acao[5] == _paredes_composicao.ALVO_GUIAS:
+                    erro = _paredes_composicao.definir_modo_guias(context, acao[2])
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                    else:
+                        bpy.ops.ed.undo_push(message='Guias da parede')
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_FERRAGENS:
                     erro = _ferragens._editar_ferragens_selecionadas(
                         context, acao[1], acao[2])

@@ -49,8 +49,8 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
   usuario: sem limite) -- `["Armarios", "Cozinha", "Altos", "Despenseiros"]`;
   n1/n2/n3 continuam com os 3 primeiros. Leia sempre por `caminho_de`
   (`_niveis_de` so' devolve os 3 primeiros). O catalogo e' o caminho todo.
-- Opcionais: `foto` (nome do png), `ordem` (int, posicao na grade),
-  `bloqueado` (bool; cadeado por item, tambem nesta pasta).
+- Opcionais: `foto`, `ordem` (posicao na grade), `bloqueado` (cadeado por
+  item), `caixa` (wireframe do arraste sem abrir o .blend; `bytes` invalida).
 - Formato legado `categoria`/`subcategoria` ainda e' aceito por
   `_niveis_de` — nao gere mais, mas nao quebre a leitura.
 - `arquivo` e' a chave de identidade do item (sem caminho, so' o basename).
