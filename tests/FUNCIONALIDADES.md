@@ -1,5 +1,18 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Biblioteca sem variantes espelhadas e diagonais curvas (350): 369 modulos
+auditados por categoria completa, geometria em 8 orientacoes, materiais e
+sistemas internos. Retirados 10 diagonais de frente curva e 34 repetidos/
+espelhados; reta/chanfro continuam, mantendo o lado mais visivel na foto
+frontal direita. 325 modulos e 3 objetos; nomes/UUID/bytes dos mantidos
+conservados. `consolidar_variantes_biblioteca.py` prepara plano externo com
+hashes e originais; publica indice atomicamente e retira .blend/.png, com
+rollback. Testes temporarios: catalogo/metadados/reta/backup preservados,
+recusa se biblioteca/backup mudou e restaura tudo se a exclusao falhar
+(migracoes, 11). Backup real: Documentos/Cabinet Creator Backups/variantes350-20261025.
+Preset curvo aposentado do quarto conserva fixture em tests/fixtures para
+testar append/resize/apoios; testes da biblioteca usam modelos ativos.
+
 Correcao dos internos da biblioteca (342): preparo externo com backup,
 restauracao das laterais indevidamente convertidas em gavetas, adocao das
 quatro caixas internas do Armario Quarto 08, frentes livres da carcaca,

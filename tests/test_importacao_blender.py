@@ -441,7 +441,8 @@ class TestImportacao(unittest.TestCase):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
         from mathutils.kdtree import KDTree
-        caminho = os.path.join(os.path.dirname(addon.__file__), 'biblioteca',
+        # Modelo descontinuado na biblioteca; a fixture conserva a regressao.
+        caminho = os.path.join(os.path.dirname(__file__), 'fixtures',
                                'Diagonal_Quarto_Armario_06_350x2503x550.blend')
         # Append nativo evita o preparo do posicionador e o tique do timer:
         # a referencia tem de nascer ANTES de a primeira deformacao ocorrer.

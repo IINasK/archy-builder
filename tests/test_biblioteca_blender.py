@@ -290,14 +290,22 @@ class TestIndice(BaseBiblioteca):
         curvas = ('Diagonal_01_300x703x562', 'Diagonal_Sup_Baixo_02_300x356x369',
                   'Canto_08B_901x703x963', 'Canto_Sup_Medio_03_600x706x600',
                   'Diagonal_Quarto_Armario_01_350x2503x550', 'Bancada_Quarto_01_300x720x550',
-                  'Bancada_Quarto_05_700x720x631', 'Canto_Quarto_Superior_02_666x506x685')
+                  'Bancada_Quarto_05_700x720x631', 'Canto_Quarto_Superior_02_666x506x685',
+                  'Diagonal_03_306x703x550','Diagonal_06_306x703x550',
+                  'Diagonal_Sup_Baixo_01_300x356x350','Diagonal_Sup_Baixo_06_300x356x350',
+                  'Diagonal_Sup_Alto_03_300x1056x350','Diagonal_Sup_Alto_05_300x1056x350',
+                  'Diagonal_Sup_Medio_03_300x706x350','Diagonal_Sup_Medio_06_300x706x350',
+                  'Diagonal_Quarto_Armario_04_350x2503x550','Diagonal_Quarto_Armario_06_350x2503x550')
         # a biblioteca REAL, so' leitura (a de self.pasta e' uma amostra)
         arquivos = {i["arquivo"] for i in addon.biblioteca._ler_indice(PASTA_REAL)}
         for base in curvas:
             self.assertNotIn(base + ".blend", arquivos)
-            self.assertFalse(os.path.exists(os.path.join(PASTA_REAL, base + ".blend")), base)
+            for ext in ('.blend','.png'):
+                self.assertFalse(os.path.exists(os.path.join(PASTA_REAL,base+ext)),base)
         # os de porta reta da mesma familia continuam
-        self.assertIn("Diagonal_Sup_Baixo_01_300x356x350.blend", arquivos)
+        for nome in ('Diagonal_04_367x703x559.blend','Diagonal_05_300x703x550.blend',
+                     'Diagonal_Sup_Baixo_04_469x356x494.blend'):
+            self.assertIn(nome, arquivos)
 
     def test_frentes_curvas_restantes_saem_mas_recepcoes_ficam(self):
         # Regra 341: curvas em chapas comuns e em gavetas tambem saem;
@@ -313,7 +321,7 @@ class TestIndice(BaseBiblioteca):
                      'Recepcao_Quarto_Escritorio_03_1692x1000x1553',
                      'Recepcao_Quarto_Escritorio_04_2898x1000x1669'):
             self.assertIn(base + '.blend', arquivos)
-        self.assertIn('Diagonal_Sup_Baixo_01_300x356x350.blend', arquivos)
+        self.assertIn('Diagonal_Sup_Baixo_04_469x356x494.blend', arquivos)
 
     def test_ler_indice_le_a_copia_da_biblioteca(self):
         itens = addon.biblioteca._ler_indice(self.pasta)
@@ -1207,8 +1215,8 @@ class TestPresetsDeFabrica(InsercaoBase):
     def test_reducao_extrema_e_retorno_preservam_chapas_dos_presets(self):
         if bpy.app.version<(5,):self.skipTest('Presets gravados no Blender 5.x')
         from mathutils.kdtree import KDTree
-        nomes=('Cantoneira_04_300x706x550.blend','Diagonal_03_306x703x550.blend',
-               'Gaveteiro_02_400x703x550.blend','Canto_05A_1248x706x615.blend',
+        nomes=('Cantoneira_04_300x706x550.blend','Diagonal_04_367x703x559.blend',
+               'Gaveteiro_02_400x703x550.blend','Canto_02_1245x703x550.blend',
                'Canto_05B_1142x703x1142.blend')
         for nome in nomes:
             limpar_cena()

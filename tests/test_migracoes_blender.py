@@ -22,7 +22,7 @@ import cabinet_creator as addon
 import ajustar_encaixes_promob as base
 import integrar_bibliotecas_promob as integracao
 
-SCRIPTS = ('corrigir_internos_biblioteca', 'ajustar_encaixes_promob', 'ajustar_abertura_esquerda',
+SCRIPTS = ('consolidar_variantes_biblioteca', 'corrigir_internos_biblioteca', 'ajustar_encaixes_promob', 'ajustar_abertura_esquerda',
            'ajustar_dobradicas_promob', 'ajustar_fundos_portas_promob',
            'ajustar_portas_promob', 'atualizar_fotos_biblioteca',
            'auditar_integracao_promob', 'integrar_bibliotecas_promob',
@@ -131,6 +131,47 @@ class TestMigracoes(unittest.TestCase):
         for nome in ('../fora.blend', '..\\fora.blend', '/fora.blend'):
             with self.subTest(nome=nome), self.assertRaises(ValueError):
                 base.caminho_da_peca(str(self.biblioteca), nome)
+
+    def preparar_retiradas(self):
+        mod=importlib.import_module('consolidar_variantes_biblioteca')
+        itens=[dict(arquivo=n+'.blend',nome=n,tipo='modulo',n1='Armarios',n2='Cozinha',n3='Diagonais',
+                    niveis=['Armarios','Cozinha','Inferiores','Diagonais'],extra='preservado')
+               for n in ('Curvo','RetoEsquerdo','RetoDireito')]
+        for i in itens:
+            for extensao in ('.blend','.png'):
+                (self.biblioteca/Path(i['arquivo']).with_suffix(extensao)).write_bytes(i['nome'].encode())
+        (self.biblioteca/'indice.json').write_text(json.dumps(itens),encoding='utf-8')
+        (self.biblioteca/'blender_assets.cats.txt').write_text('UUID original',encoding='utf-8')
+        plano=[dict(arquivo='Curvo.blend',motivo='Diagonal com frente curva'),
+               dict(arquivo='RetoEsquerdo.blend',motivo='Espelhado',mantido='RetoDireito.blend')]
+        mod.preparar(str(self.biblioteca),str(self.destino),plano)
+        return mod,itens
+
+    def test_retirada_conserva_variante_reta_metadados_catalogo_e_backup(self):
+        mod,itens=self.preparar_retiradas();antes=self.hashes()
+        mod.publicar(self.destino)
+        self.assertEqual(json.loads((self.biblioteca/'indice.json').read_text()),[itens[-1]])
+        self.assertEqual((self.biblioteca/'blender_assets.cats.txt').read_text(),'UUID original')
+        for nome in ('Curvo.blend','Curvo.png','RetoEsquerdo.blend','RetoEsquerdo.png','indice.json'):
+            self.assertEqual(base.digital(self.destino/'originais'/nome),antes[nome])
+        self.assertFalse((self.biblioteca/'Curvo.blend').exists())
+        self.assertTrue((self.biblioteca/'RetoDireito.blend').exists())
+
+    def test_retirada_recusa_backup_ou_biblioteca_alterados_antes_de_escrever(self):
+        mod,itens=self.preparar_retiradas()
+        for local in (self.biblioteca/'RetoDireito.blend',self.destino/'originais/Curvo.png'):
+            original=local.read_bytes();local.write_bytes(b'alterado');antes=self.hashes()
+            with self.assertRaises(RuntimeError):mod.publicar(self.destino)
+            self.assertEqual(self.hashes(),antes);local.write_bytes(original)
+
+    def test_retirada_falha_na_exclusao_restaura_arquivos_e_indice(self):
+        mod,itens=self.preparar_retiradas();antes=self.hashes();excluir=Path.unlink
+        def falhar(caminho,*args,**kwargs):
+            if caminho.name=='RetoEsquerdo.png':raise OSError('Falha simulada')
+            return excluir(caminho,*args,**kwargs)
+        with patch.object(Path,'unlink',falhar),self.assertRaises(OSError):mod.publicar(self.destino)
+        self.assertEqual(self.hashes(),antes)
+        self.assertFalse(json.loads((self.destino/'manifesto.json').read_text())['publicado'])
 
 
 if __name__ == '__main__':
