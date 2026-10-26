@@ -415,8 +415,12 @@ def reposicionar_origem(conj):
         conj.location = alvo
         bpy.context.view_layer.update()
         for o in filhos:
-            o.matrix_parent_inverse = conj.matrix_world.inverted()
-            o.matrix_world = mundos[o.name]
+            if conj.matrix_world.determinant() < 0:
+                # A reflexao fica no pai, sem escala negativa nas chapas.
+                _chapas._definir_centro(o, mundos[o.name].translation)
+            else:
+                o.matrix_parent_inverse = conj.matrix_world.inverted()
+                o.matrix_world = mundos[o.name]
     finally:
         _chapas._ocupado[0] = False
 
@@ -873,7 +877,9 @@ def redimensionar_orientado(conj, medidas_mm):
     ocupado = _chapas._ocupado[0]
     try:
         _chapas._ocupado[0] = True
-        conj.matrix_world = Matrix.Diagonal((*matriz.to_scale(), 1.0))
+        escalas = [abs(s) * (-1 if conj.scale[i] < 0 else 1)
+                   for i,s in enumerate(matriz.to_scale())]
+        conj.matrix_world = Matrix.Diagonal((*escalas, 1.0))
         bpy.context.view_layer.update()
         try:
             conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm = medidas_mm
@@ -1175,10 +1181,12 @@ def absorver_conjuntos(no_timer=False):
         if conj.type != 'EMPTY' or _chapas.MARCA_CONJUNTO not in conj:
             continue
         sx, sy, sz = conj.scale
-        if abs(sx-1) < 1e-6 and abs(sy-1) < 1e-6 and abs(sz-1) < 1e-6:
+        # A reflexao unitaria pertence ao Mirror nativo, nao ao resize.
+        if all(abs(abs(s)-1) < 1e-6 for s in (sx,sy,sz)):
             continue
+        sinais = tuple(-1.0 if s < 0 else 1.0 for s in (sx,sy,sz))
         sistemas = _gavetas.grupos_do_modulo(conj) or _prateleiras.grupos_do_modulo(conj)
-        if sistemas and min(sx,sy,sz) > 0:
+        if sistemas and min(abs(sx),abs(sy),abs(sz)) > 0:
             # O handler nao pode atualizar o depsgraph/reencaixar sistemas.
             # O timer ja' existente conclui pelo MESMO resize das cotas.
             if not no_timer:
@@ -1189,17 +1197,22 @@ def absorver_conjuntos(no_timer=False):
                       for v in o.bound_box]
             lo = Vector(tuple(min(p[k] for p in pontos) for k in range(3)))
             hi = Vector(tuple(max(p[k] for p in pontos) for k in range(3)))
-            alvo = tuple((hi[k]-lo[k])*1000 for k in (0,2,1))
+            # Medir nos eixos do modulo evita ampliar a caixa projetada
+            # quando R antecede S ou Mirror.
+            inversa = conj.matrix_world.to_3x3().normalized().inverted()
+            locais = [inversa @ p for p in pontos]
+            alvo = tuple((max(p[k] for p in locais)-min(p[k] for p in locais))*1000
+                         for k in (0,2,1))
             caixa = (lo,hi)
             ocupado = _chapas._ocupado[0]
             _chapas._ocupado[0] = True
             try:
-                conj.scale = (1,1,1)
+                conj.scale = sinais
                 bpy.context.view_layer.update()
                 conj.conj_largura_mm,conj.conj_altura_mm,conj.conj_profundidade_mm = alvo
             finally:
                 _chapas._ocupado[0] = ocupado
-            redimensionar_conjunto(conj)
+            redimensionar_orientado(conj, alvo)
             atual = _caixa_de(_chapas_do_conjunto(conj))
             if caixa and atual:
                 mundo = conj.matrix_world.copy()
@@ -1214,11 +1227,16 @@ def absorver_conjuntos(no_timer=False):
         # `o.matrix_world = ...` dos filhos usava o pai ainda escalado --
         # as chapas voltavam ao tamanho antigo (S no modulo nao fazia
         # nada). view_layer.update nao pode: isto roda no handler.
-        local, rotacao, _escala = conj.matrix_world.decompose()
-        pai_novo = Matrix.LocRotScale(local, rotacao, Vector((1, 1, 1)))
+        if min(sx,sy,sz) < 0:
+            if min(abs(sx),abs(sy),abs(sz)) < 1e-9:
+                continue
+            pai_novo = conj.matrix_world @ Matrix.Diagonal((1/abs(sx),1/abs(sy),1/abs(sz),1))
+        else:
+            local, rotacao, _escala = conj.matrix_world.decompose()
+            pai_novo = Matrix.LocRotScale(local, rotacao, Vector((1, 1, 1)))
         _chapas._ocupado[0] = True
         try:
-            conj.scale = (1.0, 1.0, 1.0)
+            conj.scale = sinais
             for o in filhos:
                 o.matrix_basis = ((pai_novo @ o.matrix_parent_inverse)
                                   .inverted() @ mundos[o.name])

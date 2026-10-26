@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (342, 0, 0),
+    "version": (355, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -197,6 +197,7 @@ CLASSES = (
     _solda.OBJECT_OT_recalcular_ancoragem,
     _solda.OBJECT_OT_conectar_vertices,
     _solda.OBJECT_OT_confirmar_conexao,
+    _solda.OBJECT_OT_acao_criacao_solda,
     _solda.OBJECT_OT_resetar_distancia,
     _solda.OBJECT_OT_arrastar_ancora,
     _solda.OBJECT_OT_confirmar_ancora_solda,

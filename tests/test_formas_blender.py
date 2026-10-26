@@ -649,6 +649,8 @@ class TestFormas(unittest.TestCase):
         material=bpy.data.materials.new('Material do contorno livre')
         pecas[0].data.materials.append(material);pecas[0].data.uv_layers.new(name='UV preservada')
         antes={o:(o.data,[tuple(v.co) for v in o.data.vertices],[tuple(p.vertices) for p in o.data.polygons],o.matrix_world.copy()) for o in pecas}
+        uvs={o:[(camada.name,[tuple(l.uv) for l in camada.data])
+                for camada in o.data.uv_layers] for o in pecas}
         geo=addon.hud._geometria_do_item(conj,'GRUPO',pecas)
         with patch.object(F,'_planta',side_effect=AssertionError('Leu Mesh no redraw')),patch.object(F,'_uniao_da_secao',side_effect=AssertionError('CDT no redraw')),patch.object(F.bmesh,'new',side_effect=AssertionError('BMesh no redraw')):
             for _ in range(3):
@@ -659,8 +661,11 @@ class TestFormas(unittest.TestCase):
             self.assertEqual(vs,[tuple(v.co) for v in o.data.vertices])
             self.assertEqual(fs,[tuple(p.vertices) for p in o.data.polygons])
             self.assertEqual(m,o.matrix_world)
+            self.assertEqual(uvs[o],[(camada.name,[tuple(l.uv) for l in camada.data])
+                                    for camada in o.data.uv_layers])
         self.assertEqual(pecas[0].data.materials[0],material)
-        self.assertEqual(pecas[0].data.uv_layers[0].name,'UV preservada')
+        # O Tab ja' criou o mapa metrico; o mapa do usuario pode ser o segundo.
+        self.assertIn('UV preservada',pecas[0].data.uv_layers)
 
     def test_grade_livre_grupo_girado_segue_a_geometria(self):
         conj,pecas=self._armario_livre_por_tab()

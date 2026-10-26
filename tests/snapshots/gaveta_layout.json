@@ -109,18 +109,27 @@
    null
   ],
   [
-   12.0,
+   12,
    618,
-   80.0,
+   166,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   584,
+   166.0,
    28,
    "Corrente",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
   [
-   98.0,
-   618,
-   80.0,
+   12.0,
+   550,
+   166.0,
    28,
    "Resetar distancia",
    "operador",
@@ -128,7 +137,7 @@
   ],
   [
    12,
-   578,
+   510,
    166,
    23,
    "Orcamento",
@@ -137,7 +146,7 @@
   ],
   [
    12,
-   547,
+   479,
    166,
    25,
    "Comodo: (nenhum)",
@@ -282,8 +291,17 @@
    null
   ],
   [
-   12.0,
+   12,
    661,
+   296,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   627,
    145.0,
    28,
    "Corrente",
@@ -292,7 +310,7 @@
   ],
   [
    163.0,
-   661,
+   627,
    145.0,
    28,
    "Resetar distancia",
@@ -301,7 +319,7 @@
   ],
   [
    12,
-   621,
+   587,
    296,
    23,
    "Orcamento",
@@ -310,7 +328,7 @@
   ],
   [
    12,
-   590,
+   556,
    296,
    25,
    "Comodo: (nenhum)",
@@ -455,8 +473,17 @@
    null
   ],
   [
-   12.0,
+   12,
    704,
+   458,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   670,
    226.0,
    28,
    "Corrente",
@@ -465,7 +492,7 @@
   ],
   [
    244.0,
-   704,
+   670,
    226.0,
    28,
    "Resetar distancia",
@@ -474,7 +501,7 @@
   ],
   [
    12,
-   664,
+   630,
    458,
    23,
    "Orcamento",
@@ -483,7 +510,7 @@
   ],
   [
    12,
-   633,
+   599,
    458,
    25,
    "Comodo: (nenhum)",
@@ -628,8 +655,17 @@
    null
   ],
   [
-   12.0,
+   12,
    704,
+   540,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   670,
    267.0,
    28,
    "Corrente",
@@ -638,7 +674,7 @@
   ],
   [
    285.0,
-   704,
+   670,
    267.0,
    28,
    "Resetar distancia",
@@ -647,7 +683,7 @@
   ],
   [
    12,
-   664,
+   630,
    540,
    23,
    "Orcamento",
@@ -656,7 +692,7 @@
   ],
   [
    12,
-   633,
+   599,
    540,
    25,
    "Comodo: (nenhum)",
@@ -1546,18 +1582,27 @@
    null
   ],
   [
-   12.0,
+   12,
    575,
-   80.0,
+   166,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   541,
+   166.0,
    28,
    "Corrente",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
   [
-   98.0,
-   575,
-   80.0,
+   12.0,
+   507,
+   166.0,
    28,
    "Resetar distancia",
    "operador",
@@ -1565,7 +1610,7 @@
   ],
   [
    12,
-   535,
+   467,
    166,
    23,
    "Orcamento",
@@ -1574,7 +1619,7 @@
   ],
   [
    12,
-   504,
+   436,
    166,
    25,
    "Comodo: (nenhum)",
@@ -1728,8 +1773,17 @@
    null
   ],
   [
-   12.0,
+   12,
    661,
+   296,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   627,
    145.0,
    28,
    "Corrente",
@@ -1738,7 +1792,7 @@
   ],
   [
    163.0,
-   661,
+   627,
    145.0,
    28,
    "Resetar distancia",
@@ -1747,7 +1801,7 @@
   ],
   [
    12,
-   621,
+   587,
    296,
    23,
    "Orcamento",
@@ -1756,7 +1810,7 @@
   ],
   [
    12,
-   590,
+   556,
    296,
    25,
    "Comodo: (nenhum)",
@@ -1910,8 +1964,17 @@
    null
   ],
   [
-   12.0,
+   12,
    704,
+   458,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   670,
    226.0,
    28,
    "Corrente",
@@ -1920,7 +1983,7 @@
   ],
   [
    244.0,
-   704,
+   670,
    226.0,
    28,
    "Resetar distancia",
@@ -1929,7 +1992,7 @@
   ],
   [
    12,
-   664,
+   630,
    458,
    23,
    "Orcamento",
@@ -1938,7 +2001,7 @@
   ],
   [
    12,
-   633,
+   599,
    458,
    25,
    "Comodo: (nenhum)",
@@ -2092,8 +2155,17 @@
    null
   ],
   [
-   12.0,
+   12,
    704,
+   540,
+   28,
+   "Criar solda",
+   "operador",
+   "object.cabinet_conectar_vertices"
+  ],
+  [
+   12.0,
+   670,
    267.0,
    28,
    "Corrente",
@@ -2102,7 +2174,7 @@
   ],
   [
    285.0,
-   704,
+   670,
    267.0,
    28,
    "Resetar distancia",
@@ -2111,7 +2183,7 @@
   ],
   [
    12,
-   664,
+   630,
    540,
    23,
    "Orcamento",
@@ -2120,7 +2192,7 @@
   ],
   [
    12,
-   633,
+   599,
    540,
    25,
    "Comodo: (nenhum)",

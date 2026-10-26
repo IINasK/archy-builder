@@ -38,17 +38,22 @@ Referencia das frentes: [FRONTES.md](../../FRONTES.md).
 - Isolar Mesh compartilhada antes da edicao individual. Tab e' nativo;
   sair atualiza medidas/caches, undo invalida. Sem deformacao radial;
   solver antigo do grupo so' por API, nunca automatico.
+- Tab do grupo prepara UV metrico onde falta (1 unidade/m), conserva mapas
+  existentes e usa Correct Face Attributes nativo para nao esticar texturas.
 - Referencia de resize nao acumula deltas: usar Mesh nativa e restaurar pais
   E `porta_centro_folha` ANTES dos filhos. Vaos de portas/gavetas seguem
   o mapa do corpo; nao reancorar antes de restaurar. E se conserva pela normal.
+- `formas.matriz_do_modulo` conserva reflexao do Mirror; remover so' magnitudes da escala, nunca a paridade.
 - Frente parcial apoia na FACE real (`closest_point_on_mesh` +
   `poly_3d_calc`), com pesos guardados uma vez; nunca caixa inteira nem
   busca no redraw. Cache numerico: nada de Mesh/CDT/hull na HUD do modulo.
-- Vertice de canto vem do atributo `cabinet_canto`, nao do SINAL; em malha
-  modelada, `v<i>`. E de UMA chapa nao mexe nas demais; so' E do MODULO
+- Vertice de canto vem do atributo `cabinet_canto`, nao do SINAL; novas soldas em malha
+  modelada usam `cabinet_solda_vertice` (INT POINT, u; v legado aceito). E de UMA chapa nao mexe nas demais; so' E do MODULO
   tem esse alcance. Corrente sozinha ate' 5 mm; alem disso, mostrar vertice.
 - Snap geometrico: quinas COM ANGULO, pontas e centro de curva. O ima mostra
   o rotulo; o meio do arco sai. Area = volume / E para orcamento e F3 Calcular Areas.
+- Vizinho: UID entre irmaos primeiro; duplicatas antigas do UID no mesmo pai
+  usam o nome gravado so' para desempatar. Distancia e' o ultimo recurso.
 
 ## Suites
 

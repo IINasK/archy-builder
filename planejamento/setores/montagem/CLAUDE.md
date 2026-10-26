@@ -82,7 +82,22 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   (so' bolinhas das bordas, `so_faces`; quina do snap ganha); observador
   deixa o clique para o gizmo; digitado vai no numero da cota (`digitacao_hud`).
 
-- Solda manual usa o translate/snap NATIVO compartilhado e identifica MeshVertex por KDTree nativa, sem cantos nominais. Ancorar/Juntar preserva a posicao atual e registra o afastamento 3D por par no referencial do destino (`adj_<ponta>_origens`); Resetar volta a esse gap, nunca o zera. Trocar a ancora por Alt conserva a origem cadastrada da junta.
+- Solda manual usa translate/snap NATIVO compartilhado; cache KDTree ou consulta nativa da face, nunca varrer a malha no clique. Ancorar/Juntar registra afastamento 3D local ao destino (`adj_<ponta>_origens`). Legado: reset volta ao gap gravado. Criacao 352: reset zera pela ancora FINAL fixa, e esse zero vira a referencia futura; Alt reancora, sem trocar a referencia.
+- Criacao 353: controladores e distancia tambem na previa; corrente remove so par pendente, regua por indice zera pela ancora final. Marcador/distancia leem cursor nativo. Auditoria de um modulo e somente leitura: zero primeiro, vertice unico e quinas distintas (raio da espessura ate 25 mm). Refinamento 354 conserva somente UM par de vertices por par de pecas/modulos; chapas internas do mesmo modulo mantem juntas independentes. Biblioteca geral aguarda aprovacao do piloto.
+- Criacao: painel proprio sem Orcamento, distancia/zero/confirmar/cancelar/voltar. Direito/Esc cancela, Backspace/Ctrl+Z volta etapa; Alt escolhe outro vertice na mesma peca. Snap inicia no PRESS e confirma no RELEASE; entre gestos o modal recebe os atalhos. Previa numerica restaura antes de confirmar e no cancelar; so' `cabinet_juntar_modulo` grava undo da geometria final.
+- `adj_<ponta>_manual` conserva corrente/regua/campo de distancia mesmo em zero; `direcoes` e origens sao locais ao destino. Caixa usa `cabinet_canto`; malha modelada usa INT POINT `cabinet_solda_vertice` (u), legado v aceito. ID apagado/ambiguo avisa, nunca escolhe outro por proximidade. Desligar/substituir limpa manual/direcoes tambem.
+- Regua (345): coordenador conserva a ordem dos dominios; portas/prateleiras
+  evitam remontagens sem mudanca nos dados calculados, preservando BVHs e modelagem.
+- Regua (347): valida destinos repetidos e pares da espessura ANTES de mover
+  chapas ou atualizar sistemas. Junta impossivel cancela sem alteracoes;
+  grupo valida todas as juntas antes da primeira escrita. Reusa o validador
+  de `_puxar_por_pares`; deformacao calcula todos os deltas antes de aplicar.
+- Clique (348): detector compartilha as correntes no evento; nome/UID/pai
+  validos evitam buscas repetidas. Despachante nao grava undo: cada operador
+  dono grava o seu; cancelamento da regua continua CANCELLED no clique externo.
+- Criar solda (349): acesso proprio em Modulos/Montagem, no SOLTAR. Modulo
+  escolhe a origem no primeiro snap; chapa individual a fixa. Estado so' nomes;
+  snap/cursor/confirmacao sao os existentes, mantendo a pergunta no menu de origem.
 
 - Solda (adjacencia): grava a folga = origem. Corrente/regua aparecem pelo DESVIO (> 5 mm
   na viewport, qualquer um no botao). Corrente e regua escolhem a MESMA peca pela selecao, nunca pelo lado que grava o vinculo. Regua: chapa ativa se move (pergunta se mudar medida);

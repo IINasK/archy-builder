@@ -44,6 +44,68 @@ DIGITAL_REAL = impressao_digital(PASTA_REAL)
 
 
 class TestArmarios(unittest.TestCase):
+    def test_mirror_nativo_do_grupo_preserva_malhas_e_recalculo_dos_internos(self):
+        # Regressao v350: a normalizacao tratava reflexao como medida negativa.
+        for tipo in ('portas', 'gavetas'):
+            with self.subTest(tipo=tipo):
+                conj=M.criar_armario(bpy.context,'Espelho '+tipo,800,1800,550)
+                if tipo=='portas':
+                    g=addon.portas.porta_no_modulo(conj,folhas=2)
+                    for f in addon.portas._folhas_portas(g):
+                        addon.ferragens._definir_abertura(bpy.context,f,.4)
+                    addon.prateleiras.criar_prateleiras(bpy.context,conj,(18,18,18,18,0),
+                        dict(quantidade=2,espessura_mm=18,profundidade_mm=300))
+                else:
+                    addon.gavetas.criar_gavetas(bpy.context,conj,(18,18,18,18,0),dict(quantidade=3))
+                conj.location=(1.2,-.8,.3);conj.rotation_euler.z=.61
+                bpy.context.view_layer.update()
+                addon.hud._selecionar_chapa_hud(bpy.context,conj)
+                bpy.context.view_layer.objects.active=conj
+                pivo=bpy.context.scene.tool_settings.transform_pivot_point
+                bpy.context.scene.tool_settings.transform_pivot_point='ACTIVE_ELEMENT'
+                pecas=[o for o in conj.children_recursive if o.type=='MESH']
+                antes={o.name:[o.matrix_world@v.co for v in o.data.vertices] for o in pecas}
+                malhas={o.name:o.data.as_pointer() for o in pecas}
+                try:
+                    for eixo in (0,1,1,0):
+                        sinais=[1,1,1,1];sinais[eixo]=-1
+                        espelho=conj.matrix_world@Matrix.Diagonal(sinais)@conj.matrix_world.inverted()
+                        esperados={o.name:[espelho@(o.matrix_world@v.co) for v in o.data.vertices] for o in pecas}
+                        self.assertEqual(bpy.ops.transform.mirror(orient_type='LOCAL',
+                            constraint_axis=tuple(i==eixo for i in range(3))),{'FINISHED'})
+                        bpy.context.view_layer.update()
+                        M.absorver_conjuntos(no_timer=True);addon.chapas.normalizar_chapas()
+                        M.atualizar_sistemas_do_conjunto(conj);bpy.context.view_layer.update()
+                        for o in pecas:
+                            self.assertEqual(o.data.as_pointer(),malhas[o.name])
+                            self.assertLess(max((o.matrix_world@v.co-p).length
+                                for v,p in zip(o.data.vertices,esperados[o.name])),1e-5,o.name)
+                    for o in pecas:
+                        self.assertLess(max((o.matrix_world@v.co-p).length
+                            for v,p in zip(o.data.vertices,antes[o.name])),1e-5,o.name)
+                finally:
+                    bpy.context.scene.tool_settings.transform_pivot_point=pivo
+
+    def test_redimensionar_e_recentrar_modulo_espelhado_girado(self):
+        conj=M.criar_armario(bpy.context,'Espelho resize',800,1800,550)
+        addon.portas.porta_no_modulo(conj,folhas=2)
+        addon.prateleiras.criar_prateleiras(bpy.context,conj,(18,18,18,18,0),
+            dict(quantidade=2,espessura_mm=18,profundidade_mm=300))
+        conj.scale.x=-1;conj.rotation_euler.z=.61;bpy.context.view_layer.update()
+        for largura in (900,800,1000):
+            M.redimensionar_orientado(conj,(largura,1800,550))
+            bpy.context.view_layer.update();addon.chapas.normalizar_chapas()
+            caixa=addon.portas._caixa_do_modulo(conj)
+            for real,esperado in zip(caixa[:3],(largura,1800,550)):
+                self.assertAlmostEqual(real,esperado,places=2)
+            self.assertLess(conj.matrix_world.determinant(),0)
+        conj.scale.x*=1.2;bpy.context.view_layer.update()
+        M.absorver_conjuntos(no_timer=True);addon.chapas.normalizar_chapas()
+        bpy.context.view_layer.update()
+        for real,esperado in zip(addon.portas._caixa_do_modulo(conj)[:3],(1200,1800,550)):
+            self.assertAlmostEqual(real,esperado,places=2)
+        self.assertTrue(all(abs(abs(s)-1)<1e-6 for s in conj.scale))
+
     def test_arremate_vertical_promob_chega_as_quinas_sem_alongar_divisoria(self):
         c=M.criar_armario(bpy.context,'Arremate',800,1056,350,fundo=False)
         r=addon.chapas.nova_chapa('Ripa',1050,50,15,(-60,-200,528),(0,90,0),bpy.context)

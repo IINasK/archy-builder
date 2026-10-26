@@ -46,7 +46,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   Selecionada POR SI: contorno branco, vao amarelo, fios e slider por folha.
   Alt arrasta SO' os 2 cliques (`CANTOS_DO_GESTO`) de `_cantos_da_porta`: refeitas, nunca gravadas;
   o destino e' o snap NATIVO do cursor (macro `cabinet_mover_canto_porta`).
-- Espelhar: icone na aba Portas + contexto direito, grupo ou folha; inverter
+- Espelhar: contexto direito, grupo ou folha; sem linha Reposicionar/Frente/Espelhar na aba. Inverter
   giro, cadeia zigzag INTEIRA, curso de correr ou basculante com pistoes.
   Puxador acompanha; nao espelhar a madeira.
 - CORRER: um TRILHO por folha, percorre vao inteiro; folha unica = METADE
@@ -74,6 +74,14 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   4 quinas coplanares; conservar cantos do PRISMA (AABB desorienta).
 - Encaixe antigo atualiza UMA vez pelo timer, sem mudar folha/abertura/puxador.
   Rig de outra versao/parafuso panela tambem (`_ferragens_antigas`, 327).
+- Reta de giro com vao/folhas/rig iguais nao remonta no reset da solda.
+  Conferir poses calculadas e offsets manuais; rig faltando/antigo atualiza.
+- Montagem do rig (348): asset carregado UMA vez por chamada; demais copias
+  usam Object.copy, com pais/inversa, IK, modificadores e drivers remapeados.
+  Fonte SO' da montagem atual, nunca rig modelado da cena nem cache RNA global.
+  Remocao em lote conserva dados compartilhados ainda usados; deduplicacao
+  de Mesh exige igualdade pelo comparador nativo, pois Tab conserva a marca.
+  Conferir atributos antes desse comparador: conjuntos diferentes caem no 4.2.
 - Frente da porta CURVA modelada (`_virar_porta_modelada`): gira o referencial
   e reescreve os vertices no mesmo mundo; `_vao_inverso` (caixa da folha) a
   deslocava. Frente invertida = dobradica por fora e abrindo para dentro.
@@ -82,6 +90,11 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   antes de substituir: dict raso e acesso posterior derrubavam Blender 5.2.
 - Ferragem aparece so' criando ou selecionada, arame da PECA real. Clique =
   todas do tipo, Shift soma o outro, Alt = controlador, duplo = PECA (Tab/G/X nativos).
+- Tab do grupo: translacao rigida de pecas inteiras move a raiz da dobradica,
+  com furo/IK/mola. Modelagem parcial fica nativa; deslocamento no referencial
+  da porta persiste na raiz. Referencia numerica na Mesh recupera undo do Tab.
+- Espelhos das ferragens viram vertices antes do Tab, em copia unica e na
+  ordem da pilha: Clipping nao pode prender metade da dobradica no arraste.
 - Puxador: clique seleciona SO' ele e suas funcoes, inclusive nas gavetas;
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
   proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
@@ -91,6 +104,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   PARAFUSO padrao (323): `ferragens.malha_parafuso`; dobradica reta v3
   (`trocar_parafusos_dobradica.py`; arame: parte do calco pelo PAI).
 - Folha nativa: frente +Z LOCAL, nunca comparar com -Y da caixa (inverte no L).
+- Mirror do grupo conserva paridade do vao; braco angular usa mira CUSTOM no grupo, migrada no timer sem refazer malhas.
   LADO segue X da folha FECHADA, nao modulo. MODELO do usuario vem da
   BIBLIOTECA; modelos de fabrica PROTEGIDOS. Retratos: `gerar_fotos_padrao.py` (GUI).
 - Frentes: atributos INT FACE/EDGE semanticos e cache numerico na Mesh;

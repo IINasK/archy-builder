@@ -38,7 +38,7 @@ Nova funcionalidade exige teste e tests/FUNCIONALIDADES.md; piso so' sobe.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 342).
+Cada entrega incrementa bl_info["version"] (atual 355).
 
 ## Preferencias globais
 
@@ -83,6 +83,8 @@ Cada entrega incrementa bl_info["version"] (atual 342).
 16. `sincronizar_contornos` so' religa o overlay que ELE desligou.
 
 ## Armadilhas da API (confirmadas; nao "consertar")
+- `Mesh.unit_test_compare` cai no 4.2 com atributos incompativeis: conferir
+  nomes/dominios/tipos ANTES de chamar o comparador nativo.
 - Erro em callback de desenho/gizmo/timer o Blender so' IMPRIME (a UI some
   calada; o harness GUI reprova). Desenho: nunca hashear acao (dict). Biblioteca/menu: gizmos em pool (so' ocultar); campos conservam operador ligado, atualizam dica. Remover/religar no redraw caia em WM_gizmomap_tooltip_init.
 - `popup_menu` em `--background` derruba o Blender: `_abrir_pergunta`.

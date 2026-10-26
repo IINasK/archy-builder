@@ -120,6 +120,28 @@ def familia_de(obj):
     return chapas
 
 
+def _encerrar_edicao_fora(context, atingido):
+    """Um clique fora encerra o escopo individual, inclusive entre viewports."""
+    memoria = _hud._clique_chapa_hud.get(context.region.as_pointer())
+    anterior = ((bpy.data.objects.get(memoria[0]) if memoria else None)
+                or getattr(context, 'object', None))
+    if anterior is None or _chapas.MARCA_CHAPA not in anterior:
+        return
+    modulo = _portas._modulo_da_chapa(anterior)
+    if atingido is anterior or (modulo is not None
+            and _portas._modulo_da_chapa(atingido) == modulo):
+        return
+    _hud._clique_chapa_hud.clear()
+    _hud._clique_pendente.clear()
+    _hud._hover_hud.clear()
+    ocupado = _chapas._ocupado[0]
+    _chapas._ocupado[0] = True
+    try:
+        anterior.chapa_modo = 'GRUPO'
+    finally:
+        _chapas._ocupado[0] = ocupado
+
+
 class OBJECT_OT_selecionar(Operator):
     """Clique seleciona o modulo inteiro; clique duplo isola a chapa"""
     bl_idname = "object.cabinet_selecionar"
@@ -172,6 +194,8 @@ class OBJECT_OT_selecionar(Operator):
             return {'PASS_THROUGH'}
         ferragem = _hud._ferragem_sob_mouse(context, self.location)
         if ferragem is not None:
+            if not (self.toggle or self.extend):
+                _encerrar_edicao_fora(context, ferragem)
             if self.modo == 'INDIVIDUAL':
                 # duplo = a PECA, selecao nativa: Tab, G/R/S, modificadores
                 _ferragens._selecionar_peca(context, ferragem,
@@ -184,6 +208,8 @@ class OBJECT_OT_selecionar(Operator):
         # qualquer outro clique sai do modo de edicao das ferragens
         _ferragens._ferragens_selecionadas[0] = None
         atingido = _hud._raio_hud(context, self.location)
+        if not (self.toggle or self.extend):
+            _encerrar_edicao_fora(context, atingido[0] if atingido is not None else None)
         modulo_parede = (_paredes_edicao.modulo_da_peca(context, atingido[0])
                          if atingido is not None else None)
         if modulo_parede is not None and self.modo != 'INDIVIDUAL':
@@ -290,6 +316,8 @@ class OBJECT_OT_selecionar(Operator):
         o Blender ja' deixa so' o clicado, e recriar isso aqui e' o que
         NAO se quer."""
         atingido = _hud._raio_hud(context, self.location)
+        if not (self.toggle or self.extend):
+            _encerrar_edicao_fora(context, atingido[0] if atingido is not None else None)
         if (pendente is None or atingido is None
                 or atingido[0].name != pendente):
             return {'PASS_THROUGH'}
@@ -364,13 +392,15 @@ def recuperar_edicao_grupo(context):
         ativo = ativo.parent
     if alvo is not None:
         nomes = [o.name for o in context.selected_objects]
-        _edicao_grupo[0] = dict(selecao=nomes, durante=nomes, ativo=alvo.name)
+        _edicao_grupo[0] = dict(selecao=nomes, durante=nomes, ativo=alvo.name,
+            ferragens=_ferragens.iniciar_edicao_rigs(malhas_para_editar(context), recuperar=True))
 
 
 def concluir_edicao_grupo(context):
     if context.mode != 'OBJECT' or _edicao_grupo[0] is None:
         return
     estado, _edicao_grupo[0] = _edicao_grupo[0], None
+    _ferragens.concluir_edicao_rigs(estado.get('ferragens', {}))
     _formas.esquecer()
     # Sair pelo seletor de modo tambem chega aqui no timer. Se o usuario
     # ja' mudou a selecao, essa nova escolha tem prioridade.
@@ -435,10 +465,16 @@ class OBJECT_OT_editar_grupo(Operator):
             o.hide_set(False)
             o.hide_select = False
             o.select_set(True)
+            _chapas.preparar_uvs_chapa(o)
+        _ferragens.preparar_malhas_para_editar(context, malhas)
+        # O transformador nativo atualiza UVs/cores durante o gesto,
+        # mantendo a densidade da textura tambem nas faces que esticam.
+        context.scene.tool_settings.use_transform_correct_face_attributes = True
         context.view_layer.objects.active = ativo if ativo in malhas else malhas[0]
         _prateleiras.iniciar_edicao(context, malhas, global_)
         _edicao_grupo[0] = dict(selecao=selecionados, ativo=ativo.name,
-                               durante=[o.name for o in context.selected_objects])
+                               durante=[o.name for o in context.selected_objects],
+                               ferragens=_ferragens.iniciar_edicao_rigs(malhas))
         bpy.ops.object.mode_set(mode='EDIT')
         return {'FINISHED'}
 

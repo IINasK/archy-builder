@@ -60,6 +60,8 @@ Menu/HUD despacham para este dominio; malha base pertence a [chapas](../chapas/A
   "Selecione a prateleira de referencia" junto ao mouse na viewport;
   aviso acompanha cursor, respeita bordas e Esc cancela SEM adicionar.
 - Arrastar quantidade so' exibe previa; montar ao SOLTAR.
+- Montagem identica nao reescreve pose/medidas nem atualiza o depsgraph:
+  isso invalidava os BVHs nativos ao usar a regua em outra chapa.
 - Resize do modulo conserva o bloco enquanto couber: transporte/capacidade
   compartilhados com gavetas; `ajustar_ao_espaco` guarda a escolha e
   `atualizar_do_conjunto` remonta. Nao voltar a margens fixas que crescem

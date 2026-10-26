@@ -1,10 +1,11 @@
 """Correntes da solda (adjacencia): desagregar, conectar, ancoras,
 regua (resetar distancia) e o nome do grupo que a Corrente cria."""
 
-import bpy, bmesh, math, json, gpu
+import bpy, bmesh, math, json, gpu, blf
+from array import array
 from gpu_extras.batch import batch_for_shader
 from bpy.props import BoolProperty, StringProperty, IntProperty
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from mathutils.kdtree import KDTree
 from bpy_extras import view3d_utils
 from bpy.types import Operator, Macro
@@ -38,6 +39,7 @@ _handler_conexao = [None]
 def encerrar_conexao_nativa(context=None):
     context=context or bpy.context
     estado=_conexao_manual[0]
+    if estado and not _eventos._desfazendo[0]:_restaurar_previa_solda(estado)
     if estado and estado.get('snap_nativo'):_gavetas._terminar_snap_criacao()
     if _timer_conexao[0] is not None:
         context.window_manager.event_timer_remove(_timer_conexao[0]);_timer_conexao[0]=None
@@ -161,7 +163,7 @@ def agregado(C):
     return bool(_ligados_a(C))
 
 
-def _ligacoes_adjacencia(chapas_item, limiar=None):
+def _ligacoes_adjacencia(chapas_item, limiar=None, somente_manuais=False):
     """Ligacoes que tocam o item e cuja folga saiu da ORIGEM da solda (a
     gravada) `limiar` ou mais (m; padrao LIMIAR_CORRENTE_VIEWPORT).
     A adjacencia e' gravada so' na peca que encosta (ponta dela ->
@@ -174,12 +176,14 @@ def _ligacoes_adjacencia(chapas_item, limiar=None):
         if C.type != 'MESH' or _chapas.MARCA_CHAPA not in C:
             continue
         for ponta in _chapas.PONTAS:
+            manual=bool(C.get('adj_%s_manual'%ponta))
+            if somente_manuais and not manual:continue
             N = _vizinho_da_ponta(C, ponta)
             if N is None or (C not in item and N not in item):
                 continue
             folga, u, extremo = _folga_com_sinal(C, ponta, N)
             desvio, residuos = _medida_solda(C, ponta, N)
-            if _tamanho_desvio(desvio, residuos) < limiar:
+            if not manual and _tamanho_desvio(desvio, residuos) < limiar:
                 continue            # na origem da solda: sem corrente
             ancoras = _ancoras_da_ligacao(C, ponta, N, u, extremo)
             pares = [(_vertice_da_assinatura(C, sc),
@@ -188,12 +192,12 @@ def _ligacoes_adjacencia(chapas_item, limiar=None):
             # encostou some (a print do usuario: ele ficava desenhado em
             # cima do vertice, sobrepondo bolinha e botoes)
             gravadas=_ancoras_gravadas(C,ponta)
-            soltos = ([_desvio_ancora(C,ponta,N,gravadas.index((sc,sn)),sc,sn).length >= limiar
+            soltos = ([manual or _desvio_ancora(C,ponta,N,gravadas.index((sc,sn)),sc,sn).length >= limiar
                        for sc,sn in ancoras] if gravadas else [True] * len(pares))
             ligacoes.append({'a': C, 'b': N, 'ponta': ponta,
                              'folga': folga, 'desvio': desvio,
                              'ancoras': ancoras, 'pares': pares,
-                             'soltos': soltos})
+                             'soltos': soltos,'manual':manual})
     return ligacoes
 
 
@@ -201,15 +205,18 @@ def _correntes_hud(context):
     """[corrente] de TODAS as quinas soldadas e fora da origem dos itens
     da HUD: uma por par de vertices, com o 'meio' em pixels e a peca que
     a regua move ('movel')."""
-    if (not _correntes_visiveis() or not _hud._contexto_hud(context)
-            or _gaveta._eh_area_gaveta(context) or _conexao_manual[0] is not None):
+    estado = _conexao_manual[0]
+    if estado and estado.get('moderna'):
+        return _correntes_criacao(context, estado)
+    if (not _hud._contexto_hud(context)
+            or _gaveta._eh_area_gaveta(context) or estado is not None):
         return []
     if getattr(context, 'region_data', None) is None:
         return []
     chapas = [c for _o, _m, pecas in _hud._itens_hud(context) for c in pecas]
     correntes = []
-    for ligacao in _ligacoes_adjacencia(chapas):
-        movel = _peca_da_regua(context, ligacao['a'], ligacao['b'])
+    for ligacao in _ligacoes_adjacencia(chapas,somente_manuais=not _correntes_visiveis()):
+        movel = ligacao['a'] if ligacao['manual'] else _peca_da_regua(context, ligacao['a'], ligacao['b'])
         for k, ((p, q, assinatura), ancora) in enumerate(
                 zip(ligacao['pares'], ligacao['ancoras'])):
             if not ligacao['soltos'][k]:
@@ -217,8 +224,27 @@ def _correntes_hud(context):
             correntes.append({'a': ligacao['a'], 'b': ligacao['b'],
                               'ponta': ligacao['ponta'], 'movel': movel,
                               'assinatura': assinatura, 'pontos': [p, q],
-                              'indice': k, 'ancora': ancora,
+                              'indice': k, 'ancora': ancora,'manual':ligacao['manual'],
                               'meio': _hud._projetar_hud(context, (p + q) / 2)})
+    return _correntes_sem_repeticao(correntes)
+
+
+def _correntes_criacao(context, estado):
+    if (_gaveta._eh_area_gaveta(context) or context.region is None
+            or context.region.as_pointer() != estado['regiao']
+            or getattr(context, 'region_data', None) is None):
+        return []
+    origem = bpy.data.objects.get(estado['origem'])
+    if origem is None:return []
+    correntes = []
+    for k, (sc, nome, sn) in enumerate(estado['pares']):
+        destino = bpy.data.objects.get(nome)
+        if destino is None:continue
+        try:p, q = _vertice_da_assinatura(origem, sc), _vertice_da_assinatura(destino, sn)
+        except ValueError:continue
+        correntes.append(dict(a=origem, b=destino, movel=origem, ponta='', indice=k,
+            ancora=(sc, sn), assinatura=sc, pontos=[p, q], manual=True, criacao=True,
+            meio=_hud._projetar_hud(context, (p+q)/2)))
     return _correntes_sem_repeticao(correntes)
 
 
@@ -245,6 +271,81 @@ def _correntes_sem_repeticao(correntes):
     return unicas
 
 
+def _par_qualidade_ancoras(c, n):
+    a=_portas._modulo_da_chapa(c) or c
+    b=_portas._modulo_da_chapa(n) or n
+    # Chapas do mesmo modulo ainda precisam das suas juntas internas.
+    return tuple(sorted((c.name,n.name) if a==b else (a.name,b.name)))
+
+
+def auditar_ancoras(pecas):
+    """Proposta para UM modulo; nao altera seus vinculos nem sua geometria."""
+    candidatos=[];invalidas=[]
+    for c in pecas:
+        for ponta in _chapas.PONTAS:
+            n=_vizinho_da_ponta(c,ponta)
+            if n is None:continue
+            for indice,(sc,sn) in enumerate(_ancoras_gravadas(c,ponta) or _ancoras_da_ligacao(c,ponta,n)):
+                try:p,q=_vertice_da_assinatura(c,sc),_vertice_da_assinatura(n,sn)
+                except ValueError:
+                    invalidas.append(dict(origem=c.name,ponta=ponta,indice=indice,motivo='Ancora invalida'));continue
+                candidatos.append(dict(origem=c.name,destino=n.name,ponta=ponta,indice=indice,
+                    par=_par_qualidade_ancoras(c,n),
+                    assinatura=sc,alvo=sn,ponto=tuple(p),final=tuple(q),distancia=(p-q).length,
+                    raio=min(.025,max(c.chapa_espessura_mm,n.chapa_espessura_mm)/1000)+.00005))
+    return _refinar_candidatos_ancoras(candidatos,invalidas)
+
+
+def _refinar_candidatos_ancoras(candidatos, invalidas=()):
+    aceitas=[];rejeitadas=list(invalidas);usados=set();quinas={};ligacoes={}
+    # Menor distancia primeiro garante preferencia por contato real, independente da ordem do Outliner.
+    for c in sorted(candidatos,key=lambda c:(c['distancia'],c['origem'],c['destino'],c['assinatura'],c['alvo'])):
+        pontas=((c['origem'],c['assinatura'],Vector(c['ponto'])),(c['destino'],c['alvo'],Vector(c['final'])))
+        par=tuple(sorted(c.get('par',(c['origem'],c['destino']))))
+        motivo=None
+        if any((nome,s) in usados for nome,s,_p in pontas):motivo='Vertice repetido'
+        elif any(any((p-q).length<=max(c['raio'],r) for q,r in quinas.get(nome,())) for nome,_s,p in pontas):
+            motivo='Quina proxima ja atendida'
+        elif par in ligacoes:motivo='Par de pecas ou modulos ja soldado'
+        if motivo:
+            rejeitadas.append(dict(c,motivo=motivo));continue
+        aceitas.append(c)
+        ligacoes.setdefault(par,[]).append(len(aceitas)-1)
+        for nome,s,p in pontas:
+            usados.add((nome,s));quinas.setdefault(nome,[]).append((p,c['raio']))
+    return dict(candidatas=len(candidatos),aceitas=aceitas,rejeitadas=rejeitadas,
+        ligacoes=[dict(pecas=par,ancoras=indices) for par,indices in sorted(ligacoes.items())])
+
+
+def propor_ancoras_piloto(pecas):
+    """Auditoria explicita fora do gesto: busca contato zero nas juntas existentes."""
+    candidatos=[];pares=set();sem_contato=[]
+    for c in sorted(pecas,key=lambda o:o.name):
+        for ponta in _chapas.PONTAS:
+            n=_vizinho_da_ponta(c,ponta)
+            if n is None:continue
+            par=tuple(sorted((c.name,n.name)))
+            if par in pares:continue
+            pares.add(par)
+            # So' a auditoria percorre os vertices; cliques continuam no motor nativo.
+            origem=_ancoras_da_malha(c);destino=_ancoras_da_malha(n)
+            arvore=KDTree(len(destino))
+            for k,(_s,p) in enumerate(destino):arvore.insert(p,k)
+            arvore.balance();contatos=[]
+            for sc,p in origem:
+                for q,k,d in arvore.find_range(p,1e-5):
+                    sn=destino[k][0]
+                    contatos.append(dict(origem=c.name,destino=n.name,ponta=ponta,
+                        par=_par_qualidade_ancoras(c,n),
+                        assinatura=sc,alvo=sn,ponto=tuple(p),final=tuple(q),distancia=d,
+                        raio=min(.025,max(c.chapa_espessura_mm,n.chapa_espessura_mm)/1000)+.00005))
+            if not contatos:sem_contato.append(dict(pecas=par,motivo='Sem quinas coincidentes; revisar apoio antes de soldar'))
+            candidatos.extend(contatos)
+    resultado=_refinar_candidatos_ancoras(candidatos)
+    resultado['sem_contato']=sem_contato
+    return resultado
+
+
 RAIO_BOLINHA_PX = 9.0
 _bolinha_hover = [None]          # (chapa, ponta, indice, lado) sob o mouse
 
@@ -257,13 +358,13 @@ def _bolinhas_da_corrente(context, corrente):
         if ponto is not None}
 
 
-def _bolinha_sob_mouse(context, posicao):
+def _bolinha_sob_mouse(context, posicao, correntes=None):
     """(corrente, 'a' | 'b') da bolinha branca sob o mouse, ou (None, None).
     'a' = o vertice da chapa soldada, 'b' = onde ele encosta."""
     raio = RAIO_BOLINHA_PX * max(1.0, context.preferences.system.ui_scale)
     mouse = Vector(posicao)
     melhor = None
-    for corrente in _correntes_hud(context):
+    for corrente in (_correntes_hud(context) if correntes is None else correntes):
         for lado, ponto in _bolinhas_da_corrente(context, corrente).items():
             d = (ponto - mouse).length
             if d <= raio and (melhor is None or d < melhor[0]):
@@ -284,12 +385,21 @@ def _botoes_da_corrente(context, corrente):
             'regua': corrente['meio'] + Vector((vao, 0))}
 
 
-def _botao_corrente_sob_mouse(context, posicao):
+def _campo_distancia_corrente(context,corrente):
+    if not corrente.get('manual') or corrente['meio'] is None:return None
+    escala=max(1.,context.preferences.system.ui_scale)
+    valor=(corrente['pontos'][0]-corrente['pontos'][1]).length
+    texto=_opcoes._texto_medida(valor*1000)
+    blf.size(0,round(12*escala));w,h=blf.dimensions(0,texto)
+    return corrente['meio'].x-w/2,corrente['meio'].y+22*escala,w,h,texto,valor
+
+
+def _botao_corrente_sob_mouse(context, posicao, correntes=None):
     """(corrente, 'corrente' | 'regua') sob o mouse, ou (None, None)."""
     raio = RAIO_CORRENTE_PX * max(1.0, context.preferences.system.ui_scale)
     mouse = Vector(posicao)
     melhor = None
-    for corrente in _correntes_hud(context):
+    for corrente in (_correntes_hud(context) if correntes is None else correntes):
         for tipo, centro in _botoes_da_corrente(context, corrente).items():
             d = (centro - mouse).length
             if d <= raio and (melhor is None or d < melhor[0]):
@@ -304,16 +414,25 @@ def _alvo_da_corrente(context, posicao):
     mouse = Vector(posicao)
     escala = max(1.0, context.preferences.system.ui_scale)
     candidatos = []
-    corrente, lado = _bolinha_sob_mouse(context, posicao)
+    correntes = _correntes_hud(context)
+    for c in correntes:
+        campo=_campo_distancia_corrente(context,c)
+        if campo:
+            x,y,w,h,_texto,_valor=campo
+            if x-4<=mouse.x<=x+w+4 and y-4<=mouse.y<=y+h+4:
+                return 'distancia',c,None
+    corrente, lado = _bolinha_sob_mouse(context, posicao, correntes)
     if corrente is not None:
         ponto = _bolinhas_da_corrente(context, corrente)[lado]
         candidatos.append(((ponto - mouse).length / (RAIO_BOLINHA_PX * escala),
                            'bolinha', corrente, lado))
-    corrente, tipo = _botao_corrente_sob_mouse(context, posicao)
+    corrente, tipo = _botao_corrente_sob_mouse(context, posicao, correntes)
     if corrente is not None:
         centro = _botoes_da_corrente(context, corrente)[tipo]
         candidatos.append(((centro - mouse).length / (RAIO_CORRENTE_PX * escala),
                            'botao', corrente, tipo))
+    if _conexao_manual[0] is not None:
+        return min(candidatos,key=lambda c:c[0])[1:] if candidatos else None
     grupo, indice = _portas_viewport._canto_porta_sob_mouse(context, posicao)
     if grupo is not None:
         ponto = _hud._projetar_hud(context, _portas_viewport._cantos_da_porta(grupo)[indice])
@@ -349,7 +468,7 @@ def desassociar(a, b):
             if _vizinho_da_ponta(C, ponta) != N:
                 continue
             base = 'adj_' + ponta
-            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens'):
+            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes'):
                 if base + sufixo in C:
                     del C[base + sufixo]
             n += 1
@@ -413,14 +532,8 @@ def desagregar_grupo(pecas):
     return len(pecas)
 
 
-def _puxar_por_pares(C, pares):
-    """Uma ancora translada a peca inteira; varias impoem pontos exatos.
-
-    A origem do Object nao participa do encaixe. A malha nativa conserva
-    topologia/UV; cada vertice move junto com seu parceiro da espessura.
-    """
-    if not pares:return
-    if C.mode=='EDIT' or C.data.is_editmode:raise ValueError('Saia do modo de edicao')
+def _movimentos_por_pares(C, pares):
+    """Valida todos os destinos e as duas peles antes de escrever na malha."""
     inversa=C.matrix_world.inverted().to_3x3();deltas={}
     for s,q in pares:
         ids=_indices_da_assinatura(C,s)
@@ -429,18 +542,30 @@ def _puxar_por_pares(C, pares):
         if i in deltas and (deltas[i]-d).length>1e-6:
             raise ValueError('O mesmo vertice recebeu destinos diferentes')
         deltas[i]=d
+    movimentos={}
+    for i,d in deltas.items():
+        parceiro=_indices_da_assinatura(C,_parceiro_espessura(C,'v%d'%i))
+        for j in {i,*parceiro}:
+            if j in movimentos and (movimentos[j]-d).length>1e-6:
+                raise ValueError('As ancoras exigem alterar a espessura da chapa')
+            movimentos[j]=d
+    return deltas,movimentos
+
+
+def _puxar_por_pares(C, pares):
+    """Uma ancora translada a peca inteira; varias impoem pontos exatos.
+
+    A origem do Object nao participa do encaixe. A malha nativa conserva
+    topologia/UV; cada vertice move junto com seu parceiro da espessura.
+    """
+    if not pares:return
+    if C.mode=='EDIT' or C.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    deltas,movimentos=_movimentos_por_pares(C,pares)
     primeiro=next(iter(deltas.values()))
     if all((d-primeiro).length<1e-6 for d in deltas.values()):
         mundo=C.matrix_world.copy();mundo.translation+=C.matrix_world.to_3x3()@primeiro
         C.matrix_world=mundo
     else:
-        movimentos={}
-        for i,d in deltas.items():
-            parceiro=_indices_da_assinatura(C,_parceiro_espessura(C,'v%d'%i))
-            for j in {i,*parceiro}:
-                if j in movimentos and (movimentos[j]-d).length>1e-6:
-                    raise ValueError('As ancoras exigem alterar a espessura da chapa')
-                movimentos[j]=d
         # Deslocamento transversal comum move todas as peles, sem inclinar
         # a chapa por uma translacao igual pedida nas duas quinas.
         comum_z=primeiro.z if all(abs(d.z-primeiro.z)<1e-6 for d in deltas.values()) else 0.
@@ -571,7 +696,7 @@ class OBJECT_OT_clique_corrente(Operator):
     """Clique na corrente (desagrega) ou na regua (resetar) com a tecla segurada"""
     bl_idname = 'object.cabinet_clique_corrente'
     bl_label = 'Desagregar pela Corrente'
-    bl_options = {'INTERNAL', 'UNDO'}
+    bl_options = {'INTERNAL'}
 
     # O botao nativo da corrente (GIZMO_GT_button_2d) so' aceita clique
     # SEM modificador -- e a corrente so' aparece com Alt/Ctrl/Shift
@@ -579,7 +704,12 @@ class OBJECT_OT_clique_corrente(Operator):
     # pega o clique; fora de uma corrente o evento segue intacto.
     @classmethod
     def poll(cls, context):
-        return _correntes_visiveis() and _hud._contexto_hud(context)
+        criacao=_conexao_manual[0]
+        if criacao and criacao.get('moderna'):
+            return (context.mode=='OBJECT' and context.region is not None
+                    and context.region.as_pointer()==criacao['regiao']
+                    and not _gaveta._eh_area_gaveta(context))
+        return _hud._contexto_hud(context)
 
     def invoke(self, context, event):
         posicao = (event.mouse_region_x, event.mouse_region_y)
@@ -587,6 +717,22 @@ class OBJECT_OT_clique_corrente(Operator):
         if alvo is None:
             return {'PASS_THROUGH'}
         tipo_alvo, corrente, tipo = alvo
+        if isinstance(corrente,dict) and corrente.get('criacao'):
+            if tipo_alvo=='distancia':
+                bpy.ops.object.cabinet_editar_medida_gaveta('INVOKE_DEFAULT',
+                    dono='solda_criacao',objeto=corrente['a'].name,propriedade=str(corrente['indice']),
+                    valor=(corrente['pontos'][0]-corrente['pontos'][1]).length)
+                return {'FINISHED'}
+            if tipo_alvo=='botao':
+                return bpy.ops.object.cabinet_acao_criacao_solda(
+                    acao='%s|%d'%('RESETAR' if tipo=='regua' else 'REMOVER',corrente['indice']))
+            return {'PASS_THROUGH'}
+        if tipo_alvo=='distancia':
+            bpy.ops.object.cabinet_editar_medida_gaveta('INVOKE_DEFAULT',
+                dono='solda',objeto=corrente['a'].name,
+                propriedade='%s|%d'%(corrente['ponta'],corrente['indice']),
+                valor=(corrente['pontos'][0]-corrente['pontos'][1]).length)
+            return {'FINISHED'}
         if tipo_alvo == 'puxador':
             # ancora do puxador: arrastar ate' outra borda do grupo
             bpy.ops.object.cabinet_arrastar_puxador(
@@ -618,16 +764,16 @@ class OBJECT_OT_clique_corrente(Operator):
             # espera o SOLTAR deste clique para abrir o pop-up
             # (este operador nao tem modal: devolver o RUNNING_MODAL do
             # reset aqui o cancelava)
-            bpy.ops.object.cabinet_resetar_distancia(
+            resposta = bpy.ops.object.cabinet_resetar_distancia(
                 'INVOKE_DEFAULT', chapa=corrente['movel'].name,
                 esperar_soltar=True)
             _eventos._redesenhar_viewports(context)
-            return {'FINISHED'}
+            return {'CANCELLED'} if 'CANCELLED' in resposta else {'FINISHED'}
         # O registro e' direcional: a base pode guardar a solda da lateral.
         # A selecao decide a peca que sai, como ja' decide a peca da regua.
-        desagregar(_peca_da_regua(context,corrente['a'],corrente['b']))
-        _eventos._redesenhar_viewports(context)
-        return {'FINISHED'}
+        return bpy.ops.object.cabinet_desassociar(
+            chapa=(corrente['movel'] if corrente.get('manual') else
+                   _peca_da_regua(context,corrente['a'],corrente['b'])).name)
 
 
 class OBJECT_OT_tecla_corrente(Operator):
@@ -666,6 +812,7 @@ OP_CORRENTE_OBJETO = 'object.cabinet_corrente_objeto'
 # O "Gerar orcamento" (opcoes) abre o "Salvar como"; o "Usar como
 # puxador", o modal do clique na face.
 OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
+                        'object.cabinet_conectar_vertices',
                         'object.cabinet_editar_parede',
                         'object.cabinet_resetar_distancia',
                         'object.cabinet_exportar_orcamento',
@@ -673,6 +820,147 @@ OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
 _desagregar_pendente = [None]    # pecas esperando o "tem certeza?"
 _conexao_pendente = [None]       # alvos esperando o "Juntar ao modulo?"
 _conexao_manual = [None]         # estado do modo "selecionar vertice"
+
+
+ATR_VERTICE_SOLDA = 'cabinet_solda_vertice'
+
+
+def _ancora_estavel(obj, assinatura):
+    ids=_indices_da_assinatura(obj,assinatura)
+    if not ids:raise ValueError('Ancora apagada ou ambigua; escolha outro vertice')
+    i=ids[0]
+    if not assinatura.startswith('v'):return assinatura
+    if _chapas._malha_e_caixa(obj.data):
+        _gravar_cantos(obj)
+        return _assinatura_canto(obj,obj.matrix_world@obj.data.vertices[i].co)
+    atributo=obj.data.attributes.get(ATR_VERTICE_SOLDA)
+    if atributo is None:atributo=obj.data.attributes.new(ATR_VERTICE_SOLDA,'INT','POINT')
+    valores=array('i',[0])*len(obj.data.vertices);atributo.data.foreach_get('value',valores)
+    proximo=max(valores,default=0)+1
+    for j,v in enumerate(valores):
+        if v==0:valores[j]=proximo;proximo+=1
+    atributo.data.foreach_set('value',valores)
+    return 'u%d'%valores[i]
+
+
+def _guardar_previa_solda(estado):
+    if estado.get('backup'):return
+    obj=bpy.data.objects.get(estado['origem'])
+    co=array('f',[0])*(len(obj.data.vertices)*3);obj.data.vertices.foreach_get('co',co)
+    estado['backup']=dict(malha=obj.data.name,co=co,
+        matriz=[list(l) for l in obj.matrix_world],
+        medidas=[obj.chapa_largura_mm,obj.chapa_comprimento_mm,obj.chapa_espessura_mm],
+        filhos_base={o.name:[list(l) for l in o.matrix_basis] for o in obj.children_recursive})
+
+
+def _restaurar_previa_solda(estado):
+    if estado.get('cena') not in (None,bpy.context.scene.as_pointer()):return
+    b=estado.get('backup');obj=bpy.data.objects.get(estado.get('origem',''))
+    if not b or obj is None:return
+    if obj.mode=='EDIT' or obj.data.is_editmode:return
+    malha=bpy.data.meshes.get(b['malha'])
+    if malha is None or len(malha.vertices)*3!=len(b['co']):return
+    ocupado=_chapas._ocupado[0];_chapas._ocupado[0]=True
+    try:
+        temporaria=obj.data;obj.data=malha
+        malha.vertices.foreach_set('co',b['co']);malha.update()
+        obj.matrix_world=Matrix(b['matriz'])
+        obj.chapa_largura_mm,obj.chapa_comprimento_mm,obj.chapa_espessura_mm=b['medidas']
+        bpy.context.view_layer.update()
+        for nome,m in b.get('filhos_base',b.get('filhos',{})).items():
+            filho=bpy.data.objects.get(nome)
+            if filho is not None:
+                if 'filhos_base' in b:filho.matrix_basis=Matrix(m)
+                else:filho.matrix_world=Matrix(m)
+        if temporaria is not malha and temporaria.users==0:bpy.data.meshes.remove(temporaria)
+    finally:_chapas._ocupado[0]=ocupado
+    _frentes.invalidar(obj);_formas.esquecer();bpy.context.view_layer.update()
+
+
+def _alvos_previa_solda(estado):
+    alvos=[]
+    for k,(sc,nome,sn) in enumerate(estado['pares']):
+        n=bpy.data.objects.get(nome)
+        if n is None:raise ValueError('A chapa de destino nao existe mais')
+        alvos.append((sc,_vertice_da_assinatura(n,sn)+Vector(estado['direcoes'][k])*estado['distancias'][k]))
+    return alvos
+
+
+def editar_criacao_solda(valor=None, zerar=False, indice=None):
+    estado=_conexao_manual[0]
+    if not estado:return 'Nenhuma solda em criacao'
+    if valor is not None and (not math.isfinite(valor) or valor<0):return 'Distancia invalida'
+    if not estado['pares']:
+        estado['distancia_previa']=0. if zerar else valor
+        estado['reset_pendente']=zerar
+        return None
+    anteriores=list(estado['distancias']);zeros=list(estado['zeradas'])
+    if indice is not None and not 0 <= indice < len(anteriores):return 'Ancora inexistente'
+    if zerar:
+        indices=range(len(anteriores)) if indice is None else [indice]
+        for k in indices:estado['distancias'][k]=0.;estado['zeradas'][k]=True
+    elif valor is not None:
+        if not math.isfinite(valor) or valor<0:return 'Distancia invalida'
+        estado['distancias'][-1 if indice is None else indice]=valor
+    _guardar_previa_solda(estado);_restaurar_previa_solda(estado)
+    try:_puxar_por_pares(bpy.data.objects[estado['origem']],_alvos_previa_solda(estado))
+    except ValueError as erro:
+        estado['distancias']=anteriores;estado['zeradas']=zeros
+        _restaurar_previa_solda(estado)
+        try:_puxar_por_pares(bpy.data.objects[estado['origem']],_alvos_previa_solda(estado))
+        except ValueError:pass    # destino apagado: conservar a geometria original
+        return str(erro)
+    _eventos._redesenhar_viewports(bpy.context)
+    return None
+
+
+def voltar_criacao_solda(estado):
+    _restaurar_previa_solda(estado)
+    if estado.get('editar_ancora'):
+        estado.pop('editar_ancora');estado['fase']='confirmar'
+    elif estado['fase']=='destino':
+        estado.update(fase='origem',escolhido=None)
+    elif estado['pares']:
+        sc,nome,sn=estado['pares'].pop()
+        for chave in ('distancias','direcoes','zeradas'):estado[chave].pop()
+        origem=bpy.data.objects[estado['origem']]
+        estado.update(fase='destino',escolhido=(sc,_vertice_da_assinatura(origem,sc)),aguardar_novo_par=False)
+    _preparar_candidatos_conexao(estado)
+
+
+class OBJECT_OT_acao_criacao_solda(Operator):
+    """Controles da solda em criacao, sem gravar undo da previa"""
+    bl_idname='object.cabinet_acao_criacao_solda'
+    bl_label='Editar Criacao da Solda'
+    bl_options={'INTERNAL'}
+    acao:StringProperty(options={'SKIP_SAVE'})
+
+    def execute(self,context):
+        estado=_conexao_manual[0]
+        if estado is None:return {'CANCELLED'}
+        if self.acao=='CANCELAR':estado['cancelar']=True
+        elif self.acao=='VOLTAR':estado['voltar']=True
+        elif self.acao=='ADICIONAR':
+            estado.update(fase='origem',escolhido=None,aguardar_novo_par=False)
+            _preparar_candidatos_conexao(estado)
+        elif self.acao=='RESETAR':
+            erro=editar_criacao_solda(zerar=True)
+            if erro:self.report({'WARNING'},erro);return {'CANCELLED'}
+        elif self.acao.startswith(('RESETAR|','REMOVER|')):
+            acao, texto = self.acao.split('|',1)
+            k=int(texto)
+            if not 0<=k<len(estado['pares']):return {'CANCELLED'}
+            if acao=='RESETAR':
+                erro=editar_criacao_solda(zerar=True,indice=k)
+                if erro:self.report({'WARNING'},erro);return {'CANCELLED'}
+            else:
+                _restaurar_previa_solda(estado)
+                for chave in ('pares','distancias','direcoes','zeradas'):estado[chave].pop(k)
+                if estado['pares'] and estado.get('backup'):editar_criacao_solda()
+                estado.update(fase='confirmar' if estado['pares'] else 'origem',escolhido=None)
+                _preparar_candidatos_conexao(estado)
+        _eventos._redesenhar_viewports(context)
+        return {'FINISHED'}
 PERGUNTA_DESAGREGAR_GRUPO = ('Voce tem certeza que deseja desagregar todos '
                              'os itens deste grupo?')
 PERGUNTA_DESAGREGAR_OBJETO = ('Voce realmente deseja desagregar esse '
@@ -861,11 +1149,11 @@ class OBJECT_OT_digitar_nome_grupo(Operator):
         return {'RUNNING_MODAL'}
 
 
-def _perguntar_juntar(context, origem, alvos, pecas, na_gaveta=None, pares=None):
+def _perguntar_juntar(context, origem, alvos, pecas, na_gaveta=None, pares=None, configuracao=None):
     _conexao_pendente[0] = {'origem': origem.name,
                             'alvos': [(s, tuple(q)) for s, q in alvos],
                             'pecas': sorted(o.name for o in pecas),
-                            'pares':list(pares or ())}
+                            'pares':list(pares or ()), 'configuracao':configuracao}
     op = 'object.cabinet_juntar_modulo'
     _perguntas._perguntar(context, 'Juntar ao modulo?',
                [('Sim, juntar', 'CHECKMARK', op, {'juntar': True}),
@@ -1012,6 +1300,10 @@ class OBJECT_OT_juntar_modulo(Operator):
         pecas = {bpy.data.objects.get(n) for n in pendente['pecas']}
         try:
             pares=pendente.get('pares')
+            configuracao=pendente.get('configuracao')
+            if configuracao:
+                _plano_ancoras_reais(chapa,pares)
+                _puxar_por_pares(chapa,_alvos_previa_solda(configuracao))
             alvos=([(sc,_vertice_da_assinatura(bpy.data.objects.get(nome),sn)) for sc,nome,sn in pares]
                    if pares else [(s,Vector(q)) for s,q in pendente['alvos']])
             juntar_conexao(chapa,alvos,pecas,self.juntar,pares)
@@ -1022,6 +1314,24 @@ class OBJECT_OT_juntar_modulo(Operator):
             if conj is not None:
                 if pares:_registrar_pares_reais(chapa,_plano_ancoras_reais(chapa,pares))
                 _pedir_nome_grupo(context, conj)
+        if configuracao:
+            plano=_plano_ancoras_reais(chapa,pares)
+            _registrar_pares_reais(chapa,plano)
+            for (ponta,nome),ancoras in plano.items():
+                chapa['adj_%s_manual'%ponta]=True
+                zeros=[];direcoes=[]
+                for sc,sn in ancoras:
+                    k=pares.index((sc,nome,sn));n=bpy.data.objects[nome]
+                    zeros.append((0.,0.,0.) if configuracao['zeradas'][k] else
+                        tuple(n.matrix_world.inverted().to_3x3()@(
+                        _vertice_da_assinatura(chapa,sc)-_vertice_da_assinatura(n,sn))))
+                    direcoes.append(tuple(n.matrix_world.to_3x3().normalized().inverted()@Vector(configuracao['direcoes'][k])))
+                chapa['adj_%s_origens'%ponta]=json.dumps(zeros)
+                chapa['adj_%s_direcoes'%ponta]=json.dumps(direcoes)
+            modulo=_portas._modulo_da_chapa(chapa)
+            if modulo is not None:_atualizar_modulo(modulo)
+            if not context.selected_objects:
+                _hud._selecionar_chapa_hud(context,chapa,individual=True)
         _eventos._redesenhar_viewports(context)
         return {'FINISHED'}
 
@@ -1033,7 +1343,9 @@ class OBJECT_OT_confirmar_conexao(Operator):
 
     @classmethod
     def poll(cls, context):
-        return _conexao_manual[0] is not None
+        estado=_conexao_manual[0]
+        return estado is not None and (not estado.get('moderna') or
+            estado.get('fase')=='confirmar' and bool(estado.get('pares')))
 
     def execute(self, context):
         _conexao_manual[0]['confirmar'] = True
@@ -1076,7 +1388,7 @@ def _desenhar_conexao_manual():
         shader.bind()
         # as bolinhas so' com poucas pecas (a origem ou os alvos escolhidos):
         # a cena inteira projetada a cada quadro travava o destino
-        if estado['fase'] == 'origem' or estado.get('destinos'):
+        if not estado.get('moderna') and (estado['fase'] == 'origem' or estado.get('destinos')):
             for _obj, _s, ponto in _candidatos_conexao(estado):
                 bolinha(ponto, 4 * escala, (*cor[:3], 0.8))
         for s, nome, sn in estado['pares']:
@@ -1096,8 +1408,33 @@ def _desenhar_conexao_manual():
             bolinha(estado['escolhido'][1], 7 * escala, realce)
         if estado.get('hover'):
             bolinha(estado['hover'][2], 7 * escala, (*realce[:3], 0.6))
+        if estado.get('moderna'):
+            _desenhar_bolinhas_correntes(bpy.context)
+            feedback = _feedback_snap_criacao(estado)
+            if feedback:
+                ponto, inicio = feedback
+                p = tela(ponto)
+                if p is not None:
+                    shader.bind()
+                    _hud._bolinha_2d(shader,p,10*escala,(1.,1.,1.,.9))
+                    _hud._bolinha_2d(shader,p,5*escala,realce)
+                    texto='Snap nativo'
+                    if inicio is not None:
+                        a=tela(inicio)
+                        if a is not None:
+                            shader.uniform_float('color',realce)
+                            batch_for_shader(shader,'TRIS',{'pos':_puxadores._quad_2d(a,p,2*escala)}).draw(shader)
+                        texto += ' | '+_opcoes._texto_medida((ponto-inicio).length*1000)
+                    _hud._caixa_texto_hud(p.x+14*escala,p.y+14*escala,texto,round(12*escala),escala)
     finally:
         gpu.state.blend_set('NONE')
+
+
+def _feedback_snap_criacao(estado):
+    # O cursor e' o resultado do translate nativo, sem outro motor de snap.
+    if not estado.get('snap_pendente') or estado.get('cursor') is None:return None
+    escolhido=estado.get('escolhido')
+    return Vector(estado['cursor']), Vector(escolhido[1]) if escolhido else None
 
 
 def _candidatos_conexao(estado):
@@ -1112,18 +1449,20 @@ def _preparar_candidatos_conexao(estado):
     """As pecas que o snap nativo pode pegar na fase atual: a chapa de
     origem, ou as outras chapas (o destino). Nenhum vertice e' lido aqui."""
     origem = bpy.data.objects.get(estado['origem'])
-    if origem is None:
-        return []
     if estado['fase'] == 'origem':
-        pecas = [origem]
+        pecas = ([origem] if origem is not None else
+                 [o for nome in estado.get('origens', ())
+                  if (o := bpy.data.objects.get(nome)) is not None and o.visible_get()])
     else:
         # alvos selecionados antes da peca de fora: so' os cantos deles
         destinos = _objetos_dos_nomes(estado.get('destinos'))
         pecas = [o for o in (bpy.data.objects if destinos is None else destinos)
                  if o is not origem and o.type == 'MESH' and _chapas.MARCA_CHAPA in o
                  and o.visible_get()]
-    estado.update(alvos_snap=[o.name for o in pecas],
-                  iniciar_snap=not estado.get('aguardar_novo_par',False))
+    if estado.get('editar_ancora') and estado['editar_ancora'][1]=='b':
+        pecas=[bpy.data.objects.get(estado['pares'][estado['editar_ancora'][0]][1])]
+    estado.update(alvos_snap=[o.name for o in pecas if o is not None],
+                  iniciar_snap=not estado.get('moderna') and not estado.get('aguardar_novo_par',False))
 
 
 def _vertice_do_snap(estado, ponto):
@@ -1138,18 +1477,24 @@ def _vertice_do_snap(estado, ponto):
         caixa=[Vector(c) for c in obj.bound_box]
         if any(local[k]<min(c[k] for c in caixa)-1e-4 or local[k]>max(c[k] for c in caixa)+1e-4
                for k in range(3)):continue
-        dados=_dados_ancoras(obj)
-        if not dados or dados['arvore'] is None:continue
-        _co,i,_d=dados['arvore'].find(local)
+        dados=_cache_ancoras[0].get(obj.data.name)
+        if dados and dados['n']==len(obj.data.vertices) and dados['arvore'] is not None:
+            _co,i,_d=dados['arvore'].find(local)
+        else:
+            # Biblioteca recem-anexada: consulta nativa da face, sem montar
+            # uma arvore Python de TODOS os vertices no clique.
+            hit,_co,_n,face=obj.closest_point_on_mesh(local)
+            if not hit or face<0:continue
+            i=min(obj.data.polygons[face].vertices,key=lambda i:(obj.data.vertices[i].co-local).length_squared)
         p=obj.matrix_world@obj.data.vertices[i].co
         if (p-ponto).length<=1e-5:return obj,'v%d'%i,p
     return None
 
 
 class OBJECT_OT_conectar_vertices(Operator):
-    """Selecionar vertice: clique no canto da chapa e depois no canto onde ela deve grudar. Enter confirma"""
+    """Criar solda: escolha o canto da chapa de origem e o canto de destino. Enter confirma"""
     bl_idname = 'object.cabinet_conectar_vertices'
-    bl_label = 'Selecionar Vertice'
+    bl_label = 'Criar Solda'
     bl_options = {'REGISTER'}
 
     origem: StringProperty(options={'SKIP_SAVE'})
@@ -1163,28 +1508,41 @@ class OBJECT_OT_conectar_vertices(Operator):
     def invoke(self, context, event):
         chapa = (bpy.data.objects.get(self.origem) if self.origem
                  else context.object)
-        if chapa is None or _chapas.MARCA_CHAPA not in chapa:
-            self.report({'WARNING'}, 'Selecione a chapa de origem')
+        if chapa is None or not any(m in chapa for m in
+                                   (_chapas.MARCA_CHAPA, _chapas.MARCA_CONJUNTO)):
+            self.report({'WARNING'}, 'Selecione uma chapa ou modulo para criar a solda')
+            return {'CANCELLED'}
+        modulo = chapa if _chapas.MARCA_CONJUNTO in chapa else None
+        if not self.origem and getattr(chapa, 'chapa_modo', '') == 'GRUPO':
+            modulo = modulo or _portas._modulo_da_chapa(chapa)
+        origens = _modulos._chapas_do_conjunto(modulo) if modulo is not None else [chapa]
+        if not origens:
+            self.report({'WARNING'}, 'O modulo nao possui chapas para soldar')
             return {'CANCELLED'}
         alvo = _importacao._viewport_alvo(context)
         if alvo is None:
             self.report({'ERROR'}, 'Sem viewport 3D para clicar')
             return {'CANCELLED'}
         self._area, self._regiao, self._rv3d = alvo
-        _conexao_manual[0] = {'origem': chapa.name, 'pares': [],
+        _conexao_manual[0] = {'origem': '' if modulo is not None else chapa.name,
+                              'origens': [o.name for o in origens], 'pares': [],
                               'destinos': self.destinos,
+                              'pela_gaveta': bool(_perguntas._na_gaveta[0]),
                               'fase': 'origem', 'escolhido': None,
                               'hover': None, 'confirmar': False,
                               'regiao': self._regiao.as_pointer(),'snap_nativo':True,
-                              'etapa':'SOLDA','elementos_snap':('VERTEX',)}
+                              'etapa':'SOLDA','elementos_snap':('VERTEX',),
+                              'moderna':True,'distancias':[],'direcoes':[],'zeradas':[],
+                              'cena':context.scene.as_pointer()}
         self._w=_conexao_manual[0]
         _preparar_candidatos_conexao(self._w)
         _timer_conexao[0]=context.window_manager.event_timer_add(.03,window=context.window)
         _handler_conexao[0] = bpy.types.SpaceView3D.draw_handler_add(
             _desenhar_conexao_manual, (), 'WINDOW', 'POST_PIXEL')
         self._area.header_text_set(
-            "Selecionar vertice: canto da chapa, depois onde ela gruda | "
-            "Snap nativo de vertice | Enter: confirmar | Esc: cancelar")
+            "Criar solda: canto da chapa de origem, depois canto de destino | "
+            "Clique/arraste: snap nativo | Alt: ancora | Enter: confirmar | "
+            "Direito/Esc: cancelar | Backspace/Ctrl+Z: voltar")
         context.window_manager.modal_handler_add(self)
         _eventos._redesenhar_viewports(context)
         return {'RUNNING_MODAL'}
@@ -1214,8 +1572,12 @@ class OBJECT_OT_conectar_vertices(Operator):
         # destino apagado pelo Outliner durante o modal: None quebrava a pergunta
         pecas = {bpy.data.objects[nome] for _s, nome, _sn in estado['pares']
                  if nome in bpy.data.objects}
-        _perguntar_juntar(context, origem, alvos, pecas,
-                          estado.get('pela_gaveta', False),estado['pares'])
+        if estado.get('moderna'):
+            configuracao={k:estado[k] for k in ('origem','pares','distancias','direcoes','zeradas')}
+            _perguntar_juntar(context,origem,alvos,pecas,estado.get('pela_gaveta',False),estado['pares'],configuracao=configuracao)
+        else:
+            _perguntar_juntar(context, origem, alvos, pecas,
+                              estado.get('pela_gaveta', False),estado['pares'])
         return {'FINISHED'}
 
     def modal(self, context, event):
@@ -1229,6 +1591,8 @@ class OBJECT_OT_conectar_vertices(Operator):
             return {'CANCELLED'}
         if estado.get('cancelar') or context.mode!='OBJECT':
             self._encerrar(context);return {'CANCELLED'}
+        if estado.pop('voltar',False):
+            voltar_criacao_solda(estado);return {'RUNNING_MODAL'}
         confirmado=estado.pop('ponto_confirmado',None)
         if confirmado is not None:
             estado['snap_pendente']=False
@@ -1236,19 +1600,44 @@ class OBJECT_OT_conectar_vertices(Operator):
             alvo=_vertice_do_snap(estado,confirmado[0])
             if alvo is not None:
                 obj,s,ponto=alvo
-                if estado['fase']=='origem':estado.update(fase='destino',escolhido=(s,ponto),aguardar_novo_par=False,soltar_confirma=False)
+                if estado.get('moderna'):s=_ancora_estavel(obj,s)
+                if estado.get('editar_ancora'):
+                    k,lado=estado.pop('editar_ancora');sc,nome,sn=estado['pares'][k]
+                    estado['pares'][k]=(s,nome,sn) if lado=='a' else (sc,obj.name,s)
+                    estado['fase']='confirmar'
+                    _restaurar_previa_solda(estado)
+                    if estado.get('backup'):editar_criacao_solda()
+                    else:
+                        sc,nome,sn=estado['pares'][k]
+                        d=_vertice_da_assinatura(bpy.data.objects[estado['origem']],sc)-_vertice_da_assinatura(bpy.data.objects[nome],sn)
+                        estado['distancias'][k]=d.length
+                        if d.length>1e-8:estado['direcoes'][k]=tuple(d.normalized())
+                elif estado['fase']=='origem':estado.update(origem=obj.name,fase='destino',escolhido=(s,ponto),aguardar_novo_par=False,soltar_confirma=False)
                 else:
                     estado['pares'].append((estado['escolhido'][0],obj.name,s))
-                    estado.update(fase='origem',escolhido=None,aguardar_novo_par=True)
+                    if estado.get('moderna'):
+                        p=Vector(estado['escolhido'][1]);d=p-ponto
+                        estado['distancias'].append(d.length)
+                        estado['direcoes'].append(tuple(d.normalized() if d.length>1e-8 else _chapas._eixos(obj)[2]))
+                        estado['zeradas'].append(False)
+                    estado.update(fase='confirmar' if estado.get('moderna') else 'origem',escolhido=None,aguardar_novo_par=True)
+                    if estado.get('distancia_previa') is not None:
+                        editar_criacao_solda(estado['distancia_previa'],zerar=estado.get('reset_pendente',False))
                 _preparar_candidatos_conexao(estado)
             else:estado['iniciar_snap']=True
             self._area.tag_redraw();return {'RUNNING_MODAL'}
         if estado.get('confirmar') and not estado.get('snap_pendente'):
             return self._terminar(context)
         if estado.get('snap_pendente'):return {'PASS_THROUGH'}
+        if _gaveta._edicao_gaveta[0] is not None:return {'PASS_THROUGH'}
+        if event.type in {'ESC','RIGHTMOUSE'} and event.value=='PRESS':
+            self._encerrar(context);return {'CANCELLED'}
+        if event.value=='PRESS' and (event.type=='BACK_SPACE' or event.type=='Z' and event.ctrl):
+            voltar_criacao_solda(estado);self._area.tag_redraw();return {'RUNNING_MODAL'}
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
         if event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
+            if estado.get('moderna') and estado['fase']!='confirmar':return {'RUNNING_MODAL'}
             return self._terminar(context)
         if event.type == 'ESC' and event.value == 'PRESS':
             self._encerrar(context)
@@ -1260,6 +1649,28 @@ class OBJECT_OT_conectar_vertices(Operator):
                 _gavetas.AssistenteDoVao._iniciar_snap_nativo(self,context)
             estado['hover'] = None
             self._area.tag_redraw()
+            # O gizmo nativo precisa do movimento para reconhecer o hover antes do clique.
+            return {'PASS_THROUGH'} if estado.get('moderna') else {'RUNNING_MODAL'}
+        if estado.get('moderna') and event.type=='LEFTMOUSE' and event.value=='PRESS':
+            if not event.alt:
+                with context.temp_override(area=self._area,region=self._regiao):
+                    controle=_alvo_da_corrente(bpy.context,(event.mouse_x-self._regiao.x,event.mouse_y-self._regiao.y))
+                if controle and controle[0] in {'botao','distancia'}:return {'PASS_THROUGH'}
+            if event.alt and estado['pares']:
+                correntes=[]
+                origem=bpy.data.objects[estado['origem']]
+                for k,(sc,nome,sn) in enumerate(estado['pares']):
+                    correntes.append(dict(indice=k,pontos=[_vertice_da_assinatura(origem,sc),_vertice_da_assinatura(bpy.data.objects[nome],sn)]))
+                with context.temp_override(area=self._area,region=self._regiao):
+                    corrente,lado=_bolinha_sob_mouse(bpy.context,
+                        (event.mouse_x-self._regiao.x,event.mouse_y-self._regiao.y),correntes)
+                if corrente is None:return {'RUNNING_MODAL'}
+                estado['editar_ancora']=(corrente['indice'],lado)
+                estado['fase']='origem' if lado=='a' else 'destino'
+                _preparar_candidatos_conexao(estado)
+            elif estado['fase']=='confirmar':return {'RUNNING_MODAL'}
+            estado['soltar_confirma']=True
+            _gavetas.AssistenteDoVao._iniciar_snap_nativo(self,context)
             return {'RUNNING_MODAL'}
         if event.type=='LEFTMOUSE' and event.value=='PRESS' and estado.get('aguardar_novo_par'):
             estado.update(aguardar_novo_par=False,soltar_confirma=True)
@@ -1297,6 +1708,12 @@ def _desenhar_bolinhas_correntes(context):
                 _hud._bolinha_2d(shader, ponto, 8 * escala, realce)
             _hud._bolinha_2d(shader, ponto, (6 if acesa else 5) * escala,
                         (1.0, 1.0, 1.0, 1.0))
+    for corrente in correntes:
+        campo=_campo_distancia_corrente(context,corrente)
+        if campo:
+            x,y,_w,_h,texto,_valor=campo
+            _hud._caixa_texto_hud(x,y,texto,round(12*escala),escala)
+    gpu.state.blend_set('NONE')
 
 
 # ------------------------------------------------ arrastar a ancora
@@ -1456,11 +1873,18 @@ class OBJECT_OT_arrastar_ancora(Operator):
             return {'CANCELLED'}
         ancoras = list(_ancoras_da_ligacao(C, self.ponta, N))
         sc, sn = ancoras[self.indice]
+        if C.get('adj_%s_manual'%self.ponta):alvo=_ancora_estavel(C if self.lado=='a' else N,alvo)
         novo = (alvo, sn) if self.lado == 'a' else (sc, alvo)
         if novo == ancoras[self.indice]:
             return {'CANCELLED'}
         ancoras[self.indice] = novo
         _gravar_ancoras(C, self.ponta, ancoras)
+        if C.get('adj_%s_manual'%self.ponta):
+            d=_vertice_da_assinatura(C,novo[0])-_vertice_da_assinatura(N,novo[1])
+            if d.length>1e-8:
+                direcoes=json.loads(C['adj_%s_direcoes'%self.ponta])
+                direcoes[self.indice]=tuple(N.matrix_world.to_3x3().normalized().inverted()@d.normalized())
+                C['adj_%s_direcoes'%self.ponta]=json.dumps(direcoes)
         self.report({'INFO'}, 'Ancora trocada; a regua leva a chapa ate' + "' la'")
         return {'FINISHED'}
 
@@ -1577,6 +2001,42 @@ def _origens_ancoras(C, ponta):
     except (ValueError,TypeError):return None
 
 
+def editar_distancia_solda(nome,propriedade,valor):
+    """A ancora final permanece fixa; o afastamento vive nos eixos dela."""
+    try:
+        ponta,indice=propriedade.split('|');indice=int(indice)
+        c=bpy.data.objects.get(nome);n=_vizinho_da_ponta(c,ponta) if c else None
+        if n is None or not c.get('adj_%s_manual'%ponta):return 'Solda manual nao encontrada'
+        if not math.isfinite(valor) or valor<0:return 'Distancia invalida'
+        ancoras=_ancoras_gravadas(c,ponta) or []
+        if not 0<=indice<len(ancoras):return 'Ancora da solda nao encontrada'
+        direcoes=json.loads(c['adj_%s_direcoes'%ponta])
+        direcao=(n.matrix_world.to_3x3().normalized()@Vector(direcoes[indice])).normalized()
+        if not all(math.isfinite(v) for v in direcao) or direcao.length<.5:return 'Direcao da solda invalida; escolha outra ancora'
+        alvos=[(sc,_vertice_da_assinatura(n,sn)+direcao*valor) if k==indice else
+               (sc,_vertice_da_assinatura(c,sc)) for k,(sc,sn) in enumerate(ancoras)]
+        _puxar_por_pares(c,alvos)
+        modulo=_portas._modulo_da_chapa(c)
+        if modulo is not None:_atualizar_modulo(modulo)
+    except (ValueError,KeyError,IndexError,TypeError) as erro:return str(erro)
+    return None
+
+
+def diagnostico_soldas(obj):
+    """Uma ancora invalida conserva os metadados e exige escolha explicita."""
+    if obj is None:return ''
+    chapas=_modulos._chapas_do_conjunto(obj) if _chapas.MARCA_CONJUNTO in obj else [obj]
+    for c in chapas:
+        for ponta in _chapas.PONTAS:
+            if not c.get('adj_%s_manual'%ponta):continue
+            n=_vizinho_da_ponta(c,ponta)
+            if n is None:return 'Destino da solda removido'
+            if any(not _indices_da_assinatura(c,sc) or not _indices_da_assinatura(n,sn)
+                   for sc,sn in (_ancoras_gravadas(c,ponta) or [])):
+                return 'Ancora da solda removida ou ambigua'
+    return ''
+
+
 def _desvio_ancora(C, ponta, N, indice, sc, sn):
     """Diferenca ate' a origem cadastrada, compartilhada pela HUD e pelo reset."""
     origens=_origens_ancoras(C,ponta)
@@ -1620,6 +2080,13 @@ def _indices_da_assinatura(P, assinatura):
     nos novos); sem ele, pelos sinais no referencial da peca."""
     if P is None or P.type != 'MESH':
         return []
+    if assinatura.startswith('u'):
+        atributo=P.data.attributes.get(ATR_VERTICE_SOLDA)
+        if atributo is None:return []
+        try:codigo=int(assinatura[1:])
+        except ValueError:return []
+        valores=array('i',[0])*len(atributo.data);atributo.data.foreach_get('value',valores)
+        return [valores.index(codigo)] if valores.count(codigo)==1 else []
     if assinatura.startswith('v'):
         try:
             indice = int(assinatura[1:])
@@ -1672,6 +2139,29 @@ def _tamanho_desvio(delta, residuos):
     return max([abs(delta)] + [r.length for _s, r in residuos])
 
 
+def _pares_reset_ancoras(C, ponta, N, lado='a'):
+    """Destinos calculados juntos: uma ancora nao altera o calculo da seguinte."""
+    peca=C if lado=='a' else N
+    pares=[]
+    for k,(sc,sn) in enumerate(_ancoras_gravadas(C,ponta) or []):
+        if not _indices_da_assinatura(C,sc) or not _indices_da_assinatura(N,sn):continue
+        desvio=_desvio_ancora(C,ponta,N,k,sc,sn)
+        assinatura,d=(sc,desvio) if lado=='a' else (sn,-desvio)
+        pares.append((assinatura,_vertice_da_assinatura(peca,assinatura)+d))
+    return pares
+
+
+def _validar_reset_ancoras(M):
+    pares=[]
+    for C in bpy.data.objects:
+        if C.type!='MESH' or _chapas.MARCA_CHAPA not in C:continue
+        for ponta in _chapas.PONTAS:
+            N=_vizinho_da_ponta(C,ponta)
+            if N is not None and M in (C,N):
+                pares.extend(_pares_reset_ancoras(C,ponta,N,'a' if M is C else 'b'))
+    if pares:_movimentos_por_pares(M,pares)
+
+
 def _deformar_ancoras(C, ponta, N, lado='a'):
     """Encosta os vertices ancorados: lado 'a' leva os de C (a ponta) ate'
     os do vizinho; lado 'b' leva os de N ate' os de C -- e' a peca que se
@@ -1681,27 +2171,14 @@ def _deformar_ancoras(C, ponta, N, lado='a'):
     if not ancoras:
         return False
     peca = C if lado == 'a' else N
-    if peca.data.attributes.get(ATRIBUTO_CANTO) is None:
-        _gravar_cantos(peca)        # malha de versao antiga: marca antes
-    inversa = peca.matrix_world.inverted().to_3x3()
-    mudou = False
-    for k,(sc, sn) in enumerate(ancoras):
-        if not _indices_da_assinatura(C,sc) or not _indices_da_assinatura(N,sn):continue
-        desvio=_desvio_ancora(C,ponta,N,k,sc,sn)
-        if lado == 'a':
-            assinatura, d = sc, desvio
-        else:
-            assinatura, d = sn, -desvio
-        if d.length < TOL_RESET_DISTANCIA:
-            continue
-        local = inversa @ d
-        parceiro = _parceiro_espessura(peca, assinatura)
-        indices = set(_indices_da_assinatura(peca, assinatura)
-                      + _indices_da_assinatura(peca, parceiro))
-        for i in indices:
-            peca.data.vertices[i].co += local
-        mudou = True
+    _deltas,movimentos=_movimentos_por_pares(peca,_pares_reset_ancoras(C,ponta,N,lado))
+    movimentos={i:d for i,d in movimentos.items() if d.length>=TOL_RESET_DISTANCIA}
+    mudou=bool(movimentos)
     if mudou:
+        if peca.data.users>1:peca.data=peca.data.copy()
+        if peca.data.attributes.get(ATRIBUTO_CANTO) is None:
+            _gravar_cantos(peca)    # marca a referencia antes de deformar
+        for i,d in movimentos.items():peca.data.vertices[i].co+=d
         peca.data.update()
         bpy.context.view_layer.update()
     return mudou
@@ -1751,6 +2228,12 @@ def resetar_ponta(C, ponta):
 
 def resetar_pontas(escolhidas):
     """[(chapa, ponta)] -> quantas voltaram; os modulos se reacomodam."""
+    escolhidas=list(escolhidas)
+    # Nao deixar as primeiras juntas aplicadas se uma posterior for inviavel.
+    for C,ponta in escolhidas:
+        N=_vizinho_da_ponta(C,ponta)
+        if N is not None:
+            _movimentos_por_pares(C,_pares_reset_ancoras(C,ponta,N))
     n, modulos = 0, set()
     for C, ponta in escolhidas:
         if resetar_ponta(C, ponta):
@@ -1856,6 +2339,7 @@ def _plano_reset_chapa(M):
 
 
 def _aplicar_reset_chapa(M, plano):
+    _validar_reset_ancoras(M)
     eixos = _chapas._eixos(M)
     centro = _chapas._centro(M)
     medidas = [M.chapa_largura_mm, M.chapa_comprimento_mm]
@@ -2019,7 +2503,11 @@ class OBJECT_OT_resetar_distancia(Operator):
                     ('Nao', 'X', OP_RESETAR_DISTANCIA, {'cancelar': True})])
                 return {'CANCELLED'}
             _pergunta_reset[0] = ''
-            _aplicar_reset_chapa(M, plano)
+            try:
+                _aplicar_reset_chapa(M, plano)
+            except ValueError as e:
+                self.report({'WARNING'}, str(e))
+                return {'CANCELLED'}
             self.report({'INFO'}, '%s voltou a origem da solda' % M.name)
         else:
             ligacoes = _soldas_do_grupo(modo[1], modo[2])

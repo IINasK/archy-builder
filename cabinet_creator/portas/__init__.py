@@ -186,7 +186,7 @@ def _referencia_do_par(obj_a, obj_b):
     # O grupo de portas tem Y=altura; nao e' a base do armario.
     modulo = _modulo_da_chapa(obj_a)
     if modulo is not None and modulo == _modulo_da_chapa(obj_b):
-        return modulo.matrix_world.to_quaternion().to_matrix(), modulo
+        return modulo.matrix_world.to_3x3().normalized(), modulo
     ancestrais = []
     pai = obj_a.parent
     while pai is not None:
@@ -195,7 +195,7 @@ def _referencia_do_par(obj_a, obj_b):
     pai = obj_b.parent
     while pai is not None and pai not in ancestrais:
         pai = pai.parent
-    referencia = (pai.matrix_world.to_quaternion().to_matrix()
+    referencia = (pai.matrix_world.to_3x3().normalized()
                   if pai is not None else Matrix.Identity(3))
     return referencia, pai
 
@@ -250,7 +250,9 @@ def _base_da_frente(referencia, frente, largura_em='X'):
                                    else (1, 0, 0))
     else:
         cima = referencia @ Vector((0, 0, 1))
-    return Matrix((cima.cross(normal).normalized(), cima, normal))
+    # Quaternion perde a reflexao do Mirror; a largura segue a mesma paridade.
+    paridade = -1 if referencia.determinant() < 0 else 1
+    return Matrix((cima.cross(normal).normalized() * paridade, cima, normal))
 
 
 def _eixos_da_frente(frente, largura_em='X'):
@@ -1319,7 +1321,7 @@ def _vao_do_modulo(conj, folgas, recuo, frente, largura_em='X'):
         lo[inormal] + recuo if frente.startswith('NEG')
         else hi[inormal] - recuo)
     mundo = conj.matrix_world
-    referencia = mundo.to_quaternion().to_matrix()
+    referencia = mundo.to_3x3().normalized()
     return _mapear_vao_portas(mundo @ (canto_a / 1000.0),
                               mundo @ (canto_b / 1000.0),
                               referencia, frente, largura_em)
@@ -1359,7 +1361,7 @@ def porta_no_modulo(conj, folhas=1, abertura='GIRO', **extras):
     resultado = bpy.ops.object.cabinet_portas(
         'EXEC_DEFAULT', capturado=True, ponto_a=mundo[1], ponto_b=mundo[2],
         quatro_pontos=True, porta_a=mundo[0], porta_b=mundo[3],
-        referencia=tuple(v for linha in conj.matrix_world.to_quaternion().to_matrix()
+        referencia=tuple(v for linha in conj.matrix_world.to_3x3().normalized()
                          for v in linha),
         pai_nome=conj.name, modulo_nome=conj.name, objeto_a_nome=esquerda.name,
         frente='NEG_Y', folga_mm=0, **opcoes)
@@ -1392,6 +1394,48 @@ def _vao_com_ancoras(grupo, vao, parametros):
     if largura < 1 or altura < 1:
         raise ValueError("A porta de apoio nao deixa espaco para o vao")
     return largura, altura, matriz
+
+
+def _porta_reta_sem_mudanca(grupo, p, largura, altura, matriz):
+    """Compara os dados ja' montados; nao reconstrui Mesh nem cache persistente.
+
+    Somente a Reta de giro nao depende do ray cast dos apoios obliquos.
+    As outras tipologias conservam a atualizacao completa.
+    """
+    if (p.get('abertura') != 'GIRO' or p.get('folha', 'CHAPA') != 'CHAPA'
+            or not _ferragens._usa_rig(p) or not grupo.get('porta_ferragens_encaixe')
+            or _ferragens._ferragens_antigas(grupo)):
+        return False
+    if (abs(float(grupo.get('porta_vao_largura_mm', 0)) - largura) > .001
+            or abs(float(grupo.get('porta_vao_altura_mm', 0)) - altura) > .001
+            or max(abs(a - b) for x, y in zip(grupo.matrix_world, matriz)
+                   for a, b in zip(x, y)) > 1e-6):
+        return False
+    folhas = _folhas_portas(grupo)
+    calculadas = _calcular_folhas_portas(largura, altura, p)
+    if len(folhas) != len(calculadas):
+        return False
+    for folha, (l, a, e, centro) in zip(folhas, calculadas):
+        atual = _ferragens._dados_da_folha(folha)
+        if any(abs(x - y) > .001 for x, y in zip(
+                (*atual[:3], *atual[3]), (l, a, e, *centro))):
+            return False
+    itens = _ferragens._ferragens_da_porta(p, largura, altura, calculadas)
+    rigs = {o.get(_ferragens.CHAVE_ID_FERRAGEM): o for o in _ferragens._ferragens_portas(grupo)
+            if o.get('cabinet_peca') == 'raiz'}
+    if len(rigs) != len(itens):
+        return False
+    for item in itens:
+        obj = rigs.get(item['id'])
+        if obj is None or item['forma'] != 'RIG':
+            return False
+        esperada = item['matriz'].copy()
+        esperada.translation = (esperada.translation + Vector(
+            obj.get('porta_ferragem_deslocamento_mm', (0, 0, 0)))) / 1000
+        if max(abs(a - b) for x, y in zip(obj.matrix_basis, esperada)
+               for a, b in zip(x, y)) > 1e-6:
+            return False
+    return True
 
 
 def atualizar_do_conjunto(conj):
@@ -1437,6 +1481,8 @@ def atualizar_do_conjunto(conj):
             if isinstance(apoio, bpy.types.Object):
                 matriz = (apoio.matrix_world @ _ferragens._matriz_fechada(apoio).inverted()
                           @ matriz)
+            if _porta_reta_sem_mudanca(grupo, parametros, largura, altura, matriz):
+                continue
             _aplicar_portas(bpy.context, grupo, matriz, conj,
                             largura, altura, dict(parametros))
         except (ValueError, KeyError, TypeError) as e:

@@ -609,7 +609,7 @@ def normalizar_chapas(objs=None):
             continue
         pai = obj.parent
         while pai is not None:
-            if MARCA_CONJUNTO in pai and any(abs(s-1)>1e-6 for s in pai.scale):
+            if MARCA_CONJUNTO in pai and any(abs(abs(s)-1)>1e-6 for s in pai.scale):
                 break
             pai = pai.parent
         if pai is not None:
@@ -647,6 +647,24 @@ def normalizar_chapas(objs=None):
 
 # Chapas que estavam em Modo Edicao no ultimo tique do timer (por nome)
 _chapas_em_edicao = set()
+
+
+def preparar_uvs_chapa(obj):
+    """Mapa metrico inicial: uma unidade UV por metro, sem alterar mapas existentes."""
+    if (obj.type != 'MESH' or MARCA_CHAPA not in obj or obj.data.is_editmode
+            or obj.data.uv_layers):
+        return False
+    uv = obj.data.uv_layers.new(name='UVMap')
+    for face in obj.data.polygons:
+        normal = face.normal
+        eixo = Vector((1, 0, 0)) if abs(normal.x) < .9 else Vector((0, 1, 0))
+        u = (eixo - normal * eixo.dot(normal)).normalized()
+        v = normal.cross(u).normalized()
+        for indice in face.loop_indices:
+            co = obj.data.vertices[obj.data.loops[indice].vertex_index].co
+            uv.data[indice].uv = (co.dot(u), co.dot(v))
+    obj.data.update()
+    return True
 
 
 def absorver_edicoes_de_malha():
@@ -845,7 +863,13 @@ def _resolver_vizinho(C, uid, nome):
     """Procura o vizinho primeiro entre os IRMAOS (mesmo pai), para que
     copias de um mesmo modulo nao se confundam entre si."""
     if uid:
-        irmaos = [o for o in bpy.data.objects
+        # O nome so' atesta um irmao com aquele UID; evita buscar a cena
+        # de novo por junta e nao troca a identidade pela copia mais proxima.
+        gravado = bpy.data.objects.get(nome) if nome else None
+        if (gravado is not None and gravado.parent == C.parent
+                and gravado.get("chapa_uid") == uid):
+            return gravado
+        irmaos = [o for o in (C.parent.children if C.parent else bpy.data.objects)
                   if o.parent == C.parent and o.get("chapa_uid") == uid]
         if len(irmaos) == 1:
             return irmaos[0]
@@ -948,7 +972,7 @@ def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
 
 
 def _gravar_ligacao(C, eixo, lado, N, folga, face):
-    for sufixo in ('_ancoras','_origens'):
+    for sufixo in ('_ancoras','_origens','_manual','_direcoes'):
         if f"adj_{eixo}_{lado}{sufixo}" in C:
             del C[f"adj_{eixo}_{lado}{sufixo}"]   # solda nova: nao herda a origem anterior
     C[f"adj_{eixo}_{lado}"] = N.name
@@ -1029,7 +1053,7 @@ def _limpar_ponta(C, ponta):
     """Tira a solda de UMA ponta (ela deixa de puxar vizinho)."""
     C[f"adj_{ponta}"] = ""
     C[f"adj_{ponta}_folga"] = 0.0
-    for sufixo in ("_uid", "_face", "_ancoras", "_origens"):
+    for sufixo in ("_uid", "_face", "_ancoras", "_origens", "_manual", "_direcoes"):
         if f"adj_{ponta}{sufixo}" in C:
             del C[f"adj_{ponta}{sufixo}"]
 
@@ -1331,7 +1355,7 @@ class OBJECT_OT_marcar_como_chapa(Operator):
                     vizinho = _resolver_vizinho(
                         chapa, chapa.get(base + '_uid', ''), chapa.get(base, ''))
                     if chapa == obj or vizinho == obj:
-                        for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens'):
+                        for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes'):
                             if base + sufixo in chapa:
                                 del chapa[base + sufixo]
             _ocupado[0] = True

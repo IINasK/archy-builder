@@ -69,6 +69,259 @@ def ocupado():
 
 
 class TestOperadores(unittest.TestCase):
+    def test_tab_materializa_espelho_da_dobradica_antes_do_arraste_nativo(self):
+        # Regressao v344: Mirror/Clipping prendia a metade virtual no
+        # lugar antigo. O teste move pelo TRANSFORM nativo, ainda no Tab.
+        conj = addon.modulos.criar_armario(bpy.context, 'Espelho editavel', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        base = next(o for o in raiz.children_recursive if o.get('cabinet_peca') == 'base')
+        espelho = base.modifiers.new('Espelho antigo', 'MIRROR')
+        espelho.use_axis = (False, False, True)
+        espelho.use_clip = True
+        outra = base.copy()
+        bpy.context.scene.collection.objects.link(outra)
+        outra.parent = None
+        original = outra.data
+        bpy.context.view_layer.update()
+        avaliada = base.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        malha = avaliada.to_mesh()
+        try:
+            pontos = [v.co.copy() for v in malha.vertices]
+        finally:
+            avaliada.to_mesh_clear()
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertFalse([m for m in base.modifiers if m.type == 'MIRROR'])
+        self.assertIs(outra.data, original)
+        self.assertTrue([m for m in outra.modifiers if m.type == 'MIRROR'])
+        base.update_from_editmode()
+        bpy.context.view_layer.update()
+        avaliada = base.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        malha = avaliada.to_mesh()
+        try:
+            self.assertEqual(len(malha.vertices), len(pontos))
+            for atual, esperado in zip(malha.vertices, pontos):
+                self.assertLess((atual.co - esperado).length, .000001)
+        finally:
+            avaliada.to_mesh_clear()
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bm = bmesh.from_edit_mesh(base.data)
+        antes = [v.co.copy() for v in bm.verts]
+        for v in bm.verts:
+            v.select_set(True)
+        bmesh.update_edit_mesh(base.data)
+        local = base.matrix_world.inverted_safe().to_3x3() @ Vector((0, 0, .035))
+        bpy.ops.transform.translate(value=(0, 0, .035))
+        for v, ponto in zip(bm.verts, antes):
+            self.assertLess((v.co - ponto - local).length, .000001)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(bpy.context.object, conj)
+        self.assertNotIn('cabinet_rig_edicao', base.data)
+
+    def test_uv_metrica_acompanha_face_estendida_pelo_transformador_nativo(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Textura proporcional', 600, 800, 550)
+        chapa = next(o for o in addon.modulos._chapas_do_conjunto(conj)
+                     if all(abs(a) < .01 for a in o.rotation_euler))
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertTrue(bpy.context.scene.tool_settings.use_transform_correct_face_attributes)
+        bm = bmesh.from_edit_mesh(chapa.data)
+        uv = bm.loops.layers.uv.active
+        self.assertIsNotNone(uv)
+        bpy.ops.mesh.select_all(action='DESELECT')
+        for v in bm.verts:
+            v.select_set(v.co.x > 0)
+        bmesh.update_edit_mesh(chapa.data)
+        mundo = chapa.matrix_world.to_3x3() @ Vector((.1, 0, 0))
+        bpy.ops.transform.translate(value=mundo)
+        for face in bm.faces:
+            for loop in face.loops:
+                proximo = loop.link_loop_next
+                real = (proximo.vert.co - loop.vert.co).length
+                textura = (proximo[uv].uv - loop[uv].uv).length
+                self.assertAlmostEqual(textura / real, 1, places=4)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(len(chapa.data.uv_layers), 1)
+
+    def test_uv_personalizada_conserva_rotacao_e_densidade_ao_editar(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'UV personalizada', 600, 800, 550)
+        chapa = next(o for o in addon.modulos._chapas_do_conjunto(conj)
+                     if all(abs(a) < .01 for a in o.rotation_euler))
+        addon.chapas.preparar_uvs_chapa(chapa)
+        uv = chapa.data.uv_layers.active
+        for loop in uv.data:
+            u, v = loop.uv
+            loop.uv = (2 - v * 3, 4 + u * 3)
+        antes = [tuple(l.uv) for l in uv.data]
+        self.assertFalse(addon.chapas.preparar_uvs_chapa(chapa))
+        self.assertEqual(antes, [tuple(l.uv) for l in uv.data])
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bm = bmesh.from_edit_mesh(chapa.data)
+        camada = bm.loops.layers.uv.active
+        for v in bm.verts:
+            v.select_set(v.co.x > 0)
+        bmesh.update_edit_mesh(chapa.data)
+        mundo = chapa.matrix_world.to_3x3() @ Vector((.1, 0, 0))
+        bpy.ops.transform.translate(value=mundo)
+        for face in bm.faces:
+            for loop in face.loops:
+                proximo = loop.link_loop_next
+                real = (proximo.vert.co - loop.vert.co).length
+                textura = (proximo[camada].uv - loop[camada].uv).length
+                self.assertAlmostEqual(textura / real, 3, places=3)
+        bpy.ops.object.cabinet_editar_grupo()
+
+    def test_tab_move_dobradica_inteira_com_rig_furo_e_curva(self):
+        # Regressao v343: mover vertices deixava armacoes/furo/mola no
+        # lugar antigo e distorcia a dobradica ao abrir a porta.
+        conj = addon.modulos.criar_armario(bpy.context, 'Dobradicas editaveis', 600, 1800, 550)
+        conj.rotation_euler.z = .7
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        fixa = next(o for o in grupo.children_recursive
+                    if o.get('cabinet_peca') == 'raiz' and o != raiz)
+        # Tab materializa Mirror: o transporte rigido compara a malha editavel,
+        # sem depender de outra prova ter deixado uma copia ja' expandida no cache.
+        addon.ferragens.preparar_malhas_para_editar(bpy.context,
+            [o for o in grupo.children_recursive if o.type == 'MESH'])
+        bpy.context.view_layer.update()
+        partes = list(raiz.children_recursive)
+        mundos = {o.name: o.matrix_world.copy() for o in [raiz, fixa, *partes]}
+        malhas = {o.name: (o.data, [v.co.copy() for v in o.data.vertices])
+                  for o in partes if o.type == 'MESH' and not o.hide_render}
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertFalse(addon._segura_dado(addon.selecao._edicao_grupo[0]))
+        delta = Vector((0, 0, .035))
+        for obj in bpy.context.objects_in_mode:
+            bm = bmesh.from_edit_mesh(obj.data)
+            mover = obj.name in malhas
+            local = obj.matrix_world.inverted_safe().to_3x3() @ delta
+            for v in bm.verts:
+                v.select_set(mover)
+                if mover:
+                    v.co += local
+            bmesh.update_edit_mesh(obj.data)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(bpy.context.object, conj)
+        self.assertTrue(conj.select_get())
+        for obj in [raiz, *partes]:
+            self.assertPerto(obj.matrix_world.translation, mundos[obj.name].translation + delta)
+        self.assertPerto(fixa.matrix_world.translation, mundos[fixa.name].translation)
+        for nome, (_anterior, pontos) in malhas.items():
+            obj = bpy.data.objects[nome]
+            for v, ponto in zip(obj.data.vertices, pontos):
+                self.assertLess((v.co - ponto).length, .000001)
+        # Reaplicar parametros e abrir/fechar conserva a edicao e os furos.
+        addon.ferragens._refazer_ferragens(grupo)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        addon.ferragens._definir_abertura(bpy.context, folha, .5)
+        addon.ferragens._definir_abertura(bpy.context, folha, 0)
+        bpy.context.view_layer.update()
+        for obj in [raiz, *partes]:
+            self.assertPerto(obj.matrix_world.translation, mundos[obj.name].translation + delta)
+        # Outro Tab sem movimento nao reaplica o deslocamento anterior.
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertPerto(raiz.matrix_world.translation, mundos[raiz.name].translation + delta)
+
+    def test_tab_de_peca_inteira_move_rig_mas_modelagem_parcial_fica_nativa(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Modelagem da ferragem', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        base = next(o for o in raiz.children_recursive if o.get('cabinet_peca') == 'base')
+        if base.data.users > 1:
+            base.data = base.data.copy()
+        malha = base.data
+        antes = raiz.matrix_world.copy()
+        registros = addon.ferragens.iniciar_edicao_rigs([base])
+        original = base.data.vertices[0].co.copy()
+        base.data.vertices[0].co.z += .003
+        base.data.update()
+        addon.ferragens.concluir_edicao_rigs(registros)
+        self.assertEqual(raiz.matrix_world, antes)
+        self.assertAlmostEqual(base.data.vertices[0].co.z, original.z + .003, places=6)
+        registros = addon.ferragens.iniciar_edicao_rigs([base])
+        local = Vector((0, 0, .025))
+        base.data.transform(Matrix.Translation(local))
+        delta = base.matrix_world.to_3x3() @ local
+        addon.ferragens.concluir_edicao_rigs(registros)
+        self.assertPerto(raiz.matrix_world.translation, antes.translation + delta)
+        self.assertIs(base.data, malha)
+        self.assertAlmostEqual(base.data.vertices[0].co.z, original.z + .003, places=6)
+
+    def test_tab_cancelado_e_ferragem_removida_nao_movem_rig(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Cancelar ferragem', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        base = next(o for o in raiz.children_recursive if o.get('cabinet_peca') == 'base')
+        antes = raiz.matrix_world.copy()
+        registros = addon.ferragens.iniciar_edicao_rigs([base])
+        addon.ferragens.concluir_edicao_rigs(registros)
+        self.assertEqual(raiz.matrix_world, antes)
+        bpy.data.objects.remove(base, do_unlink=True)
+        addon.ferragens.concluir_edicao_rigs(registros)
+        self.assertEqual(raiz.matrix_world, antes)
+
+    def test_trocar_versao_do_rig_preserva_deslocamento_manual(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Ferragem antiga editada', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        base = next(o for o in raiz.children_recursive if o.get('cabinet_peca') == 'base')
+        if base.data.users > 1:
+            base.data = base.data.copy()
+        registros = addon.ferragens.iniciar_edicao_rigs([base])
+        delta = Vector((0, .035, 0))
+        local = base.matrix_world.inverted_safe().to_3x3() @ (grupo.matrix_world.to_3x3() @ delta)
+        base.data.transform(Matrix.Translation(local))
+        addon.ferragens.concluir_edicao_rigs(registros)
+        identidade = raiz[addon.ferragens.CHAVE_ID_FERRAGEM]
+        pose = raiz.matrix_basis.copy()
+        raiz['cabinet_versao'] = int(addon.ferragens._dados_dobradica_reta()['versao']) - 1
+        addon.ferragens._refazer_ferragens(grupo)
+        atual = next(o for o in grupo.children_recursive
+                     if o.get(addon.ferragens.CHAVE_ID_FERRAGEM) == identidade)
+        self.assertPerto(atual.matrix_basis.translation, pose.translation)
+        self.assertPerto(atual['porta_ferragem_deslocamento_mm'], delta * 1000)
+
+    def test_undo_refaz_tab_da_dobradica_sem_perder_montagem_ou_grupo(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Undo da ferragem', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        base = next(o for o in raiz.children_recursive if o.get('cabinet_peca') == 'base')
+        nome, nome_raiz, nome_base = conj.name, raiz.name, base.name
+        origem = raiz.matrix_world.translation.copy()
+        selecionar(conj)
+        bpy.ops.ed.undo_push(message='Antes da ferragem')
+        bpy.ops.object.cabinet_editar_grupo()
+        local = base.matrix_world.inverted_safe().to_3x3() @ Vector((0, 0, .03))
+        bm = bmesh.from_edit_mesh(base.data)
+        for v in bm.verts:
+            v.co += local
+        bmesh.update_edit_mesh(base.data)
+        bpy.ops.ed.undo_push(message='Moveu ferragem')
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.ed.undo_push(message='Saiu da ferragem')
+        bpy.ops.ed.undo()
+        self.assertEqual(bpy.context.mode, 'EDIT_MESH')
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        addon.eventos.verificar_periodicamente()
+        self.assertEqual(bpy.context.object.name, nome)
+        self.assertPerto(bpy.data.objects[nome_raiz].matrix_world.translation, origem + Vector((0, 0, .03)))
+        bpy.ops.ed.undo()
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        addon.eventos._fim_do_desfazer()
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(bpy.context.object.name, nome)
+        self.assertPerto(bpy.data.objects[nome_raiz].matrix_world.translation, origem + Vector((0, 0, .03)))
+        base = bpy.data.objects[nome_base]
+        self.assertNotIn('porta_ferragem_deslocamento_mm', base)
+
     def test_instancia_nao_altera_mesh_que_outra_instancia_esta_editando(self):
         from unittest.mock import patch
         o=addon.chapas.nova_chapa('Malha compartilhada em edicao',400,300,18,(0,0,0),(0,0,0),bpy.context)
@@ -319,6 +572,7 @@ class TestOperadores(unittest.TestCase):
         bpy.context.scene.cabinet_aba = 'MODULOS'
         addon.chapas._ocupado[0] = False
         addon.chapas._havia_modal[0] = False
+        bpy.context.scene.tool_settings.use_transform_correct_face_attributes = False
         # O handler de depsgraph tambem normaliza a cada view_layer.update():
         # fora daqui os testes chamam os orquestradores na mao, um de cada
         # vez, para saber QUEM fez o trabalho.
@@ -469,6 +723,23 @@ class TestOperadores(unittest.TestCase):
         self.assertPerto(addon.chapas._faixa(base2, X), (2 - 0.282, 2 + 0.282), 4)
         self.assertAlmostEqual(self.peca(conj, 'Base').chapa_largura_mm, 564.0,
                                places=2)
+
+    def test_vizinho_com_uid_duplicado_no_modulo_conserva_identidade_ao_mover(self):
+        # Regressao (era BUG, corrigido na 347): a solda trocava de
+        # lateral quando uma copia com o mesmo UID ficava mais perto.
+        conj = self.modulo()
+        base = self.peca(conj, 'Base')
+        lateral = self.peca(conj, 'Lateral_Dir')
+        copia = lateral.copy()
+        bpy.context.collection.objects.link(copia)
+        copia.location = base.location
+        lateral.location.x += 2
+        bpy.context.view_layer.update()
+        self.assertIs(addon.chapas._resolver_vizinho(
+            base, base['adj_x_pos_uid'], base['adj_x_pos']), lateral)
+        # O nome nao supera o UID nem referencia um objeto de outro modulo.
+        self.assertIs(addon.chapas._resolver_vizinho(
+            base, base['adj_x_pos_uid'], base.name), copia)
 
     def test_copia_de_chapa_no_mesmo_modulo_sai_sem_as_soldas(self):
         # Ctrl+D numa chapa (pedido do usuario): a copia levava o UID e as

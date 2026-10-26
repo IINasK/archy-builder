@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import bpy
 import bmesh
@@ -24,6 +25,395 @@ class _ContextoRegiao:
 
 
 class TestHUD(unittest.TestCase):
+    def test_edicao_solda_bloqueia_hud_geometria_e_restaura_ao_terminar(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        contexto=_ContextoRegiao();contexto.region=SimpleNamespace(type='WINDOW',as_pointer=lambda:4242)
+        contexto.area=SimpleNamespace(type='VIEW_3D');contexto.region_data=object();w['regiao']=4242
+        with patch.object(addon.eventos,'_transformando',return_value=False), \
+             patch.object(addon.gaveta,'_eh_area_gaveta',return_value=False), \
+             patch.object(addon.hud,'_projetar_hud',return_value=Vector((100,100))):
+            s._conexao_manual[0]=None
+            self.assertTrue(addon.hud._contexto_hud(contexto))
+            s._conexao_manual[0]=w
+            addon.hud._hover_hud[4242]={'tipo':'medida'}
+            self.assertFalse(addon.hud._contexto_hud(contexto))
+            self.assertFalse(addon.hud._hover_hud)
+            self.assertFalse(addon.hud.OBJECT_OT_arrastar_hud.poll(contexto))
+            self.assertFalse(addon.hud.VIEW3D_GGT_hud_cabinet.poll(contexto))
+            self.assertFalse(addon.portas_viewport.VIEW3D_GGT_slider_porta.poll(contexto))
+            self.assertFalse(addon.portas_viewport.OBJECT_OT_abrir_porta.poll(contexto))
+            self.assertTrue(addon.hud.VIEW3D_GGT_correntes_cabinet.poll(contexto))
+            self.assertTrue(s.OBJECT_OT_clique_corrente.poll(contexto))
+            self.assertEqual(len(s._correntes_hud(contexto)),1)
+            with patch.object(s,'_campo_distancia_corrente',return_value=None), \
+                 patch.object(s,'_bolinha_sob_mouse',return_value=(None,None)), \
+                 patch.object(s,'_botao_corrente_sob_mouse',return_value=(None,None)), \
+                 patch.object(addon.portas_viewport,'_canto_porta_sob_mouse',side_effect=AssertionError('Controle de geometria durante solda')):
+                self.assertIsNone(s._alvo_da_corrente(contexto,(0,0)))
+            s._conexao_manual[0]=None
+            self.assertTrue(addon.hud._contexto_hud(contexto))
+            with patch.object(s,'_arraste_ancora',[{'origem':o.name}]):
+                self.assertFalse(addon.hud._contexto_hud(contexto))
+            self.assertTrue(addon.hud._contexto_hud(contexto))
+
+    def test_criacao_solda_controladores_sem_selecao_e_operadores_reutilizados(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        contexto=_ContextoRegiao();contexto.region_data=object();w['regiao']=4242
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        with patch.object(addon.gaveta,'_eh_area_gaveta',return_value=False), \
+             patch.object(addon.hud,'_projetar_hud',return_value=Vector((100,100))):
+            correntes=s._correntes_hud(contexto)
+            self.assertTrue(addon.hud.VIEW3D_GGT_correntes_cabinet.poll(contexto))
+        self.assertEqual(len(correntes),1)
+        feitos=[]
+        def criar(tipo):
+            op=SimpleNamespace();feitos.append((tipo,op))
+            return SimpleNamespace(matrix_basis=Matrix.Identity(4),as_pointer=lambda:123457,
+                target_set_operator=lambda nome:(setattr(op,'nome',nome) or op))
+        grupo=SimpleNamespace(botoes=[],gizmos=SimpleNamespace(new=criar))
+        with patch.object(s,'_correntes_hud',return_value=correntes):
+            for _ in range(3):addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo,contexto)
+        self.assertEqual(len(feitos),3)
+        self.assertEqual([op.acao for _,op in feitos[:2]],['REMOVER|0','RESETAR|0'])
+        self.assertTrue(all(op.nome=='object.cabinet_acao_criacao_solda' for _,op in feitos[:2]))
+        self.assertEqual((feitos[-1][1].dono,feitos[-1][1].propriedade),('solda_criacao','0'))
+        addon.hud._campos_gaveta.pop(123457,None)
+        op=SimpleNamespace(_na_viewport=lambda e:True,_area=SimpleNamespace(tag_redraw=lambda:None))
+        evento=SimpleNamespace(type='MOUSEMOVE',value='NOTHING')
+        self.assertEqual(s.OBJECT_OT_conectar_vertices._modal(op,bpy.context,evento),{'PASS_THROUGH'})
+
+    def test_regua_criacao_por_indice_zera_no_destino_e_cancelar_restaura(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();antes=o.matrix_world.copy();fixo=n.matrix_world.copy()
+        self.assertEqual(bpy.ops.object.cabinet_acao_criacao_solda(acao='RESETAR|0'),{'FINISHED'})
+        sc,_,sn=w['pares'][0]
+        self.assertAlmostEqual((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,0,places=6)
+        self.assertEqual(w['distancias'],[0]);self.assertEqual(w['zeradas'],[True])
+        self.assertEqual(n.matrix_world,fixo)
+        s.encerrar_conexao_nativa();self.assertEqual(o.matrix_world,antes)
+
+    def test_corrente_criacao_remove_so_par_pendente_sem_desagregar(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();pai=o.parent
+        s.editar_criacao_solda(zerar=True)
+        self.assertEqual(bpy.ops.object.cabinet_acao_criacao_solda(acao='REMOVER|0'),{'FINISHED'})
+        self.assertEqual(w['pares'],[]);self.assertEqual(w['distancias'],[])
+        self.assertEqual(w['fase'],'origem');self.assertEqual(o.parent,pai)
+        self.assertFalse(any(k.startswith('adj_') for k in o.keys()))
+
+    def test_feedback_criacao_usa_cursor_nativo_e_distancia_sem_consultar_malhas(self):
+        s=addon.solda
+        w=dict(snap_pendente=True,cursor=Vector((.3,.4,0)),escolhido=('---',Vector((0,0,0))))
+        with patch.object(s,'_vertice_do_snap',side_effect=AssertionError('Segundo motor de snap')):
+            ponto,inicio=s._feedback_snap_criacao(w)
+        self.assertAlmostEqual((ponto-inicio).length,.5)
+        w['snap_pendente']=False;self.assertIsNone(s._feedback_snap_criacao(w))
+
+    def test_qualidade_ancoras_piloto_prioriza_zero_rejeita_vertices_e_quinas_repetidas(self):
+        def par(origem,alvo,p,q):
+            return dict(origem='Lateral',destino='Corpo',assinatura=origem,alvo=alvo,
+                ponto=p,final=q,distancia=(Vector(p)-Vector(q)).length,raio=.01805)
+        bons=[par(str(k),str(k),p,p) for k,p in enumerate(((0,0,0),(0,0,1),(0,1,0),(0,1,1)))]
+        ruins=[par('0','extra',(0,0,0),(.1,0,0)),par('perto','perto',(0,0,.018),(0,0,.018))]
+        r=addon.solda._refinar_candidatos_ancoras(ruins+list(reversed(bons)))
+        self.assertEqual(len(r['aceitas']),1);self.assertEqual(len(r['ligacoes']),1)
+        self.assertEqual({c['motivo'] for c in r['rejeitadas']},{'Vertice repetido','Quina proxima ja atendida','Par de pecas ou modulos ja soldado'})
+        self.assertTrue(all(c['distancia']==0 for c in r['aceitas']))
+        inversos=[dict(c,origem=c['destino'],destino=c['origem'],assinatura=c['alvo'],alvo=c['assinatura'],ponto=c['final'],final=c['ponto']) for c in bons]
+        self.assertEqual(len(addon.solda._refinar_candidatos_ancoras(bons+inversos)['aceitas']),1)
+
+    def test_piloto_limita_um_par_entre_modulos_mesmo_com_chapas_diferentes(self):
+        s=addon.solda
+        candidatos=[dict(origem='Chapa A'+str(k),destino='Chapa B'+str(k),par=('Modulo A','Modulo B'),
+            assinatura='---',alvo='---',ponto=(k,0,0),final=(k+d,0,0),distancia=d,raio=.01805)
+            for k,d in enumerate((.1,0.,.02))]
+        r=s._refinar_candidatos_ancoras(candidatos)
+        self.assertEqual(len(r['aceitas']),1)
+        self.assertEqual(r['aceitas'][0]['origem'],'Chapa A1')
+        self.assertTrue(all(c['motivo']=='Par de pecas ou modulos ja soldado' for c in r['rejeitadas']))
+        self.assertEqual(r,s._refinar_candidatos_ancoras(list(reversed(candidatos))))
+
+    def test_par_da_auditoria_respeita_modulos_e_preserva_juntas_internas(self):
+        s=addon.solda;a=self.modulo()
+        b=bpy.data.objects.new('Outro modulo',None);bpy.context.collection.objects.link(b)
+        b[addon.chapas.MARCA_CONJUNTO]=True
+        ca=addon.modulos._chapas_do_conjunto(a)
+        cb=[addon.chapas.nova_chapa('Outra chapa',400,300,18,(800,0,0),(0,0,0),bpy.context) for _ in range(2)]
+        for o in cb:o.parent=b
+        self.assertEqual(s._par_qualidade_ancoras(ca[0],cb[0]),tuple(sorted((a.name,b.name))))
+        self.assertEqual(s._par_qualidade_ancoras(ca[-1],cb[-1]),tuple(sorted((a.name,b.name))))
+        self.assertEqual(s._par_qualidade_ancoras(ca[0],ca[1]),tuple(sorted((ca[0].name,ca[1].name))))
+        solta=addon.chapas.nova_chapa('Chapa solta',400,300,18,(0,0,0),(0,0,0),bpy.context)
+        self.assertEqual(s._par_qualidade_ancoras(solta,cb[0]),tuple(sorted((solta.name,b.name))))
+
+    def test_auditoria_modulo_e_somente_leitura_e_deterministica(self):
+        modulo=self.modulo();pecas=addon.modulos._chapas_do_conjunto(modulo)
+        antes=[(o.name,o.matrix_world.copy(),dict(o.items()),o.data.as_pointer()) for o in pecas]
+        r=addon.solda.auditar_ancoras(pecas)
+        self.assertGreater(r['candidatas'],0)
+        self.assertEqual(r,addon.solda.auditar_ancoras(list(reversed(pecas))))
+        self.assertEqual(antes,[(o.name,o.matrix_world.copy(),dict(o.items()),o.data.as_pointer()) for o in pecas])
+
+    def test_piloto_busca_quinas_zero_em_vez_de_apenas_deduplicar_ancora_errada(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        s.encerrar_conexao_nativa();n.location=(.4,0,0);bpy.context.view_layer.update()
+        s._registrar_pares_reais(o,{('x_pos',n.name):[('---','+++')]})
+        antes={k:str(v) for k,v in o.items()}
+        self.assertGreater(s.auditar_ancoras([o,n])['aceitas'][0]['distancia'],.1)
+        r=s.propor_ancoras_piloto([o,n])
+        self.assertEqual(len(r['aceitas']),1);self.assertFalse(r['sem_contato'])
+        self.assertTrue(all(c['distancia']<=1e-5 for c in r['aceitas']))
+        self.assertTrue(all(c['assinatura']!='---' for c in r['aceitas']))
+        self.assertEqual(antes,{k:str(v) for k,v in o.items()})
+        self.assertEqual(r,s.propor_ancoras_piloto([n,o]))
+
+    def test_piloto_nao_inventa_solda_entre_pecas_sem_contato(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();s.encerrar_conexao_nativa()
+        s._registrar_pares_reais(o,{('x_pos',n.name):[('---','---')]})
+        r=s.propor_ancoras_piloto([o,n])
+        self.assertEqual(r['aceitas'],[]);self.assertEqual(len(r['sem_contato']),1)
+
+    def _nova_solda_manual(self,modelada=False):
+        s=addon.solda
+        o=addon.chapas.nova_chapa('Origem solda',400,300,18,(0,0,0),(0,0,0),bpy.context)
+        if modelada:
+            bpy.data.objects.remove(o,do_unlink=True);o=self._chapa_com_deslocamento()
+        n=addon.chapas.nova_chapa('Destino solda',400,300,18,(800,200,50),(0,0,0),bpy.context)
+        bpy.context.view_layer.update()
+        sc=s._ancora_estavel(o,'v0');sn=s._ancora_estavel(n,'v0')
+        d=s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)
+        estado=dict(origem=o.name,origens=[o.name],destinos='',fase='confirmar',escolhido=None,
+            pares=[(sc,n.name,sn)],moderna=True,distancias=[d.length],direcoes=[tuple(d.normalized())],
+            zeradas=[False],snap_nativo=True,pela_gaveta=True,regiao=0)
+        s._conexao_manual[0]=estado
+        self.addCleanup(s.encerrar_conexao_nativa)
+        return o,n,estado
+
+    def _confirmar_solda_manual(self,estado):
+        s=addon.solda
+        op=SimpleNamespace(_encerrar=lambda ctx:s.encerrar_conexao_nativa(ctx))
+        with patch.object(addon.perguntas,'_perguntar'):
+            self.assertEqual(s.OBJECT_OT_conectar_vertices._terminar(op,bpy.context),{'FINISHED'})
+        self.assertEqual(bpy.ops.object.cabinet_juntar_modulo(juntar=False),{'FINISHED'})
+        o=bpy.data.objects[estado['origem']]
+        return next(p for p in addon.chapas.PONTAS if o.get('adj_%s_manual'%p))
+
+    def test_solda_previa_distancia_reset_zero_final_fixo_e_cancelamento_integral(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();me=o.data
+        filho=bpy.data.objects.new('Filho com restricao',None);bpy.context.collection.objects.link(filho)
+        filho.parent=o;filho.location=(.1,.2,.3)
+        restricao=filho.constraints.new('COPY_ROTATION');restricao.target=n;restricao.mix_mode='ADD'
+        n.rotation_euler.z=.37;bpy.context.view_layer.update();mundo_filho=filho.matrix_world.copy()
+        antes=[o.matrix_world@v.co for v in me.vertices];fixo=n.matrix_world.copy()
+        self.assertIsNone(s.editar_criacao_solda(.025))
+        sc,_nome,sn=w['pares'][0]
+        self.assertAlmostEqual((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,.025,places=6)
+        self.assertIsNone(s.editar_criacao_solda(zerar=True))
+        self.assertLess((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,1e-6)
+        self.assertEqual(w['zeradas'],[True]);self.assertEqual(n.matrix_world,fixo)
+        s.encerrar_conexao_nativa();self.assertIs(o.data,me)
+        for p,v in zip(antes,me.vertices):self.assertLess((o.matrix_world@v.co-p).length,1e-6)
+        self.assertFalse(any(k.startswith('adj_') and o[k] for k in o.keys()))
+        bpy.context.view_layer.update()
+        for a,b in zip(mundo_filho,filho.matrix_world):self.assertLess((a-b).length,1e-6)
+
+    def test_solda_criacao_voltar_por_backspace_ctrl_z_e_cancelar_por_direito_esc(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        area=SimpleNamespace(tag_redraw=lambda:None)
+        op=SimpleNamespace(_area=area,_encerrar=lambda ctx:s.encerrar_conexao_nativa(ctx),_na_viewport=lambda e:True)
+        for tipo,ctrl in (('BACK_SPACE',False),('Z',True)):
+            w.update(fase='confirmar',pares=[(s._ancora_estavel(o,'v0'),n.name,s._ancora_estavel(n,'v0'))],
+                distancias=[.2],direcoes=[(1,0,0)],zeradas=[False])
+            self.assertEqual(s.OBJECT_OT_conectar_vertices._modal(op,bpy.context,
+                SimpleNamespace(type=tipo,value='PRESS',ctrl=ctrl)),{'RUNNING_MODAL'})
+            self.assertEqual(w['fase'],'destino');self.assertFalse(w['pares'])
+        for tipo in ('RIGHTMOUSE','ESC'):
+            s._conexao_manual[0]=w
+            self.assertEqual(s.OBJECT_OT_conectar_vertices._modal(op,bpy.context,
+                SimpleNamespace(type=tipo,value='PRESS',ctrl=False)),{'CANCELLED'})
+            self.assertIsNone(s._conexao_manual[0])
+
+    def test_solda_comandos_da_criacao_nao_criam_vinculos_antes_do_aceite(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        self.assertEqual(bpy.ops.object.cabinet_acao_criacao_solda(acao='RESETAR'),{'FINISHED'})
+        self.assertEqual(w['distancias'],[0.])
+        self.assertEqual(bpy.ops.object.cabinet_acao_criacao_solda(acao='VOLTAR'),{'FINISHED'})
+        self.assertTrue(w.pop('voltar'))
+        self.assertEqual(bpy.ops.object.cabinet_acao_criacao_solda(acao='CANCELAR'),{'FINISHED'})
+        self.assertTrue(w.pop('cancelar'))
+        self.assertFalse(any(s._ancoras_gravadas(o,p) for p in addon.chapas.PONTAS))
+
+    def test_solda_confirmada_conserva_zero_e_edita_distancia_apos_giro_espelho(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        s.editar_criacao_solda(zerar=True);s.editar_criacao_solda(.04)
+        ponta=self._confirmar_solda_manual(w)
+        self.assertLess(s._origens_ancoras(o,ponta)[0].length,1e-6)
+        raiz=bpy.data.objects.new('Grupo girado',None);bpy.context.collection.objects.link(raiz)
+        o.parent=n.parent=raiz;raiz.rotation_euler.z=.63;raiz.scale.x=-1
+        bpy.context.view_layer.update();fixo=n.matrix_world.copy()
+        self.assertIsNone(s.editar_distancia_solda(o.name,ponta+'|0',.1))
+        sc,sn=s._ancoras_gravadas(o,ponta)[0]
+        self.assertAlmostEqual((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,.1,places=6)
+        self.assertEqual(n.matrix_world,fixo)
+        self.assertTrue(s.resetar_ponta(o,ponta))
+        self.assertLess((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,1e-5)
+        self.assertTrue(s._ligacoes_adjacencia([o],somente_manuais=True))
+        s.desassociar(o,n)
+        self.assertNotIn('adj_%s_manual'%ponta,o);self.assertNotIn('adj_%s_direcoes'%ponta,o)
+
+    def test_solda_nova_undo_redo_preserva_metadados_e_posicao_original(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();nome=o.name
+        antes=[o.matrix_world@v.co for v in o.data.vertices]
+        bpy.ops.ed.undo_push(message='Antes da solda')
+        s.editar_criacao_solda(zerar=True);ponta=self._confirmar_solda_manual(w)
+        bpy.ops.ed.undo_push(message='Solda criada');o=None;n=None;w=None
+        bpy.ops.ed.undo();bpy.context.view_layer.update();addon.eventos._fim_do_desfazer()
+        o=bpy.data.objects[nome]
+        self.assertNotIn('adj_%s_manual'%ponta,o)
+        for p,v in zip(antes,o.data.vertices):self.assertLess((o.matrix_world@v.co-p).length,1e-5)
+        o=None
+        bpy.ops.ed.redo();bpy.context.view_layer.update();addon.eventos._fim_do_desfazer()
+        o=bpy.data.objects[nome]
+        self.assertTrue(o['adj_%s_manual'%ponta]);self.assertLess(s._origens_ancoras(o,ponta)[0].length,1e-6)
+
+    def test_ancora_estavel_sobrevive_reordenacao_e_recusa_vertice_apagado(self):
+        s=addon.solda;o=self._chapa_com_deslocamento()
+        assinatura=s._ancora_estavel(o,'v0');self.assertTrue(assinatura.startswith('u'))
+        antes=s._vertice_da_assinatura(o,assinatura)
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data);bm.verts.ensure_lookup_table()
+            bm.verts.sort(key=lambda v:-v.index);bm.verts.index_update();bm.to_mesh(o.data)
+        finally:bm.free()
+        self.assertLess((s._vertice_da_assinatura(o,assinatura)-antes).length,1e-6)
+        indice=s._indices_da_assinatura(o,assinatura)[0]
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data);bm.verts.ensure_lookup_table();bm.verts.remove(bm.verts[indice]);bm.to_mesh(o.data)
+        finally:bm.free()
+        self.assertFalse(s._indices_da_assinatura(o,assinatura))
+        with self.assertRaises(ValueError):s._vertice_da_assinatura(o,assinatura)
+
+    def test_solda_criacao_alt_reancora_pelo_snap_nativo_com_destino_restrito(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual();fixo=n.matrix_world.copy()
+        op=SimpleNamespace(_area=SimpleNamespace(tag_redraw=lambda:None),
+            _regiao=SimpleNamespace(x=0,y=0),_w=w,_na_viewport=lambda e:True)
+        evento=SimpleNamespace(type='LEFTMOUSE',value='PRESS',ctrl=False,alt=True,mouse_x=10,mouse_y=10)
+        with patch.object(s,'_bolinha_sob_mouse',return_value=({'indice':0},'b')):
+            # O override usa a VIEW_3D real; nao abre janela nem simula gestos.
+            op._area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+            op._regiao=next(r for r in op._area.regions if r.type=='WINDOW')
+            with patch.object(addon.gavetas.AssistenteDoVao,'_iniciar_snap_nativo') as nativo:
+                self.assertEqual(s.OBJECT_OT_conectar_vertices._modal(op,bpy.context,evento),{'RUNNING_MODAL'})
+                nativo.assert_called_once();self.assertEqual(w['alvos_snap'],[n.name])
+        self.assertEqual(w['editar_ancora'],(0,'b'));self.assertEqual(n.matrix_world,fixo)
+
+    def test_solda_manual_salvar_anexar_e_renomear_preserva_dados(self):
+        import tempfile
+        s=addon.solda;o,n,w=self._nova_solda_manual(modelada=True)
+        s.editar_criacao_solda(zerar=True);ponta=self._confirmar_solda_manual(w)
+        nome=o.name;n.name='Destino renomeado'
+        dados={k:str(v) for k,v in o.items() if k.startswith('adj_')}
+        with tempfile.TemporaryDirectory() as tmp:
+            arquivo=os.path.join(tmp,'solda.blend')
+            bpy.data.libraries.write(arquivo,{o,n})
+            bpy.data.objects.remove(o,do_unlink=True);bpy.data.objects.remove(n,do_unlink=True);o=None;n=None
+            with bpy.data.libraries.load(arquivo,link=False) as (fonte,destino):destino.objects=list(fonte.objects)
+            for obj in destino.objects:bpy.context.scene.collection.objects.link(obj)
+            bpy.context.view_layer.update();o=bpy.data.objects[nome]
+            self.assertEqual(dados,{k:str(v) for k,v in o.items() if k.startswith('adj_')})
+            n=s._vizinho_da_ponta(o,ponta);self.assertEqual(n.name,'Destino renomeado')
+            self.assertIsNone(s.editar_distancia_solda(o.name,ponta+'|0',.03))
+            sc,sn=s._ancoras_gravadas(o,ponta)[0]
+            self.assertAlmostEqual((s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn)).length,.03,places=6)
+
+    def test_solda_vertice_apagado_avisa_sem_apagar_ou_reinterpretar_metadados(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual(modelada=True)
+        ponta=self._confirmar_solda_manual(w);sc,_sn=s._ancoras_gravadas(o,ponta)[0]
+        antes={k:str(v) for k,v in o.items() if k.startswith('adj_')}
+        indice=s._indices_da_assinatura(o,sc)[0]
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(o.data);bm.verts.ensure_lookup_table();bm.verts.remove(bm.verts[indice]);bm.to_mesh(o.data)
+        finally:bm.free()
+        self.assertTrue(s.diagnostico_soldas(o))
+        self.assertEqual(antes,{k:str(v) for k,v in o.items() if k.startswith('adj_')})
+        self.assertTrue(s.editar_distancia_solda(o.name,ponta+'|0',.05))
+
+    def test_solda_manual_controles_em_zero_e_campo_nativo_editavel_sem_alt(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        s.editar_criacao_solda(zerar=True)
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        ponta=self._confirmar_solda_manual(w)
+        self.assertTrue(o.select_get());self.assertEqual(bpy.context.object,o)
+        contexto=_ContextoRegiao();contexto.region_data=object()
+        with patch.object(s,'_correntes_visiveis',return_value=False), \
+             patch.object(addon.hud,'_contexto_hud',return_value=True), \
+             patch.object(addon.gaveta,'_eh_area_gaveta',return_value=False), \
+             patch.object(addon.hud,'_itens_hud',return_value=[(o,'INDIVIDUAL',[o])]), \
+             patch.object(addon.hud,'_projetar_hud',side_effect=lambda _c,p:Vector((p.x*100,p.y*100))):
+            correntes=s._correntes_hud(contexto)
+        self.assertEqual(len(correntes),1);c=correntes[0];self.assertTrue(c['manual'])
+        self.assertEqual(set(s._botoes_da_corrente(contexto,c)),{'corrente','regua'})
+        feitos=[]
+        def criar(tipo):
+            op=SimpleNamespace();feitos.append((tipo,op))
+            return SimpleNamespace(matrix_basis=Matrix.Identity(4),as_pointer=lambda:123456,
+                target_set_operator=lambda _nome:op)
+        grupo=SimpleNamespace(botoes=[],gizmos=SimpleNamespace(new=criar))
+        with patch.object(s,'_correntes_hud',return_value=correntes):
+            addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo,contexto)
+            addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo,contexto)
+        self.assertEqual(len(feitos),3)
+        campo=feitos[-1][1]
+        self.assertEqual((campo.dono,campo.objeto,campo.propriedade),('solda',o.name,ponta+'|0'))
+        self.assertAlmostEqual(campo.valor,0,places=6)
+        self.assertIn(123456,addon.hud._campos_gaveta)
+        addon.hud._campos_gaveta.pop(123456,None)
+
+    def test_solda_snap_sem_cache_consulta_face_nativa_sem_varrer_malha(self):
+        s=addon.solda;o,n,w=self._nova_solda_manual()
+        s._cache_ancoras[0].clear()
+        with patch.object(s,'preparar_ancoras',side_effect=AssertionError('Leitura de toda a malha no clique')):
+            ponto=o.matrix_world@o.data.vertices[0].co
+            alvo=s._vertice_do_snap(dict(alvos_snap=[o.name]),ponto)
+        self.assertEqual(alvo[:2],(o,'v0'))
+
+    def test_raio_da_vista_local_ignora_objeto_oculto_diante_do_modulo(self):
+        # Regressao v343: o raio via a parede externa e o clique nativo
+        # acabava isolando a chapa que aparecia na vista local do usuario.
+        modulo = self.modulo()
+        topo = max(addon.modulos._chapas_do_conjunto(modulo),
+                   key=lambda o: o.matrix_world.translation.z)
+        centro = topo.matrix_world.translation.copy()
+        oculto = addon.chapas.nova_chapa('Fora da vista local', 3000, 3000, 18,
+            tuple((centro + Vector((0, 0, .5))) * 1000), (0, 0, 0), bpy.context)
+        area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
+        regiao = next(r for r in area.regions if r.type == 'WINDOW')
+        self.selecionar(modulo, *modulo.children_recursive, ativo=modulo)
+        with bpy.context.temp_override(area=area, region=regiao):
+            bpy.ops.view3d.localview(frame_selected=False)
+            try:
+                bpy.context.view_layer.update()
+                self.assertFalse(oculto.visible_get(viewport=area.spaces.active))
+                origem = centro + Vector((0, 0, 2))
+                direcao = Vector((0, 0, -1))
+                primeiro = bpy.context.scene.ray_cast(bpy.context.evaluated_depsgraph_get(), origem, direcao)
+                self.assertEqual(primeiro[4].original, oculto)
+                with patch.object(addon.hud.view3d_utils, 'region_2d_to_origin_3d', return_value=origem), \
+                     patch.object(addon.hud.view3d_utils, 'region_2d_to_vector_3d', return_value=direcao):
+                    atingido = addon.hud._raio_hud(bpy.context, (100, 100))
+                self.assertEqual(atingido[0], topo)
+                for _ in range(2):
+                    addon.hud._selecionar_chapa_hud(bpy.context, atingido[0])
+                    self.assertEqual(bpy.context.object, modulo)
+                    bpy.ops.object.cabinet_editar_grupo()
+                    bpy.ops.object.cabinet_editar_grupo()
+                    self.assertEqual(bpy.context.object, modulo)
+                    self.assertTrue(modulo.select_get())
+            finally:
+                if bpy.context.mode != 'OBJECT':
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.ops.view3d.localview(frame_selected=False)
+
     def _nova_solda_legada(self, parcial=False):
         modulo=self.modulo();colecao=addon.modulos._colecao_do_modulo(modulo)
         del colecao[addon.modulos.MARCA_COLECAO_MODULO]
@@ -147,6 +537,49 @@ class TestHUD(unittest.TestCase):
             addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo,bpy.context)
         self.assertEqual(len(operadores),2)
         self.assertTrue(all(op.chapa==lateral.name for op in operadores))
+
+    def test_gizmo_da_solda_reutiliza_operadores_ao_redesenhar_e_trocar_chapa(self):
+        # Regressao (era BUG, corrigido na 348): redraw religava o operador
+        # sob o mouse e invalidava os dados do tooltip do gizmo nativo.
+        modulo, base, tampo, lateral = self.caixote_aberto()
+        corrente = dict(a=base, b=lateral, movel=lateral, meio=Vector((100,100)))
+        ligados = []
+        def ligar(nome):
+            op = SimpleNamespace(nome=nome); ligados.append(op); return op
+        grupo = SimpleNamespace(botoes=[], gizmos=SimpleNamespace(new=lambda _n:
+            SimpleNamespace(matrix_basis=Matrix.Identity(4), target_set_operator=ligar)))
+        with patch.object(addon.solda, '_correntes_hud', return_value=[corrente]) as dados:
+            for alvo in (lateral, tampo):
+                corrente['movel'] = alvo
+                addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo, bpy.context)
+                self.assertEqual(len(ligados), 2)
+                self.assertTrue(all(op.chapa == alvo.name for op in ligados))
+            dados.return_value = []
+            addon.hud.VIEW3D_GGT_correntes_cabinet.draw_prepare(grupo, bpy.context)
+            self.assertTrue(all(b.hide for b in grupo.botoes))
+        self.assertEqual(len(ligados), 2)
+
+    def test_clique_da_regua_cancelada_nao_cria_undo_externo(self):
+        self.assertNotIn('UNDO', addon.solda.OBJECT_OT_clique_corrente.bl_options)
+        alvo = SimpleNamespace(name='Chapa da regua')
+        evento = SimpleNamespace(mouse_region_x=0, mouse_region_y=0)
+        with patch.object(addon.solda, '_alvo_da_corrente',
+                          return_value=('botao', {'movel':alvo}, 'regua')), \
+             patch('bpy.ops.object.cabinet_resetar_distancia', return_value={'CANCELLED'}):
+            self.assertEqual(addon.solda.OBJECT_OT_clique_corrente.invoke(
+                None, bpy.context, evento), {'CANCELLED'})
+
+    def test_detectar_controle_da_solda_calcula_correntes_uma_vez_por_evento(self):
+        modulo, base, tampo, lateral = self.caixote_aberto()
+        corrente = dict(a=base, b=lateral, movel=lateral, meio=Vector((100,100)),
+                       pontos=[Vector((.1,0,0)), Vector((.3,0,0))])
+        contexto = _ContextoRegiao()
+        with patch.object(addon.solda, '_correntes_hud', return_value=[corrente]) as calcular, \
+             patch.object(addon.hud, '_projetar_hud', side_effect=lambda _c,p: Vector((p.x*1000,0))):
+            ponto = addon.solda._botoes_da_corrente(contexto, corrente)['regua']
+            resultado = addon.solda._alvo_da_corrente(contexto, ponto)
+        self.assertEqual(resultado, ('botao', corrente, 'regua'))
+        self.assertEqual(calcular.call_count, 1)
 
     def _modulo_com_lateral_desvinculada(self, grupo_ativo=False):
         from unittest.mock import patch
@@ -315,6 +748,48 @@ class TestHUD(unittest.TestCase):
             o=bpy.data.objects[nome];self.assertEqual(o['adj_'+ponta+'_origens'],registro)
             for p,v in zip(origem,o.data.vertices):self.assertLess((o.matrix_world@v.co-p-deslocamento).length,1e-6)
             o=None
+
+    def test_criar_solda_do_modulo_escolhe_origem_no_primeiro_snap_e_confirma_no_menu(self):
+        S = addon.solda
+        modulo = self.modulo()
+        chapas = addon.modulos._chapas_do_conjunto(modulo)
+        origem = chapas[0]
+        origem.location.z += 5
+        destino = self._chapa_com_deslocamento()
+        destino.location = (3,3,3)
+        bpy.context.view_layer.update()
+        p = origem.matrix_world @ origem.data.vertices[0].co
+        q = destino.matrix_world @ destino.data.vertices[0].co
+        area = SimpleNamespace(tag_redraw=lambda:None, header_text_set=lambda _s:None)
+        regiao = SimpleNamespace(as_pointer=lambda:333)
+        contexto = _ContextoRegiao()
+        contexto.object = modulo
+        contexto.window_manager = SimpleNamespace(windows=[], modal_handler_add=lambda _o:None,
+            event_timer_add=lambda *_a,**_k:object(), event_timer_remove=lambda _t:None)
+        op = SimpleNamespace(origem='', destinos='', report=lambda *_a:None)
+        op._encerrar = lambda ctx:S.encerrar_conexao_nativa(ctx)
+        self.addCleanup(S.encerrar_conexao_nativa, contexto)
+        with patch.object(addon.importacao, '_viewport_alvo', return_value=(area,regiao,object())), \
+             patch.object(addon.perguntas, '_na_gaveta', [True]):
+            self.assertEqual(S.OBJECT_OT_conectar_vertices.invoke(op,contexto,None), {'RUNNING_MODAL'})
+        estado = S._conexao_manual[0]
+        self.assertEqual(estado['origem'], '')
+        self.assertEqual(set(estado['alvos_snap']), {o.name for o in chapas})
+        self.assertNotIn(destino.name, estado['alvos_snap'])
+        estado['ponto_confirmado'] = (p,None)
+        self.assertEqual(S.OBJECT_OT_conectar_vertices._modal(op,contexto,None), {'RUNNING_MODAL'})
+        self.assertEqual(estado['origem'], origem.name)
+        self.assertEqual(estado['fase'], 'destino')
+        self.assertIn(destino.name, estado['alvos_snap'])
+        estado['ponto_confirmado'] = (q,None)
+        S.OBJECT_OT_conectar_vertices._modal(op,contexto,None)
+        self.assertEqual(estado['pares'], [(S._ancora_estavel(origem,'v0'),destino.name,S._ancora_estavel(destino,'v0'))])
+        with patch.object(S, '_perguntar_juntar') as perguntar:
+            self.assertEqual(S.OBJECT_OT_conectar_vertices._terminar(op,contexto), {'FINISHED'})
+        self.assertTrue(perguntar.call_args.args[4])
+        self.assertIsNone(S._conexao_manual[0])
+        self.assertIsNone(S._timer_conexao[0])
+        self.assertIsNone(S._handler_conexao[0])
 
     def test_selecao_de_solda_usa_todos_os_vertices_nativos_sem_caixa(self):
         from unittest.mock import patch
@@ -1637,7 +2112,7 @@ class TestHUD(unittest.TestCase):
         entrada = next(e for e in addon.selecao._ENTRADAS_KEYMAP
                        if e[0] == valor and e[1] == shift)
         original = addon.hud._raio_hud
-        addon.hud._raio_hud = lambda _c, _l: (chapa, None)
+        addon.hud._raio_hud = lambda _c, _l: (chapa, None) if chapa is not None else None
         classe = addon.selecao.OBJECT_OT_selecionar
         props = dict(extend=False, deselect=False, toggle=False,
                      deselect_all=False, select_passthrough=False,
@@ -1646,7 +2121,15 @@ class TestHUD(unittest.TestCase):
         op = SimpleNamespace(modo=entrada[2], location=(0, 0), **props)
         op._soltou = lambda c, p: classe._soltou(op, c, p)
         op._invoke = lambda c, e: classe._invoke(op, c, e)
-        op.execute = lambda c: {'CANCELLED'}
+        def selecionar_nativo(c):
+            # Fora do modulo, o Blender limpa/escolhe o objeto comum.
+            if not shift:
+                bpy.ops.object.select_all(action='DESELECT')
+            if chapa is not None:
+                chapa.select_set(True)
+                bpy.context.view_layer.objects.active = chapa
+            return {'FINISHED'}
+        op.execute = selecionar_nativo
         try:
             return classe.invoke(op, _ContextoRegiao(), SimpleNamespace(
                 mouse_region_x=10, mouse_region_y=10))
@@ -1657,6 +2140,55 @@ class TestHUD(unittest.TestCase):
         """O que o Blender entrega num duplo clique: PRESS e DOUBLE_CLICK."""
         self.clicar_pelo_keymap(chapa, 'PRESS', shift)
         self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK', shift)
+
+    def test_clique_no_vazio_reseta_individual_e_exige_novo_duplo(self):
+        # Regressao v346: o nome do ultimo clique sobrevivia ao vazio,
+        # mantendo o contexto individual depois de limpar a selecao.
+        modulo = self.modulo()
+        chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+        self.duplo(chapa)
+        self.assertEqual(bpy.context.selected_objects, [chapa])
+        self.assertEqual(chapa.chapa_modo, 'INDIVIDUAL')
+        addon.hud._hover_hud[4242] = {'objeto': chapa}
+        self.clicar_pelo_keymap(None, 'PRESS')
+        self.assertFalse(bpy.context.selected_objects)
+        self.assertFalse(addon.hud._clique_chapa_hud)
+        self.assertFalse(addon.hud._hover_hud)
+        self.assertEqual(chapa.chapa_modo, 'GRUPO')
+        # Nem um DOUBLE_CLICK sem o primeiro clique pode reutilizar a memoria.
+        self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK')
+        self.assertTrue(modulo.select_get())
+        self.assertEqual(bpy.context.object, modulo)
+        self.duplo(chapa)
+        self.assertEqual(bpy.context.selected_objects, [chapa])
+        self.clicar_pelo_keymap(None, 'PRESS')
+        self.clicar_pelo_keymap(chapa, 'PRESS')
+        self.assertTrue(modulo.select_get())
+        self.assertEqual(bpy.context.object, modulo)
+
+    def test_clique_em_objeto_comum_encerra_individual_do_modulo(self):
+        modulo = self.modulo()
+        chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+        comum = bpy.data.objects.new('Objeto comum', bpy.data.meshes.new('Malha comum'))
+        bpy.context.scene.collection.objects.link(comum)
+        self.duplo(chapa)
+        self.clicar_pelo_keymap(comum, 'PRESS')
+        self.assertEqual(bpy.context.selected_objects, [comum])
+        self.assertEqual(chapa.chapa_modo, 'GRUPO')
+        self.assertFalse(addon.hud._clique_chapa_hud)
+        self.clicar_pelo_keymap(chapa, 'PRESS')
+        self.assertEqual(bpy.context.object, modulo)
+        self.assertTrue(modulo.select_get())
+
+    def test_shift_no_vazio_preserva_contexto_individual(self):
+        modulo = self.modulo()
+        chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
+        self.duplo(chapa)
+        memoria = dict(addon.hud._clique_chapa_hud)
+        self.clicar_pelo_keymap(None, 'PRESS', shift=True)
+        self.assertEqual(bpy.context.selected_objects, [chapa])
+        self.assertEqual(chapa.chapa_modo, 'INDIVIDUAL')
+        self.assertEqual(addon.hud._clique_chapa_hud, memoria)
 
     def test_shift_soma_chapas_individuais_do_mesmo_grupo(self):
         # Pedido do usuario: clique = grupo; duplo = uma chapa dele;
@@ -2345,6 +2877,40 @@ class TestHUD(unittest.TestCase):
         addon.solda._gravar_ancoras(tampo, ponta, [(ancoras[0][0], fora), ancoras[1]])
         addon.solda.desassociar(tampo, direita)
         self.assertNotIn('adj_%s_ancoras' % ponta, tampo)
+
+    def test_regua_rejeita_destinos_contraditorios_sem_alterar_modulo(self):
+        # Regressao (era BUG, corrigido na 347): a regua aceitava a mesma
+        # quina em dois destinos e ainda remontava portas e dobradicas.
+        modulo, tampo, direita, ponta = self.solda_do_tampo()
+        pares = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
+        sc, sn = pares[0]
+        oposto = addon.solda._parceiro_espessura(direita, sn)
+        addon.solda._gravar_ancoras(tampo, ponta, [(sc, sn), (sc, oposto)])
+        antes = {o.name: (o.matrix_world.copy(), [tuple(v.co) for v in o.data.vertices])
+                 for o in addon.modulos._chapas_do_conjunto(modulo)}
+        for alvo in (tampo, direita):
+            self.selecionar(alvo, ativo=alvo)
+            with patch.object(addon.solda, '_atualizar_modulo',
+                              side_effect=AssertionError('Atualizou junta inviavel')):
+                self.assertEqual(bpy.ops.object.cabinet_resetar_distancia(
+                    chapa=alvo.name, forcar=True), {'CANCELLED'})
+            for nome, (matriz, pontos) in antes.items():
+                self.assertEqual(bpy.data.objects[nome].matrix_world, matriz)
+                self.assertEqual([tuple(v.co) for v in bpy.data.objects[nome].data.vertices], pontos)
+
+    def test_regua_do_grupo_valida_todas_as_juntas_antes_da_primeira_escrita(self):
+        modulo, base, tampo, direita = self.caixote_aberto()
+        ponta = next(p for p in addon.chapas.PONTAS
+                     if addon.solda._vizinho_da_ponta(tampo, p) == direita)
+        sc, sn = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)[0]
+        addon.solda._gravar_ancoras(tampo, ponta, [
+            (sc, sn), (sc, addon.solda._parceiro_espessura(direita, sn))])
+        antes = [tuple(v.co) for v in base.data.vertices]
+        matriz = base.matrix_world.copy()
+        with self.assertRaisesRegex(ValueError, 'destinos diferentes'):
+            addon.solda.resetar_pontas([(base, ponta), (tampo, ponta)])
+        self.assertEqual(base.matrix_world, matriz)
+        self.assertEqual([tuple(v.co) for v in base.data.vertices], antes)
 
     def test_regua_leva_aos_vertices_ancorados_mesmo_torta(self):
         # Print 1 do usuario: uma ancora na quina de FORA da lateral e a

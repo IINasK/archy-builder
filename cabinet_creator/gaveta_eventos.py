@@ -188,6 +188,8 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         if erro:
             self.report({'WARNING'}, erro)
             return {'CANCELLED'}
+        # A previa pertence ao undo da criacao, nao a cada valor digitado.
+        if self.dono=='solda_criacao':return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -195,6 +197,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     """Grava `valor` (METROS) no dono da medida; devolve o erro ou None.
     Serve a' digitacao e ao ARRASTE do campo (pedido do usuario: arrastar
     de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
+    if dono=='solda_criacao':return _solda.editar_criacao_solda(valor,indice=int(propriedade) if propriedade.isdigit() else None)
+    if dono=='solda':return _solda.editar_distancia_solda(objeto,propriedade,valor)
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
     if dono == 'parede_guia':
@@ -303,7 +307,7 @@ PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
-                      'prateleiras', 'divisorias', 'paredes', 'parede_modulo'}
+                      'prateleiras', 'divisorias', 'paredes', 'parede_modulo','solda_criacao','solda'}
 
 
 def _passo_do_arraste(event):
@@ -556,7 +560,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'escolha':
                 grupo = (bpy.data.objects.get(acao[5])
                          if len(acao) > 5 and acao[5] else None)
-                if acao[1] == _paredes_composicao.CHAVE_FIXA:
+                if acao[1]=='solda_acao':
+                    bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif acao[1] == _paredes_composicao.CHAVE_FIXA:
                     erro = _paredes_composicao.fixar(context, acao[5], acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
@@ -778,7 +784,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             _prateleiras._quantidade_previa[0] = None
             # o wizard nao vai para o undo: so' o que ja' esta' na cena
-            no_wizard = acao[0] == 'medida' and acao[1] in {'assistente', 'paredes'} or (
+            no_wizard = acao[0] == 'medida' and acao[1] in {'assistente', 'paredes','solda_criacao'} or (
                 contador and (acao[5] == _portas.ALVO_ASSISTENTE
                               or acao[1] == _paredes_edicao.ALVO_QUANTIDADE))
             if campo['arrastou']:
@@ -1062,11 +1068,12 @@ def _operador_apagado(acao):
                 and not _poll_operador(acao[1]))
 
 
-# Botoes de TEXTO com icone a' esquerda (pedido do usuario, os da porta
-# selecionada). O icone e' do gizmo, como os outros, mas o texto
-# continua e o clique e' o da gaveta (o operador abre modal).
+# O texto explica a acao; o gizmo so' desenha o icone a' esquerda.
+# O clique inteiro continua na gaveta para respeitar o soltar do mouse.
 ICONES_AO_LADO = {'object.cabinet_apanhar_vao': 'PIVOT_BOUNDBOX',
-                  'object.cabinet_definir_frente': 'AXIS_FRONT'}
+                  'object.cabinet_definir_frente': 'AXIS_FRONT',
+                  'object.cabinet_corrente_objeto': 'LINKED',
+                  'object.cabinet_resetar_distancia': 'DRIVER_DISTANCE'}
 
 
 def _icone_ao_lado(acao):
@@ -1232,17 +1239,27 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
         if gaveta:
             widgets = [v for v in _gaveta._widgets_interativos(context)
                        if _icone_acao_gaveta(v[5]) and v[1] >= 0]
-            # O tooltip nativo pode estar agendado para um gizmo desta
-            # fila. Reutilizar/ocultar; nao liberar alvos no redraw.
-            while len(self.botoes) < len(widgets):
-                botao = self.gizmos.new('GIZMO_GT_button_2d')
-                botao.draw_options = set()
-                botao.show_drag = False
-                botao.use_tooltip = True
-                self.botoes.append(botao)
+            if not hasattr(self, 'botoes_por_icone'):
+                self.botoes_por_icone = {}
+            usados = {}
             cores, _ = _gaveta._cores_gaveta()
             acesos_por_icone = set()
-            for botao, (x, y, w, h, _, acao) in zip(self.botoes, widgets):
+            for x, y, w, h, _, acao in widgets:
+                icone = _icone_acao_gaveta(acao)
+                indice = usados.get(icone, 0)
+                usados[icone] = indice + 1
+                chave = (icone, indice)
+                botao = self.botoes_por_icone.get(chave)
+                if botao is None:
+                    # Button2D fixa o icone no primeiro desenho nativo.
+                    # Outro simbolo exige outro gizmo, sem liberar o antigo.
+                    botao = self.gizmos.new('GIZMO_GT_button_2d')
+                    botao.icon = icone
+                    botao.draw_options = set()
+                    botao.show_drag = False
+                    botao.use_tooltip = True
+                    self.botoes.append(botao)
+                    self.botoes_por_icone[chave] = botao
                 botao.hide = False
                 if botao.is_highlight:
                     acesos_por_icone.add(_gaveta_desenho._chave_widget(acao))
@@ -1258,7 +1275,6 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 botao.color_highlight = cores.text_sel
                 botao.alpha_highlight = 0.3 if apagado else 1
                 botao.hide_select = False
-                botao.icon = _icone_acao_gaveta(acao)
                 botao.scale_basis = min(11, min(w, h) / (2 * max(1.0, context.preferences.system.ui_scale))) if _biblioteca_faixa.eh_faixa(context) else 11
                 ao_lado = _icone_ao_lado(acao)
                 # o texto ao lado ja' diz o que e': sem o tooltip do

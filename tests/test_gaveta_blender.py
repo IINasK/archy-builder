@@ -34,6 +34,73 @@ class _Contexto:
 
 
 class TestGaveta(unittest.TestCase):
+    def test_botoes_criar_e_confirmar_solda_usam_destaque_laranja_existente(self):
+        self.assertIn('object.cabinet_conectar_vertices',addon.gaveta.OPERADORES_DESTAQUE)
+        self.assertIn('object.cabinet_confirmar_conexao',addon.gaveta.OPERADORES_DESTAQUE)
+        estado=dict(fase='confirmar',pares=[('---','Destino','+++')],distancias=[.025])
+        itens=addon.gaveta._painel_criacao_solda(bpy.context,[],8,1000,300,estado)
+        criar=next(w for w in itens if w[4]=='Criar solda' and w[5])
+        self.assertEqual(criar[5],('operador','object.cabinet_confirmar_conexao'))
+        self.assertIn(criar[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+
+    def test_criar_solda_tem_painel_proprio_sem_orcamento_e_distancia_editavel(self):
+        estado=dict(moderna=True,fase='confirmar',pares=[('---','Destino','+++')],distancias=[.025])
+        addon.solda._conexao_manual[0]=estado
+        self.addCleanup(lambda:addon.solda._conexao_manual.__setitem__(0,None))
+        for largura in (190,320,564):
+            widgets=addon.gaveta._widgets_gaveta(bpy.context,largura,1200)
+            rotulos=[w[4] for w in widgets]
+            self.assertNotIn('Orcamento',rotulos)
+            self.assertFalse(any('Comodo' in r for r in rotulos))
+            self.assertIn('Deseja criar esta solda?',rotulos)
+            for rotulo in ('Criar solda','Cancelar solda','Voltar etapa','Resetar distancia'):
+                self.assertIn(rotulo,rotulos)
+            medida=next(w for w in widgets if w[5] and w[5][:2]==('medida','solda_criacao'))
+            self.assertEqual(medida[5][-1],25.)
+            self.assertTrue(all(w[0]>=0 and w[0]+w[2]<=min(largura-12,552)+.01 for w in widgets))
+        estado.update(fase='origem',pares=[],distancias=[])
+        self.assertIsNone(addon.gaveta_eventos.aplicar_medida(bpy.context,'solda_criacao','','distancia',.012))
+        widgets=addon.gaveta._widgets_gaveta(bpy.context,320,1200)
+        campo=next(w for w in widgets if w[5] and w[5][:2]==('medida','solda_criacao'))
+        self.assertEqual(campo[5][-1],12.)
+
+    def test_icones_nativos_nao_migram_da_biblioteca_para_montagem(self):
+        from unittest.mock import patch, Mock
+        from contextlib import ExitStack
+        from mathutils import Matrix
+        e=addon.gaveta_eventos
+        grupo=SimpleNamespace(botoes=[],campos=[],alca=SimpleNamespace(hide=False),
+            gizmos=SimpleNamespace(new=lambda _tipo:SimpleNamespace(is_highlight=False,
+                matrix_basis=Matrix.Identity(4),target_set_operator=lambda _op:None)),
+            _preparar_hover=lambda *_a:None)
+        pasta=('operador','object.cabinet_abrir_biblioteca')
+        salvar=('operador','object.cabinet_salvar_biblioteca')
+        corrente=('operador',addon.solda.OP_CORRENTE_OBJETO,True)
+        reset=('operador',addon.solda.OP_RESETAR_DISTANCIA,True)
+        abrir=Mock(return_value={'FINISHED'})
+        externo=SimpleNamespace(ops=SimpleNamespace(wm=SimpleNamespace(path_open=abrir)))
+        with patch.object(addon.biblioteca,'bpy',externo):
+            self.assertEqual(addon.biblioteca.OBJECT_OT_abrir_pasta_biblioteca.execute(
+                SimpleNamespace(report=lambda *_a:None),bpy.context),{'FINISHED'})
+        abrir.assert_called_once_with(filepath=addon.biblioteca.pasta_biblioteca())
+        with ExitStack() as pilha:
+            pilha.enter_context(patch.object(addon.gaveta,'_eh_area_gaveta',return_value=True))
+            widgets=pilha.enter_context(patch.object(addon.gaveta,'_widgets_interativos'))
+            pilha.enter_context(patch.object(addon.biblioteca_faixa,'eh_faixa',return_value=False))
+            pilha.enter_context(patch.object(addon.gaveta_desenho,'_desenhar_gaveta'))
+            for acoes in ((pasta,salvar),(corrente,reset),(salvar,pasta),(reset,corrente),
+                          (corrente,corrente),(pasta,salvar),(corrente,reset)):
+                widgets.return_value=[(10+100*i,100,90,28,'',a) for i,a in enumerate(acoes)]
+                e.VIEW3D_GGT_cabinet_gaveta.draw_prepare(grupo,bpy.context)
+                visiveis=sorted((b for b in grupo.botoes if not b.hide),key=lambda b:b.matrix_basis[0][3])
+                self.assertEqual(len(visiveis),len(acoes))
+                for botao,acao in zip(visiveis,acoes):
+                    # O Button2D nativo fixa o simbolo no primeiro draw.
+                    if not hasattr(botao,'icone_desenhado'):botao.icone_desenhado=botao.icon
+                    self.assertEqual(botao.icone_desenhado,e._icone_acao_gaveta(acao))
+                self.assertTrue(all(e._icone_ao_lado(a) for a in (corrente,reset)))
+            self.assertEqual(len(grupo.botoes),5)
+
     def test_menu_chapa_chanfrada_exibe_cotas_da_viewport_com_campos_proprios(self):
         import bmesh
         o=addon.chapas.nova_chapa('Cotas dinamicas no menu',400,300,18,(0,0,0),(0,90,0),bpy.context)
@@ -642,9 +709,9 @@ class TestGaveta(unittest.TestCase):
         self.assertIsNone(addon.gaveta_desenho._chave_widget(('pergunta',)))
         self.assertEqual(addon.gaveta_desenho._chave_widget(('resposta', 1)), 'resp:1')
 
-    def test_montagem_tem_so_corrente_e_resetar_distancia(self):
-        # Pedido do usuario: dos tres botoes so' dois ficam (Montagem so'
-        # aparece com chapa ou modulo selecionado)
+    def test_montagem_tem_criar_solda_corrente_e_resetar_distancia(self):
+        # Pedido v349: criar solda deve estar explicito, tambem numa chapa
+        # que ja' pertence ao modulo e cuja corrente serviria para desagregar.
         bpy.context.scene.cabinet_aba = 'MODULOS'
         chapa = addon.chapas.nova_chapa('Chapa', 600.0, 400.0, 18.0, (0, 0, 0),
                                  (0, 0, 0), bpy.context)
@@ -654,15 +721,39 @@ class TestGaveta(unittest.TestCase):
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
             i = next(n for n, v in enumerate(widgets) if v[4] == 'Montagem')
-            botoes = [v[5][1] for v in widgets[i + 1:i + 3]]
-            self.assertEqual(botoes, [addon.solda.OP_CORRENTE_OBJETO,
+            botoes = [v[5][1] for v in widgets[i + 1:i + 4]]
+            self.assertEqual(botoes, ['object.cabinet_conectar_vertices', addon.solda.OP_CORRENTE_OBJETO,
                                       addon.solda.OP_RESETAR_DISTANCIA])
+            criar = widgets[i + 1]
+            self.assertEqual(criar[4], 'Criar solda')
+            if largura >= 264:self.assertGreater(criar[2], widgets[i + 2][2])
+            else:self.assertEqual(criar[2],widgets[i+2][2])
+            self.assertGreater(criar[1], widgets[i + 2][1])
+            for v in widgets[i+2:i+4]:
+                self.assertTrue(addon.gaveta_eventos._icone_ao_lado(v[5]))
+                self.assertIn(v[4],('Corrente','Resetar distancia'))
             operadores = [v[5][1] for v in widgets if v[5] and v[5][0] == 'operador']
             for fora in ('object.cabinet_agrupar',
                          'object.cabinet_converter_modulo'):
                 self.assertNotIn(fora, operadores)
         self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(
             ('operador', addon.solda.OP_RESETAR_DISTANCIA)), 'DRIVER_DISTANCE')
+
+    def test_criar_solda_fica_no_menu_do_modulo_e_dispara_ao_soltar(self):
+        bpy.context.scene.cabinet_aba = 'MODULOS'
+        modulo = addon.modulos.criar_armario(bpy.context, 'Solda no menu', 600, 800, 550)
+        addon.hud._selecionar_chapa_hud(bpy.context, modulo)
+        self.assertIn('object.cabinet_conectar_vertices', addon.solda.OPERADORES_NO_SOLTAR)
+        for largura in (190, 320, 564):
+            widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
+            criar = next(v for v in widgets if v[4] == 'Criar solda')
+            self.assertEqual(criar[5], ('operador', 'object.cabinet_conectar_vertices'))
+            self.assertGreaterEqual(criar[0], 0)
+            self.assertLessEqual(criar[0] + criar[2], largura - 12)
+            self.assertFalse(addon.gaveta_eventos._operador_apagado(criar[5]))
+        bpy.ops.object.select_all(action='DESELECT')
+        self.assertFalse(any(v[4] == 'Criar solda'
+            for v in addon.gaveta._widgets_gaveta(bpy.context, 320, 1200)))
 
     def test_layout_da_aba_portas_do_usuario(self):
         # Cada categoria APARECE quando o wizard chega nela (pedido do

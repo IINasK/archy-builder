@@ -713,7 +713,7 @@ def espaco_disponivel(conj, grupo, dimensoes, fixos=None):
     da hora. Faces externas das chapas alinhadas recuam ate' a face interna.
     Le so' as caixas nativas das chapas estruturais, nunca os vertices da HUD.
     """
-    ref = grupo.matrix_world.to_quaternion().to_matrix()
+    ref = grupo.matrix_world.to_3x3().normalized()
     inv = ref.transposed()
     caixas = []
     for obj in _modulos._estruturais(_modulos._chapas_do_conjunto(conj)):
@@ -726,7 +726,7 @@ def espaco_disponivel(conj, grupo, dimensoes, fixos=None):
     hi = Vector(tuple(max(b[k] for _o,_a,b in caixas) for k in range(3)))
     interno_lo, interno_hi = lo.copy(), hi.copy()
     for obj, a, b in caixas:
-        normal = inv @ obj.matrix_world.to_quaternion().to_matrix().col[2]
+        normal = inv @ obj.matrix_world.to_3x3().normalized().col[2]
         eixo = max(range(3), key=lambda k: abs(normal[k]))
         if abs(normal[eixo]) < .999:
             continue
@@ -743,7 +743,7 @@ def espaco_disponivel(conj, grupo, dimensoes, fixos=None):
 
 
 def conservar_faces_fixas(grupo, antes, depois, fixos):
-    ref = grupo.matrix_world.to_quaternion().to_matrix()
+    ref = grupo.matrix_world.to_3x3().normalized()
     delta = Vector(tuple((antes[k]-depois[k])/1000 if fixos[k] else 0 for k in range(3)))
     if delta.length > 1e-8:
         matriz = grupo.matrix_world.copy()

@@ -465,21 +465,25 @@ def _vestir(obj, caixa):
     """Leva a chapa `obj` a' caixa (mm, no grupo) -- a mesma chapa: a
     selecao (duplo clique numa prateleira) sobrevive a' edicao."""
     matriz, (l, c, e) = _gavetas._matriz_da_caixa(caixa, 2)
-    obj.matrix_parent_inverse = Matrix.Identity(4)
-    obj.matrix_basis = matriz
+    pose = (obj.matrix_parent_inverse != Matrix.Identity(4)
+            or obj.matrix_basis != matriz)
+    if pose:
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.matrix_basis = matriz
     mudou = not obj.data.vertices or any(abs(a - b) > .001 for a, b in zip(
         (obj.chapa_largura_mm, obj.chapa_comprimento_mm, obj.chapa_espessura_mm), (l, c, e)))
-    _chapas._ocupado[0] = True
-    try:
-        obj.chapa_largura_mm, obj.chapa_comprimento_mm = l, c
-        obj.chapa_espessura_mm = e
-        obj.chapa_auto = True
-    finally:
-        _chapas._ocupado[0] = False
     if mudou:
+        _chapas._ocupado[0] = True
+        try:
+            obj.chapa_largura_mm, obj.chapa_comprimento_mm = l, c
+            obj.chapa_espessura_mm = e
+            obj.chapa_auto = True
+        finally:
+            _chapas._ocupado[0] = False
         if obj.data.users > 1:
             obj.data = obj.data.copy()
         _chapas.gerar_malha_chapa(obj)
+    return pose or mudou
 
 
 def _nova_prateleira(grupo, indice, material):
@@ -501,23 +505,33 @@ def montar(grupo, referencia=None):
     p = parametros(grupo)
     largura, altura, matriz = vao(grupo)
     dados = calcular(largura, altura, p)
-    grupo.matrix_parent_inverse = Matrix.Identity(4)
+    mudou = grupo.matrix_parent_inverse != Matrix.Identity(4)
+    if mudou:
+        grupo.matrix_parent_inverse = Matrix.Identity(4)
     conj = modulo_do_grupo(grupo)
-    if conj is not None:
+    if conj is not None and grupo.matrix_basis != matriz:
         grupo.matrix_basis = matriz
-    grupo[CHAVE_VAO] = (largura, altura)
+        mudou = True
+    if tuple(grupo.get(CHAVE_VAO, ())) != (largura, altura):
+        grupo[CHAVE_VAO] = (largura, altura)
     atuais = prateleiras_do_grupo(grupo)
+    mudou = mudou or len(atuais) < len(dados['prateleiras'])
     material = (_gavetas._material_de(atuais)
                 or (_material_do_modulo(conj) if conj is not None else None))
     for velha in atuais[len(dados['prateleiras']):]:
         _gavetas._remover(velha)
+        mudou = True
     for i, caixa in enumerate(dados['prateleiras']):
         obj = (atuais[i] if i < len(atuais) else
                _copiar_prateleira(grupo, i, referencia) if referencia is not None else
                _nova_prateleira(grupo, i, material))
-        obj[CHAVE_INDICE] = i
-        _vestir(obj, caixa)
-    bpy.context.view_layer.update()
+        if obj.get(CHAVE_INDICE) != i:
+            obj[CHAVE_INDICE] = i
+        mudou = _vestir(obj, caixa) or mudou
+    # Escrever a mesma pose tambem invalida o depsgraph e os BVHs do
+    # snap. A regua nao precisa reavaliar prateleiras que ja' estao certas.
+    if mudou:
+        bpy.context.view_layer.update()
 
 
 def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
@@ -621,8 +635,11 @@ def atualizar_do_conjunto(conj):
                                       for i in range(int(p['quantidade']))))
                 fator=min(1,livre/max(sum(desejados),.001))
                 p['vaos_mm']=[v*fator for v in desejados]
-            grupo[CHAVE_PARAMETROS]=p
-            grupo[CHAVE_ENCAIXE]['ultimo']=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
+            if p != parametros(grupo):
+                grupo[CHAVE_PARAMETROS]=p
+            ultimo=repr((p['profundidade_mm'],p['vaos_mm'],p.get('individuais', [])))
+            if grupo[CHAVE_ENCAIXE]['ultimo'] != ultimo:
+                grupo[CHAVE_ENCAIXE]['ultimo']=ultimo
             montar(grupo)
             if 'medidas' in grupo[CHAVE_ENCAIXE]:
                 l,a=grupo[CHAVE_VAO]

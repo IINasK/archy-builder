@@ -41,11 +41,11 @@ PISO = {
     'paredes_edicao': 68,
     'organizacao': 9,
     'divisorias': 24,
-    'estrutura': 51, 'gaveta': 67, 'portas': 145, 'hud': 142,
-    'importacao': 80, 'puxadores': 24, 'snapshot': 7, 'operadores': 40, 'frentes': 29,
+    'estrutura': 51, 'gaveta': 71, 'portas': 154, 'hud': 174,
+    'importacao': 80, 'puxadores': 24, 'snapshot': 7, 'operadores': 49, 'frentes': 29,
     'biblioteca': 84, 'cobertura': 4, 'gui_interacao': 58,
-    'orcamento': 17, 'paredes': 15, 'armarios': 18, 'formas': 62, 'gavetas': 50,
-    'geometria': 5, 'prateleiras': 51, 'migracoes': 11,
+    'orcamento': 17, 'paredes': 15, 'armarios': 20, 'formas': 62, 'gavetas': 50,
+    'geometria': 5, 'prateleiras': 53, 'migracoes': 11,
     'biblioteca_faixa': 31, 'gui_biblioteca_faixa': 7,
 }
 LIMITE_SEGUNDOS = 300

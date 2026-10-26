@@ -1,5 +1,56 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Solda 355: criar/reancorar bloqueia desenho e interacao da HUD de geometria
+(inclusive setas, cotas e sliders); limpa hover e restaura ao encerrar.
+Corrente, regua, distancia e snap da solda continuam ativos. Iniciar e
+confirmar Criar solda usam o destaque laranja existente do menu.
+Regressoes: bloqueio/restauracao no HUD (piso 174), destaque na gaveta (71).
+
+Solda 354: piloto conserva apenas UM par de vertices por par de pecas ou
+modulos distintos, inclusive quando as chapas de origem/destino variam.
+Prioriza contato zero; juntas entre chapas do mesmo modulo continuam
+independentes. Auditoria nao altera geometria nem soldas da sessao aberta.
+Regressoes: limite entre modulos e resolucao do grupo no HUD (piso 173).
+
+Solda 353: corrente/regua/campo numerico tambem na previa sem selecao;
+regua por indice zera pela ancora final fixa, corrente remove somente o par
+pendente. Gizmos em pools separados mantem bindings e simbolos; modal deixa
+passar seus cliques. Marcador e distancia acompanham o cursor do snap nativo,
+sem varrer malhas. Auditoria somente leitura e deterministica num modulo:
+contato zero primeiro, vertice unico, quinas separadas pela espessura
+(ate 25 mm); limite refinado para um unico par de vertices na 354. Proposta
+explicita busca contatos reais com KDTree fora do gesto; sem contato exige
+revisao. Oito regressoes em test_hud_blender (piso 171). Piloto externo nao
+altera a biblioteca real.
+
+Criacao completa da solda (352): painel proprio sem Orcamento/Comodo,
+distancia editavel, Resetar distancia, Voltar, Criar/Cancelar e instrucoes.
+Direito/Esc cancela e devolve a previa; Backspace/Ctrl+Z volta etapa. Alt
+reancora nas mesmas pecas usando o cursor/translate nativo. Reset na criacao
+encosta a origem na ancora FINAL fixa, guarda zero como referencia e
+permite outros afastamentos. Previa restaura antes do operador definitivo,
+cujo undo conserva geometria e metadados. Solda manual continua visivel
+em zero, com corrente, regua e numero clicavel por gizmo de campo existente.
+Ancoras novas: cantos semanticos em caixas, INT/POINT `cabinet_solda_vertice`
+nas malhas modeladas (tokens u; v legado continua aceito). Atributo segue
+BMesh/copia de referencia e salvar/anexar; indice reordenado nao muda o
+vertice. Ancora apagada/ambigua e' recusada com aviso, sem apagar os dados.
+IDs dos objetos continuam por UID/pai; vetores da referencia/direcao ficam
+locais ao destino, acompanhando giro e reflexao. Snap sem cache consulta
+face nativa, sem construir arvore da malha inteira no clique. Regressao:
+cancelar/voltar, zero fixo, parametros, Alt, controles, giro/Mirror, undo/
+redo, salvar/anexar/renomear, reordenar/apagar vertices, fallback de snap
+(hud, 163; gaveta, 70). Soldas antigas conservam o reset da folga original.
+
+Menu de portas e simbolos de Montagem (351): retirada a linha Reposicionar
+no vao / Definir como frente / Espelhar porta. O espelhamento da porta
+continua no menu contextual. Corrente e Resetar distancia mostram texto
+com icone ao lado e empilham em menu estreito. Pool nativo por simbolo e
+ocorrencia: o Button2D fixa o icone no primeiro draw; reaproveitar outro
+simbolo trazia a pasta/disquete da biblioteca para Montagem. Regressao
+alterna biblioteca/montagem, ordem e dois icones iguais sem remover gizmos
+nem crescer a cada redraw (gaveta, 69; portas, 154; snapshots revisados).
+
 Biblioteca sem variantes espelhadas e diagonais curvas (350): 369 modulos
 auditados por categoria completa, geometria em 8 orientacoes, materiais e
 sistemas internos. Retirados 10 diagonais de frente curva e 34 repetidos/
@@ -10,8 +61,78 @@ hashes e originais; publica indice atomicamente e retira .blend/.png, com
 rollback. Testes temporarios: catalogo/metadados/reta/backup preservados,
 recusa se biblioteca/backup mudou e restaura tudo se a exclusao falhar
 (migracoes, 11). Backup real: Documentos/Cabinet Creator Backups/variantes350-20261025.
+Mirror NATIVO do grupo: reflexao no Empty, sem virar dimensao negativa;
+referenciais de forma/porta/internos conservam paridade. Recentrar, editar
+medidas repetidamente e S depois de R/Mirror conservam profundidade e
+internos. `test_mirror_nativo_do_grupo_preserva_malhas_e_recalculo_dos_internos`
+e `test_redimensionar_e_recentrar_modulo_espelhado_girado` (armarios, 20).
+Mira angular nativa usa espaco CUSTOM comum; migracao nao remonta malhas,
+regressao `test_braco_angular_espelhado_preserva_volume_e_migra_mira_antiga`
+(portas, 154). Espelhar o grupo no Object Mode; modificador em cada chapa
+duplica geometria e nao substitui esse gesto.
 Preset curvo aposentado do quarto conserva fixture em tests/fixtures para
 testar append/resize/apoios; testes da biblioteca usam modelos ativos.
+
+Criar solda no menu esquerdo (349): botao textual em Modulos/Montagem,
+acima de Corrente/Resetar, disponivel em chapa ou modulo e acionado no soltar.
+Reutiliza o assistente e o snap de vertices nativos; modulo escolhe a chapa
+de origem no primeiro ponto, chapa individual continua fixa. Confirmar fica
+no rodape, e a pergunta de juntar retorna ao menu de origem. Layout a
+190/320/564 px, contexto sem selecao, escolha dos dois pontos e limpeza de
+timer/handler sao cobertos (gaveta, 68; hud, 152; snapshot atualizado).
+
+Desempenho do clique da solda e montagem dos rigs (348): uma carga do asset
+por montagem, demais dobradicas por copias nativas de Object com referencias
+internas remapeadas. Pais/inversa, IK, drivers, malhas compartilhadas e abertura
+permanecem independentes. Remocao nativa em lote conserva dados ainda usados;
+malha modelada com marca igual ao asset nao e' deduplicada como original
+(portas, 153). Atributos compativeis sao conferidos antes da comparacao nativa,
+evitando o crash do comparador no 4.2. Detector calcula correntes uma vez por evento; gizmos preservam
+operadores no redraw e atualizam alvo; despachante conserva CANCELLED e deixa
+undo no operador dono (hud, 151). Prova na cena completa do David V2 compara
+montagem antiga/nova e confere geometria e matrizes com portas fechadas/abertas.
+
+Regua em soldas contraditorias (347): valida todos os destinos antes de
+alterar chapas, portas ou ferragens; a mesma quina nao recebe dois destinos
+e as peles da espessura movem juntas. Grupo valida todas as juntas antes
+da primeira escrita; erros retornam CANCELLED sem remontar o armario.
+Reutiliza o validador de juntar por pares e calcula deltas simultaneamente
+(hud, 148). UID duplicado no mesmo modulo usa o nome gravado somente entre
+irmaos com aquele UID; mover uma lateral nao troca sua identidade pela
+copia mais proxima. UID entre modulos continua prioritario (operadores, 49).
+
+Clique fora encerra a selecao individual (346): vazio, objeto comum ou
+outro modulo limpam a memoria do clique/hover e devolvem o modo GRUPO.
+O clique simples seguinte seleciona o modulo; isolar a chapa exige novo
+duplo clique. Shift no vazio conserva a selecao/contexto individual;
+memorias das demais viewports tambem sao invalidadas (hud, 146).
+
+Regua da solda sem remontagem desnecessaria (345): porta Reta de giro
+conserva folhas/puxadores/rig quando vao, medidas e poses calculadas ja'
+coincidem. Reutiliza calculos nativos existentes, sem novo cache ou solver.
+Mudanca de margem, rig apagado/antigo e apoios obliquos continuam sendo
+atualizados (portas, 149). Prateleiras evitam escrever a mesma pose/medidas
+ou atualizar o depsgraph sem mudanca; detectam e corrigem pose alterada
+sem substituir a Mesh (prateleiras, 53). Benchmark na copia do David V2
+compara o encaixe da mesma chapa e confere a geometria final da carcaca.
+
+Edicao nativa de dobradicas espelhadas e UV proporcional (344): antes do
+Tab do grupo, materializa os Mirror das ferragens em malhas unicas,
+respeitando a ordem da pilha. Conserva forma avaliada, rig e outras copias;
+arraste nativo nao deixa a metade espelhada presa pelo Clipping. Chapas
+sem UV recebem mapa metrico (1 unidade/m); mapas personalizados conservam
+orientacao/escala. Correct Face Attributes nativo acompanha G/R/S, mantendo
+a densidade da textura nas faces estendidas (operadores, 48).
+
+Selecao na vista isolada e edicao das dobradicas (343): o raio nativo
+ignora objetos ocultos na viewport, inclusive paredes fora da vista local,
+para o clique continuar selecionando o modulo antes/depois de Tab (hud, 143).
+Transladar os vertices de uma peca inteira da dobradica durante o Tab do
+grupo desloca a montagem, incluindo armacoes, parafusos, mola e furo do
+copo. Conserva a Mesh e modelagens parciais; a posicao persiste ao remontar,
+abrir/fechar e desfazer/refazer Tab, sem acumular o deslocamento. Referencia
+numerica na Mesh participa do undo e sai ao concluir; trocar a versao do
+rig tambem conserva o deslocamento manual (operadores, 45).
 
 Correcao dos internos da biblioteca (342): preparo externo com backup,
 restauracao das laterais indevidamente convertidas em gavetas, adocao das
@@ -400,7 +521,7 @@ que toda classe registrada apareca aqui por algum teste.
 | Wizard: correr pelos cliques -- 1-2 e 3-4 no mesmo canto de dentro = embutida; de fora para dentro = com moldura; metade-metade pergunta "Porta embutida ou com moldura?" (viewport e gaveta) e ajusta: moldura = medida do modulo, embutida = a de dentro da chapa | `_metade_metade`, `TIPOS_CORRER`, `COBERTURA_DO_TIPO_CORRER`, `_preparar_vao_portas(forcar)` | portas |
 | Aba Portas da porta selecionada em CATEGORIAS (Porta, Folhas, Posicao/Trilhos/Moldura, Abertura) com o titulo de Montagem; rotulos curtos que cabem inteiros | `_titulo_secao`, `_campos_em_linhas` | portas |
 | Ancoragem: Ctrl+D numa chapa = copia com identidade propria e sem as soldas da original; "Recalcular Ancoragem" (F3) refaz as soldas das selecionadas pelo lugar (ate' 5 mm) | `separar_copias`, `_separar_copias_no_timer`, `recalcular_ancoragem`, `OBJECT_OT_recalcular_ancoragem` | operadores |
-| Porta selecionada: Folhas = campo compacto ao lado do ultimo campo (Entre folhas/planos), arrasta e digita (fora do limite da abertura avisa); Reposicionar e Frente em cima das medidas, com icone ao lado do texto | `_eh_campo_contador`, `LARGURA_CAMPO_FOLHAS`, `_icone_ao_lado`, `_centro_icone` | portas |
+| Porta selecionada: Folhas = campo compacto ao lado do ultimo campo (Entre folhas/planos), arrasta e digita (fora do limite da abertura avisa); sem linha de Reposicionar/Frente/Espelhar no menu | `_eh_campo_contador`, `LARGURA_CAMPO_FOLHAS` | portas |
 | Retratos (puxador, abertura, dobradica) no MESMO quadrado; slider ao lado do titulo muda todos (`cabinet_tam_retrato`) | `_lado_retrato`, `_titulo_com_slider`, `_trilho_slider_gaveta` | gaveta |
 | Pistao do basculante: modelo real do catalogo e posicao pela conta aberto = 2x fechado; manual limitado ao curso; arame no wizard | `_geometria_pistao`, `_pistao_do_vao`, `_pontas_pistao`, `_caixas_dos_itens_pistao` | portas |
 | Dobradica como volume na face interna da chapa (corpo + caneco) | `_caixas_dobradicas` | portas |

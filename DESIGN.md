@@ -342,8 +342,12 @@ logo abaixo do botao, numa caixa preta com as respostas lado a lado
 (`_pergunta_na_gaveta`, verbos `pergunta`/`resposta`). Tudo passa por
 `_perguntar` (`_na_gaveta` diz a origem) e se responde por
 `cabinet_responder_pergunta`; nunca `popup_menu` direto.
-Montagem tem SO dois botoes: Corrente e Resetar distancia (regua;
-Agrupar e Converter sairam da gaveta, seguem no F3). A regua fica AZUL
+Edicao da solda (355): criar/reancorar esconde e bloqueia os controles da HUD de geometria e limpa o hover; encerrar restaura. Corrente, regua, distancia e snap da solda permanecem ativos. Criar solda e confirmar usam o destaque laranja ja existente no menu.
+Criacao da solda (353): controladores corrente/regua e numero editavel ja na previa; corrente remove somente aquele par, regua zera pela ancora final. Mira branca/laranja acompanha o cursor nativo durante o gesto, com distancia desde o primeiro ponto.
+Criacao da solda (352): painel proprio, sem Orcamento/Comodo; distancia editavel, reset para zero pela ancora FINAL fixa, voltar, Criar/Cancelar. Direito/Esc cancela e restaura a previa; Backspace/Ctrl+Z volta etapa. Alt reancora na mesma peca pelo snap nativo (PRESS/RELEASE); confirmado, corrente/regua e distancia numerica continuam visiveis/editaveis, mesmo em zero. O zero definido na criacao vira a referencia futura. Soldas antigas conservam a origem anterior. Ancora removida/ambigua exige reparo explicito, sem trocar silenciosamente por outro vertice.
+Montagem tem Criar solda em linha inteira, acima de Corrente e Resetar distancia
+(regua); Agrupar e Converter seguem no F3. Criar reutiliza o assistente nativo:
+modulo selecionado escolhe a chapa no primeiro ponto; chapa individual ja' a define. A regua fica AZUL
 com qualquer solda fora da origem; quem se mexe sai da selecao:
 chapa unica ativa = ELA se move ate' todas as soldas voltarem
 (`_plano_reset_chapa`); se so' voltar mudando de medida, pergunta
@@ -472,9 +476,9 @@ Dobradicas e Pistoes EDITAVEIS (`_secao_ferragens_gaveta`): quantidade em
 segmentos e afastamento/distancia do topo em campo; digitado na etapa do
 mouse em Y, o 1o movimento parte do valor. A mesma secao, com as
 ferragens SELECIONADAS, edita todas as portas do modulo (o clique numa
-ferragem leva a gaveta a' aba Portas). Porta pronta selecionada: em cima,
-Reposicionar no vao e Definir como frente (icone a' esquerda do texto,
-`_icone_ao_lado`); depois CATEGORIAS com o titulo de Montagem
+ferragem leva a gaveta a' aba Portas). Porta pronta selecionada: sem a linha
+Reposicionar no vao / Definir como frente / Espelhar porta (pedido v351).
+Comeca diretamente nas CATEGORIAS com o titulo de Montagem
 (`_titulo_secao`, auditoria do usuario: campos compactos, claros, rotulo
 inteiro): **Porta** (L/A/E), **Folhas** (Entre folhas/planos e o campo
 COMPACTO das folhas na ponta -- contador com rotulo: arrasta e digita; os
@@ -802,4 +806,4 @@ por solicitacao explicita do usuario. A biblioteca foi movida a uma faixa superi
   antes de qualquer keymap, o icone nao passa de 16 px e nao da' para
   fixar largura em pixels. Foi o que motivou a gaveta.
 
-Tab num grupo selecionado abre as malhas reais no Edit Mode multiobjeto nativo do Blender. Cortadores/controles do rig ficam fora; malhas compartilhadas com outros modulos sao isoladas antes. Prateleiras: escopo global propaga a todas ao concluir na MESMA Mesh (undo nativo guarda o ID); individual edita so' aquela unidade. Quantidade sempre disponivel: herda a unidade selecionada, ou pede "Selecione a prateleira de referencia" na HUD ao lado do mouse na viewport, seguindo o cursor e respeitando as bordas, se houver tipos diferentes sem selecao individual (Esc cancela). Arrastar exibe so' o numero previsto, monta ao soltar. Parametros individuais conservam as vizinhas. Porta selecionada (grupo ou folha): icone MOD_MIRROR na aba Portas e Espelhar Porta no menu contextual nativo. Inverte dobradicas/abertura e puxador; zigzag inverte a cadeia, basculante inclui pistoes, correr troca o sentido no trilho.
+Tab num grupo selecionado abre as malhas reais no Edit Mode multiobjeto nativo do Blender. Cortadores/controles do rig ficam fora; malhas compartilhadas com outros modulos sao isoladas antes. Prateleiras: escopo global propaga a todas ao concluir na MESMA Mesh (undo nativo guarda o ID); individual edita so' aquela unidade. Quantidade sempre disponivel: herda a unidade selecionada, ou pede "Selecione a prateleira de referencia" na HUD ao lado do mouse na viewport, seguindo o cursor e respeitando as bordas, se houver tipos diferentes sem selecao individual (Esc cancela). Arrastar exibe so' o numero previsto, monta ao soltar. Parametros individuais conservam as vizinhas. Porta selecionada (grupo ou folha): Espelhar Porta no menu contextual nativo. Montagem: Corrente e Resetar distancia com texto e icone ao lado, uma coluna no menu estreito; Button2D reutilizado so' com o mesmo simbolo, fixado pelo Blender no primeiro desenho. Inverte dobradicas/abertura e puxador; zigzag inverte a cadeia, basculante inclui pistoes, correr troca o sentido no trilho.

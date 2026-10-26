@@ -42,6 +42,120 @@ def relativo(bloco):
 
 
 class TestPortas(unittest.TestCase):
+    def test_anexar_rig_com_atributo_extra_nao_compara_malhas_incompativeis(self):
+        # Regressao (era BUG, corrigido na 348): o comparador nativo do
+        # Blender 4.2 caia ao receber conjuntos diferentes de atributos.
+        F = addon.ferragens
+        a = F._instanciar_rig(bpy.context.scene.collection, 'RIG_COM_ATRIBUTO')
+        cabeca = next(o for o in a.children_recursive if o.get('cabinet_peca') == 'cabeca')
+        origem = cabeca.data.get('cabinet_origem')
+        for malha in bpy.data.meshes:
+            if malha.get('cabinet_origem') == origem:
+                malha.attributes.new('edicao_manual', 'INT', 'POINT')
+        b = F._instanciar_rig(bpy.context.scene.collection, 'RIG_SEM_ATRIBUTO')
+        nova = next(o for o in b.children_recursive if o.get('cabinet_peca') == 'cabeca')
+        self.assertIn('edicao_manual', cabeca.data.attributes)
+        self.assertNotIn('edicao_manual', nova.data.attributes)
+
+    def test_anexar_rig_nao_reutiliza_malha_modelada_com_a_mesma_marca_do_asset(self):
+        F = addon.ferragens
+        a = F._instanciar_rig(bpy.context.scene.collection, 'RIG_MODELADO')
+        cabeca = next(o for o in a.children_recursive if o.get('cabinet_peca') == 'cabeca')
+        original = [tuple(v.co) for v in cabeca.data.vertices]
+        cabeca.data = cabeca.data.copy()
+        cabeca.data.vertices[0].co.x += .005
+        cabeca.data.update()
+        alterada = cabeca.data
+        b = F._instanciar_rig(bpy.context.scene.collection, 'RIG_ORIGINAL')
+        nova = next(o for o in b.children_recursive if o.get('cabinet_peca') == 'cabeca')
+        self.assertIsNot(nova.data, alterada)
+        self.assertEqual([tuple(v.co) for v in nova.data.vertices], original)
+        self.assertAlmostEqual(alterada.vertices[0].co.x, original[0][0] + .005)
+
+    def test_montar_dez_rigs_carrega_asset_uma_vez_sem_cruzar_pais_ou_drivers(self):
+        F = addon.ferragens
+        conj = addon.modulos.criar_armario(bpy.context, 'Dez rigs', 600, 2500, 550)
+        with patch.object(F, '_anexar_sem_repetir', wraps=F._anexar_sem_repetir) as anexar:
+            grupo = addon.portas.porta_no_modulo(conj, folhas=2, dobradicas_qtd=5)
+        self.assertEqual(sum(c.args[0] == F.ARQUIVO_DOBRADICA_RETA for c in anexar.call_args_list), 1)
+        raizes = [o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz']
+        self.assertEqual(len(raizes), 10)
+        for raiz in raizes:
+            partes = {raiz, *raiz.children_recursive}
+            outras = {o for r in raizes if r != raiz for o in [r,*r.children_recursive]}
+            usuarios = bpy.data.user_map(subset=partes)
+            self.assertFalse({u for us in usuarios.values() for u in us} & outras)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        addon.ferragens._definir_abertura(bpy.context, folha, .5)
+        bpy.context.view_layer.update()
+        self.assertEqual(len(raizes), 10)
+
+    def test_remover_rig_em_lote_conserva_malhas_usadas_pela_outra_dobradica(self):
+        F = addon.ferragens
+        a = F._instanciar_rig(bpy.context.scene.collection, 'RIG_A')
+        b = F._instanciar_rig(bpy.context.scene.collection, 'RIG_B', modelo=a)
+        pontos = {o.name:(o.data, [tuple(v.co) for v in o.data.vertices])
+                  for o in b.children_recursive if o.type == 'MESH'}
+        F._remover_ferragem(a)
+        bpy.context.view_layer.update()
+        for nome,(malha,coords) in pontos.items():
+            self.assertIs(bpy.data.objects[nome].data, malha)
+            self.assertEqual([tuple(v.co) for v in malha.vertices], coords)
+
+    def test_atualizar_vao_reta_inalterado_nao_remonta_folhas_ou_ferragens(self):
+        # Regressao v345: a regua de uma chapa remontava toda a porta,
+        # invalidando BVHs e puxadores mesmo com o vao inalterado.
+        conj = addon.modulos.criar_armario(bpy.context, 'Reta mantida', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        addon.ferragens._definir_abertura(bpy.context, folha, .4)
+        malha = folha.data
+        folha.data.vertices[0].co.y += .003
+        folha.data.update()
+        pontos = [tuple(v.co) for v in malha.vertices]
+        with patch.object(addon.portas, '_aplicar_portas', side_effect=AssertionError('Remontou vao igual')):
+            addon.portas.atualizar_do_conjunto(conj)
+        self.assertIs(folha.data, malha)
+        self.assertEqual([tuple(v.co) for v in malha.vertices], pontos)
+        self.assertAlmostEqual(folha[addon.ferragens.CHAVE_ABERTURA], .4)
+
+    def test_atualizar_vao_reta_detecta_nova_margem_das_dobradicas(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Ferragem mudou', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        p = addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p['dobradicas_margem_mm'] = 160
+        grupo['porta_parametros'] = p
+        with patch.object(addon.portas, '_aplicar_portas', wraps=addon.portas._aplicar_portas) as aplicar:
+            addon.portas.atualizar_do_conjunto(conj)
+        self.assertEqual(aplicar.call_count, 1)
+        with patch.object(addon.portas, '_aplicar_portas', side_effect=AssertionError('Remontou outra vez')):
+            addon.portas.atualizar_do_conjunto(conj)
+
+    def test_atualizar_vao_reta_repoe_rig_apagado_e_atualiza_versao_antiga(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Rig incompleto', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        addon.ferragens._remover_ferragem(raiz)
+        with patch.object(addon.portas, '_aplicar_portas', wraps=addon.portas._aplicar_portas) as aplicar:
+            addon.portas.atualizar_do_conjunto(conj)
+        self.assertEqual(aplicar.call_count, 1)
+        raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
+        raiz['cabinet_versao'] = int(addon.ferragens._dados_dobradica_reta()['versao']) - 1
+        with patch.object(addon.portas, '_aplicar_portas', wraps=addon.portas._aplicar_portas) as aplicar:
+            addon.portas.atualizar_do_conjunto(conj)
+        self.assertEqual(aplicar.call_count, 1)
+
+    def test_atualizar_apoios_obliquos_conserva_remontagem_mesmo_com_vao_igual(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Apoio real', 600, 800, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        # O atalho cria cobertura inteira e resolve RETA automaticamente.
+        p = addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p.update(dobradica='CURVA', dobradica_modelo_reta=False)
+        grupo['porta_parametros'] = p
+        with patch.object(addon.portas, '_aplicar_portas', wraps=addon.portas._aplicar_portas) as aplicar:
+            addon.portas.atualizar_do_conjunto(conj)
+        self.assertEqual(aplicar.call_count, 1)
+
     def _porta_curva_torcida(self):
         p = addon.portas._parametros_portas_da_cena(bpy.context.scene, numerico=True)
         p.update(abertura='GIRO', folhas=1, dobradica='CURVA',
@@ -243,7 +357,7 @@ class TestPortas(unittest.TestCase):
         c.conj_largura_mm=800
         self.assertEqual(g['porta_parametros']['dobradicas_lados_folhas']['1'],'ESQUERDA')
 
-    def test_espelhar_grupo_e_folha_tem_icone_e_menu_contextual(self):
+    def test_espelhar_grupo_e_folha_fica_no_menu_contextual(self):
         c=addon.modulos.criar_armario(bpy.context,'Menu',600,700,550,fundo=False)
         g=addon.portas.porta_no_modulo(c)
         for o in bpy.context.selected_objects:o.select_set(False)
@@ -251,7 +365,7 @@ class TestPortas(unittest.TestCase):
         bpy.context.scene.cabinet_aba='PORTAS'
         for largura in (190,320,564):
             acoes=[w[5] for w in addon.gaveta._widgets_gaveta(bpy.context,largura,1400)]
-            self.assertIn(('operador','object.cabinet_espelhar_porta'),acoes)
+            self.assertNotIn(('operador','object.cabinet_espelhar_porta'),acoes)
         self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(('operador','object.cabinet_espelhar_porta')),'MOD_MIRROR')
         chamadas=[]
         menu=SimpleNamespace(layout=SimpleNamespace(separator=lambda:None,
@@ -2920,17 +3034,17 @@ class TestPortas(unittest.TestCase):
                          {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA',
                           'TESTEIRA', 'BASE_BAIXO'})
 
-    def test_folhas_e_campo_compacto_e_botoes_com_icone_em_cima(self):
+    def test_folhas_e_campo_compacto_sem_linha_de_acoes_em_cima(self):
         # Pedido do usuario: Folhas deixa de ser 1 2 3 4 e vira um campo
         # compacto AO LADO do ultimo campo da porta (Entre folhas/planos),
-        # que arrasta e digita; Reposicionar e Frente vao para CIMA das
-        # medidas, com icone.
+        # que arrasta e digita. A linha de acoes saiu a pedido do usuario.
         conj = self.nicho()
         grupo = self.porta_no_nicho(conj)       # reta, 2 folhas
         addon.hud._selecionar_porta_hud(
             bpy.context, addon.portas._folhas_portas(grupo)[0], 'PORTA')
         bpy.context.scene.cabinet_aba = 'PORTAS'
-        ops = ('object.cabinet_apanhar_vao', 'object.cabinet_definir_frente')
+        ops = ('object.cabinet_apanhar_vao', 'object.cabinet_definir_frente',
+               'object.cabinet_espelhar_porta')
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
             campo = next(v for v in widgets
@@ -2944,15 +3058,7 @@ class TestPortas(unittest.TestCase):
             self.assertLessEqual(campo[0] + campo[2], min(largura - 12, 552) + 0.01)
             botoes = [v for v in widgets if v[5] and v[5][0] == 'operador'
                       and v[5][1] in ops]
-            self.assertEqual(len(botoes), 2)
-            medidas = [v for v in widgets if v[5] and v[5][0] == 'medida']
-            self.assertGreater(min(b[1] for b in botoes),
-                               max(m[1] + m[3] for m in medidas), largura)
-            for b in botoes:
-                self.assertTrue(addon.gaveta_eventos._icone_ao_lado(b[5]))
-                self.assertTrue(addon.gaveta_eventos._icone_acao_gaveta(b[5]))
-                cx, _cy = addon.gaveta_eventos._centro_icone(*b[:4], b[5])
-                self.assertLess(cx, b[0] + b[3])       # na ponta esquerda
+            self.assertFalse(botoes)
         # digitar qualquer numero: o que a abertura aceita grava; o resto
         # avisa e nao mexe na porta
         self.assertIsNone(addon.gaveta_eventos.aplicar_medida(
@@ -3770,6 +3876,24 @@ class TestPortas(unittest.TestCase):
                 ponta = braco.matrix_world @ Vector((0, r.rest_length, 0))
                 self.assertLess((ponta - r.target.matrix_world.translation).length, 1e-5)
         self.assertEqual(meshes, [o.data.as_pointer() for o in bracos])
+
+    def test_braco_angular_espelhado_preserva_volume_e_migra_mira_antiga(self):
+        conj,grupo,suporte=self._canto_135('DIREITA')
+        bracos=[o for o in addon.ferragens._ferragens_portas(grupo) if 'Braco Angular' in o.name]
+        self.assertEqual(len(bracos),2)
+        for braco in bracos:
+            r,=[c for c in braco.constraints if c.type=='STRETCH_TO']
+            r.owner_space=r.target_space='WORLD';r.space_object=None
+        addon.ferragens._conferir_ferragens();bpy.context.view_layer.update()
+        for braco in bracos:
+            r,=[c for c in braco.constraints if c.type=='STRETCH_TO']
+            self.assertEqual((r.owner_space,r.target_space,r.space_object),('CUSTOM','CUSTOM',grupo))
+        antes={o.name:[o.matrix_world@v.co for v in o.data.vertices] for o in bracos}
+        espelho=conj.matrix_world@Matrix.Diagonal((-1,1,1,1))@conj.matrix_world.inverted()
+        conj.scale.x=-1;bpy.context.view_layer.update()
+        for o in bracos:
+            self.assertLess(max((o.matrix_world@v.co-espelho@p).length
+                for v,p in zip(o.data.vertices,antes[o.name])),1e-5)
 
     def test_prisma_angular_e_arame_preservam_o_plano_real(self):
         conj, grupo, suporte = self._canto_135('ESQUERDA')

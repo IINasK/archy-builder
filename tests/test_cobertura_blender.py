@@ -25,8 +25,6 @@ import cabinet_creator as addon  # noqa: E402
 # Classe -> por que ainda nao tem teste. So' pode ENCOLHER: ao cobrir
 # uma delas, apague a linha (o teste abaixo cobra isso).
 SEM_TESTE_ACEITO = {
-    'OBJECT_OT_abrir_pasta_biblioteca':
-        'abre o Explorer do Windows: efeito fora do Blender',
     'OBJECT_OT_abrir_asset_browser':
         "so' o painel legado (nao registrado) chama; divide area",
     'VIEW3D_AST_cabinet_creator': 'AssetShelf: arraste nativo do Blender',

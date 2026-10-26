@@ -256,8 +256,10 @@ def esquecer():
 
 
 def matriz_do_modulo(conj, plano='XY'):
-    loc, rot, _escala = conj.matrix_world.decompose()
-    return Matrix.LocRotScale(loc, rot, Vector((1.0, 1.0, 1.0))) @ _base_do_plano(plano)
+    # Quaternion perde a reflexao e restaurava a referencia sem o Mirror.
+    matriz=conj.matrix_world.to_3x3().normalized().to_4x4()
+    matriz.translation=conj.matrix_world.translation
+    return matriz @ _base_do_plano(plano)
 
 
 def _pecas(conj):

@@ -913,11 +913,13 @@ def _remover_ferragem(obj):
     a malha so' sai se ninguem mais a usa (as copias do rig dividem)."""
     if not _vivo(obj):
         return
-    for o in [*obj.children_recursive, obj]:
-        dados, colecao = o.data, DADOS_POR_TIPO.get(o.type)
-        bpy.data.objects.remove(o, do_unlink=True)
-        if dados is not None and colecao and dados.users == 0:
-            getattr(bpy.data, colecao).remove(dados)
+    partes = [*obj.children_recursive, obj]
+    dados = {o.data for o in partes if o.data is not None and o.type in DADOS_POR_TIPO}
+    # Uma remocao nativa evita refazer as referencias da cena por parafuso.
+    bpy.data.batch_remove(ids=partes)
+    sem_usuarios = [d for d in dados if d.users == 0]
+    if sem_usuarios:
+        bpy.data.batch_remove(ids=sem_usuarios)
 
 
 # Nomes das pecas que o add-on cria: portugues, sem sublinhado (pedido do
@@ -946,6 +948,113 @@ TIPO_DA_PECA_RIG = {'raiz': 'DOBRADICA_RIG', 'base': 'DOBRADICA',
                     'cabeca': 'CANECO', 'furo': 'DOBRADICA_FURO'}
 # o que so' faz o rig funcionar nao aparece (o Blender ainda os avalia)
 PECAS_OCULTAS_RIG = ('furo', 'controle', 'armacao', 'armacao_ik')
+
+
+def preparar_malhas_para_editar(context, malhas):
+    """O espelho precisa virar vertices antes de mover a dobradica no Tab.
+
+    Copias unicas conservam a geometria avaliada e o rig. Materializar
+    na ordem da pilha preserva tambem espelhos posteriores a subdivisao.
+    """
+    for obj in malhas:
+        if CHAVE_FERRAGEM not in obj or obj.get('cabinet_peca') in PECAS_OCULTAS_RIG:
+            continue
+        espelhos = [i for i, m in enumerate(obj.modifiers) if m.type == 'MIRROR' and m.show_viewport]
+        if not espelhos:
+            continue
+        aplicar = [m.name for i, m in enumerate(obj.modifiers)
+                   if i <= espelhos[-1] and m.show_viewport]
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        with context.temp_override(object=obj, active_object=obj,
+                selected_objects=[obj], selected_editable_objects=[obj]):
+            for nome in aplicar:
+                bpy.ops.object.modifier_apply(modifier=nome)
+
+
+def iniciar_edicao_rigs(malhas, recuperar=False):
+    """So' nomes e numeros: o undo pode liberar os objetos desta edicao."""
+    registros = {}
+    for obj in malhas:
+        raiz = obj
+        while raiz is not None and raiz.get('cabinet_peca') != 'raiz':
+            raiz = raiz.parent
+        if raiz is not None:
+            if recuperar:
+                pontos = list(obj.data.get('cabinet_rig_edicao', ()))
+                matriz = list(obj.data.get('cabinet_rig_edicao_matriz', ()))
+                if not pontos or len(matriz) != 16:
+                    continue
+            else:
+                pontos = [c for v in obj.data.vertices for c in v.co]
+                matriz = [c for linha in raiz.matrix_basis for c in linha]
+                # A referencia entra no undo nativo da Mesh. So' o estado
+                # Python se perde ao desfazer a saida do Edit Mode.
+                obj.data['cabinet_rig_edicao'] = pontos
+                obj.data['cabinet_rig_edicao_matriz'] = matriz
+            registro = registros.setdefault(raiz.name, dict(matriz=matriz, pecas={}))
+            registro['pecas'][obj.name] = [
+                tuple(pontos[i:i + 3]) for i in range(0, len(pontos), 3)]
+    return registros
+
+
+def concluir_edicao_rigs(registros):
+    """Translacao rigida das pecas move a montagem inteira, inclusive o furo.
+
+    Modelar vertices de uma peca continua nativo. Deslocar uma ou varias
+    pecas inteiras leva a dobradica, sem deformar bracos, IK ou parafusos.
+    """
+    if bpy.context.mode != 'OBJECT' or _eventos._desfazendo[0]:
+        return
+    bpy.context.view_layer.update()
+    for nome, registro in registros.items():
+        raiz = bpy.data.objects.get(nome)
+        if raiz is None or raiz.get('cabinet_peca') != 'raiz':
+            continue
+        movidas, deslocamento = [], None
+        for nome_peca, pontos in registro['pecas'].items():
+            obj = bpy.data.objects.get(nome_peca)
+            if (obj is None or obj.type != 'MESH' or obj.data.is_editmode
+                    or len(obj.data.vertices) != len(pontos) or not pontos):
+                break
+            delta = obj.data.vertices[0].co - Vector(pontos[0])
+            if any((v.co - Vector(p) - delta).length > .000001
+                   for v, p in zip(obj.data.vertices, pontos)):
+                break
+            if delta.length < .000001:
+                continue
+            mundo = obj.matrix_world.to_3x3() @ delta
+            if deslocamento is not None and (mundo - deslocamento).length > .000001:
+                break
+            deslocamento = mundo
+            movidas.append((obj, delta))
+        else:
+            if not movidas:
+                continue
+            grupo = _grupo_da_ferragem(raiz)
+            if grupo is None:
+                continue
+            # Devolver a translacao da madeira da ferragem para a raiz
+            # preserva a mesma Mesh e faz auxiliares/curvas acompanharem.
+            for obj, delta in movidas:
+                obj.data.transform(Matrix.Translation(-delta))
+                obj.data.update()
+            matriz = registro['matriz']
+            matriz = Matrix([matriz[i:i + 4] for i in range(0, 16, 4)])
+            matriz.translation += grupo.matrix_world.inverted_safe().to_3x3() @ deslocamento
+            # Undo de Edit Mode pode conservar a raiz ja' deslocada pela
+            # saida anterior. A pose inicial impede aplicar o delta duas vezes.
+            aplicado = matriz.translation - raiz.matrix_basis.translation
+            raiz.matrix_basis = matriz
+            anterior = Vector(raiz.get('porta_ferragem_deslocamento_mm', (0, 0, 0)))
+            raiz['porta_ferragem_deslocamento_mm'] = anterior + aplicado * 1000
+            bpy.context.view_layer.update()
+    for registro in registros.values():
+        for nome in registro['pecas']:
+            obj = bpy.data.objects.get(nome)
+            if obj is not None and obj.type == 'MESH':
+                obj.data.pop('cabinet_rig_edicao', None)
+                obj.data.pop('cabinet_rig_edicao_matriz', None)
 
 
 def ocultar_pecas_do_rig(objetos=None):
@@ -986,14 +1095,25 @@ def _anexar_sem_repetir(caminho, tipo, nomes=None):
     chave_de = lambda d: (d.get('cabinet_origem'), d.get('cabinet_versao'))
     for nome in COLECOES_DO_RIG:
         dados = getattr(bpy.data, nome)
-        velhos = {chave_de(d): d for d in antes[nome] if d.get('cabinet_origem')}
+        velhos = {}
+        for dado in antes[nome]:
+            if dado.get('cabinet_origem'):
+                velhos.setdefault(chave_de(dado), []).append(dado)
         for novo in [d for d in dados if d not in antes[nome]]:
             chave = chave_de(novo)
-            if chave[0] and chave in velhos:
-                novo.user_remap(velhos[chave])
+            atributos = ({a.name: (a.domain, a.data_type) for a in novo.attributes}
+                         if nome == 'meshes' else None)
+            # Tab conserva a marca do asset; so' o comparador nativo distingue
+            # a malha original de uma copia modelada ou com Mirror aplicado.
+            igual = next((d for d in velhos.get(chave, ()) if nome != 'meshes'
+                or (len(d.vertices) == len(novo.vertices)
+                    and {a.name: (a.domain, a.data_type) for a in d.attributes} == atributos
+                    and d.unit_test_compare(mesh=novo, threshold=1e-7) == 'Same')), None)
+            if chave[0] and igual is not None:
+                novo.user_remap(igual)
                 dados.remove(novo)
             elif chave[0]:
-                velhos[chave] = novo
+                velhos.setdefault(chave, []).append(novo)
     return [d for d in novos if _vivo(d)]
 
 
@@ -1016,17 +1136,46 @@ def malha_parafuso():
     return malha
 
 
-def _instanciar_rig(colecao, raiz_id):
-    """Anexa uma copia do asset (modelo + rig do usuario, tal e qual) e
-    devolve a raiz."""
+def _copiar_rig(modelo):
+    """Copia Objects nativos; pais, IK e drivers ficam dentro da nova dobradica."""
+    partes = [modelo, *modelo.children_recursive]
+    copias = {o: o.copy() for o in partes}
+    for original, copia in copias.items():
+        if original.parent in copias:
+            copia.parent = copias[original.parent]
+        # Trocar o pai reinicializa a inversa; conservar o referencial do asset.
+        copia.matrix_parent_inverse = original.matrix_parent_inverse.copy()
+        componentes = [*copia.constraints, *copia.modifiers]
+        if copia.pose is not None:
+            componentes += [c for osso in copia.pose.bones for c in osso.constraints]
+        for componente in componentes:
+            for prop in componente.bl_rna.properties:
+                if prop.type != 'POINTER' or prop.is_readonly:
+                    continue
+                alvo = getattr(componente, prop.identifier)
+                if isinstance(alvo, bpy.types.Object) and alvo in copias:
+                    setattr(componente, prop.identifier, copias[alvo])
+        if copia.animation_data is not None:
+            for curva in copia.animation_data.drivers:
+                for variavel in curva.driver.variables:
+                    for alvo in variavel.targets:
+                        if isinstance(alvo.id, bpy.types.Object) and alvo.id in copias:
+                            alvo.id = copias[alvo.id]
+    return list(copias.values())
+
+
+def _instanciar_rig(colecao, raiz_id, modelo=None):
+    """Carrega o asset uma vez na montagem; demais rigs copiam a instancia nova."""
+    objetos = (_copiar_rig(modelo) if modelo is not None else
+               _anexar_sem_repetir(ARQUIVO_DOBRADICA_RETA, 'objects'))
+    id_modelo = modelo.get(CHAVE_ID_FERRAGEM) if modelo is not None else None
     raiz = None
-    for i, o in enumerate(_anexar_sem_repetir(ARQUIVO_DOBRADICA_RETA,
-                                              'objects')):
+    for i, o in enumerate(objetos):
         colecao.objects.link(o)
         peca = o.get('cabinet_peca', 'peca')
         o[CHAVE_FERRAGEM] = TIPO_DA_PECA_RIG.get(peca, 'DOBRADICA_PECA')
-        o[CHAVE_ID_FERRAGEM] = (raiz_id if peca == 'raiz'
-                                else '%s:%02d' % (raiz_id, i))
+        o[CHAVE_ID_FERRAGEM] = (raiz_id + o[CHAVE_ID_FERRAGEM][len(id_modelo):]
+            if id_modelo else raiz_id if peca == 'raiz' else '%s:%02d' % (raiz_id, i))
         if peca in PECAS_OCULTAS_RIG:
             o.hide_render = True
             o.hide_set(True)
@@ -1073,6 +1222,17 @@ def _girar_rigs(grupo, folha=None):
         o.rotation_euler.z = -math.radians(graus)
 
 
+def _ajustar_espaco_miras(grupo):
+    """O braco angular acompanha o espelho pelo referencial comum da porta."""
+    for obj in _ferragens_portas(grupo):
+        for r in obj.constraints:
+            if r.type == 'STRETCH_TO' and r.name == NOME_MIRA_PISTAO:
+                # Em WORLD o solver inverte a espessura do braco no Mirror.
+                if r.owner_space != 'CUSTOM' or r.target_space != 'CUSTOM' or r.space_object != grupo:
+                    r.owner_space = r.target_space = 'CUSTOM'
+                    r.space_object = grupo
+
+
 def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     """Cria/atualiza/remove as ferragens da porta (chamado com
     `_ocupado`, depois que as folhas existem). Reaproveita pelo id."""
@@ -1088,12 +1248,15 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     colecao = grupo.users_collection[0]
     feitos = {}
     cortadores = {}
+    modelo_rig = None
     conj = _portas._modulo_da_chapa(folhas[0]) if folhas else None
     matriz = (_matriz_fechada(grupo.parent) @ grupo.matrix_basis
               if grupo.get('porta_apoio_folha') else grupo.matrix_world.copy())
     apoios = _apoios_obliquos(conj, matriz, parametros, largura, altura, calculadas)
     for item in _ferragens_da_porta(parametros, largura, altura, calculadas, apoios):
         obj = existentes.pop(item['id'], None)
+        deslocamento_rig = (tuple(obj.get('porta_ferragem_deslocamento_mm', (0, 0, 0)))
+                           if obj is not None and _vivo(obj) else (0, 0, 0))
         if obj is not None and not _vivo(obj):
             obj = None
         if obj is not None and obj.get(CHAVE_FERRAGEM) != item['tipo']:
@@ -1108,13 +1271,17 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
                 _remover_ferragem(obj)
                 obj = None
             if obj is None:
-                obj = _instanciar_rig(colecao, item['id'])
+                obj = _instanciar_rig(colecao, item['id'], modelo=modelo_rig)
                 if obj is None:
                     continue
+                if modelo_rig is None:
+                    modelo_rig = obj
+            obj['porta_ferragem_deslocamento_mm'] = deslocamento_rig
             obj.parent = grupo
             obj.matrix_parent_inverse = Matrix.Identity(4)
             matriz = item['matriz'].copy()
             matriz.translation = matriz.translation / 1000.0
+            matriz.translation += Vector(obj.get('porta_ferragem_deslocamento_mm', (0, 0, 0))) / 1000
             obj.matrix_basis = matriz
             for parte in obj.children_recursive:
                 peca = parte.get('cabinet_peca')
@@ -1221,6 +1388,7 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     for obj in existentes.values():
         _remover_ferragem(obj)
     _furar_folhas(folhas, cortadores)
+    _ajustar_espaco_miras(grupo)
     _girar_rigs(grupo)
     grupo['porta_ferragens_encaixe'] = 1
 
@@ -1270,6 +1438,7 @@ def _conferir_ferragens():
                 getattr(bpy.data, colecao).remove(dados)
         for grupo in [o for o in bpy.data.objects
                       if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')]:
+            _ajustar_espaco_miras(grupo)
             if _portas._folhas_portas(grupo) and not _ferragens_portas(grupo):
                 _refazer_ferragens(grupo)
             elif _ferragens_antigas(grupo):

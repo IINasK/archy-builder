@@ -37,7 +37,7 @@ def copiar_rotulos(origem,destino):
     original de resize. So' topologias identicas permitem copiar atributos;
     coordenadas podem diferir, pois a copia conserva a medida de origem.
     """
-    faltantes=[chave for chave in (ATR_FACE,ATR_BORDA)
+    faltantes=[chave for chave in (ATR_FACE,ATR_BORDA,_solda.ATR_VERTICE_SOLDA)
                if origem.attributes.get(chave) is not None and destino.attributes.get(chave) is None]
     if not faltantes:
         return

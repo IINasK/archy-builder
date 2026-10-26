@@ -38,6 +38,7 @@ Puxadores e referencia da frente: [portas](../portas/AGENTS.md), `../frentes.py`
   nativas fora da HUD. Adaptar so' quando nao couber, ate' o minimo fisico;
   devolver escolhas ao aumentar. Largura individual menor tambem se conserva.
   `sincronizar_margens` atende gavetas E prateleiras apos o transporte.
+- Referenciais conservam reflexao do Mirror do grupo: normalizar colunas, nao converter em quaternion.
 - Edicao direta preserva selecao; Esc restaura medidas. Vinculo e' PAI real:
   nome antigo gravado no preset nao manda.
 - Frente CURVA e alturas em PROPORCAO. Borda de CADA gaveta cede/recebe altura

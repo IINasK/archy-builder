@@ -50,6 +50,10 @@ Adocao Promob/migracoes: [integracao](../../planejamento/setores/integracao/AGEN
   nativa escalada e usa o resize comum no timer. O depsgraph apenas adia;
   nao absorver a escala herdada nas chapas antes disso, nem multiplicar
   os internos. Preservar o canto resultante do pivo da escala.
+- Mirror do GRUPO conserva escala unitaria com sinal no Empty. Eixos de
+  vao/forma conservam a paridade; quaternion descarta a reflexao. Recentrar
+  modulo refletido move so' a translacao dos filhos, sem inverter chapas.
+  S depois de R mede nos eixos locais e usa `redimensionar_orientado`.
 
 ## Suites
 

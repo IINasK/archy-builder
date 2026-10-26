@@ -25,6 +25,29 @@ P = addon.prateleiras
 
 
 class TestPrateleiras(unittest.TestCase):
+    def test_vestir_mesma_caixa_nao_reescreve_pose_medidas_ou_malha(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Montagem mantida', 600, 800, 550)
+        grupo = addon.prateleiras.criar_prateleiras(bpy.context, conj, (18, 18, 18, 18, 0), dict(quantidade=2))
+        obj = addon.prateleiras.prateleiras_do_grupo(grupo)[0]
+        largura, altura, _matriz = addon.prateleiras.vao(grupo)
+        caixa = addon.prateleiras.calcular(largura, altura, addon.prateleiras.parametros(grupo))['prateleiras'][0]
+        matriz, malha = obj.matrix_basis.copy(), obj.data
+        self.assertFalse(addon.prateleiras._vestir(obj, caixa))
+        self.assertEqual(obj.matrix_basis, matriz)
+        self.assertIs(obj.data, malha)
+
+    def test_vestir_detecta_pose_alterada_sem_reconstruir_malha(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Pose alterada', 600, 800, 550)
+        grupo = addon.prateleiras.criar_prateleiras(bpy.context, conj, (18, 18, 18, 18, 0), dict(quantidade=2))
+        obj = addon.prateleiras.prateleiras_do_grupo(grupo)[0]
+        largura, altura, _matriz = addon.prateleiras.vao(grupo)
+        caixa = addon.prateleiras.calcular(largura, altura, addon.prateleiras.parametros(grupo))['prateleiras'][0]
+        matriz, malha = obj.matrix_basis.copy(), obj.data
+        obj.location.z += .01
+        self.assertTrue(addon.prateleiras._vestir(obj, caixa))
+        self.assertEqual(obj.matrix_basis, matriz)
+        self.assertIs(obj.data, malha)
+
     def test_quantidade_local_subdivide_so_entre_os_apoios_e_reutiliza_a_familia(self):
         grupo = self.prateleiras()
         baixo, alvo, cima = P.prateleiras_do_grupo(grupo)

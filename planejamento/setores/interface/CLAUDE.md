@@ -54,9 +54,9 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   Inserir/Editar/Bloquear; sem botoes sob modulos. Respeitar cadeado/protecao.
 - A SELECAO decide o que edita; Shift soma e a gaveta segue a aba do item.
   Caixa (laterais/tampo) seleciona modulo; duplo isola chapa. Quina arrasta
-  modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa.
+  modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa. Clique fora encerra o individual; novo clique simples = grupo (Shift conserva).
 - Porta: clique inteira, nunca modulo; duplo folha, sem contorno nativo.
-  Espelhar: icone na aba Portas e contexto direito, grupo ou folha; inverter
+  Sem linha Reposicionar/Frente/Espelhar na aba. Espelhar fica no contexto direito, grupo ou folha; inverter
   giro, cadeia zigzag inteira, curso de correr ou basculante com pistoes;
   puxador acompanha. Nao espelhar madeira.
 - Ferragem: so' aparece criando ou selecionada, ARAME da peca real. Clique
@@ -70,6 +70,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   cortadores/controles; tornar compartilhadas unicas antes. Conservar Empties
   selecionados no Edit Mode, restaurar selecao/ativo ao sair e invalidar
   planta; estado SO' nomes. Peca isolada conserva Tab nativo.
+- Vista local: ray cast ignora ocultos; Tab move rigs por `ferragens`, com referencia na Mesh para undo, espelhos materializados e UVs corrigidas nativamente.
 - Volume/B: base na geometria ATUAL ao apertar B, nunca na posicao inicial.
   O nativo restaura o cursor; `hud_volume.preparar_base_snap` absorve o ultimo
   movimento e registra o deslocamento acumulado SEM devolver a madeira.
@@ -89,18 +90,17 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Clique esquerdo do add-on: keyconfig ADDON; objeto comum fica no CLICK
   nativo. `OBJECT_OT_selecionar.poll` recusa fora de Object Mode ou com
   `selecao_por_grupo` desligada; props SKIP_SAVE.
-
 ## Gaveta e biblioteca
 
 - Gaveta por CONTEXTO em toda aba: sem selecao, SO' criar laranja (Modulos:
   nada); criando, campos etapa a etapa, copia clicavel da caixa atendida
   pelo modal; selecionado, SO' controles do ITEM. Porta sem dobradica;
   ferragens = quantidade/afastamento. Dobradica/Converter ficam no F3.
-- Sem nome do item, Sincronizar ou Auto-regenerar. Montagem = Corrente e
-  Resetar distancia; resto no F3. Arrastar campo de lado muda; clique digita.
+- Criando/reancorando solda (355), HUD de geometria e hover ficam bloqueados; corrente/regua/snap continuam. Criar/confirmar usa destaque laranja existente. Painel proprio, sem Orcamento; distancia, zero, voltar, aceitar/cancelar. Direito/Esc cancela; Backspace/Ctrl+Z volta; Alt reancora. Sem nome do item, Sincronizar ou Auto-regenerar. Montagem: Criar solda em
+  linha inteira, Corrente e Resetar distancia com texto e icone, empilhados se estreito. Arrastar campo muda; clique digita.
 - Layout devolve `(x, y, w, h, rotulo, acao)`, desenho pinta, evento despacha.
   Nao hashear acao com dict. Gizmos em pool: ocultar/reusar; nao remover ou
-  religar no redraw. Campo conserva operador ligado; atualizar so' dica.
+  religar no redraw. Button2D fixa simbolo no 1o draw: pool por icone/ocorrencia. Campos/corrente/regua conservam operador; atualizar props.
 - Biblioteca: FAIXA no topo (`cabinet_layout=2`: faixa/menu/cena) ou NO MENU
   (`cabinet_biblioteca_lugar=MENU`, nao migra; troca no timer): nivel = lista suspensa.
 - Niveis sem limite (`niveis`); abas 18 px/fonte 10/intervalo 2. Modos e niveis

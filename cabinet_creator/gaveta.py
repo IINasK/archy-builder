@@ -1132,14 +1132,7 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
         return itens
     if grupo is None:
         return itens
-    # Reposicionar (diagonal no vao novo) e frente EM CIMA das medidas,
-    # com icone (pedido do usuario). Converter em porta/dupla sairam da
-    # aba a pedido do usuario; seguem no F3.
-    itens.append((x+w-28, y+26, 28, 28, 'Espelhar porta',
-                  ('operador', 'object.cabinet_espelhar_porta')))
-    topo = _botoes_gaveta(itens, x, y + 26, w-34, (
-        ('Reposicionar no vao', 'object.cabinet_apanhar_vao'),
-        ('Definir como frente', 'object.cabinet_definir_frente'))) + 28 - 4
+    topo = y + 26 + 28
     alvo = grupo.name
     valores = _valores_portas(s, grupo)
     moldura = _portas._correr_sobreposta(dict(grupo['porta_parametros']))
@@ -1281,7 +1274,8 @@ COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 # Entrar/sair da edicao da parede no MESMO padrao (pedido do usuario):
 # laranja para entrar, o laranja forte da etapa em andamento para sair.
 # Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
-OPERADORES_DESTAQUE = ('object.cabinet_editar_parede', 'object.cabinet_sair_parede')
+OPERADORES_DESTAQUE = ('object.cabinet_editar_parede', 'object.cabinet_sair_parede',
+                      'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao')
 OPERADOR_DESTAQUE_ATIVO = 'object.cabinet_sair_parede'
 
 
@@ -1779,7 +1773,7 @@ def _rodape_gaveta(context, x, w):
     painel para cima. Tudo grava nas preferencias do add-on.
     """
     rodape = [(x, 7, 26, 26, '', ('operador', OP_OPCOES))]
-    if _solda._conexao_manual[0] is not None:
+    if _solda._conexao_manual[0] is not None and not _solda._conexao_manual[0].get('moderna'):
         # escolhendo vertices: o pe' vira o "Confirmar" (o mesmo do Enter)
         rodape.append((x + 32, 7, w - 32, 26, 'Confirmar conexao (Enter)',
                        ('operador', 'object.cabinet_confirmar_conexao')))
@@ -1992,6 +1986,9 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                       rotulo if blf.dimensions(0, rotulo)[0] + 12 <= aba_w else curto, ('aba', acao)))
         cx += aba_w + 4
     y = altura - 105 + _rolagem
+    solda=_solda._conexao_manual[0]
+    if solda is not None and solda.get('moderna'):
+        return _painel_criacao_solda(context,itens,x,y+54,w,solda)
     if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
@@ -2047,17 +2044,20 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
         return _secao_orcamento_gaveta(context, itens, x, y, w)
     itens.append((x, y, w, 23, 'Montagem', None))
     y -= 31
+    if nosso:
+        itens.append((x, y, w, 28, 'Criar solda',
+                      ('operador', 'object.cabinet_conectar_vertices')))
+        y -= 34
     # Sem "Recalcular": o handler ja' normaliza as chapas ao fim de
     # todo S/G, e o botao so' repetia isso (pedido do usuario).
     # O ima (Adjacencia) virou a CORRENTE: com um objeto selecionado o
     # botao acende azul se ele esta' agregado (o clique desagrega) e fica
     # cinza se nao (o clique associa); com varios, conecta por distancia.
-    # So' dois botoes (pedido do usuario): Agrupar e Converter sairam da
-    # gaveta (seguem no F3); "Resetar distancia" (regua, azul com solda
-    # fora da origem) volta a peca/modulo para a origem da solda.
+    # Criar tem acesso proprio, pois a corrente de uma peca agregada
+    # desagrega. Agrupar/Converter continuam no F3.
     montagem = (('Corrente', _solda.OP_CORRENTE_OBJETO),
                 ('Resetar distancia', _solda.OP_RESETAR_DISTANCIA))
-    colunas = min(len(montagem), max(1, int(w // 36)))
+    colunas = 2 if w >= 240 else 1
     bw = (w - 6 * (colunas - 1)) / colunas
     for i, (rotulo, op) in enumerate(montagem):
         linha, coluna = divmod(i, colunas)
@@ -2068,11 +2068,37 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
                       bw, 28, rotulo, acao))
     linhas = -(-len(montagem) // colunas)
     y -= (linhas - 1) * 34
+    aviso=_solda.diagnostico_soldas(obj)
+    if aviso:
+        y-=31;itens.append((x,y,w,26,aviso,None))
+        y-=26;itens.append((x,y,w,26,'Crie outra solda para reparar',None))
     pergunta = _perguntas._pergunta_atual[0]
     if (pergunta is not None and pergunta['na_gaveta']
             and not pergunta.get('comodo') and not pergunta.get('biblioteca')):
         y = _pergunta_na_gaveta(itens, x, y - 6, w, pergunta)
     return _secao_orcamento_gaveta(context, itens, x, y - 40, w)
+
+
+def _painel_criacao_solda(context,itens,x,topo,w,estado):
+    topo=_titulo_secao(itens,x,topo,w,'Criar solda')
+    recado={'origem':'1. Escolha a ancora de origem',
+            'destino':'2. Escolha a ancora final',
+            'confirmar':'Deseja criar esta solda?'}[estado['fase']]
+    itens.append((x,topo-26,w,26,recado,None));topo-=34
+    valor=(estado['distancias'][-1] if estado['pares'] else estado.get('distancia_previa') or 0.)*1000
+    topo=_campos_em_linhas(context,itens,x,topo,w,[
+        ('Distancia: '+_opcoes._texto_medida(valor),('medida','solda_criacao','distancia','Distancia',valor))])
+    if estado['pares']:
+        for rotulo,comando in (('Resetar distancia','RESETAR'),('Voltar etapa','VOLTAR')):
+            itens.append((x,topo-28,w,28,rotulo,('escolha','solda_acao',comando,False,True,'@solda')));topo-=34
+        if estado['fase']=='confirmar':
+            itens.append((x,topo-28,w,28,'Adicionar outro par',('escolha','solda_acao','ADICIONAR',False,True,'@solda')));topo-=34
+            itens.append((x,topo-28,w,28,'Criar solda',('operador','object.cabinet_confirmar_conexao')));topo-=34
+    itens.append((x,topo-28,w,28,'Cancelar solda',('escolha','solda_acao','CANCELAR',False,True,'@solda')))
+    itens.append((x,topo-62,w,26,'Alt: editar ancora',None))
+    itens.append((x,topo-88,w,26,'Direito / Esc: cancelar',None))
+    itens.append((x,topo-114,w,26,'Backspace / Ctrl+Z: voltar',None))
+    return itens
 
 
 def _secao_orcamento_gaveta(context, itens, x, y, w):

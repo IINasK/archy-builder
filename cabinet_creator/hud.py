@@ -84,6 +84,9 @@ GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
 def _contexto_hud(context):
     """Onde a HUD existe. Durante G/R/S ela some inteira -- linhas,
     letras, seta e hover -- e volta quando o gesto termina."""
+    if _solda._conexao_manual[0] is not None or _solda._arraste_ancora[0] is not None:
+        _hover_hud.clear()
+        return False
     if _eventos._transformando() and not _hud_volume._estado[0]:
         _hover_hud.clear()
         return False
@@ -101,11 +104,22 @@ def _raio_cru(context, posicao):
         context.region, context.region_data, posicao)
     direcao = view3d_utils.region_2d_to_vector_3d(
         context.region, context.region_data, posicao)
-    acertou, ponto, normal, face, obj, matriz = context.scene.ray_cast(
-        context.evaluated_depsgraph_get(), origem, direcao)
-    if not acertou or obj is None:
-        return None
-    return obj.original, ponto, normal, face, matriz
+    restante = context.space_data.clip_end
+    depsgraph = context.evaluated_depsgraph_get()
+    while restante > 0:
+        acertou, ponto, normal, face, obj, matriz = context.scene.ray_cast(
+            depsgraph, origem, direcao, distance=restante)
+        if not acertou or obj is None:
+            return None
+        if obj.original.visible_get(view_layer=context.view_layer,
+                                    viewport=context.space_data):
+            return obj.original, ponto, normal, face, matriz
+        # O ray cast da cena inclui objetos fora da vista local. Seguir
+        # pelo motor nativo evita selecionar a parede oculta diante do movel.
+        passo = (ponto - origem).length + .00001
+        restante -= passo
+        origem = ponto + direcao * .00001
+    return None
 
 
 def _ferragem_sob_mouse(context, posicao):
@@ -1552,10 +1566,15 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
     bl_label = 'Correntes de adjacencia Cabinet Creator'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
-    bl_options = {'PERSISTENT', 'SCALE'}
+    bl_options = {'PERSISTENT', 'SCALE', 'SHOW_MODAL_ALL'}
 
     @classmethod
     def poll(cls, context):
+        criacao = _solda._conexao_manual[0]
+        if criacao and criacao.get('moderna'):
+            return (context.mode == 'OBJECT' and context.region is not None
+                    and context.region.as_pointer() == criacao['regiao']
+                    and not _gaveta._eh_area_gaveta(context))
         return (_contexto_hud(context) and not _gaveta._eh_area_gaveta(context)
                 and _alvo_hud(context) is not None and not _portas._apanhando_vao[0]
                 and _edicao_hud[0] is None)
@@ -1565,18 +1584,33 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
 
     def draw_prepare(self, context):
         # dois botoes por quina: corrente (desagrega) e regua (resetar)
+        correntes=_solda._correntes_hud(context)
+        criando=bool(correntes and correntes[0].get('criacao'))
+        if not hasattr(self,'botoes_criacao'):
+            self.botoes_criacao=[];self.operadores_criacao=[]
+        for botao in self.botoes+self.botoes_criacao:botao.hide=True
+        pool=self.botoes_criacao if criando else self.botoes
         botoes = [(corrente, tipo, centro)
-                  for corrente in _solda._correntes_hud(context)
+                  for corrente in correntes
                   for tipo, centro in _solda._botoes_da_corrente(context, corrente).items()]
-        while len(self.botoes) < len(botoes):
+        if not hasattr(self, 'operadores'):
+            self.operadores = []
+        while len(pool) < len(botoes):
             botao = self.gizmos.new('GIZMO_GT_button_2d')
             botao.draw_options = {'BACKDROP', 'OUTLINE'}
             botao.use_tooltip = True
-            self.botoes.append(botao)
+            pool.append(botao)
+        # Os slots alternam corrente/regua; religar no redraw invalida o tooltip nativo.
+        operadores=self.operadores_criacao if criando else self.operadores
+        while len(operadores) < len(pool):
+            i = len(operadores)
+            nome = ('object.cabinet_acao_criacao_solda' if criando else
+                    'object.cabinet_desassociar' if i % 2 == 0 else _solda.OP_RESETAR_DISTANCIA)
+            operadores.append(pool[i].target_set_operator(nome))
         realce = _cor_realce_hud()
         for botao in self.botoes:
             botao.hide = True
-        for botao, (corrente, tipo, centro) in zip(self.botoes, botoes):
+        for botao, op, (corrente, tipo, centro) in zip(pool, operadores, botoes):
             botao.hide = False
             botao.icon = 'LINKED' if tipo == 'corrente' else 'DRIVER_DISTANCE'
             botao.scale_basis = _solda.RAIO_CORRENTE_PX
@@ -1586,12 +1620,26 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
             botao.alpha_highlight = 1.0
             botao.matrix_basis[0][3] = centro.x
             botao.matrix_basis[1][3] = centro.y
-            if tipo == 'corrente':
-                op = botao.target_set_operator('object.cabinet_desassociar')
-                op.chapa = corrente['movel'].name
-            else:
-                op = botao.target_set_operator(_solda.OP_RESETAR_DISTANCIA)
-                op.chapa = corrente['movel'].name
+            if criando:op.acao=('%s|%d'%('REMOVER' if tipo=='corrente' else 'RESETAR',corrente['indice']))
+            else:op.chapa = corrente['movel'].name
+        if not hasattr(self,'campos_distancia'):self.campos_distancia=[]
+        campos=[(c,caixa) for c in correntes if (caixa:=_solda._campo_distancia_corrente(context,c))]
+        while len(self.campos_distancia)<len(campos):
+            campo=self.gizmos.new('VIEW3D_GT_campo_gaveta')
+            campo.use_tooltip=False
+            op=campo.target_set_operator('object.cabinet_editar_medida_gaveta')
+            op.dono='solda'
+            self.campos_distancia.append((campo,op))
+        for campo,_op in self.campos_distancia:
+            campo.hide=True;_campos_gaveta.pop(campo.as_pointer(),None)
+        for (campo,op),(c,caixa) in zip(self.campos_distancia,campos):
+            x,y,w,h,_texto,valor=caixa
+            campo.hide=False
+            _campos_gaveta[campo.as_pointer()]=(x-4,y-4,w+8,h+8,None)
+            op.dono='solda_criacao' if c.get('criacao') else 'solda'
+            op.objeto=c['a'].name
+            op.propriedade=str(c['indice']) if c.get('criacao') else '%s|%d'%(c['ponta'],c['indice'])
+            op.valor=valor
 
 
 def _bolinha_2d(shader, ponto, raio, rgba):
