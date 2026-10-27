@@ -1007,6 +1007,7 @@ def concluir_edicao_rigs(registros):
     if bpy.context.mode != 'OBJECT' or _eventos._desfazendo[0]:
         return
     bpy.context.view_layer.update()
+    mudou = False
     for nome, registro in registros.items():
         raiz = bpy.data.objects.get(nome)
         if raiz is None or raiz.get('cabinet_peca') != 'raiz':
@@ -1048,7 +1049,11 @@ def concluir_edicao_rigs(registros):
             raiz.matrix_basis = matriz
             anterior = Vector(raiz.get('porta_ferragem_deslocamento_mm', (0, 0, 0)))
             raiz['porta_ferragem_deslocamento_mm'] = anterior + aplicado * 1000
-            bpy.context.view_layer.update()
+            mudou = True
+    # Os rigs sao independentes; avaliar a cena por dobradica repetia
+    # todos os booleanos/IK antes de o puxador acompanhar a edicao.
+    if mudou:
+        bpy.context.view_layer.update()
     for registro in registros.values():
         for nome in registro['pecas']:
             obj = bpy.data.objects.get(nome)

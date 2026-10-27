@@ -24,7 +24,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _portas = _puxadores = _hud = _assistente = None
 _eventos = _gaveta = _solda = _portas_viewport = _selecao = None
-_geometria = _prateleiras = _divisorias = None
+_geometria = _prateleiras = _divisorias = _fundos = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_gavetas'
@@ -299,7 +299,7 @@ def limites_na_referencia(conj, ref, limites=None):
     if limites is None:
         inv=ref.transposed().to_4x4() @ conj.matrix_world.inverted()
         pts=[inv @ (o.matrix_world @ Vector(v))*1000 for o in _modulos._chapas_do_conjunto(conj)
-             if not o.get('eh_prateleira') for v in o.bound_box]
+             if not o.get('eh_prateleira') and 'fundo_tipo' not in o for v in o.bound_box]
         return (Vector(tuple(min(v[k] for v in pts) for k in range(3))),
                 Vector(tuple(max(v[k] for v in pts) for k in range(3))))
     lo, hi = limites
@@ -1359,7 +1359,11 @@ def _aplicar_ponto(grupo, indice, ponto_mundo):
         lo,hi=limites_na_referencia(conj,ref)
         base=ref.transposed() @ ((conj.matrix_world.inverted() @ grupo.matrix_world).translation*1000)
         limite=profundidade_disponivel(conj,grupo.matrix_world,largura,altura,hi.y-base.y)
-        return editar(bpy.context, grupo, 'profundidade_mm', min(limite,max(100.0, local.y)))
+        erro = editar(bpy.context, grupo, 'profundidade_mm', min(limite,max(100.0, local.y)))
+        if not erro:
+            _fundos.detectar_no_ponto(grupo,ponto_mundo)
+            _fundos.atualizar_internos(conj)
+        return erro
     largura, altura, _p = medidas(grupo)
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     antes = list(margens)
@@ -1794,6 +1798,7 @@ _snap_criacao = [None]
 
 def _estado_criacao():
     return (_assistente_gavetas[0] or _prateleiras._assistente_prateleiras[0]
+            or _fundos._assistente_fundo[0]
             or _divisorias._assistente_divisorias[0]
             or (_solda._conexao_manual[0] if (_solda._conexao_manual[0] or {}).get('snap_nativo') else None)
             or (_portas._assistente_porta[0] if (_portas._assistente_porta[0] or {}).get('snap_nativo') else None))
@@ -1943,7 +1948,11 @@ class AssistenteDoVao:
         return {'RUNNING_MODAL'}
 
     def _criar_grupo(self, context, conj, margens, p):
-        return criar_gavetas(context, conj, margens, p,self._w.get('referencia'))
+        grupo = criar_gavetas(context, conj, margens, p,self._w.get('referencia'))
+        ponto = grupo.matrix_world @ Vector((0,p['profundidade_mm']/1000,0))
+        _fundos.detectar_no_ponto(grupo,ponto)
+        _fundos.atualizar_internos(conj)
+        return grupo
 
     def _selecionar_grupo(self, context, grupo):
         selecionar(context, grupo, 'GRUPO')

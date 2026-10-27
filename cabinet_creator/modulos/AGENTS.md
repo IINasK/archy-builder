@@ -16,6 +16,7 @@ Adocao Promob/migracoes: [integracao](../../planejamento/setores/integracao/AGEN
 | Nome/pasta do modulo | `_nome_livre`, `nomear_grupo`, `_garantir_colecao_modulo` em `__init__.py` |
 | Envelope e resize | `medir_conjunto`, `redimensionar_conjunto`, `redimensionar_grupo` em `__init__.py` |
 | Resize nos eixos de um modulo na parede girada | `redimensionar_orientado` em `__init__.py` |
+| Fundos por dois pontos, canal/pregado/interno e hitbox | `../fundos.py`: `criar`, `atualizar_internos`, `verificar` |
 | Fundo e margens | `adicionar_fundo`, `guardar_formato_fundo`, `ajustar_fundo` em `__init__.py` |
 | Travessas e dependentes | `adicionar_travessas`, `ajustar_dependentes` em `__init__.py` |
 | Sistemas apos resize/solda/HUD | `atualizar_sistemas_do_conjunto` em `__init__.py` |
@@ -28,8 +29,17 @@ Adocao Promob/migracoes: [integracao](../../planejamento/setores/integracao/AGEN
   Solda/comodo garantem a Collection ANTES da filiacao.
 - Preset sem marca reutiliza SOMENTE a pasta exclusiva de mesmo nome.
   Pasta compartilhada nunca vira modulo.
-- Fundo: 5 mm, canal a 15 mm, entra 7 mm; fundo E travessas sao dependentes.
+- Fundo legado: 5 mm, canal a 15 mm, entra 7 mm; fundo E travessas sao dependentes.
   Promob exige recuo MINIMO de 15 mm.
+- Fundos 360: aba propria, dois pontos/snap nativo pelo AssistenteDoVao.
+  Canal 6/9 mm com Boolean EXACT nao destrutivo; pregado por fora; interno
+  rente (15 mm seleciona esse tipo). Legados nao migram automaticamente.
+  Vao dos internos exclui fundos novos: mover o fundo nao amplia a estrutura.
+  Vinculo por UID e pai real, somente com sobreposicao; snap a ate 5 mm, ou
+  colisao de um fundo novo. Timer apos G/Tab adapta profundidade/trilho,
+  preserva altura/frente; sem capacidade, devolve a pose valida e avisa.
+  UNPINNED desassocia e preserva medidas; ignorado ate novo snap explicito.
+  Novo sistema em fundos.py; legado permanece neste pacote por contrato.
 - Fundos parciais/ortogonais guardam margens por PLANO; nunca expandir pela
   caixa inteira do armario.
 - Base/tampo deslocados: alongar a divisoria que ENCOSTAVA na face real,
@@ -46,6 +56,9 @@ Adocao Promob/migracoes: [integracao](../../planejamento/setores/integracao/AGEN
   externa para este dono. Nao chamar a fachada legada dentro do add-on.
   Sem estado/cache, servico generico ou funcao capturada: patches e recarga
   resolvem cada dominio no modulo de origem. Referencias: guia de chapas.
+- Solda unica (359): grupo solto/resize consultam o mapa de restricoes
+  axiais em lote; a aresta pode estar no outro extremo, sem ampliar o
+  escopo estrito a ligacoes reversas que nunca existiram.
 - S nativo com internos: `absorver_conjuntos(no_timer=True)` mede a caixa
   nativa escalada e usa o resize comum no timer. O depsgraph apenas adia;
   nao absorver a escala herdada nas chapas antes disso, nem multiplicar

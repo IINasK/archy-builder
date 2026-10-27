@@ -28,7 +28,7 @@ _perguntas = None
 _gaveta_desenho = None
 _gavetas = None
 _prateleiras = None
-_divisorias = None
+_divisorias = _fundos = None
 _formas = None
 _paredes_edicao = None
 _paredes_composicao = None
@@ -1357,6 +1357,7 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     grupo = _prateleiras.grupo_de(obj) if obj is not None else None
     if grupo is None:
         return itens
+    y = _fundos.widgets_vinculo(context, itens, x, y, w)
     p = _prateleiras.parametros(grupo)
     largura_vao, altura_vao, profundidade = _prateleiras.medidas(grupo)
     prateleira = _prateleiras.individual_ativo(context, grupo)
@@ -1430,6 +1431,7 @@ def _aba_gavetas_gaveta(context, itens, x, y, w):
     grupo = _gavetas.grupo_de(obj) if obj is not None else None
     if grupo is None or not (obj == grupo or _gavetas.MARCA_GAVETA in obj):
         return itens
+    y = _fundos.widgets_vinculo(context, itens, x, y, w)
     p = _gavetas.parametros(grupo)
     alvo = grupo.name
     largura_vao, altura_vao, profundidade = _gavetas.medidas(grupo)
@@ -1606,6 +1608,7 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
+               ('Fundos', 'Fundo', 'FUNDOS'),
                ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras', 'Prat.', 'PRATELEIRAS'),
                ('Divisorias', 'Div.', 'DIVISORIAS'),
                ('Puxadores', 'Pux.', 'PUXADORES'))
@@ -1989,13 +1992,14 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     solda=_solda._conexao_manual[0]
     if solda is not None and solda.get('moderna'):
         return _painel_criacao_solda(context,itens,x,y+54,w,solda)
-    if s.cabinet_aba in {'PORTAS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
+    if s.cabinet_aba in {'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
         # antes morava no pe' fixo ao lado da engrenagem. O "Criar
         # Puxador" segue o MESMO padrao (pedido do usuario).
         rotulo, acao = (_botao_criar_portas(context)
                         if s.cabinet_aba == 'PORTAS'
+                        else ('Criar Fundo', ('operador', 'object.cabinet_criar_fundo')) if s.cabinet_aba == 'FUNDOS'
                         else _botao_criar_gavetas() if s.cabinet_aba == 'GAVETAS'
                         else _botao_criar_prateleiras() if s.cabinet_aba == 'PRATELEIRAS'
                         else ('Marcando o vao... (Esc cancela)' if _divisorias._criando() else 'Criar Divisorias',
@@ -2008,6 +2012,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
     if s.cabinet_aba == 'PORTAS':
         return _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade)
+    if s.cabinet_aba == 'FUNDOS':
+        return _fundos.widgets(context, itens, x, y, w)
     if s.cabinet_aba == 'PUXADORES':
         return _aba_puxadores_gaveta(context, itens, x, y, w, s, largura,
                                      metade)

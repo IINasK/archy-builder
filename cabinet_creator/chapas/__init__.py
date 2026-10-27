@@ -678,12 +678,14 @@ def absorver_edicoes_de_malha():
     """
     agora, saidas = set(), []
     for obj in bpy.data.objects:
-        if obj.type != 'MESH' or MARCA_CHAPA not in obj:
+        if obj.type != 'MESH' or (MARCA_CHAPA not in obj
+                and not _puxadores._eh_puxador_parametrico(obj)):
             continue
         if obj.mode == 'EDIT':
             agora.add(obj.name)
         elif obj.name in _chapas_em_edicao:
             saidas.append(obj)
+    anteriores = _chapas_em_edicao.copy()
     _chapas_em_edicao.clear()
     _chapas_em_edicao.update(agora)
     if saidas:
@@ -692,10 +694,16 @@ def absorver_edicoes_de_malha():
         _formas.esquecer()
     for obj in saidas:
         try:
+            if _puxadores._eh_puxador_parametrico(obj):
+                _puxadores.atualizar_contorno(obj)
+                continue
             absorver_malha_editada(obj)
-            _frentes.preparar(obj, forcar=True)
+            _frentes.preparar(obj)
             for filho in obj.children:
-                if _puxadores._eh_puxador_parametrico(filho):
+                # No Tab do grupo a geometria do puxador ja' acompanhou
+                # o gesto nativo. Recria-la anulava o movimento confirmado.
+                if (_puxadores._eh_puxador_parametrico(filho)
+                        and filho.name not in anteriores):
                     _puxadores.posicionar_puxador(filho)
         except Exception as e:
             print("[Cabinet Creator] absorver edicao:", e)
@@ -816,6 +824,7 @@ def ao_atualizar_depsgraph(scene, depsgraph):
     # apagou/duplicou algo: as ferragens das portas se conferem depois
     # (num timer: remover objeto dentro do handler do depsgraph nao)
     if len(bpy.data.objects) != _ferragens._contagem_objetos[0]:
+        _solda._normalizar_pendente[0] = True
         surgiu = len(bpy.data.objects) > _ferragens._contagem_objetos[0] >= 0
         _ferragens._contagem_objetos[0] = len(bpy.data.objects)
         if not bpy.app.timers.is_registered(_ferragens._conferir_ferragens):
@@ -972,6 +981,17 @@ def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
 
 
 def _gravar_ligacao(C, eixo, lado, N, folga, face):
+    existente = _solda._ligacao_entre(C, N)
+    ponta = '%s_%s' % (eixo, lado)
+    if existente is not None and existente[0].get('adj_%s_manual'%existente[1]):
+        return False
+    if existente is not None and existente != (C, ponta):
+        dono, antiga = existente
+        vizinho = _solda._vizinho_da_ponta(dono, antiga)
+        _solda._gravar_restricoes(dono, antiga, vizinho,
+            _solda._restricoes_da_ligacao(dono, antiga, vizinho) + [(C, ponta, N, int(face), float(folga))])
+        return False
+    restricoes = _solda._restricoes_da_ligacao(C, ponta, N) if existente else []
     for sufixo in ('_ancoras','_origens','_manual','_direcoes'):
         if f"adj_{eixo}_{lado}{sufixo}" in C:
             del C[f"adj_{eixo}_{lado}{sufixo}"]   # solda nova: nao herda a origem anterior
@@ -979,24 +999,26 @@ def _gravar_ligacao(C, eixo, lado, N, folga, face):
     C[f"adj_{eixo}_{lado}_uid"] = _garantir_uid(N)
     C[f"adj_{eixo}_{lado}_folga"] = float(folga)
     C[f"adj_{eixo}_{lado}_face"] = int(face)
+    _solda._gravar_restricoes(C, ponta, N, restricoes)
+    return True
 
 
 def detectar_adjacencia(objs):
     """Para cada ponta de cada chapa, acha a peca vizinha mais proxima
     naquela direcao e memoriza a folga atual."""
-    chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
-              and not eh_dependente(o)]      # fundo/travessa seguem a caixa
+    chapas = sorted((o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
+                     and not eh_dependente(o)), key=lambda o: o.name)
     for c in chapas:
         _garantir_uid(c)
     n = 0
     for C in chapas:
         _limpar_pontas(C)  # UID antigo tambem precisa sair: nome vazio nao desliga.
+    for C in chapas:
         for eixo in ("x", "y"):
             for lado in ("pos", "neg"):
                 achado = _melhor_vizinho(C, eixo, lado, chapas)
                 if achado is not None:
-                    _gravar_ligacao(C, eixo, lado, *achado)
-                    n += 1
+                    n += int(_gravar_ligacao(C, eixo, lado, *achado))
     return n
 
 
@@ -1008,15 +1030,22 @@ def otimizar_adjacencia(objs):
     candidatas = [o for o in chapas if not eh_dependente(o)]
     antes = {o.name: repr(sorted((k, str(v)) for k, v in o.items()
                                 if k.startswith('adj_'))) for o in chapas}
+    planos = []
     for C in chapas:
         for ponta in PONTAS:
             if _solda._ancoras_gravadas(C, ponta):
                 continue
             eixo, lado = ponta.split('_')
             achado = None if eh_dependente(C) else _melhor_vizinho(C, eixo, lado, candidatas)
-            _limpar_ponta(C, ponta)
-            if achado is not None:
-                _gravar_ligacao(C, eixo, lado, *achado)
+            planos.append((C, ponta, achado))
+    # Limpar depois de planejar TODOS os objetos evita apagar uma aresta
+    # que acabou de receber os encaixes do outro extremo.
+    for C, ponta, _achado in planos:
+        _limpar_ponta(C, ponta)
+    for C, ponta, achado in sorted(planos, key=lambda p: (p[0].name, p[1])):
+        if achado is not None:
+            eixo, lado = ponta.split('_')
+            _gravar_ligacao(C, eixo, lado, *achado)
     return [o.name for o in chapas if antes[o.name] != repr(sorted(
         (k, str(v)) for k, v in o.items() if k.startswith('adj_')))]
 
@@ -1035,8 +1064,7 @@ def associar_por_distancia(C, vizinhos, alcance=None):
         for lado in ("pos", "neg"):
             achado = _melhor_vizinho(C, eixo, lado, vizinhos, alcance)
             if achado is not None:
-                _gravar_ligacao(C, eixo, lado, *achado)
-                n += 1
+                n += int(_gravar_ligacao(C, eixo, lado, *achado))
     for V in vizinhos:
         for eixo in ("x", "y"):
             for lado in ("pos", "neg"):
@@ -1044,8 +1072,7 @@ def associar_por_distancia(C, vizinhos, alcance=None):
                     continue
                 achado = _melhor_vizinho(V, eixo, lado, [C], alcance)
                 if achado is not None:
-                    _gravar_ligacao(V, eixo, lado, *achado)
-                    n += 1
+                    n += int(_gravar_ligacao(V, eixo, lado, *achado))
     return n
 
 
@@ -1053,7 +1080,7 @@ def _limpar_ponta(C, ponta):
     """Tira a solda de UMA ponta (ela deixa de puxar vizinho)."""
     C[f"adj_{ponta}"] = ""
     C[f"adj_{ponta}_folga"] = 0.0
-    for sufixo in ("_uid", "_face", "_ancoras", "_origens", "_manual", "_direcoes"):
+    for sufixo in ("_uid", "_face", "_ancoras", "_origens", "_manual", "_direcoes", "_restricoes"):
         if f"adj_{ponta}{sufixo}" in C:
             del C[f"adj_{ponta}{sufixo}"]
 
@@ -1145,8 +1172,7 @@ def recalcular_ancoragem(chapas):
                 achado = _melhor_vizinho(C, eixo, lado, candidatos,
                                          ALCANCE_CONEXAO_AUTOMATICA)
                 if achado is not None:
-                    _gravar_ligacao(C, eixo, lado, *achado)
-                    n += 1
+                    n += int(_gravar_ligacao(C, eixo, lado, *achado))
     for V in candidatos:
         if V in refeitas:
             continue
@@ -1159,8 +1185,7 @@ def recalcular_ancoragem(chapas):
                 achado = _melhor_vizinho(V, eixo, lado, chapas,
                                          ALCANCE_CONEXAO_AUTOMATICA)
                 if achado is not None:
-                    _gravar_ligacao(V, eixo, lado, *achado)
-                    n += 1
+                    n += int(_gravar_ligacao(V, eixo, lado, *achado))
                 elif atual is not None:
                     # apontava para uma refeita que nao encosta mais
                     _limpar_ponta(V, ponta)
@@ -1203,6 +1228,7 @@ def aplicar_adjacencia(objs=None):
     chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
               and o.mode != 'EDIT' and not eh_dependente(o)]
     ajustadas = []
+    restricoes = _solda.restricoes_adjacencia(chapas)
     _ocupado[0] = True
     try:
         for C in chapas:
@@ -1219,18 +1245,16 @@ def aplicar_adjacencia(objs=None):
                 p_pos, p_neg = centro_u + h, centro_u - h
                 alvo_pos, alvo_neg = p_pos, p_neg
 
-                N = _resolver_vizinho(C, C.get(f"adj_{eixo}_pos_uid", ""), C.get(f"adj_{eixo}_pos", ""))
+                N, fp, folga_pos = restricoes[C].get(eixo+'_pos', (None, 0, 0.))
                 if N is not None and N.parent!=C.parent and (N.get('eh_prateleira') or N.get('gaveta_peca')):
                     N = None   # antiga chapa integrada nao puxa mais a caixa
                 if N is not None:
-                    fp = int(C.get(f"adj_{eixo}_pos_face", 0))
-                    alvo_pos = _faixa(N, u)[fp] - C.get(f"adj_{eixo}_pos_folga", 0.0)
-                N = _resolver_vizinho(C, C.get(f"adj_{eixo}_neg_uid", ""), C.get(f"adj_{eixo}_neg", ""))
+                    alvo_pos = _faixa(N, u)[fp] - folga_pos
+                N, fn, folga_neg = restricoes[C].get(eixo+'_neg', (None, 1, 0.))
                 if N is not None and N.parent!=C.parent and (N.get('eh_prateleira') or N.get('gaveta_peca')):
                     N = None
                 if N is not None:
-                    fn = int(C.get(f"adj_{eixo}_neg_face", 1))
-                    alvo_neg = _faixa(N, u)[fn] + C.get(f"adj_{eixo}_neg_folga", 0.0)
+                    alvo_neg = _faixa(N, u)[fn] + folga_neg
 
                 novo_h = (alvo_pos - alvo_neg) / 2.0
                 if novo_h <= 0.0005:
@@ -1355,7 +1379,7 @@ class OBJECT_OT_marcar_como_chapa(Operator):
                     vizinho = _resolver_vizinho(
                         chapa, chapa.get(base + '_uid', ''), chapa.get(base, ''))
                     if chapa == obj or vizinho == obj:
-                        for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes'):
+                        for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes','_restricoes'):
                             if base + sufixo in chapa:
                                 del chapa[base + sufixo]
             _ocupado[0] = True

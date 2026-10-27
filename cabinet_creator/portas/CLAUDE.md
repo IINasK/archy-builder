@@ -22,6 +22,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
 
 ## Decisoes e armadilhas
 
+- Limites internos (360): fundo novo nao amplia a caixa de apoio das portas.
 - Portas atualiza SO' folhas/apoios em `atualizar_do_conjunto`. A ordem
   portas -> gavetas -> prateleiras pertence a `modulos.atualizar_sistemas_do_conjunto`.
   `atualizar_portas_do_conjunto(conj, sistemas=True)` e' fachada externa
@@ -90,6 +91,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   antes de substituir: dict raso e acesso posterior derrubavam Blender 5.2.
 - Ferragem aparece so' criando ou selecionada, arame da PECA real. Clique =
   todas do tipo, Shift soma o outro, Alt = controlador, duplo = PECA (Tab/G/X nativos).
+- Tab/G (357): rigs em lote; puxador editado conserva Mesh e atualiza so' contorno.
 - Tab do grupo: translacao rigida de pecas inteiras move a raiz da dobradica,
   com furo/IK/mola. Modelagem parcial fica nativa; deslocamento no referencial
   da porta persiste na raiz. Referencia numerica na Mesh recupera undo do Tab.
@@ -112,7 +114,6 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   legado; indices nao governam contorno/resize. Puxador/Alt/previa compartilham
   bordas/normais; PERFIL segue curva, fracao legada migra uma vez. Resize
   reancora pela tangente sem refazer vertices/faces editados.
-
 ## Suites
 
 Em `../../tests/`: `test_portas_blender.py`, `test_puxadores_blender.py`,

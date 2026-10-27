@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import bpy
+import bmesh
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,6 +31,48 @@ def malha_na_chapa(chapa):
 
 
 class TestPuxadores(unittest.TestCase):
+    def test_tab_individual_preserva_modelagem_material_uv_e_undo_do_puxador(self):
+        chapa = self.chapa()
+        pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'ALCA', 'Y+', 1)
+        nome = pux.name
+        uv = pux.data.uv_layers.new(name='UV do puxador editado')
+        for i, dado in enumerate(uv.data):
+            dado.uv = (i / 50, i / 70)
+        uvs = [tuple(d.uv) for d in uv.data]
+        material = pux.data.materials[0].name
+        for obj in bpy.context.selected_objects:
+            obj.select_set(False)
+        pux.select_set(True)
+        bpy.context.view_layer.objects.active = pux
+        bpy.ops.ed.undo_push(message='Puxador antes do Tab')
+        bpy.ops.object.mode_set(mode='EDIT')
+        addon.chapas.absorver_edicoes_de_malha()
+        bm = bmesh.from_edit_mesh(pux.data)
+        bm.verts.ensure_lookup_table()
+        bm.verts[0].co.z += .004
+        bmesh.update_edit_mesh(pux.data)
+        bpy.ops.ed.undo_push(message='Modelou o puxador')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.ed.undo_push(message='Saiu do puxador')
+        pontos = [tuple(v.co) for v in pux.data.vertices]
+        addon.chapas.absorver_edicoes_de_malha()
+        self.assertEqual([tuple(v.co) for v in pux.data.vertices], pontos)
+        chapa = pux = uv = dado = obj = bm = None
+        for _ in range(2):
+            bpy.ops.ed.undo()
+            self.assertEqual(bpy.context.mode, 'EDIT_MESH')
+            addon.eventos._fim_do_desfazer()
+            addon.eventos.verificar_periodicamente()
+            bpy.ops.ed.redo()
+            addon.eventos._fim_do_desfazer()
+            addon.eventos.verificar_periodicamente()
+            malha = bpy.data.objects[nome].data
+            self.assertEqual([tuple(v.co) for v in malha.vertices], pontos)
+            self.assertEqual([tuple(d.uv) for d in malha.uv_layers[0].data], uvs)
+            self.assertEqual(malha.materials[0].name, material)
+            self.assertIn('puxador_contorno', bpy.data.objects[nome])
+            malha = None
+
     def test_perfil_da_folha_perpendicular_fica_na_frente_e_na_ponta_livre(self):
         from mathutils import Matrix
         import math

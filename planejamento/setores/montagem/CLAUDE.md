@@ -83,9 +83,13 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   deixa o clique para o gizmo; digitado vai no numero da cota (`digitacao_hud`).
 
 - Solda manual usa translate/snap NATIVO compartilhado; cache KDTree ou consulta nativa da face, nunca varrer a malha no clique. Ancorar/Juntar registra afastamento 3D local ao destino (`adj_<ponta>_origens`). Legado: reset volta ao gap gravado. Criacao 352: reset zera pela ancora FINAL fixa, e esse zero vira a referencia futura; Alt reancora, sem trocar a referencia.
-- Criacao 353: controladores e distancia tambem na previa; corrente remove so par pendente, regua por indice zera pela ancora final. Marcador/distancia leem cursor nativo. Auditoria de um modulo e somente leitura: zero primeiro, vertice unico e quinas distintas (raio da espessura ate 25 mm). Refinamento 354 conserva somente UM par de vertices por par de pecas/modulos; chapas internas do mesmo modulo mantem juntas independentes. Biblioteca geral aguarda aprovacao do piloto.
+- Criacao 353: controladores e distancia tambem na previa; corrente remove so par pendente, regua por indice zera pela ancora final. Marcador/distancia leem cursor nativo. Auditoria de um modulo e somente leitura: menor distancia primeiro; um vertice pode atender destinos distintos. Refinamento 359: UM registro e UM par de vertices por par nao ordenado de OBJETOS. Juntas distintas continuam independentes, mesmo usando o mesmo vertice. Biblioteca usa KDTree em mundo para menor gap real; nao move malhas.
 - Criacao: painel proprio sem Orcamento, distancia/zero/confirmar/cancelar/voltar. Direito/Esc cancela, Backspace/Ctrl+Z volta etapa; Alt escolhe outro vertice na mesma peca. Snap inicia no PRESS e confirma no RELEASE; entre gestos o modal recebe os atalhos. Previa numerica restaura antes de confirmar e no cancelar; so' `cabinet_juntar_modulo` grava undo da geometria final.
 - `adj_<ponta>_manual` conserva corrente/regua/campo de distancia mesmo em zero; `direcoes` e origens sao locais ao destino. Caixa usa `cabinet_canto`; malha modelada usa INT POINT `cabinet_solda_vertice` (u), legado v aceito. ID apagado/ambiguo avisa, nunca escolhe outro por proximidade. Desligar/substituir limpa manual/direcoes tambem.
+- `normalizar_ligacoes`: False preserva ancora/origem/direcao; True cadastra
+  o menor gap atual na migracao explicita. `adj_<ponta>_restricoes` conserva
+  encaixes axiais antigos nos dois extremos, sem outro fio ou registro.
+  Manual nao cria juntas automaticas extras; destino repetido e' recusado.
 - Regua (345): coordenador conserva a ordem dos dominios; portas/prateleiras
   evitam remontagens sem mudanca nos dados calculados, preservando BVHs e modelagem.
 - Regua (347): valida destinos repetidos e pares da espessura ANTES de mover

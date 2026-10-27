@@ -3,14 +3,14 @@ Leitura EXPLICITA pela rota do indice/guia raiz para tarefas de interface.
 Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
-
 Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`,
 `hud.py`, `selecao.py`, `eventos.py` e `biblioteca_faixa.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
 Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
 `planejamento/setores/integracao/AGENTS.md`.
-
+Fundos (360): aba propria com campos/segmentos existentes e Criar Fundo
+no SOLTAR. UNPINNED desassocia na aba Fundos ou nos internos vinculados.
 ## Rota de trabalho
 
 Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
@@ -29,7 +29,6 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Faixa/niveis/menu | biblioteca_faixa.py: `widgets`, `catalogo`, `rolar`, `abrir_menu_item` | biblioteca_faixa, gui_biblioteca_faixa |
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
 | Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
-
 ## Decisoes de interacao
 
 - Parede (299): menu nao exibe nem edita medidas da parede identificada.
@@ -52,7 +51,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   SOLTAR (`solda.OPERADORES_NO_SOLTAR`), inclusive quando tem icone/gizmo.
 - Excecao: DIREITO na foto/nome da biblioteca abre no SOLTAR o menu
   Inserir/Editar/Bloquear; sem botoes sob modulos. Respeitar cadeado/protecao.
-- A SELECAO decide o que edita; Shift soma e a gaveta segue a aba do item.
+- A SELECAO decide o que edita; Shift soma e conserva a malha clicada como mestre (356: Ctrl+L nativo); a gaveta segue a aba do item.
   Caixa (laterais/tampo) seleciona modulo; duplo isola chapa. Quina arrasta
   modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa. Clique fora encerra o individual; novo clique simples = grupo (Shift conserva).
 - Porta: clique inteira, nunca modulo; duplo folha, sem contorno nativo.
@@ -68,7 +67,8 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   na HUD. Divisorias: clique grupo, duplo chapa. Conservar escopo por tipo.
 - Tab no Empty = Edit Mode MULTIOBJETO nativo, so' malhas reais, sem
   cortadores/controles; tornar compartilhadas unicas antes. Conservar Empties
-  selecionados no Edit Mode, restaurar selecao/ativo ao sair e invalidar
+  selecionados no Edit Mode, registrar a transicao ja' na entrada (Tab
+  rapido nao depende do timer), restaurar selecao/ativo ao sair e invalidar
   planta; estado SO' nomes. Peca isolada conserva Tab nativo.
 - Vista local: ray cast ignora ocultos; Tab move rigs por `ferragens`, com referencia na Mesh para undo, espelhos materializados e UVs corrigidas nativamente.
 - Volume/B: base na geometria ATUAL ao apertar B, nunca na posicao inicial.
@@ -86,7 +86,8 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Undo/redo: nao consultar selecao/malhas durante `_desfazendo`; fecho apenas
   libera guarda, referencias voltam no timer normal. Descartar transicoes
   antigas de Edit Mode/modal. Hover nao pode reter IDs liberados; limpar no
-  undo_pre e conferir `_alvo_vivo`. Contorno so' religa o que ELE desligou.
+  undo_pre e conferir `_alvo_vivo`. Contorno so' religa o que ELE desligou;
+  objeto comum na selecao mista devolve o nativo, mesmo sem ser ativo (358).
 - Clique esquerdo do add-on: keyconfig ADDON; objeto comum fica no CLICK
   nativo. `OBJECT_OT_selecionar.poll` recusa fora de Object Mode ou com
   `selecao_por_grupo` desligada; props SKIP_SAVE.
@@ -114,7 +115,6 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Material = COR SOLIDA no slot do OBJETO. Esfera: clique simples NADA;
   duplo aplica a' SELECAO; arraste ao de baixo; DIREITO pintura rapida
   (comodo -> parte). Conservar gestos quando mudar layout.
-
 Validacao: seguir `tests/CLAUDE.md`; estrutura/cobertura protegem contratos.
 GUI so' com PC livre AGORA explicitamente autorizado; callback que imprime
 erro tambem falha. Esta reorganizacao documental nao autoriza abrir GUI.

@@ -38,6 +38,9 @@ Referencia das frentes: [FRONTES.md](../../FRONTES.md).
 - Isolar Mesh compartilhada antes da edicao individual. Tab e' nativo;
   sair atualiza medidas/caches, undo invalida. Sem deformacao radial;
   solver antigo do grupo so' por API, nunca automatico.
+- Saida do Tab acompanha tambem puxadores: se participaram da edicao,
+  conservar vertices/materiais/UV e atualizar so' contorno numerico.
+  Frente inalterada reaproveita o cache, sem forcar reconhecimento.
 - Tab do grupo prepara UV metrico onde falta (1 unidade/m), conserva mapas
   existentes e usa Correct Face Attributes nativo para nao esticar texturas.
 - Referencia de resize nao acumula deltas: usar Mesh nativa e restaurar pais

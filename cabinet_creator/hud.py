@@ -216,7 +216,8 @@ def _selecionar_chapa_hud(context, obj, individual=False, somar=False):
         obj.chapa_modo = 'INDIVIDUAL' if individual else 'GRUPO'
     finally:
         _chapas._ocupado[0] = False
-    context.view_layer.objects.active = obj if individual or modulo is None else modulo
+    # Shift conserva o grupo, mas a malha clicada e' a mestre dos operadores nativos.
+    context.view_layer.objects.active = obj if individual or somar or modulo is None else modulo
     if not individual and modulo is None:
         _modulos.sincronizar_grupo(context)
     if context.area:
@@ -233,7 +234,8 @@ def _nivel_da_selecao(context, obj):
     ativo = context.object
     if grupo is None or ativo is None:
         return 'MODULO'
-    if ativo == grupo:
+    if ativo == grupo or (grupo.select_get() and _chapas.MARCA_FOLHA in ativo
+                          and _portas._grupo_portas(ativo) == grupo):
         return 'PORTA'
     if _chapas.MARCA_FOLHA in ativo and _portas._grupo_portas(ativo) == grupo:
         return 'FOLHA'
@@ -252,7 +254,7 @@ def _selecionar_porta_hud(context, folha, nivel, somar=False):
     if nivel == 'PORTA':
         for alvo in [grupo, *_portas._folhas_portas(grupo)]:
             alvo.select_set(True)
-        context.view_layer.objects.active = grupo
+        context.view_layer.objects.active = folha if somar else grupo
     else:
         folha.select_set(True)
         _chapas._ocupado[0] = True

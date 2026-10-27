@@ -246,7 +246,7 @@ A nas quinas. Recorte < 100 mm (quina de tras aberta) nao muda o desenho.
 Na aba Modulos o mesmo modulo ganha a secao FORMATO (P1, P2, Raio e o
 Angulo da diagonal, que deixa a frente do canto parada).
 
-**Gavetas (aba propria, pedido do usuario).** Cabecalho com 6 abas (Modulos | Portas | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Gav. | Prat. | Div. | Pux.). Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
+**Gavetas (aba propria, pedido do usuario).** Cabecalho com 7 abas (Modulos | Portas | Fundos | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Fundo | Gav. | Prat. | Div. | Pux.). Fundos: Criar Fundo no topo, dois pontos/snap nativo; tipos Em canal/Sobreposto (pregado)/Interno rente, espessuras 6/9/15 e campos existentes. Desassociar fundo usa UNPINNED com texto, sem corrente/regua; tambem nos internos vinculados. Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
@@ -376,7 +376,7 @@ ULTIMO (o ativo): conecta por distancia ate' 5 mm
 (`ALCANCE_CONEXAO_AUTOMATICA`), so' com os alvos; mais longe, o mesmo
 "selecionar vertice", so' nos vertices REAIS dos alvos -- vertice da peca,
 depois o canto alvo, repetindo; Enter ou "Confirmar" no pe' -> "Juntar
-ao modulo?". Usa o translate/snap NATIVO compartilhado para marcar vertices, nao cantos de uma caixa. Sim entra no modulo sem mover a madeira. Cada par de vertices conserva o afastamento 3D atual no referencial local do destino (`adj_<ponta>_origens`), que acompanha o giro do modulo. Resetar recupera esse gap cadastrado; o valor zero deixou de ser o destino automatico. Uma translacao compativel com todas as soldas conserva a malha inteira; restricoes distintas conservam os pares de E. Juntas antigas continuam usando a folga escalar. Associa
+ao modulo?". Usa o translate/snap NATIVO compartilhado para marcar vertices, nao cantos de uma caixa. Sim entra no modulo sem mover a madeira. Solda 359: um registro, um par de vertices e um fio por par de objetos; destino manual repetido e recusado. Cada conexao conserva o afastamento 3D atual no referencial local do destino (`adj_<ponta>_origens`), que acompanha o giro do modulo. Resetar recupera esse gap cadastrado; o valor zero deixou de ser o destino automatico. Uma translacao compativel com todas as soldas conserva a malha inteira; restricoes distintas conservam os pares de E. Juntas antigas continuam usando a folga escalar. Associa
 sem zerar as ligacoes dos outros (`associar_por_distancia`). Pop-ups
 aqui sao pedido explicito. O botao dispara no SOLTAR
 (`OPERADORES_NO_SOLTAR`): no PRESS o pop-up nascia sob o mouse e o

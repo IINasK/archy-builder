@@ -2950,7 +2950,10 @@ class TestPortas(unittest.TestCase):
         addon.hud._selecionar_chapa_hud(bpy.context, folha)          # o modulo
         addon.hud._selecionar_porta_hud(bpy.context, folha, 'PORTA', somar=True)
         self.assertIn(conj, bpy.context.selected_objects)
-        self.assertEqual(bpy.context.object, grupo)
+        # A folha e' a mestre nativa, sem transformar a porta em selecao individual.
+        self.assertEqual(bpy.context.object, folha)
+        self.assertEqual(addon.hud._nivel_da_selecao(bpy.context, folha), 'PORTA')
+        self.assertTrue(grupo.select_get())
         # folha sozinha tambem desliga o contorno nativo (conta como porta)
         addon.hud._selecionar_porta_hud(bpy.context, folha, 'FOLHA')
         self.assertIn(folha.name, addon.eventos._grupos_selecionados(bpy.context.view_layer))

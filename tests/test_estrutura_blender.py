@@ -593,9 +593,15 @@ class TestEstruturaDaChapa(unittest.TestCase):
         bpy.context.view_layer.update()
         self.assertGreater(addon.chapas.detectar_adjacencia([a, b]), 0)
         self.assertEqual(a['adj_x_pos_uid'], b['chapa_uid'])
-        self.assertEqual(b['adj_x_neg_uid'], a['chapa_uid'])
+        # Regra 359: a unica aresta conserva tambem o encaixe reverso,
+        # sem duplicar o registro nem perder a identidade por UID.
+        self.assertIsNone(addon.solda._vizinho_da_ponta(b, 'x_neg'))
+        reversa = addon.solda.restricoes_adjacencia([b])[b]['x_neg']
+        self.assertIs(reversa[0], a)
         # o nome tambem e' gravado, mas so' como pista para o log
         self.assertEqual(a['adj_x_pos'], b.name)
+        b.name = 'Vizinha renomeada.001'
+        self.assertIs(addon.solda._vizinho_da_ponta(a, 'x_pos'), b)
         self.assertNotEqual(addon.chapas._garantir_uid(a), addon.chapas._garantir_uid(b))
         # e' estavel: chamar de novo nao gera outro uid
         self.assertEqual(addon.chapas._garantir_uid(a), a['chapa_uid'])

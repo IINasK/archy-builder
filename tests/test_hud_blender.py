@@ -1,5 +1,6 @@
 """Execute no Blender: --background --factory-startup --python-exit-code 1 --python tests/test_hud_blender.py."""
 import inspect
+import json
 import os
 import sys
 import unittest
@@ -115,20 +116,23 @@ class TestHUD(unittest.TestCase):
         ruins=[par('0','extra',(0,0,0),(.1,0,0)),par('perto','perto',(0,0,.018),(0,0,.018))]
         r=addon.solda._refinar_candidatos_ancoras(ruins+list(reversed(bons)))
         self.assertEqual(len(r['aceitas']),1);self.assertEqual(len(r['ligacoes']),1)
-        self.assertEqual({c['motivo'] for c in r['rejeitadas']},{'Vertice repetido','Quina proxima ja atendida','Par de pecas ou modulos ja soldado'})
+        self.assertEqual(len(r['rejeitadas']),len(ruins+bons)-1)
         self.assertTrue(all(c['distancia']==0 for c in r['aceitas']))
         inversos=[dict(c,origem=c['destino'],destino=c['origem'],assinatura=c['alvo'],alvo=c['assinatura'],ponto=c['final'],final=c['ponto']) for c in bons]
         self.assertEqual(len(addon.solda._refinar_candidatos_ancoras(bons+inversos)['aceitas']),1)
+        # O limite e' por par de objetos; a mesma quina pode atender outro destino.
+        outro=dict(bons[0],destino='Outra peca')
+        self.assertEqual(len(addon.solda._refinar_candidatos_ancoras([bons[0],outro])['aceitas']),2)
 
     def test_piloto_limita_um_par_entre_modulos_mesmo_com_chapas_diferentes(self):
         s=addon.solda
-        candidatos=[dict(origem='Chapa A'+str(k),destino='Chapa B'+str(k),par=('Modulo A','Modulo B'),
+        candidatos=[dict(origem='Chapa A'+str(k),destino='Chapa B'+str(k),par=('Chapa A'+str(k),'Chapa B'+str(k)),
             assinatura='---',alvo='---',ponto=(k,0,0),final=(k+d,0,0),distancia=d,raio=.01805)
             for k,d in enumerate((.1,0.,.02))]
         r=s._refinar_candidatos_ancoras(candidatos)
-        self.assertEqual(len(r['aceitas']),1)
+        self.assertEqual(len(r['aceitas']),3)
         self.assertEqual(r['aceitas'][0]['origem'],'Chapa A1')
-        self.assertTrue(all(c['motivo']=='Par de pecas ou modulos ja soldado' for c in r['rejeitadas']))
+        self.assertEqual(r['rejeitadas'],[])
         self.assertEqual(r,s._refinar_candidatos_ancoras(list(reversed(candidatos))))
 
     def test_par_da_auditoria_respeita_modulos_e_preserva_juntas_internas(self):
@@ -138,11 +142,12 @@ class TestHUD(unittest.TestCase):
         ca=addon.modulos._chapas_do_conjunto(a)
         cb=[addon.chapas.nova_chapa('Outra chapa',400,300,18,(800,0,0),(0,0,0),bpy.context) for _ in range(2)]
         for o in cb:o.parent=b
-        self.assertEqual(s._par_qualidade_ancoras(ca[0],cb[0]),tuple(sorted((a.name,b.name))))
-        self.assertEqual(s._par_qualidade_ancoras(ca[-1],cb[-1]),tuple(sorted((a.name,b.name))))
+        self.assertEqual(s._par_qualidade_ancoras(ca[0],cb[0]),tuple(sorted((ca[0].name,cb[0].name))))
+        self.assertEqual(s._par_qualidade_ancoras(ca[-1],cb[-1]),tuple(sorted((ca[-1].name,cb[-1].name))))
+        self.assertNotEqual(s._par_qualidade_ancoras(ca[0],cb[0]),s._par_qualidade_ancoras(ca[-1],cb[-1]))
         self.assertEqual(s._par_qualidade_ancoras(ca[0],ca[1]),tuple(sorted((ca[0].name,ca[1].name))))
         solta=addon.chapas.nova_chapa('Chapa solta',400,300,18,(0,0,0),(0,0,0),bpy.context)
-        self.assertEqual(s._par_qualidade_ancoras(solta,cb[0]),tuple(sorted((solta.name,b.name))))
+        self.assertEqual(s._par_qualidade_ancoras(solta,cb[0]),tuple(sorted((solta.name,cb[0].name))))
 
     def test_auditoria_modulo_e_somente_leitura_e_deterministica(self):
         modulo=self.modulo();pecas=addon.modulos._chapas_do_conjunto(modulo)
@@ -666,7 +671,15 @@ class TestHUD(unittest.TestCase):
         o=self._chapa_com_deslocamento();n=self._chapa_com_deslocamento()
         n.location+=Vector((.43,.17,.08));bpy.context.view_layer.update()
         ancoras=[('v0','v3'),('v2','v5')] if varios else [('v0','v3')]
-        addon.solda._registrar_pares_reais(o,{('x_pos',n.name):ancoras})
+        # O legado precisa continuar legivel, embora o cadastro novo aceite um so par.
+        s=addon.solda
+        addon.chapas._gravar_ligacao(o,'x','pos',n,0.,0)
+        o['adj_x_pos_folga']=s._folga_com_sinal(o,'x_pos',n)[0]
+        s._gravar_ancoras(o,'x_pos',ancoras)
+        inversa=n.matrix_world.inverted().to_3x3()
+        o['adj_x_pos_origens']=json.dumps([tuple(inversa@(
+            s._vertice_da_assinatura(o,sc)-s._vertice_da_assinatura(n,sn))) for sc,sn in ancoras])
+        self.assertEqual(len(s._ancoras_gravadas(o,'x_pos')),2 if varios else 1)
         return o,n,'x_pos'
 
     def test_gap_cadastrado_nao_move_nem_acende_reset(self):
@@ -894,7 +907,7 @@ class TestHUD(unittest.TestCase):
         with patch.object(addon.chapas,'_cantos',side_effect=AssertionError('Caixa nominal')),\
              patch.object(addon.solda,'KDTree',side_effect=AssertionError('Reconstruiu KD no redraw')):
             pares=addon.solda._ancoras_da_ligacao(o,'x_pos',n)
-        self.assertEqual(len(pares),2)
+        self.assertEqual(len(pares),1)
         for sc,sn in pares:
             for obj,s in ((o,sc),(n,sn)):
                 p=addon.solda._vertice_da_assinatura(obj,s)
@@ -1225,7 +1238,7 @@ class TestHUD(unittest.TestCase):
                for i,z in enumerate((0,.018,.1))]
         inversa=dict(a=b,b=a,pontos=list(reversed(itens[0]['pontos'])),indice=9)
         resultado=addon.solda._correntes_sem_repeticao(itens+[inversa])
-        self.assertEqual([v['indice'] for v in resultado],[0,2])
+        self.assertEqual([v['indice'] for v in resultado],[0])
         self.assertEqual(len(itens),3)
 
     def test_otimizacao_de_adjacencia_tira_quinas_falsas_e_preserva_ancoras_manuais(self):
@@ -2141,6 +2154,84 @@ class TestHUD(unittest.TestCase):
         self.clicar_pelo_keymap(chapa, 'PRESS', shift)
         self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK', shift)
 
+    def test_material_nativo_usa_chapa_mestre_sem_perder_modulos_selecionados(self):
+        destino, outro = self.dois_modulos()
+        origem = addon.modulos._chapas_do_conjunto(outro)[0]
+        material = bpy.data.materials.new('Material da mestre')
+        addon.materiais.aplicar([origem], material)
+        self.clicar_pelo_keymap(addon.modulos._chapas_do_conjunto(destino)[0], 'PRESS')
+        self.clicar_pelo_keymap(origem, 'PRESS', shift=True)
+        self.assertEqual(bpy.context.object, origem)
+        self.assertTrue(destino.select_get())
+        self.assertTrue(outro.select_get())
+        selecionados = set(bpy.context.selected_objects)
+        malhas = {o.name:(o.data.as_pointer(),tuple(tuple(v.co) for v in o.data.vertices))
+                  for o in selecionados if o.type == 'MESH'}
+        self.assertEqual(bpy.ops.object.make_links_data(type='MATERIAL'), {'FINISHED'})
+        for o in selecionados:
+            if o.type == 'MESH':
+                self.assertIs(o.active_material, material)
+                self.assertEqual(malhas[o.name],
+                    (o.data.as_pointer(),tuple(tuple(v.co) for v in o.data.vertices)))
+        self.assertEqual(set(bpy.context.selected_objects), selecionados)
+        self.assertEqual(bpy.context.object, origem)
+
+    def test_material_nativo_de_chapa_isolada_preserva_as_outras_pecas_da_origem(self):
+        destino, outro = self.dois_modulos()
+        pecas = addon.modulos._chapas_do_conjunto(outro)
+        antiga = bpy.data.materials.new('Material preservado')
+        nova = bpy.data.materials.new('Material da chapa isolada')
+        addon.materiais.aplicar(pecas, antiga)
+        origem = pecas[0]
+        addon.materiais.aplicar([origem], nova)
+        self.clicar_pelo_keymap(addon.modulos._chapas_do_conjunto(destino)[0], 'PRESS')
+        self.duplo(origem, shift=True)
+        self.assertEqual(bpy.context.object, origem)
+        self.assertFalse(outro.select_get())
+        self.assertEqual(bpy.ops.object.make_links_data(type='MATERIAL'), {'FINISHED'})
+        for o in addon.modulos._chapas_do_conjunto(destino):
+            self.assertIs(o.active_material, nova)
+        for o in pecas[1:]:
+            self.assertIs(o.active_material, antiga)
+
+    def test_material_nativo_de_chapa_solta_copia_todos_os_slots(self):
+        destino = self.modulo()
+        origem = addon.chapas.nova_chapa('Chapa solta',400,300,18,(2000,0,0),(0,0,0),bpy.context)
+        materiais = [bpy.data.materials.new('Slot origem %d' % i) for i in range(2)]
+        for mat in materiais:
+            origem.data.materials.append(mat)
+        for i, slot in enumerate(origem.material_slots):
+            slot.link = 'OBJECT'
+            slot.material = materiais[i]
+        for i, face in enumerate(origem.data.polygons):
+            face.material_index = i % 2
+        self.clicar_pelo_keymap(addon.modulos._chapas_do_conjunto(destino)[0], 'PRESS')
+        self.clicar_pelo_keymap(origem, 'PRESS', shift=True)
+        self.assertEqual(bpy.context.object, origem)
+        self.assertEqual(bpy.ops.object.make_links_data(type='MATERIAL'), {'FINISHED'})
+        for o in addon.modulos._chapas_do_conjunto(destino):
+            self.assertEqual([s.material for s in o.material_slots], materiais)
+
+    def test_shift_na_porta_preserva_grupo_e_folha_mestre_para_material_nativo(self):
+        destino = self.modulo()
+        bpy.ops.object.cabinet_portas(capturado=True,
+            ponto_a=(-.3,-.15,0),ponto_b=(.3,-.15,.4),
+            pai_nome=destino.name,modulo_nome=destino.name,
+            frente='NEG_Y',dobradica='RETA',folhas=2)
+        grupo = addon.portas._portas_do_conjunto(destino)[0]
+        folha = addon.portas._folhas_portas(grupo)[0]
+        origem = addon.chapas.nova_chapa('Outra chapa',400,300,18,(2000,0,0),(0,0,0),bpy.context)
+        material = bpy.data.materials.new('Material da folha')
+        addon.materiais.aplicar([folha], material)
+        self.clicar_pelo_keymap(origem, 'PRESS')
+        self.clicar_pelo_keymap(folha, 'PRESS', shift=True)
+        self.assertEqual(bpy.context.object, folha)
+        self.assertTrue(grupo.select_get())
+        self.assertEqual(addon.hud._nivel_da_selecao(bpy.context, folha), 'PORTA')
+        self.assertTrue(origem.select_get())
+        self.assertEqual(bpy.ops.object.make_links_data(type='MATERIAL'), {'FINISHED'})
+        self.assertIs(origem.active_material, material)
+
     def test_clique_no_vazio_reseta_individual_e_exige_novo_duplo(self):
         # Regressao v346: o nome do ultimo clique sobrevivia ao vazio,
         # mantendo o contexto individual depois de limpar a selecao.
@@ -2406,6 +2497,91 @@ class TestHUD(unittest.TestCase):
             for o in addon.selecao.familia_de(modulo):
                 o.select_set(True)
 
+    def test_selecao_mista_devolve_contorno_e_vincula_material_do_objeto_comum(self):
+        # Regressao 358: o modulo ocultava tambem o feedback do mestre nativo.
+        e = addon.eventos
+        modulo = self.modulo()
+        pecas = addon.modulos._chapas_do_conjunto(modulo)
+        comum = bpy.data.objects.new('Origem comum do material', pecas[0].data.copy())
+        bpy.context.scene.collection.objects.link(comum)
+        material = bpy.data.materials.new('Material de objeto comum')
+        comum.data.materials.clear()
+        comum.data.materials.append(material)
+        addon.hud._selecionar_chapa_hud(bpy.context, pecas[0])
+        overlay = next(e._viewports_da_janela(bpy.context.window)).overlay
+        e.sincronizar_contornos(devolver=True)
+        antes = overlay.show_outline_selected
+        opcao = addon.opcoes._opcao('ocultar_contorno_grupo')
+        try:
+            addon.opcoes._definir_opcao('ocultar_contorno_grupo', True)
+            e._contornos_do_usuario.clear()
+            overlay.show_outline_selected = True
+            e.sincronizar_contornos()
+            self.assertFalse(overlay.show_outline_selected)
+            comum.select_set(True)
+            # Deve bastar ESTAR selecionado; o objeto comum nao precisa ser ativo.
+            e.sincronizar_contornos()
+            self.assertTrue(overlay.show_outline_selected)
+            bpy.context.view_layer.objects.active = comum
+            selecionados = {o.name for o in bpy.context.selected_objects}
+            e.sincronizar_contornos()
+            self.assertTrue(overlay.show_outline_selected)
+            self.assertEqual({o.name for o in bpy.context.selected_objects}, selecionados)
+            self.assertEqual(bpy.ops.object.make_links_data(type='MATERIAL'), {'FINISHED'})
+            self.assertTrue(all(o.data.materials[0] == material for o in pecas))
+            comum.select_set(False)
+            bpy.context.view_layer.objects.active = modulo
+            e.sincronizar_contornos()
+            self.assertFalse(overlay.show_outline_selected)
+            for o in bpy.context.selected_objects:
+                o.select_set(False)
+            comum.select_set(True)
+            bpy.context.view_layer.objects.active = comum
+            e.sincronizar_contornos()
+            self.assertTrue(overlay.show_outline_selected)
+        finally:
+            for o in bpy.context.selected_objects:
+                o.select_set(False)
+            e.sincronizar_contornos(devolver=True)
+            e._contornos_do_usuario.clear()
+            addon.opcoes._definir_opcao('ocultar_contorno_grupo', opcao)
+            overlay.show_outline_selected = antes
+
+    def test_contorno_misto_respeita_usuario_e_componentes_do_modulo(self):
+        e = addon.eventos
+        modulo = self.modulo()
+        componente = bpy.data.objects.new('Componente sem marca', None)
+        bpy.context.scene.collection.objects.link(componente)
+        componente.parent = modulo
+        componente.select_set(True)
+        curva = bpy.data.objects.new('Curva comum', bpy.data.curves.new('Curva comum', 'CURVE'))
+        bpy.context.scene.collection.objects.link(curva)
+        overlay = next(e._viewports_da_janela(bpy.context.window)).overlay
+        e.sincronizar_contornos(devolver=True)
+        antes = overlay.show_outline_selected
+        opcao = addon.opcoes._opcao('ocultar_contorno_grupo')
+        try:
+            addon.opcoes._definir_opcao('ocultar_contorno_grupo', True)
+            for inicial in (True, False):
+                e.sincronizar_contornos(devolver=True)
+                e._contornos_do_usuario.clear()
+                overlay.show_outline_selected = inicial
+                e.sincronizar_contornos()
+                self.assertFalse(overlay.show_outline_selected)
+                curva.select_set(True)
+                e.sincronizar_contornos()
+                self.assertEqual(overlay.show_outline_selected, inicial)
+                curva.select_set(False)
+                e.sincronizar_contornos()
+                self.assertFalse(overlay.show_outline_selected)
+        finally:
+            for o in bpy.context.selected_objects:
+                o.select_set(False)
+            e.sincronizar_contornos(devolver=True)
+            e._contornos_do_usuario.clear()
+            addon.opcoes._definir_opcao('ocultar_contorno_grupo', opcao)
+            overlay.show_outline_selected = antes
+
     def test_origens_grupo_restaura_flags_nativas_e_opcao_muda_na_hora(self):
         e = addon.eventos
         modulo = self.modulo()
@@ -2623,15 +2799,13 @@ class TestHUD(unittest.TestCase):
         ligacao = ligacoes[0]
         self.assertEqual((ligacao['a'], ligacao['b']), (piso, lateral))
         self.assertAlmostEqual(ligacao['desvio'], 0.010, places=5)
-        # os 2 vertices associados: os de BAIXO da ponta do piso, frente
-        # e tras, cada um com o canto mais perto da lateral (20 mm)
-        self.assertEqual(len(ligacao['pares']), 2)
+        # Uma junta conserva somente um par real, mesmo com outras quinas proximas.
+        self.assertEqual(len(ligacao['pares']), 1)
         for p, q, _assinatura in ligacao['pares']:
             self.assertAlmostEqual(p.x, 0.300, places=5)
             self.assertAlmostEqual(p.z, 0.0, places=5)
             self.assertAlmostEqual((q - p).length, 0.020, places=5)
-        self.assertEqual({round(p.y, 3) for p, _q, _s in ligacao['pares']},
-                         {-0.2, 0.2})
+        self.assertIn(round(ligacao['pares'][0][0].y,3),(-0.2,0.2))
         # vale para qualquer das duas pecas como item da HUD
         self.assertEqual(len(addon.solda._ligacoes_adjacencia([lateral])), 1)
 
@@ -2651,9 +2825,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(len(addon.solda._ligacoes_adjacencia([piso, lateral])), 1)
 
     def test_alt_mostra_todas_as_quinas_soldadas_com_corrente_e_regua(self):
-        # Pedido do usuario: acabou o "so' a mais perto da camera" -- o
-        # Alt mostra TODAS as quinas soldadas fora da origem, cada uma com
-        # a corrente e, a direita, a regua
+        # Alt mostra todos os pares de objetos fora da origem, uma corrente por par.
         modulo, base, tampo, direita = self.caixote_aberto()
         self.selecionar(modulo, *addon.modulos._chapas_do_conjunto(modulo), ativo=modulo)
         # cada funcao no modulo dela (o add-on e' um pacote)
@@ -2669,7 +2841,8 @@ class TestHUD(unittest.TestCase):
         contexto = _ContextoRegiao()
         contexto.region_data = object()
         correntes = addon.solda._correntes_hud(contexto)
-        self.assertEqual(len(correntes), 4)          # tampo e base x 2 quinas
+        self.assertEqual(len(correntes), 2)          # tampo-direita e base-direita
+        self.assertEqual(len({frozenset((c['a'],c['b'])) for c in correntes}),2)
         self.assertEqual({c['a'] for c in correntes}, {base, tampo})
         # a regua move a que se afastou... aqui quem encolheu foram tampo e
         # base; a lateral tem as duas soldas fora, entao e' ela
@@ -2803,6 +2976,25 @@ class TestHUD(unittest.TestCase):
                      if addon.solda._vizinho_da_ponta(tampo, p) == direita)
         return modulo, tampo, direita, ponta
 
+    def _ancoras_legadas_da_ligacao(self, C, ponta, N):
+        # Reproduz as duas quinas antigas sem depender do limite novo de cadastro.
+        s=addon.solda;eixo=0 if ponta.startswith('x') else 1
+        inversa=C.matrix_world.inverted()
+        extremo=(max if ponta.endswith('pos') else min)(v.co[eixo] for v in C.data.vertices)
+        candidatos=[]
+        for sc,p in s._ancoras_da_malha(C):
+            local=inversa@p
+            if abs(local[eixo]-extremo)>1e-5:continue
+            sn,q=min(s._ancoras_da_malha(N),key=lambda a:(a[1]-p).length_squared)
+            candidatos.append(((q-p).length_squared,sc,sn,local))
+        escolhidas=[];locais=[]
+        for _d,sc,sn,local in sorted(candidatos,key=lambda a:a[0]):
+            if any((local.xy-p.xy).length<1e-5 for p in locais):continue
+            escolhidas.append((sc,sn));locais.append(local)
+            if len(escolhidas)==2:break
+        self.assertEqual(len(escolhidas),2)
+        return escolhidas
+
     def vertice_do_outro_lado(self, N, assinatura, sentido, espessura):
         """O vertice de N do outro lado da espessura dele."""
         alvo = addon.solda._vertice_da_assinatura(N, assinatura) + sentido * espessura
@@ -2843,13 +3035,13 @@ class TestHUD(unittest.TestCase):
         self.assertIsNone(S._arraste_ancora[0])
         self.assertFalse(tampo.hide_select)
         self.assertLess((cena.cursor.location - cursor).length, 1e-6)
-        self.assertEqual(S._ancoras_gravadas(tampo, ponta), [(ancoras[0][0], fora), ancoras[1]])
+        self.assertEqual(S._ancoras_gravadas(tampo, ponta), [(ancoras[0][0], fora)])
 
     def test_ancoras_de_fabrica_trocar_e_apagar(self):
         modulo, tampo, direita, ponta = self.solda_do_tampo()
         self.assertIsNone(addon.solda._ancoras_gravadas(tampo, ponta))
         ancoras = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
-        self.assertEqual(len(ancoras), 2)
+        self.assertEqual(len(ancoras), 1)
         for sc, sn in ancoras:                    # de fabrica: encostados
             self.assertLess((addon.solda._vertice_da_assinatura(tampo, sc)
                              - addon.solda._vertice_da_assinatura(direita, sn)).length,
@@ -2864,7 +3056,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(addon.solda.OBJECT_OT_arrastar_ancora._gravar(op, fora),
                          {'FINISHED'})
         self.assertEqual(addon.solda._ancoras_gravadas(tampo, ponta),
-                         [(ancoras[0][0], fora), ancoras[1]])
+                         [(ancoras[0][0], fora)])
         # mesma ancora de novo: nada a gravar
         self.assertEqual(addon.solda.OBJECT_OT_arrastar_ancora._gravar(op, fora),
                          {'CANCELLED'})
@@ -2874,7 +3066,7 @@ class TestHUD(unittest.TestCase):
         # soldar de novo (ou desassociar) volta as ancoras de fabrica
         addon.chapas.detectar_adjacencia(addon.modulos._chapas_do_conjunto(modulo))
         self.assertIsNone(addon.solda._ancoras_gravadas(tampo, ponta))
-        addon.solda._gravar_ancoras(tampo, ponta, [(ancoras[0][0], fora), ancoras[1]])
+        addon.solda._gravar_ancoras(tampo, ponta, [(ancoras[0][0], fora)])
         addon.solda.desassociar(tampo, direita)
         self.assertNotIn('adj_%s_ancoras' % ponta, tampo)
 
@@ -2917,7 +3109,7 @@ class TestHUD(unittest.TestCase):
         # outra na de dentro -> a ponta do tampo fica torta, na diagonal,
         # com a espessura intacta; a lateral nao se mexe
         modulo, tampo, direita, ponta = self.solda_do_tampo()
-        ancoras = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
+        ancoras = self._ancoras_legadas_da_ligacao(tampo, ponta, direita)
         _f, u, _e = addon.solda._folga_com_sinal(tampo, ponta, direita)
         sentido = u if ponta.endswith('pos') else -u
         fora = self.vertice_do_outro_lado(direita, ancoras[0][1], sentido,
@@ -2953,7 +3145,7 @@ class TestHUD(unittest.TestCase):
         (print do usuario). Devolve (modulo, tampo, direita, ponta, novas,
         sentido)."""
         modulo, tampo, direita, ponta = self.solda_do_tampo()
-        ancoras = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
+        ancoras = self._ancoras_legadas_da_ligacao(tampo, ponta, direita)
         _f, u, _e = addon.solda._folga_com_sinal(tampo, ponta, direita)
         sentido = u if ponta.endswith('pos') else -u
         fora = self.vertice_do_outro_lado(direita, ancoras[0][1], sentido,
@@ -3258,8 +3450,7 @@ class TestHUD(unittest.TestCase):
         fixos = {o.name: o.matrix_world.copy() for o in chapas}
         prateleira = self.prateleira_solta(x_mm=900.0, z_mm=300.0)
         bpy.context.view_layer.update()
-        # cantos da ponta ESQUERDA da prateleira (-x) nos cantos de fora
-        # da lateral direita, embaixo (frente e tras)
+        # Um canto da ponta ESQUERDA da prateleira no vertice real da lateral.
         fora_x = max(p.x for p in addon.chapas._cantos(direita))
         alvos_lateral = sorted((p for p in addon.chapas._cantos(direita)
                                 if abs(p.x - fora_x) < 1e-6 and p.z < 0.01),
@@ -3272,7 +3463,8 @@ class TestHUD(unittest.TestCase):
         antes=[prateleira.matrix_world@v.co for v in prateleira.data.vertices]
         pares = [(addon.solda._assinatura_canto(prateleira, p), direita.name,
                   addon.solda._assinatura_canto(direita, q))
-                 for p, q in zip(cantos, alvos_lateral)]
+                 for p, q in zip(cantos[:1], alvos_lateral[:1])]
+        self.assertEqual(len(pares),1)
         addon.solda._conexao_pendente[0] = {
             'origem': prateleira.name,
             'alvos': [(s, tuple(addon.solda._canto_da_assinatura(direita, sn)))

@@ -1,5 +1,141 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Fundos por vao (360): aba Fundos, dois cantos com AssistenteDoVao/snap
+nativo, undo unico e selecao da chapa. Canal recuado 6/9 mm usa Boolean
+EXACT nos apoios, sem substituir suas malhas; sobreposto pregado fica por
+fora; 15 mm escolhe interno rente. Sem simulacao de pregos. Medidas e tipos
+editam o mesmo objeto; Esc restaura tipo e parametros dos internos.
+Limites de portas/gavetas/prateleiras excluem fundos novos da estrutura.
+Vinculo por UID e pai real, com sobreposicao; ponto de profundidade a ate
+5 mm identifica o fundo, inclusive legado. Colisao com fundo novo tambem
+associa. Fundo mais proximo manda; guarda de capacidade valida todos os
+internos antes de montar, sem capacidade restaura pose e mostra a causa.
+Timer apos G/Tab conserva frente, altura, espessuras e ajusta profundidade/
+trilho; limites individuais tambem respeitam a face interna. UNPINNED
+desassocia, conserva medidas e impede reassociacao automatica ao mesmo UID.
+Exclusao limpa cortador/modificadores; guardas de Edit Mode/undo impedem
+escritas. Legados nao recebem tipo nem recortes automaticamente.
+`test_fundos_blender` (30): tres tipos, canal avaliado nativamente, 6/9/15,
+invalidos sem residuos, rotacao/resize/E dos apoios, exclusao, link/limites/
+snap/distancia/altura/pai, dois fundos, trilhos, escolhas individuais, Esc,
+legado sem metadados adicionais, falha sem vinculo/cortador parcial,
+novo fundo herda escolhas exibidas e snap de profundidade religa existente,
+sem capacidade, menu responsivo/icone, undo/redo e guardas nativas.
+Conferencia visual: cena descartavel com tres modulos e lateral direita
+oculta SO' no render de auditoria, para ver os internos; PNG/.blend em
+`D:/Blender/Backups/CabinetCreator/fundos360-visual.*`. Cena do usuario e
+biblioteca preservadas; harness de gestos GUI nao executado.
+Espessuras comerciais: catalogos Arauco MDF Trupan/Melamina 2024 mostram
+6/9/12/15/18 mm (entre outras), nao 8 mm nesses produtos. Padrao novo 6 mm;
+canal limita a 6/9, demais tipos mantem E livre positiva.
+Contrato do cabecalho atualizado de seis para sete abas por pedido da
+nova criacao; snapshot revisado semanticamente: so' as abas mudaram nos
+36 cenarios, conteudos identicos. Legado sem UID nao e' vinculo vazio:
+regressao exige UID preenchido e nao permite metadados/reencaixe novos.
+Validacao final 360 (2026-10-27): 2510 testes em 58 execucoes, TUDO OK
+no Blender 4.2/5.2. Log: `D:/Blender/Backups/CabinetCreator/fundos360-entrega.log`.
+Prova adicional com handlers REAIS e transform.translate nativo nas duas
+versoes: 545 -> 465 mm; desassociar conserva 465 mm ao mover novamente.
+Scripts/logs: `D:/Blender/Backups/CabinetCreator/fundos360-handlers*`.
+Pacote dist/cabinet_creator.zip v360 conferido; ativacao na instancia ja'
+aberta depende de recarregar o add-on. Sem alterar o projeto aberto.
+
+Solda unica por objetos (359): writer impede registros repetidos em
+qualquer ponta/direcao. Cadastro manual valida todos os destinos antes
+de substituir uma junta e nao cria soldas automaticas adicionais.
+Compatibilidade normaliza uma vez apos carregar, anexar ou undo/redo,
+fora de Edit Mode/gestos/guardas nativas. Preserva a origem cadastrada;
+restricoes axiais nao redundantes dos dois extremos passam a metadados
+da unica aresta. Resize e grupos soltos consultam o mapa em lote.
+Migracao explicita usa KDTree em MUNDO para cadastrar o menor gap entre
+vertices reais existentes, sem alterar geometria, espessuras ou materiais.
+`test_solda_blender` (16): unicidade, reciprocos, minimos reais com giro/
+escala, origens/direcoes do mesmo indice, multiplos vizinhos, UID repetido
+entre montagens, validacao atomica, guardas e undo/redo. Assinaturas uN
+modeladas identificam tambem o parceiro da espessura, sem voltar a sinais.
+Revisao independente acrescentou regressao de otimizacao, regravacao,
+precedencia primaria no mapa/reset e compatibilidade neg sem face.
+`test_soldas_biblioteca_blender` (22): staging, reabertura, idempotencia,
+minimo geometricamente independente, integridade protegida, hashes de
+fontes/backup/arquivos, publicacao atomica com rollback e reversao.
+Sessao aberta: 47 objetos, 10 relacoes e 20 pares inferidos -> 10 pares;
+comparacao exata de geometria, poses, materiais e selecao, com backup em
+Documentos/Cabinet Creator Backups/soldas359-sessao-20261027/antes.blend.
+Conferencia visual na janela existente: quatro fios nas quatro relacoes
+da lateral afastada; biblioteca/menu nativos mantidos. Sem cliques GUI.
+Relatorio da sessao no mesmo diretorio: relatorio.json.
+Contrato de UID em `test_estrutura_blender` verifica a aresta unica,
+restricao reversa e resolucao apos renomear; preserva a regra original.
+Biblioteca publicada: 328 presets auditados, 265 .blend refinados e 63
+intactos. Os 2385 registros viraram 1978 arestas dos mesmos 1978 pares;
+zero invalidas/repetidas, com todos os minimos reais conferidos por
+produto cartesiano independente (tolerancia 0,001 mm). Coordenadas,
+topologia, materiais, pais, UIDs, catalogos, fotos e previews preservados.
+Auditor independente reabriu tres modelos, incluindo chapas modeladas,
+e conferiu os 52 pares dessas amostras. Backup e manifesto reversivel:
+Documentos/Cabinet Creator Backups/soldas359-aceite-20261027-042135Z.
+Primeiro harness completo: asserts funcionais passaram; guarda de bytes
+da biblioteca reprovou porque os guias de assets foram atualizados durante
+a execucao. Reexecucao integral com fontes/recursos estaveis, sem enfraquecer
+a guarda; hashes dos assets publicados conferidos separadamente.
+Validacao final 359 (2026-10-27): 2450 testes em 56 execucoes, TUDO OK
+no Blender 4.2/5.2, incluindo a guarda de integridade. Log:
+`D:/Blender/Backups/CabinetCreator/soldas359-completo-estavel.log`.
+Pacote dist/cabinet_creator.zip conferido contra fontes e 265 blends
+publicados. Harness GUI de gestos nao executado nesta entrega.
+
+Contorno na selecao mista (358): somar um objeto comum a modulo/porta
+devolve o overlay nativo que o add-on ocultou. Retirar o objeto comum
+retoma a selecao exclusiva da HUD. Componentes sem marca dentro do grupo
+selecionado nao tornam a selecao externa. Usa select_get por ViewLayer,
+sem ler malhas, alterar selecao ou depender de quem e' o objeto ativo.
+Respeita contorno previamente desligado pelo usuario. Duas regressoes
+em test_hud_blender cobrem transicoes, componente filho, curva externa,
+preferencia manual e Ctrl+L nativo desde malha comum (piso 180).
+Aplicada na instancia aberta: Cube mestre e 45 objetos selecionados,
+sem alterar selecao/ativo. Conferencia visual da janela existente via
+computer-use confirmou o Cube com contorno laranja e a blocagem visivel.
+O Blender estava minimizado; as capturas MCP pretas nao serviram de prova.
+Validacao 358 (2026-10-27): 2374 testes aprovados em 52 execucoes no 4.2/5.2;
+log `D:/Blender/Backups/CabinetCreator/contorno358-completo.log`.
+Pacote atualizado e conferido; sem harness GUI de gestos automatizados.
+
+Tab/G do grupo (357): a saida atualiza os rigs em lote, com no maximo
+duas avaliacoes explicitas da camada, independentemente da quantidade
+de dobradicas. Puxadores participantes conservam a Mesh editada; somente
+o contorno numerico se atualiza. Puxador fora da edicao conserva o
+reposicionamento parametrico. Entrada registra os nomes imediatamente,
+sem depender do tique do timer. Referencias de frente iguais usam o cache.
+Regressoes: test_operadores_blender cobre reduzir 2400 para 2100 mm com
+G nativo sem reconstruir o perfil e o custo constante das ferragens;
+test_puxadores_blender cobre edicao individual, material, UV e undo/redo.
+Prova anterior: as duas regressoes falham na implementacao antiga
+(reconstrucao indevida e 6 avaliacoes da camada em vez de 2).
+Medicao 5.2, preset Armario_Quarto_08_600x2503x550, 276 objetos:
+saida do Tab 0.830 -> 0.425 s; saida + tres tiques + conferencia das
+ferragens 1.235 -> 0.815 s, com cProfile, sem interacao GUI.
+Logs em `D:/Blender/Backups/CabinetCreator/`: `perfil357-extra-antes.log`,
+`perfil357-extra-depois.log`, `tab357-prova-anterior.log`.
+Validacao 357 (2026-10-26): 2370 testes aprovados em 52 execucoes no 4.2/5.2;
+log `tab357-completo.log`. Auditoria visual em render isolado apos Tab/G:
+`tab357-visual.png`; perfis continuam unidos as portas e nos limites delas.
+Sem janela GUI nem alteracao da cena do usuario; o MCP estava indisponivel.
+Pacote `dist/cabinet_creator.zip` conferido com os cinco fontes alterados.
+
+Materiais pela selecao mestre (356): Shift conserva as pecas do grupo
+selecionadas, mas usa a chapa/folha clicada como objeto ativo. Ctrl+L >
+Vincular materiais permanece inteiramente nativo, sem operador paralelo.
+Clique simples sem Shift conserva o Empty ativo; Shift+duplo isola a
+origem sem pintar as demais pecas daquele modulo. Quatro regressoes em
+test_hud_blender: grupos, origem isolada, chapa solta com multiplos slots
+OBJECT e folha de porta; confere materiais, selecao e geometria (piso 178).
+O nivel PORTA permanece de grupo mesmo com a folha mestre ativa; o contrato
+de Shift em test_portas_blender acompanha a selecao mestre nativa.
+Validacao 356 (2026-10-26): 2364 testes aprovados em 52 execucoes no 4.2/5.2.
+Log: `D:/Blender/Backups/CabinetCreator/materiais356-final-completo.log`.
+Instancia aberta recebeu somente as tres funcoes de selecao, preservando
+o objeto ativo, a selecao e os 1146 objetos, sem reiniciar o registro.
+
 Solda 355: criar/reancorar bloqueia desenho e interacao da HUD de geometria
 (inclusive setas, cotas e sliders); limpa hover e restaura ao encerrar.
 Corrente, regua, distancia e snap da solda continuam ativos. Iniciar e

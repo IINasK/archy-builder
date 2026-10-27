@@ -8,7 +8,7 @@ from bpy.types import Operator
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
-_chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = _divisorias = None
+_chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = _divisorias = _solda = _fundos = None
 
 # ================================================= MODULO (CONJUNTO)
 # Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
@@ -87,8 +87,9 @@ def _grupo_solto(obj, simetrico):
               and _chapas.MARCA_CHAPA in o and o.parent == obj.parent]
     ligacoes = {o.name: set() for o in chapas}
     porta = {o.name: o for o in chapas}
+    restricoes = _solda.restricoes_adjacencia(chapas)
     for C in chapas:
-        for N in _vizinhos_gravados(C):
+        for N, _face, _folga in restricoes[C].values():
             if N.name not in ligacoes:
                 continue
             ligacoes[C.name].add(N.name)
@@ -606,12 +607,16 @@ def ajustar_fundo(conj):
     """Refaz o fundo pela caixa ATUAL do modulo: entre as laterais, a base
     e o tampo (entrando no canal), costas a `fundo_recuo_mm` da borda de
     tras (+Y do modulo, ver `_portas._folgas_do_vao`). Sem fundo, nada."""
-    fundo = fundo_do_modulo(conj)
+    for novo in fundos_do_modulo(conj):
+        if 'fundo_tipo' in novo:
+            _fundos.ajustar_ao_modulo(novo)
+    legados = [o for o in fundos_do_modulo(conj) if 'fundo_tipo' not in o]
+    fundo = next(iter(legados), None)
     caixa = _caixa_local_estrutural(conj) if fundo is not None else None
     if caixa is None:
         return False
     lo, hi = caixa
-    modelados = [o for o in fundos_do_modulo(conj) if 'fundo_margens_mm' in o]
+    modelados = [o for o in legados if 'fundo_margens_mm' in o]
     if modelados:
         for obj in modelados:
             _ajustar_fundo_por_formato(conj, obj, lo, hi)
@@ -733,6 +738,7 @@ def remover_fundo(conj):
     if not fundos:
         return False
     for fundo in fundos:
+        _fundos.remover_canal(fundo)
         malha = fundo.data
         bpy.data.objects.remove(fundo, do_unlink=True)
         if malha is not None and malha.users == 0:

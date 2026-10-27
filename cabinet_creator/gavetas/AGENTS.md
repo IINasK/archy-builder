@@ -28,6 +28,10 @@ Puxadores e referencia da frente: [portas](../portas/AGENTS.md), `../frentes.py`
   usam faces INTERNAS. Profundidade so' projeta no eixo, limitada ao MENOR
   espaco livre por ray cast nativo UMA vez; previa conserva o cache.
   Prateleiras usam E gravam a mesma referencia.
+- Fundo associado (360): o ponto final de profundidade identifica fundo
+  por UID no mesmo modulo. O limite e' a face interna, nao o centro;
+  fundos.py coordena a hitbox e o dominio conserva calculo/trilho/montagem.
+  Desassociar usa UNPINNED, sem corrente/regua.
 - Trilho e' BLOCAGEM em tamanho real; o modelo definitivo nao esta' pronto.
 - Clique = todas, duplo = uma; SO' elas com linha na HUD. Slider ANDA com
   a frente e nunca fica coberto. Modulo selecionado absorve os filhos.

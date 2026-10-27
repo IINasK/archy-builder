@@ -25,6 +25,8 @@ Menu/HUD despacham para este dominio; malha base pertence a [chapas](../chapas/A
 - Aba propria. Mesmo `AssistenteDoVao` das gavetas: SO' 2 cliques + scroll.
   Profundidade ate' o FUNDO; folga da frente e' RECUO. Usar/gravar a mesma
   referencia do vao das gavetas; seguir seu protocolo de snap nativo.
+- Fundo associado (360): profundidade acompanha a face interna via fundos.py;
+  mantem alturas e a frente. Vao usa a estrutura sem expandir pelo fundo.
 - Menu: campos E de BAIXO para CIMA, apenas os do escopo selecionado.
   Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
 - Quantidade: grupo = total/global; unidade = ela e suas copias, distribuidas

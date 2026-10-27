@@ -14,6 +14,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import bpy
 import bmesh
@@ -69,6 +70,67 @@ def ocupado():
 
 
 class TestOperadores(unittest.TestCase):
+    def test_tab_reduz_altura_sem_refazer_puxadores_editados(self):
+        # Regressao 357: reconstruir o perfil depois do G anulava a
+        # translacao nativa e separava o puxador da madeira recortada.
+        conj = addon.modulos.criar_armario(bpy.context, 'Altura pelo Tab', 600, 2400, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        puxadores = addon.puxadores.perfis_na_porta(bpy.context, grupo, 'CIMA')
+        self.assertTrue(puxadores)
+        selecionar(conj)
+        bpy.ops.object.cabinet_editar_grupo()
+        for obj in bpy.context.objects_in_mode_unique_data:
+            bm = bmesh.from_edit_mesh(obj.data)
+            for v in bm.verts:
+                v.select_set((obj.matrix_world @ v.co).z > 1.2)
+            bmesh.update_edit_mesh(obj.data)
+        bpy.ops.transform.translate(value=(0, 0, -.3))
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.context.view_layer.update()
+        confirmados = {p.name: (p.data, [p.matrix_world @ v.co for v in p.data.vertices],
+                              [tuple(f.vertices) for f in p.data.polygons]) for p in puxadores}
+        with patch.object(addon.puxadores, 'gerar_malha_puxador',
+                          side_effect=AssertionError('Tab reconstroi puxador')) as gerar:
+            for _ in range(2):
+                addon.eventos.verificar_periodicamente()
+            gerar.assert_not_called()
+        bpy.context.view_layer.update()
+        for pux in puxadores:
+            malha, pontos, faces = confirmados[pux.name]
+            self.assertIs(pux.data, malha)
+            self.assertEqual([tuple(f.vertices) for f in malha.polygons], faces)
+            for v, esperado in zip(malha.vertices, pontos):
+                self.assertPerto(pux.matrix_world @ v.co, esperado)
+            contorno = [float(c) for p in addon.arame._contorno_malha(malha) for c in p]
+            self.assertEqual(list(pux['puxador_contorno']), contorno)
+        self.assertAlmostEqual(addon.modulos.medir_conjunto(conj)[1], 2100, places=3)
+
+    def test_tab_atualiza_ferragens_em_lote_sem_avaliar_por_dobradica(self):
+        conj = addon.modulos.criar_armario(bpy.context, 'Rigs em lote', 600, 2400, 550)
+        grupo = addon.portas.porta_no_modulo(conj)
+        raizes = [o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz']
+        self.assertGreater(len(raizes), 2)
+        malhas = [o for r in raizes for o in r.children_recursive
+                  if o.type == 'MESH' and not o.hide_render]
+        for obj in malhas:
+            if obj.data.users > 1:
+                obj.data = obj.data.copy()
+        bpy.context.view_layer.update()
+        antes = {r.name: r.matrix_world.translation.copy() for r in raizes}
+        registros = addon.ferragens.iniciar_edicao_rigs(malhas)
+        delta = Vector((0, 0, -.05))
+        for obj in malhas:
+            local = obj.matrix_world.inverted_safe().to_3x3() @ delta
+            obj.data.transform(Matrix.Translation(local))
+            obj.data.update()
+        atualizar = Mock(wraps=bpy.context.view_layer.update)
+        contexto = SimpleNamespace(mode='OBJECT', view_layer=SimpleNamespace(update=atualizar))
+        with patch.object(addon.ferragens, 'bpy', SimpleNamespace(context=contexto, data=bpy.data)):
+            addon.ferragens.concluir_edicao_rigs(registros)
+        self.assertLessEqual(atualizar.call_count, 2)
+        for raiz in raizes:
+            self.assertPerto(raiz.matrix_world.translation, antes[raiz.name] + delta)
+
     def test_tab_materializa_espelho_da_dobradica_antes_do_arraste_nativo(self):
         # Regressao v344: Mirror/Clipping prendia a metade virtual no
         # lugar antigo. O teste move pelo TRANSFORM nativo, ainda no Tab.

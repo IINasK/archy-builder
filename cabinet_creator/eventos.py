@@ -7,7 +7,7 @@ import bpy
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
 _ferragens = _prateleiras = _selecao = _formas = _divisorias = None
-_frentes = _solda = None
+_frentes = _solda = _fundos = None
 _hud_volume = None
 _gavetas = None
 _paredes_edicao = None
@@ -72,7 +72,9 @@ def verificar_periodicamente():
             _divisorias.atualizar_dependentes()
             _chapas.normalizar_chapas()
             _chapas.absorver_edicoes_de_malha()
+            _solda.normalizar_pendentes()
             _prateleiras.sincronizar_exclusoes_da_cena()
+            _fundos.verificar()
             _frentes.processar_pendentes()
             _puxadores._conferir_rebaixos()
             _modulos._sincronizar_medidas_ativas()
@@ -90,7 +92,7 @@ def verificar_periodicamente():
 # Um clique seleciona o modulo inteiro, e o Blender pinta de laranja o
 # contorno de cada chapa. Nao existe contorno por objeto na API: o
 # `show_outline_selected` vale para a viewport inteira. Entao ele e'
-# desligado enquanto houver modulo/porta selecionado e DEVOLVIDO depois.
+# desligado na selecao exclusiva do add-on e DEVOLVIDO na selecao mista.
 #
 # Nunca se liga ou desliga as cegas: so' se desliga o que estava ligado,
 # e so' se religa o que foi este add-on quem desligou. Quem ja' trabalha
@@ -157,6 +159,20 @@ def _viewports_da_janela(janela):
             yield area.spaces.active
 
 
+def _selecao_exige_contorno_nativo(view_layer, grupos):
+    """O contorno da HUD nao representa um objeto comum somado com Shift."""
+    for obj in view_layer.objects:
+        if not obj.select_get(view_layer=view_layer):
+            continue
+        dono = obj
+        while dono is not None and dono.name not in grupos:
+            dono = dono.parent
+        if (dono is None and _selecao._aba_da_selecao(obj) is None
+                and _ferragens.CHAVE_FERRAGEM not in obj):
+            return True
+    return False
+
+
 def _sincronizar_origens(espaco, grupos, devolver=False):
     """Duas flags nativas: origens selecionadas e todas as origens."""
     for nome in ('show_object_origins', 'show_object_origins_all'):
@@ -204,6 +220,8 @@ def sincronizar_contornos(devolver=False):
             grupos_origens = frozenset()
             if _opcoes._opcao('ocultar_contorno_grupo'):
                 grupos = _grupos_selecionados(janela.view_layer)
+                if grupos and _selecao_exige_contorno_nativo(janela.view_layer, grupos):
+                    grupos = frozenset()
             if _opcoes._opcao('ocultar_origens_grupo'):
                 grupos_origens = _grupos_selecionados(janela.view_layer,
                     (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
@@ -254,10 +272,12 @@ def _esquecer_referencias(*_args):
     _hud_volume.terminar()
     _paredes.esquecer()
     _prateleiras.esquecer()
+    _fundos.esquecer()
     _selecao._edicao_grupo[0] = None
     _formas.esquecer()
     _frentes.esquecer()
     _solda._cache_ancoras[0].clear()
+    _solda._normalizar_pendente[0] = True
     _chapas._chapas_em_edicao.clear()
     _chapas._havia_modal[0] = False
 

@@ -31,6 +31,7 @@ Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
 | Retirar variantes auditadas com backup e rollback | consolidar_variantes_biblioteca.py: `preparar`, `publicar` | migracoes, biblioteca |
 | Corrigir internos dos presets com backup e validacao | corrigir_internos_biblioteca.py: `preparar`, `publicar` | correcao_internos, migracoes, biblioteca |
 | Auditoria dos vaos/colisoes de internos (so leitura) | auditar_internos_biblioteca.py: `auditar`, `auditar_modulo` | auditoria_internos, biblioteca |
+| Soldas unicas/menor gap, backup e publicacao | `refinar_soldas_biblioteca.py`: `preparar`, `publicar` | solda, soldas_biblioteca, migracoes |
 | Auditoria/reparo | auditar_integracao_promob.py: `capturar`, `verificar_funcoes`, `preparar`; ajustar_portas_promob.py: `preparar` | importacao, migracoes |
 
 ## Presets e publicacao

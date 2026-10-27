@@ -34,6 +34,7 @@ _formas = None
 _cache_ancoras = [{}]  # nomes/numeros/KDTree nativa, nunca RNA
 _timer_conexao = [None]
 _handler_conexao = [None]
+_normalizar_pendente = [True]
 
 
 def encerrar_conexao_nativa(context=None):
@@ -81,7 +82,7 @@ def _dados_ancoras(P):
 # ------------------------------------------- correntes de adjacencia
 # A adjacencia (a SOLDA) liga a PONTA de uma chapa a FACE de outra e
 # grava a folga daquele momento -- a origem da solda. Cada ligacao associa
-# 2 pares de vertices (as quinas da junta). Regras do usuario:
+# um par de vertices reais; formatos antigos podiam repetir quinas.
 # - so' com a tecla das opcoes segurada (Alt por padrao);
 # - aparecem TODAS as quinas soldadas do item cuja folga saiu da origem
 #   mais de LIMIAR_CORRENTE_VIEWPORT (antes: so' a mais perto da camera);
@@ -116,9 +117,7 @@ def _canto_da_assinatura(C, assinatura):
 
 
 def _pares_da_ligacao(C, u, extremo, N):
-    """Os 2 pares (vertice de C, vertice de N, assinatura) da ligacao:
-    cada canto da ponta de C com o canto mais perto de N; ficam os dois
-    mais curtos (de um lado e do outro da junta)."""
+    """Um par real: o vertice da ponta mais proximo do vizinho."""
     dc,dn=_dados_ancoras(C),_dados_ancoras(N)
     if not dc or not dn or dn['arvore'] is None:return []
     local=C.matrix_world.to_3x3().transposed()@u
@@ -135,7 +134,7 @@ def _pares_da_ligacao(C, u, extremo, N):
         p=C.matrix_world.inverted()@par[0]
         if any((p.xy-q.xy).length<1e-5 for q in locais):continue
         escolhidos.append(par);locais.append(p)
-        if len(escolhidos)==2:break
+        if len(escolhidos)==1:break
     return escolhidos
 
 
@@ -158,6 +157,65 @@ def _ligados_a(C):
     return ligados
 
 
+def _ligacao_entre(C, N):
+    for dono, vizinho in ((C, N), (N, C)):
+        for ponta in _chapas.PONTAS:
+            if _vizinho_da_ponta(dono, ponta) == vizinho:
+                return dono, ponta
+    return None
+
+
+def _restricoes_da_ligacao(C, ponta, N):
+    """A unica aresta conserva os encaixes axiais legados de ambos extremos."""
+    dados = [('a', ponta, int(C.get('adj_%s_face'%ponta, 0 if ponta.endswith('pos') else 1)),
+              float(C.get('adj_%s_folga'%ponta, 0.)))]
+    dados += json.loads(C.get('adj_%s_restricoes'%ponta, '[]'))
+    return [(C if lado == 'a' else N, p, N if lado == 'a' else C, int(face), float(folga))
+            for lado, p, face, folga in dados
+            if lado in ('a', 'b') and p in _chapas.PONTAS and face in (0, 1) and math.isfinite(folga)]
+
+
+def _gravar_restricoes(C, ponta, N, restricoes):
+    extras = {}
+    for origem, p, destino, face, folga in restricoes:
+        lado = 'a' if origem == C else 'b'
+        if (origem not in (C, N) or destino not in (C, N)
+                or origem == destino or (lado == 'a' and p == ponta)):
+            continue
+        extras.setdefault((lado, p), (lado, p, face, folga))
+    chave = 'adj_%s_restricoes'%ponta
+    valor = json.dumps(sorted(extras.values()))
+    if extras and C.get(chave) != valor:
+        C[chave] = valor
+    elif not extras and chave in C:
+        del C[chave]
+
+
+def restricoes_adjacencia(chapas):
+    """Mapa calculado UMA vez por ajuste, sem buscar reciprocidade por chapa."""
+    alvos = {c for c in chapas if c.type == 'MESH' and _chapas.MARCA_CHAPA in c}
+    resultado = {c: {} for c in alvos}
+    prioridades = {}
+    for c in bpy.data.objects:
+        if c.type != 'MESH' or _chapas.MARCA_CHAPA not in c:
+            continue
+        for ponta in _chapas.PONTAS:
+            n = _vizinho_da_ponta(c, ponta)
+            if n is None:
+                continue
+            for origem, p, destino, face, folga in _restricoes_da_ligacao(c, ponta, n):
+                if origem in alvos:
+                    # A ponta gravada no proprio objeto prevalece sobre um
+                    # descritor reverso legado; nunca depende do Outliner.
+                    prioridade = (not (origem is c and p == ponta),
+                                  c.get('chapa_uid', ''), c.name, ponta)
+                    chave = (origem, p)
+                    if chave not in prioridades or prioridade < prioridades[chave]:
+                        prioridades[chave] = prioridade
+                        resultado[origem][p] = (destino, face, folga)
+    return resultado
+
+
 def agregado(C):
     """Ligada (agregada) a alguma peca? E' o azul do botao Corrente."""
     return bool(_ligados_a(C))
@@ -172,6 +230,7 @@ def _ligacoes_adjacencia(chapas_item, limiar=None, somente_manuais=False):
     limiar = LIMIAR_CORRENTE_VIEWPORT if limiar is None else limiar
     item = set(chapas_item)
     ligacoes = []
+    restricoes = restricoes_adjacencia(bpy.data.objects)
     for C in bpy.data.objects:
         if C.type != 'MESH' or _chapas.MARCA_CHAPA not in C:
             continue
@@ -182,7 +241,7 @@ def _ligacoes_adjacencia(chapas_item, limiar=None, somente_manuais=False):
             if N is None or (C not in item and N not in item):
                 continue
             folga, u, extremo = _folga_com_sinal(C, ponta, N)
-            desvio, residuos = _medida_solda(C, ponta, N)
+            desvio, residuos = _medida_solda(C, ponta, N, restricoes)
             if not manual and _tamanho_desvio(desvio, residuos) < limiar:
                 continue            # na origem da solda: sem corrente
             ancoras = _ancoras_da_ligacao(C, ponta, N, u, extremo)
@@ -249,33 +308,121 @@ def _correntes_criacao(context, estado):
 
 
 def _correntes_sem_repeticao(correntes):
-    """Uma alca por quina fisica da junta, incluindo o par da espessura.
-    As soldas continuam independentes; so' controles coincidentes somem.
+    """Arquivos antigos tambem mostram somente uma solda por par de objetos."""
+    por_par = {}
+    for corrente in sorted(correntes, key=lambda c: (
+            (c['pontos'][1]-c['pontos'][0]).length_squared,
+            c['a'].name, c['b'].name, c.get('ponta', ''), c.get('indice', 0))):
+        chave = tuple(sorted((corrente['a'].name, corrente['b'].name)))
+        por_par.setdefault(chave, corrente)
+    return list(por_par.values())
+
+
+def _vertices_mais_proximos(C, N):
+    """Consulta nativa em MUNDO, somente no cadastro/migracao, nunca no redraw."""
+    if not C.data.vertices or not N.data.vertices:
+        raise ValueError('A chapa nao possui vertices para a solda')
+    arvore = KDTree(len(N.data.vertices))
+    for v in N.data.vertices:
+        arvore.insert(N.matrix_world @ v.co, v.index)
+    arvore.balance()
+    candidatos = []
+    for v in C.data.vertices:
+        p = C.matrix_world @ v.co
+        q, indice, _distancia = arvore.find(p)
+        candidatos.append(((p-q).length_squared, v.index, indice))
+    _distancia, origem, destino = min(candidatos)
+    return 'v%d' % origem, 'v%d' % destino
+
+
+def normalizar_ligacoes(pecas, recalcular_ancoras=False):
+    """Uma aresta por par nao ordenado, preservando a origem de cenas antigas.
+
+    A migracao explicita da biblioteca pode cadastrar o menor gap atual.
+    A compatibilidade de cena nunca transforma uma chapa afastada em origem.
     """
-    unicas, por_par = [], {}
-    for corrente in correntes:
-        a, b = corrente['a'], corrente['b']
-        p, q = corrente['pontos']
-        chave = tuple(sorted((a.name, b.name)))
-        proximas = por_par.setdefault(chave, [])
-        repetida = False
-        for outra in proximas:
-            r, s = outra['pontos'] if a == outra['a'] else reversed(outra['pontos'])
-            raio = min(.025, max(a.chapa_espessura_mm, b.chapa_espessura_mm) / 1000) + .00005
-            if (p-r).length <= raio and (q-s).length <= raio:
-                repetida = True
-                break
-        if not repetida:
-            unicas.append(corrente)
-            proximas.append(corrente)
-    return unicas
+    pecas = {o for o in pecas if o.type == 'MESH' and _chapas.MARCA_CHAPA in o}
+    if _eventos._desfazendo[0] or any(o.data.is_editmode for o in pecas):
+        raise ValueError('Aguarde o fim da edicao ou do undo para atualizar as soldas')
+    antes = {o.name: repr(sorted((k, str(v)) for k, v in o.items()
+                                if k.startswith('adj_'))) for o in pecas}
+    por_par = {}
+    invalidas = []
+    for c in sorted(pecas, key=lambda o: (o.get('chapa_uid', ''), o.name)):
+        for ponta in _chapas.PONTAS:
+            n = _vizinho_da_ponta(c, ponta)
+            if n not in pecas:
+                continue
+            ancoras = _ancoras_gravadas(c, ponta) or []
+            medidas = []
+            for i, (sc, sn) in enumerate(ancoras):
+                try:
+                    distancia = (_vertice_da_assinatura(c, sc)-_vertice_da_assinatura(n, sn)).length
+                except ValueError:
+                    # Uma referencia apagada continua diagnosticavel; nao a
+                    # substituir silenciosamente por outro vertice proximo.
+                    distancia = -1.
+                    invalidas.append(dict(origem=c.name, ponta=ponta, indice=i))
+                medidas.append((distancia, i))
+            distancia, indice = min(medidas) if medidas else (abs(float(c.get('adj_%s_folga'%ponta, 0.))), 0)
+            registro = dict(c=c, n=n, ponta=ponta, ancoras=ancoras, indice=indice,
+                origens=_origens_ancoras(c, ponta), distancia=distancia,
+                restricoes=_restricoes_da_ligacao(c, ponta, n))
+            por_par.setdefault(frozenset((c, n)), []).append(registro)
+    planos = []
+    for registros in por_par.values():
+        vencedor = min(registros, key=lambda r: (
+            not bool(r['c'].get('adj_%s_manual'%r['ponta'])), r['distancia'],
+            r['c'].get('chapa_uid', ''), r['c'].name, r['ponta']))
+        par = _vertices_mais_proximos(vencedor['c'], vencedor['n']) if recalcular_ancoras else None
+        planos.append((vencedor, registros, par))
+    removidas = ancoras_alteradas = 0
+    for r, registros, par in planos:
+        c, n, ponta, indice = r['c'], r['n'], r['ponta'], r['indice']
+        _gravar_restricoes(c, ponta, n,
+            [dado for registro in [r]+[outro for outro in registros if outro is not r]
+             for dado in registro['restricoes']])
+        if par is not None:
+            par = (_ancora_estavel(c, par[0]), _ancora_estavel(n, par[1]))
+            if r['ancoras'] != [par]:
+                _gravar_ancoras(c, ponta, [par])
+                ancoras_alteradas += 1
+            origem = n.matrix_world.inverted_safe().to_3x3() @ (
+                _vertice_da_assinatura(c, par[0])-_vertice_da_assinatura(n, par[1]))
+            valor = json.dumps([tuple(origem)])
+            if c.get('adj_%s_origens'%ponta) != valor:
+                c['adj_%s_origens'%ponta] = valor
+            if c.get('adj_%s_manual'%ponta):
+                direcao = origem.normalized() if origem.length > 1e-8 else Vector((0, 0, 1))
+                c['adj_%s_direcoes'%ponta] = json.dumps([tuple(direcao)])
+        elif len(r['ancoras']) > 1:
+            _gravar_ancoras(c, ponta, [r['ancoras'][indice]])
+            if r['origens'] is not None:
+                c['adj_%s_origens'%ponta] = json.dumps([tuple(r['origens'][indice])])
+            direcoes = c.get('adj_%s_direcoes'%ponta)
+            if direcoes:
+                c['adj_%s_direcoes'%ponta] = json.dumps([json.loads(direcoes)[indice]])
+            ancoras_alteradas += 1
+        for outro in registros:
+            if outro is not r:
+                _chapas._limpar_ponta(outro['c'], outro['ponta'])
+                removidas += 1
+    alteradas = sorted(o.name for o in pecas if antes[o.name] != repr(sorted(
+        (k, str(v)) for k, v in o.items() if k.startswith('adj_'))))
+    return dict(ligacoes=len(planos), removidas=removidas, ancoras=ancoras_alteradas,
+                alteradas=alteradas, invalidas=invalidas)
+
+
+def normalizar_pendentes():
+    if (_normalizar_pendente[0] and bpy.context.mode == 'OBJECT'
+            and not _eventos._desfazendo[0] and not _chapas._ocupado[0]
+            and not _eventos._ha_modal_ativo()):
+        normalizar_ligacoes(bpy.data.objects)
+        _normalizar_pendente[0] = False
 
 
 def _par_qualidade_ancoras(c, n):
-    a=_portas._modulo_da_chapa(c) or c
-    b=_portas._modulo_da_chapa(n) or n
-    # Chapas do mesmo modulo ainda precisam das suas juntas internas.
-    return tuple(sorted((c.name,n.name) if a==b else (a.name,b.name)))
+    return tuple(sorted((c.name, n.name)))
 
 
 def auditar_ancoras(pecas):
@@ -297,22 +444,14 @@ def auditar_ancoras(pecas):
 
 
 def _refinar_candidatos_ancoras(candidatos, invalidas=()):
-    aceitas=[];rejeitadas=list(invalidas);usados=set();quinas={};ligacoes={}
+    aceitas=[];rejeitadas=list(invalidas);ligacoes={}
     # Menor distancia primeiro garante preferencia por contato real, independente da ordem do Outliner.
     for c in sorted(candidatos,key=lambda c:(c['distancia'],c['origem'],c['destino'],c['assinatura'],c['alvo'])):
-        pontas=((c['origem'],c['assinatura'],Vector(c['ponto'])),(c['destino'],c['alvo'],Vector(c['final'])))
         par=tuple(sorted(c.get('par',(c['origem'],c['destino']))))
-        motivo=None
-        if any((nome,s) in usados for nome,s,_p in pontas):motivo='Vertice repetido'
-        elif any(any((p-q).length<=max(c['raio'],r) for q,r in quinas.get(nome,())) for nome,_s,p in pontas):
-            motivo='Quina proxima ja atendida'
-        elif par in ligacoes:motivo='Par de pecas ou modulos ja soldado'
-        if motivo:
-            rejeitadas.append(dict(c,motivo=motivo));continue
+        if par in ligacoes:
+            rejeitadas.append(dict(c,motivo='Par de objetos ja soldado'));continue
         aceitas.append(c)
         ligacoes.setdefault(par,[]).append(len(aceitas)-1)
-        for nome,s,p in pontas:
-            usados.add((nome,s));quinas.setdefault(nome,[]).append((p,c['raio']))
     return dict(candidatas=len(candidatos),aceitas=aceitas,rejeitadas=rejeitadas,
         ligacoes=[dict(pecas=par,ancoras=indices) for par,indices in sorted(ligacoes.items())])
 
@@ -468,7 +607,7 @@ def desassociar(a, b):
             if _vizinho_da_ponta(C, ponta) != N:
                 continue
             base = 'adj_' + ponta
-            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes'):
+            for sufixo in ('', '_uid', '_folga', '_face', '_ancoras', '_origens','_manual','_direcoes','_restricoes'):
                 if base + sufixo in C:
                     del C[base + sufixo]
             n += 1
@@ -605,13 +744,14 @@ def juntar_conexao(C, alvos, pecas, juntar, pares_reais=None):
             pecas |= set(_modulos._chapas_do_conjunto(modulo))
             bpy.context.view_layer.update()
             _modulos._mover_para_colecao(C,colecao)
-            _chapas.associar_por_distancia(C, pecas)
+            if not plano:
+                _chapas.associar_por_distancia(C, pecas)
             _modulos.reposicionar_origem(modulo)
             _modulos.sincronizar_medidas_conjunto(modulo)
-        else:_chapas.associar_por_distancia(C, pecas)
+        elif not plano:_chapas.associar_por_distancia(C, pecas)
         if plano:_registrar_pares_reais(C,plano)
         return
-    _chapas.associar_por_distancia(C, pecas)
+    if not plano:_chapas.associar_por_distancia(C, pecas)
     if plano:_registrar_pares_reais(C,plano)
 
 
@@ -621,12 +761,16 @@ def _plano_ancoras_reais(C, pares):
     for sc,nome,sn in pares:
         N=bpy.data.objects.get(nome)
         if N is None or N is C:raise ValueError('A chapa de destino nao existe mais')
+        if nome in vizinhos:raise ValueError('Cada par de objetos permite somente uma solda')
         ids=_indices_da_assinatura(C,sc)
         if not ids or not _indices_da_assinatura(N,sn):raise ValueError('O vertice da ancora nao existe mais')
         vizinhos.setdefault(nome,[]).append((sc,sn))
     if len(vizinhos)>len(_chapas.PONTAS):raise ValueError('A chapa ja possui quatro destinos nesta conexao')
     limites=[(min(v.co[i] for v in C.data.vertices),max(v.co[i] for v in C.data.vertices)) for i in (0,1)]
-    grupos={};ocupadas=set()
+    restricoes = restricoes_adjacencia([C])[C]
+    grupos={};ocupadas={p for p,(n,_face,_folga) in restricoes.items() if n.name not in vizinhos}
+    if len(vizinhos)>len(_chapas.PONTAS)-len(ocupadas):
+        raise ValueError('A chapa nao possui uma ponta livre para outra conexao')
     for nome,ancoras in vizinhos.items():
         pontos=[C.data.vertices[_indices_da_assinatura(C,sc)[0]].co for sc,_sn in ancoras]
         _d,ponta=min((sum(abs(p[i]-b) for p in pontos),('x','y')[i]+'_'+lado)
@@ -638,9 +782,25 @@ def _plano_ancoras_reais(C, pares):
 
 def _registrar_pares_reais(C, grupos):
     """Conserva o afastamento de C a N no referencial de N: gira com o modulo."""
+    destinos=set()
+    restricoes = restricoes_adjacencia([C])[C]
+    for (ponta,nome),ancoras in grupos.items():
+        N=bpy.data.objects.get(nome)
+        if (N is None or N is C or nome in destinos or len(ancoras)!=1
+                or any(not _indices_da_assinatura(C,sc) or not _indices_da_assinatura(N,sn) for sc,sn in ancoras)):
+            raise ValueError('Cada par de objetos permite somente uma solda valida')
+        atual=restricoes.get(ponta, (None, 0, 0.))[0]
+        if atual is not None and atual is not N:
+            raise ValueError('A ponta ja esta soldada a outra chapa')
+        destinos.add(nome)
     for (ponta,nome),ancoras in grupos.items():
         N=bpy.data.objects[nome];eixo,lado=ponta.split('_')
-        _chapas._gravar_ligacao(C,eixo,lado,N,0.,0 if lado=='pos' else 1)
+        for dono,vizinho in ((C,N),(N,C)):
+            for anterior in _chapas.PONTAS:
+                if _vizinho_da_ponta(dono,anterior) is vizinho:
+                    _chapas._limpar_ponta(dono,anterior)
+        if not _chapas._gravar_ligacao(C,eixo,lado,N,0.,0 if lado=='pos' else 1):
+            raise ValueError('O par de objetos ja esta soldado')
         C['adj_%s_folga'%ponta]=_folga_com_sinal(C,ponta,N)[0]
         _gravar_ancoras(C,ponta,ancoras)
         inversa=N.matrix_world.inverted().to_3x3()
@@ -812,6 +972,7 @@ OP_CORRENTE_OBJETO = 'object.cabinet_corrente_objeto'
 # O "Gerar orcamento" (opcoes) abre o "Salvar como"; o "Usar como
 # puxador", o modal do clique na face.
 OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
+                        'object.cabinet_criar_fundo',
                         'object.cabinet_conectar_vertices',
                         'object.cabinet_editar_parede',
                         'object.cabinet_resetar_distancia',
@@ -1614,6 +1775,10 @@ class OBJECT_OT_conectar_vertices(Operator):
                         if d.length>1e-8:estado['direcoes'][k]=tuple(d.normalized())
                 elif estado['fase']=='origem':estado.update(origem=obj.name,fase='destino',escolhido=(s,ponto),aguardar_novo_par=False,soltar_confirma=False)
                 else:
+                    if any(nome==obj.name for _sc,nome,_sn in estado['pares']):
+                        self.report({'WARNING'},'Cada par de objetos permite somente uma solda')
+                        estado['iniciar_snap']=True
+                        return {'RUNNING_MODAL'}
                     estado['pares'].append((estado['escolhido'][0],obj.name,s))
                     if estado.get('moderna'):
                         p=Vector(estado['escolhido'][1]);d=p-ponto
@@ -1958,7 +2123,7 @@ def _ancoras_da_ligacao(C, ponta, N, u=None, extremo=None):
 def _parceiro_espessura(P, assinatura):
     """A ancora do OUTRO lado da espessura (Z local): no canto, o sinal de
     Z trocado; num vertice qualquer, o mais perto dele na face oposta."""
-    if not assinatura.startswith('v'):
+    if not assinatura.startswith(('v', 'u')):
         return assinatura[:2] + ('-' if assinatura[2] == '+' else '+')
     indices = _indices_da_assinatura(P, assinatura)
     if not indices:
@@ -2117,7 +2282,7 @@ def _vertice_da_assinatura(P, assinatura):
     return P.matrix_world @ P.data.vertices[indices[0]].co
 
 
-def _medida_solda(C, ponta, N):
+def _medida_solda(C, ponta, N, restricoes=None):
     """(delta, residuos) da solda C->N: `delta` = quanto a ponta de C tem
     que andar PARA FORA para voltar a origem; `residuos` = [(assinatura,
     vetor)] do que sobra por vertice quando as ancoras nao cabem numa
@@ -2126,7 +2291,16 @@ def _medida_solda(C, ponta, N):
     memorizada = float(C.get('adj_%s_folga' % ponta, 0.0))
     ancoras = _ancoras_gravadas(C, ponta)
     if not ancoras:
-        return folga - memorizada, []
+        residuos = []
+        extras = _restricoes_da_ligacao(C, ponta, N)[1:]
+        if extras and restricoes is None:
+            restricoes = restricoes_adjacencia([C, N])
+        for origem, p, destino, face, gap in extras:
+            if restricoes.get(origem, {}).get(p) != (destino, face, gap):
+                continue
+            eixo, d = _delta_restricao(origem, p, destino, face, gap)
+            residuos.append(('', eixo*d))
+        return folga - memorizada, residuos
     sentido = u if ponta.endswith('pos') else -u
     itens = [(sc, _desvio_ancora(C,ponta,N,k,sc,sn)) for k,(sc, sn) in enumerate(ancoras)
               if _indices_da_assinatura(C,sc) and _indices_da_assinatura(N,sn)]
@@ -2137,6 +2311,14 @@ def _medida_solda(C, ponta, N):
 
 def _tamanho_desvio(delta, residuos):
     return max([abs(delta)] + [r.length for _s, r in residuos])
+
+
+def _delta_restricao(C, ponta, N, face, folga):
+    u = _chapas._eixos(C)[0 if ponta.startswith('x') else 1]
+    extremo = _chapas._centro(C).dot(u) + _chapas._meias(C)[0 if ponta.startswith('x') else 1] * (
+        1 if ponta.endswith('pos') else -1)
+    atual = _chapas._faixa(N, u)[face] - extremo
+    return u, (atual if ponta.endswith('pos') else -atual) - folga
 
 
 def _pares_reset_ancoras(C, ponta, N, lado='a'):
@@ -2198,6 +2380,12 @@ def resetar_ponta(C, ponta):
         if not alvos or all((p-_vertice_da_assinatura(C,s)).length<TOL_RESET_DISTANCIA for s,p in alvos):return False
         _puxar_por_pares(C,alvos)
         return True
+    if C.get('adj_%s_restricoes'%ponta) and not _ancoras_gravadas(C, ponta):
+        plano = _plano_reset_chapa(C, ligacao=(C, ponta))
+        if plano is None:
+            return False
+        _aplicar_reset_chapa(C, plano, ligacao=(C, ponta))
+        return True
     eixo, lado = ponta.split('_')
     _folga, u, extremo = _folga_com_sinal(C, ponta, N)
     delta, residuos = _medida_solda(C, ponta, N)
@@ -2246,56 +2434,64 @@ def resetar_pontas(escolhidas):
     return n
 
 
-def _restricoes_reset(M):
+def _restricoes_reset(M, ligacao=None):
     """[(eixo de M, 'min'/'max', deslocamento em m)] que cada solda de M
     pede para voltar a origem -- as que ja' estao nela pedem 0 (ancoras).
     Devolve tambem se alguma esta' fora."""
     eixos = _chapas._eixos(M)
     restricoes, fora = [], False
+    efetivas = restricoes_adjacencia(bpy.data.objects)
     for C in bpy.data.objects:
         if C.type != 'MESH' or _chapas.MARCA_CHAPA not in C:
             continue
         for ponta in _chapas.PONTAS:
+            if ligacao is not None and (C, ponta) != ligacao:
+                continue
             N = _vizinho_da_ponta(C, ponta)
             if N is None or M not in (C, N):
                 continue
-            _folga, u, _extremo = _folga_com_sinal(C, ponta, N)
-            delta, residuos = _medida_solda(C, ponta, N)
-            fora = fora or (_tamanho_desvio(delta, residuos)
-                            >= TOL_RESET_DISTANCIA)
-            positiva = ponta.endswith('pos')
-            sentido = u if positiva else -u      # para fora da ponta de C
-            if M is C:
-                # a PONTA de M anda ate' a face do vizinho
-                i = 0 if ponta[0] == 'x' else 1
-                lado = 'max' if positiva else 'min'
-                vetor = sentido * delta
-            else:
-                # a FACE de M anda ate' a ponta do vizinho
-                i = max(range(3), key=lambda k: abs(eixos[k].dot(u)))
-                face = int(C.get('adj_%s_face' % ponta, 0 if positiva else 1))
-                mesmo = eixos[i].dot(u) > 0
-                lado = (('min' if face == 0 else 'max') if mesmo
-                        else ('max' if face == 0 else 'min'))
-                vetor = -sentido * delta
-            restricoes.append((i, lado, vetor.dot(eixos[i]),
-                               bool(_ancoras_gravadas(C, ponta))))
+            ancorada = bool(_ancoras_gravadas(C, ponta))
+            descricoes = _restricoes_da_ligacao(C, ponta, N)
+            for origem, p, destino, face, gap in (descricoes[:1] if ancorada else descricoes):
+                if efetivas.get(origem, {}).get(p) != (destino, face, gap):
+                    continue
+                if ancorada:
+                    _folga, u, _extremo = _folga_com_sinal(C, ponta, N)
+                    delta, residuos = _medida_solda(C, ponta, N, efetivas)
+                else:
+                    u, delta = _delta_restricao(origem, p, destino, face, gap)
+                    residuos = []
+                fora = fora or _tamanho_desvio(delta, residuos) >= TOL_RESET_DISTANCIA
+                positiva = p.endswith('pos')
+                sentido = u if positiva else -u
+                if M is origem:
+                    i = 0 if p[0] == 'x' else 1
+                    lado = 'max' if positiva else 'min'
+                    vetor = sentido * delta
+                else:
+                    i = max(range(3), key=lambda k: abs(eixos[k].dot(u)))
+                    mesmo = eixos[i].dot(u) > 0
+                    lado = (('min' if face == 0 else 'max') if mesmo
+                            else ('max' if face == 0 else 'min'))
+                    vetor = -sentido * delta
+                restricoes.append((i, lado, vetor.dot(eixos[i]), ancorada))
     return restricoes, fora
 
 
-def _plano_reset_chapa(M):
+def _plano_reset_chapa(M, ligacao=None):
     """{'lados': [(d_min, d_max)] por eixo de M, 'muda_medida'} para M
     voltar as soldas a origem, ou None se ja' estao todas nela. Lados
     opostos pedindo deslocamentos diferentes = esticar (muda a medida);
     a espessura nunca estica: ali vale a media."""
     # Afastamentos 3D iguais pedem uma translacao rigida, inclusive no eixo
     # tangente a solda. A folga escalar antiga nao representava esse movimento.
-    restricoes, fora = _restricoes_reset(M)
+    restricoes, fora = _restricoes_reset(M, ligacao)
     if not fora:return None
     vetores=[]
     for C in bpy.data.objects:
         if C.type!='MESH' or _chapas.MARCA_CHAPA not in C:continue
         for ponta in _chapas.PONTAS:
+            if ligacao is not None and (C, ponta) != ligacao:continue
             N=_vizinho_da_ponta(C,ponta)
             if N is None or M not in (C,N):continue
             if _origens_ancoras(C,ponta) is None:continue
@@ -2338,7 +2534,7 @@ def _plano_reset_chapa(M):
     return {'lados': lados, 'muda_medida': muda}
 
 
-def _aplicar_reset_chapa(M, plano):
+def _aplicar_reset_chapa(M, plano, ligacao=None):
     _validar_reset_ancoras(M)
     eixos = _chapas._eixos(M)
     centro = _chapas._centro(M)
@@ -2361,6 +2557,8 @@ def _aplicar_reset_chapa(M, plano):
         if C.type != 'MESH' or _chapas.MARCA_CHAPA not in C:
             continue
         for ponta in _chapas.PONTAS:
+            if ligacao is not None and (C, ponta) != ligacao:
+                continue
             N = _vizinho_da_ponta(C, ponta)
             if N is not None and M in (C, N):
                 _deformar_ancoras(C, ponta, N, 'a' if M is C else 'b')
@@ -2372,6 +2570,7 @@ def _aplicar_reset_chapa(M, plano):
 def _soldas_de(P):
     """Quantas soldas P tem e quantas estao fora da origem."""
     total = fora = 0
+    restricoes = restricoes_adjacencia(bpy.data.objects)
     for C in bpy.data.objects:
         if C.type != 'MESH' or _chapas.MARCA_CHAPA not in C:
             continue
@@ -2380,7 +2579,7 @@ def _soldas_de(P):
             if N is None or P not in (C, N):
                 continue
             total += 1
-            if _tamanho_desvio(*_medida_solda(C, ponta, N)) >= TOL_RESET_DISTANCIA:
+            if _tamanho_desvio(*_medida_solda(C, ponta, N, restricoes)) >= TOL_RESET_DISTANCIA:
                 fora += 1
     return total, fora
 

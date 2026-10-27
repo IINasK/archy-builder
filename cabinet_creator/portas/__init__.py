@@ -1265,7 +1265,7 @@ def _limites_locais_modulo(conj):
     inversa = conj.matrix_world.inverted()
     pontos = [inversa @ (o.matrix_world @ v.co) * 1000
               for o in _modulos._chapas_do_conjunto(conj)
-              if _prateleiras.MARCA_PRATELEIRA not in o for v in o.data.vertices]
+              if _prateleiras.MARCA_PRATELEIRA not in o and 'fundo_tipo' not in o for v in o.data.vertices]
     if not pontos:
         return None
     return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),

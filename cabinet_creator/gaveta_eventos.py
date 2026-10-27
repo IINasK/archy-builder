@@ -25,7 +25,7 @@ _gaveta_desenho = None
 _materiais = None
 _gavetas = None
 _prateleiras = None
-_divisorias = None
+_divisorias = _fundos = None
 _formas = None
 _biblioteca_faixa = None
 _paredes_edicao = None
@@ -261,6 +261,12 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
             return 'O modulo nao tem mais esse formato'
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
+    if dono == 'fundos':
+        try:
+            _fundos.editar(context, bpy.data.objects.get(objeto), propriedade, valor*1000)
+        except ValueError as erro:
+            return str(erro)
+        return None
     if dono in ('gavetas', 'prateleiras', 'divisorias'):
         sistema = {'gavetas': _gavetas, 'prateleiras': _prateleiras, 'divisorias': _divisorias}[dono]
         grupo = sistema.grupo_de(bpy.data.objects.get(objeto))
@@ -307,7 +313,7 @@ PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
-                      'prateleiras', 'divisorias', 'paredes', 'parede_modulo','solda_criacao','solda'}
+                      'prateleiras', 'divisorias', 'fundos', 'paredes', 'parede_modulo','solda_criacao','solda'}
 
 
 def _passo_do_arraste(event):
@@ -550,6 +556,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         grupo = _divisorias.grupo_de(context.object)
                         self._campo['objeto'] = grupo.name
                         self._campo['backup_divisorias'] = _divisorias.copia(grupo)
+                    if acao[1] == 'fundos':
+                        self._campo['backup_fundos'] = _fundos.copia(context,self._campo['objeto'])
                     context.window_manager.modal_handler_add(self)
                     return {'RUNNING_MODAL'}
             elif acao[0] == 'contador':
@@ -562,6 +570,14 @@ class OBJECT_OT_interagir_gaveta(Operator):
                          if len(acao) > 5 and acao[5] else None)
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif len(acao)>5 and acao[5] == _fundos.ALVO_MENU:
+                    try:
+                        obj = context.object
+                        fundo = obj if obj is not None and _chapas.MARCA_FUNDO in obj else None
+                        _fundos.editar(context, fundo, acao[1], acao[2])
+                        bpy.ops.ed.undo_push(message='Editar fundo')
+                    except ValueError as erro:
+                        self.report({'WARNING'},str(erro))
                 elif acao[1] == _paredes_composicao.CHAVE_FIXA:
                     erro = _paredes_composicao.fixar(context, acao[5], acao[2])
                     if erro:
@@ -828,6 +844,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     _gavetas.restaurar(campo['backup_gavetas'])
                 elif 'backup_divisorias' in campo:
                     _divisorias.restaurar(campo['backup_divisorias'])
+                elif 'backup_fundos' in campo:
+                    _fundos.restaurar(context,campo['backup_fundos'])
                 elif contador:
                     if acao[1] != 'prateleiras_quantidade':
                         _aplicar_contador(context, acao, acao[2])
@@ -1071,6 +1089,7 @@ def _operador_apagado(acao):
 # O texto explica a acao; o gizmo so' desenha o icone a' esquerda.
 # O clique inteiro continua na gaveta para respeitar o soltar do mouse.
 ICONES_AO_LADO = {'object.cabinet_apanhar_vao': 'PIVOT_BOUNDBOX',
+                  'object.cabinet_desassociar_fundo': 'UNPINNED',
                   'object.cabinet_definir_frente': 'AXIS_FRONT',
                   'object.cabinet_corrente_objeto': 'LINKED',
                   'object.cabinet_resetar_distancia': 'DRIVER_DISTANCE'}

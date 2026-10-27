@@ -21,6 +21,7 @@ _prateleiras = None
 _divisorias = None
 _formas = None
 _paredes_edicao = None
+_fundos = None
 
 # ====================================================== SELECAO
 # 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
@@ -61,6 +62,8 @@ def _aba_da_selecao(obj):
         return None
     if _chapas.MARCA_PUXADOR in obj:
         return 'PUXADORES'
+    if _chapas.MARCA_FUNDO in obj:
+        return 'FUNDOS'
     if _gavetas.grupo_de(obj) is not None:
         return 'GAVETAS'
     if _prateleiras.grupo_de(obj) is not None:
@@ -228,6 +231,9 @@ class OBJECT_OT_selecionar(Operator):
                     _hud._clique_pendente[chave] = obj.name
                     return {'PASS_THROUGH', 'CANCELLED'}
             _hud._selecionar_chapa_hud(context, obj)
+            return {'FINISHED'}
+        if atingido is not None and _chapas.MARCA_FUNDO in atingido[0]:
+            _fundos.selecionar(context, atingido[0], somar=self.toggle or self.extend)
             return {'FINISHED'}
         puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
         if puxador is not None and self.modo == 'INDIVIDUAL':
@@ -476,6 +482,8 @@ class OBJECT_OT_editar_grupo(Operator):
                                durante=[o.name for o in context.selected_objects],
                                ferragens=_ferragens.iniciar_edicao_rigs(malhas))
         bpy.ops.object.mode_set(mode='EDIT')
+        # Um Tab rapido pode terminar antes do proximo tique do timer.
+        _chapas.absorver_edicoes_de_malha()
         return {'FINISHED'}
 
 

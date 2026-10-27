@@ -11,6 +11,34 @@ Edit Mode.
 
 ## Estrutura
 
+Fundos (360): nova aba com criacao por dois cantos e snap nativo. Oferece
+canal recuado (6/9 mm, recorte booleano nos apoios), sobreposto pregado e
+interno rente (15 mm). Gavetas e prateleiras vinculadas acompanham a face
+interna; Desassociar fundo usa o icone de alfinete solto e conserva medidas.
+Os fundos existentes conservam a modelagem e o comportamento legado.
+
+Soldas (359): cada par de objetos tem uma unica conexao e um par de
+vertices. Solda manual respeita o destino escolhido; arquivos antigos
+preservam o gap cadastrado. A migracao da biblioteca usa os vertices
+reais mais proximos sem mudar a modelagem.
+Biblioteca revisada: 328 presets auditados, 265 atualizados; 407 registros
+redundantes removidos, conservando todos os pares, geometria e materiais.
+
+Selecao mista (358): somar com Shift um objeto comum ao modulo devolve
+o contorno nativo do Blender para identificar a origem do material.
+Retirar esse objeto retoma o contorno do add-on.
+
+Edicao nativa do grupo (357): reduzir a altura pelo Tab/G conserva a
+malha dos puxadores editados junto com as chapas. Ferragens atualizam em
+lote, sem recalcular a cena inteira para cada dobradica.
+
+Materiais nativos (356): selecione o modulo de destino e, com Shift,
+clique na chapa de origem por ultimo. Ctrl+L > Vincular materiais usa
+a malha clicada como mestre, mantendo as pecas dos grupos selecionadas.
+Para copiar somente de uma chapa pertencente a outro modulo, use
+Shift+duplo clique nela. A transferencia e o undo usam o comando nativo
+do Blender. Em Solid, Cor > Material exibe o material vinculado.
+
 Posicionamento em parede (301): biblioteca, duplo clique e arraste direito
 usam a mesma area livre. O volume completo para na borda e nos vizinhos
 da mesma face/altura; sem espaco, a insercao e' recusada e o reposicionamento

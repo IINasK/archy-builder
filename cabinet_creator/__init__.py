@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (355, 0, 0),
+    "version": (360, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -59,6 +59,7 @@ from . import formas as _formas
 from . import gavetas as _gavetas
 from . import prateleiras as _prateleiras
 from . import divisorias as _divisorias
+from . import fundos as _fundos
 from . import promob as _promob
 from . import geometria as _geometria
 from . import frentes as _frentes
@@ -69,7 +70,7 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
-            _paredes_edicao, _paredes_composicao)
+            _paredes_edicao, _paredes_composicao, _fundos)
 
 
 def _ligar_modulos():
@@ -87,6 +88,8 @@ _ligar_modulos()
 
 
 CLASSES = (
+    _fundos.OBJECT_OT_criar_fundo,
+    _fundos.OBJECT_OT_desassociar_fundo,
     _paredes_composicao.OBJECT_OT_redistribuir_parede,
     _paredes_composicao.OBJECT_OT_trocar_modelo_parede,
     _paredes_composicao.OBJECT_OT_editar_cota_parede,
@@ -431,6 +434,7 @@ def register():
         name="Aba", default='MODULOS',
         items=[('MODULOS', "Modulos", "Medidas, montagem e biblioteca"),
                ('PORTAS', "Portas", "Criacao e configuracao de portas"),
+               ('FUNDOS', "Fundos", "Chapas de fundo e vinculos dos internos"),
                ('GAVETAS', "Gavetas", "Criacao e configuracao de gavetas"),
                ('PRATELEIRAS', "Prateleiras", "Prateleiras internas: quantidade, espessura e vaos"),
                ('DIVISORIAS', "Divisorias", "Divisorias verticais que segmentam os sistemas internos"),
@@ -495,6 +499,7 @@ def register():
         lista = getattr(bpy.app.handlers, evento)
         if funcao not in lista:
             lista.append(funcao)
+    _solda._normalizar_pendente[0] = True
     if not bpy.app.timers.is_registered(_eventos.verificar_periodicamente):
         bpy.app.timers.register(_eventos.verificar_periodicamente, persistent=True)
     # bpy.ops nao pode rodar dentro de register(): adia por um tique
@@ -551,6 +556,7 @@ def unregister():
     _portas_viewport._arraste_slider_porta[0] = None
     _portas_viewport._slider_hover[0] = None
     _solda._nome_grupo_gaveta[0] = None
+    _solda._normalizar_pendente[0] = False
     _orcamento._orcamento_gerado[0] = None
     _ferragens._contagem_objetos[0] = -1
     _ferragens._perfis_trilho_moldura[0] = None
@@ -571,6 +577,7 @@ def unregister():
     _paredes.esquecer()
     _formas.esquecer()
     _gavetas.esquecer()
+    _fundos.esquecer()
     _biblioteca_faixa.esquecer()
     _prateleiras.esquecer()
     _divisorias.esquecer()

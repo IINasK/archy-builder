@@ -638,16 +638,20 @@ def posicionar_puxador(pux):
         if i<len(pux.material_slots):
             pux.material_slots[i].link='OBJECT'
             pux.material_slots[i].material=material
-    if _arame is not None:
-        # Numeros no proprio objeto sobrevivem a undo/anexar sem reter RNA.
-        pux['puxador_contorno'] = [float(c) for p in
-            _arame._contorno_malha(pux.data) for c in p]
+    atualizar_contorno(pux)
     pux.matrix_parent_inverse = Matrix.Identity(4)
     # Euler introduzia seno residual em 180 graus: a previa usava a matriz
     # exata e a peca/cache acabava com outra rotacao ao avalia-la no Blender.
     pux.rotation_mode = 'QUATERNION'
     pux.matrix_basis = matriz
     return True
+
+
+def atualizar_contorno(pux):
+    """Tab ja' editou a peca real; o arame acompanha sem refazer a Mesh."""
+    if _arame is not None:
+        pux['puxador_contorno'] = [float(c) for p in
+            _arame._contorno_malha(pux.data) for c in p]
 
 
 def _atualizar_madeira(chapa):
