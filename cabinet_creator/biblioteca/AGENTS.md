@@ -18,7 +18,6 @@ indice); nada e' bloqueado so' por estar nesta pasta.
 > o repositorio da empresa (junction de `vincular_blender.py`). Numa
 > instalacao por `.zip`, atualizar o add-on SOBRESCREVE a pasta — nesse
 > caso configure Preferences > `pasta_biblioteca` para uma pasta de rede.
-
 ## Arquivos
 | Arquivo | O que e' |
 |---|---|
@@ -26,7 +25,6 @@ indice); nada e' bloqueado so' por estar nesta pasta.
 | `*.png` | Foto 512x512 com o mesmo nome base do `.blend`. |
 | `indice.json` | Catalogo lido pelo painel (evita abrir cada `.blend`). |
 | `blender_assets.cats.txt` | Catalogos do Asset Browser (`VERSION 1`). |
-
 ## Formato do `indice.json`
 Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 
@@ -54,7 +52,6 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 - `arquivo` e' a chave de identidade do item (sem caminho, so' o basename).
   `pasta` e `origem` sao adicionados em memoria por `indice_completo()`
   e NAO devem ser gravados no JSON.
-
 ## Catalogos (`blender_assets.cats.txt`)
 
 - Linha: `UUID:caminho/do/catalogo:nome_simples`.
@@ -72,7 +69,6 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
   indice), nao mais por tipo. Para mover um preset de categoria use
   `refiliar_preset()`: o catalogo mora dentro do `.blend`, mudar so' o
   indice.json nao surte efeito no Asset Browser.
-
 ## Armarios nativos de fabrica
 
 > Decisao do usuario: a biblioteca usa SO' os modulos do Promob. Os 39
@@ -193,6 +189,10 @@ v244: 33 cantos com portas reconstruidos dos DXF (Inferiores/Sup Baixos/Sup Medi
 
 v350: retirados 10 diagonais restantes com `porta_curva_modelada` e 34 variantes repetidas/espelhadas; retas/chanfradas e recepcoes curvas continuam. Geometria, materiais e sistemas auditados nos 369 modulos; conservada orientacao mais visivel da foto frontal direita, empate conserva ordinal. Nomes/UUIDs/bytes dos mantidos intactos. `consolidar_variantes_biblioteca.py`: plano externo, backup/hashes, indice atomico e rollback. Originais: Documentos/Cabinet Creator Backups/variantes350-20261025; auditoria/escolhas no irmao variantes350-auditoria. Mirror e' transformacao NATIVA do GRUPO no Object Mode; nao aplicar modificador duplicador em cada chapa. Atualizacao nao remove exemplares ja' inseridos.
 
+v359: `refinar_soldas_biblioteca.py`: 328 auditados, 265 .blend refinados;
+2385 registros -> 1978 pares unicos, ancorados nos vertices reais mais proximos.
+Geometria/material/UID/catalogo/fotos preservados. Backup reversivel:
+Documentos/Cabinet Creator Backups/soldas359-aceite-20261027-042135Z.
 - `.blend`/`.png` sao binarios no `.gitattributes`; nunca edite como texto.
 - Nao commitar `*.blend1`/`*.blend2` (backups do Blender, ja' ignorados).
 - Os `.blend` contem as props `eh_chapa`, `chapa_*`, `adj_*`, `chapa_uid`:
