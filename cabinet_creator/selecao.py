@@ -445,7 +445,8 @@ def malhas_para_editar(context):
     Duplo clique numa chapa continua entrando apenas naquela peca.
     """
     marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
-              _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
+              _gavetas.MARCA_GRUPO, _gavetas.MARCA_GAVETA,
+              _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
     grupos = [o for o in context.selected_objects if o.type == 'EMPTY'
               and any(m in o for m in marcas)]
     return objetos_na_camada(context, dict.fromkeys(o for g in grupos for o in g.children_recursive

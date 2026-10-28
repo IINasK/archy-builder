@@ -66,7 +66,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   ancora para outra borda SO' do grupo dele, com snap de linha.
 - Gavetas/prateleiras (379): na cota V selecionada, scroll subdivide so' o vao; campo passa a quantidade e Enter confirma, Esc descarta copias. Prateleiras da mesma blocagem mostram cotas de todos os segmentos; divisorias so' na orientacao ativa, sem poluicao mista. Clique todas do vao, duplo uma; modulo absorve filhos
   na HUD. Divisorias: clique grupo, duplo chapa. Conservar escopo por tipo.
-- Tab no Empty = Edit Mode MULTIOBJETO nativo, so' malhas reais, sem
+- Tab no Empty (383: inclui uma ou varias unidades de gaveta) = Edit Mode MULTIOBJETO nativo, so' malhas reais, sem
   cortadores/controles; tornar compartilhadas unicas antes. Conservar Empties
   selecionados no Edit Mode, registrar a transicao ja' na entrada (Tab
   rapido nao depende do timer), restaurar selecao/ativo ao sair e invalidar

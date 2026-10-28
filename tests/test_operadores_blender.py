@@ -663,6 +663,82 @@ class TestOperadores(unittest.TestCase):
         self.assertEqual(set(bpy.context.selected_objects), {peca})
         self.assertEqual(bpy.context.object, peca)
 
+    def _gavetas_para_tab(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Tab das gavetas',800,900,560)
+        grupo=addon.gavetas.criar_gavetas(bpy.context,conj,(18,18,18,18,0),
+                                        dict(quantidade=3,profundidade_mm=560))
+        return conj,grupo,addon.gavetas.gavetas_do_grupo(grupo)
+
+    # Regressao (era BUG, corrigido na 383): Empty da unidade nao era grupo editavel.
+    def test_tab_da_gaveta_individual_abre_caixa_e_puxador_sem_as_vizinhas(self):
+        conj,grupo,gavetas=self._gavetas_para_tab()
+        alvo=gavetas[1]
+        addon.gavetas.selecionar(bpy.context,addon.gavetas.frente_da_gaveta(alvo),'GAVETA')
+        selecionados=set(bpy.context.selected_objects)
+        esperados={o for o in alvo.children_recursive if o.type=='MESH'}
+        self.assertTrue(any(addon.chapas.MARCA_PUXADOR in o for o in esperados))
+        malhas={o.name:o.data for o in esperados}
+        for _ in range(3):
+            self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+            self.assertEqual(bpy.ops.object.cabinet_editar_grupo(),{'FINISHED'})
+            self.assertEqual(bpy.context.mode,'EDIT_MESH')
+            self.assertEqual(set(bpy.context.objects_in_mode),esperados)
+            self.assertTrue(alvo.select_get())
+            self.assertEqual(bpy.ops.object.cabinet_editar_grupo(),{'FINISHED'})
+            self.assertEqual(set(bpy.context.selected_objects),selecionados)
+            self.assertIs(bpy.context.object,alvo)
+        self.assertTrue(all(o.data==malhas[o.name] for o in esperados))
+
+    def test_tab_de_duas_gavetas_conserva_escopo_e_isola_malha_compartilhada(self):
+        conj,grupo,gavetas=self._gavetas_para_tab()
+        a,c=gavetas[0],gavetas[2]
+        addon.gavetas.selecionar(bpy.context,a,'GAVETA')
+        addon.gavetas.selecionar(bpy.context,c,'GAVETA',somar=True)
+        selecionados=set(bpy.context.selected_objects)
+        frente=addon.gavetas.frente_da_gaveta(a)
+        externo=frente.copy();bpy.context.scene.collection.objects.link(externo)
+        externo.parent=None;externo.select_set(False)
+        originais=[v.co.copy() for v in externo.data.vertices]
+        esperados={o for g in (a,c) for o in g.children_recursive if o.type=='MESH'}
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(set(bpy.context.objects_in_mode),esperados)
+        bm=bmesh.from_edit_mesh(frente.data)
+        for v in bm.verts:v.co.z+=.01
+        bmesh.update_edit_mesh(frente.data)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(set(bpy.context.selected_objects),selecionados)
+        self.assertIs(bpy.context.object,c)
+        self.assertNotEqual(externo.data,frente.data)
+        for v,co in zip(externo.data.vertices,originais):self.assertLess((v.co-co).length,1e-7)
+
+    def test_undo_redo_do_tab_da_gaveta_restaura_escopo_individual(self):
+        conj,grupo,gavetas=self._gavetas_para_tab()
+        alvo=gavetas[1];nome=alvo.name
+        addon.gavetas.selecionar(bpy.context,alvo,'GAVETA')
+        selecionados={o.name for o in bpy.context.selected_objects}
+        bpy.ops.ed.undo_push(message='Gaveta selecionada')
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.object.cabinet_editar_grupo()
+        bm=bmesh.from_edit_mesh(bpy.context.object.data)
+        for v in bm.verts:v.co.x+=.002
+        bmesh.update_edit_mesh(bpy.context.object.data)
+        bpy.ops.ed.undo_push(message='Gaveta editada')
+        bpy.ops.object.cabinet_editar_grupo()
+        bpy.ops.ed.undo_push(message='Gaveta fora de edicao')
+        conj=grupo=gavetas=alvo=bm=v=None
+        bpy.ops.ed.undo()
+        self.assertEqual(bpy.context.mode,'EDIT_MESH')
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.ed.redo()
+        self.assertEqual(bpy.context.mode,'OBJECT')
+        bpy.ops.ed.undo()
+        self.assertTrue(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual({o.name for o in bpy.context.selected_objects},selecionados)
+        self.assertEqual(bpy.context.object.name,nome)
+        self.assertFalse(addon._segura_dado(addon.selecao._edicao_grupo[0]))
+
     def test_tab_do_grupo_entra_no_edit_mode_nativo_das_malhas(self):
         conj=addon.modulos.criar_armario(bpy.context,'Editar',600,700,550)
         addon.portas.porta_no_modulo(conj)

@@ -1,5 +1,19 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Tab em gaveta individual (383): selecao.malhas_para_editar reconhece
+eh_gaveta, alem do conjunto eh_grupo_gavetas. A mesma entrada de grupos
+abre caixa e puxador no Edit Mode multiobjeto nativo, sem incluir outras
+gavetas nem subir ao modulo. Selecao/ativo sao restaurados na saida;
+varias unidades selecionadas conservam escopo e isolamento de Mesh.
+Operadores +3: unidade com caixa/puxador e tres ciclos Tab, duas unidades
+com malha compartilhada por objeto externo, undo/redo com recuperacao da
+selecao individual. As tres regressoes falharam antes no poll do operador
+(tab383-repro.log); 118 testes passaram apos corrigir nos Blenders 4.2/5.2
+(tab383-operadores-final.log). Cena aberta consultada somente para leitura;
+gesto Tab na janela nao executado.
+Harness completo: 2978 testes / 64 execucoes, tudo OK nos Blenders 4.2/5.2
+(tab383-completo.log). ZIP 383 conferido contra as 39 fontes Python.
+
 Pintura de grupos preserva ferragens (382): materiais.py filtra puxadores,
 dobradicas, acessorios, trilhos de gavetas e descendentes dessas marcas.
 Ctrl+L reutiliza o desenho do menu nativo; so' Vincular materiais usa o
