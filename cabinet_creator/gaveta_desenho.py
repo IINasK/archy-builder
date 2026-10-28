@@ -515,6 +515,7 @@ def _desenhar_gaveta(tela=False):
         aceitar = bool(acao and acao[0] == 'escolha'
                        and acao[1] == _portas.CONFIRMAR_ETAPA)
         ativo = bool(acao and (acao[0] in {'navegar', 'modo', 'biblioteca', 'nivel'} and acao[-1]
+                               or acao[0] == 'aba' and context.scene.cabinet_aba == acao[1]
                                or acao[0] == 'escolha' and acao[3]
                                or acao[0] == 'contador'
                                and not _eh_campo_contador(acao)
@@ -620,6 +621,9 @@ def _desenhar_gaveta(tela=False):
     for x, y, w, h, rotulo, acao in cabecalho:
         _gaveta._glow_gaveta(x, y, w, h, 4,
                      _gaveta._valor_realce(context, _chave_widget(acao)), cores.text)
+        if acao[0] == 'suspenso':
+            _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo)
+            continue
         if acao[0] != 'aba':
             continue        # corrente: so' o icone, desenhado pelo gizmo
         _gaveta._botao_gaveta(x, y, w, h,

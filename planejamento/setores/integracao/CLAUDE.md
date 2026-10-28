@@ -36,9 +36,11 @@ Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
 
 ## Presets e publicacao
 
+- Importacao 364: `novos` do append pode conter RNAs removidos apos resize; sincronizar pela hierarquia nativa no finally, incluindo recriados. Nao apenas ignorar ReferenceError: selecao/Local View/rollback precisam da lista atual.
 - Uma SO' biblioteca (`biblioteca.pasta_biblioteca`), fonte unica tambem dos
   modelos do usuario. Limpar entradas antigas antes de registrar a unica.
   Regras de UUID, catalogo no .blend, indice legado e bloqueio: guia de assets.
+- Arraste 363: encaixe reduz L/A ate Ajuste maximo (10 mm; zero desliga), sem mudar E/profundidade. Previa numerica; resize so' ao confirmar, sem editar preset. Recusa mostra vermelho/causa; cache so' do modal.
 - Clique no preset = posicionador; Salvar gera PNG; objeto de fora vira
   chapa pela FORMA. Abertura real ESQUERDA so' se TODAS as placas couberem
   no apoio; cadeias coplanares invertem ordem sem mover folhas fechadas;

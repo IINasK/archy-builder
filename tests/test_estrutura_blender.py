@@ -353,11 +353,13 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
         return addon.gaveta._widgets_gaveta(bpy.context, 320, 1200)
 
     def campo(self, itens):
-        return next(v for v in itens if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3)
+        return next(v for v in addon.gaveta._partes_gaveta(itens)[1]
+                    if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3)
 
     def test_um_campo_por_nivel_sem_carrossel(self):
         itens = self.widgets()
-        campos = [v for v in itens if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3]
+        campos = [v for v in addon.gaveta._partes_gaveta(itens)[1]
+                  if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3]
         self.assertEqual([v[5][3] for v in campos], [1])
         B = addon.biblioteca
         esperado = sorted(B.filhos_de(B.indice_completo() + B.itens_de_fabrica(), ()), key=str.casefold)

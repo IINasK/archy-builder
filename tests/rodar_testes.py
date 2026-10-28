@@ -35,16 +35,17 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # v309: geometria -3 de proposito -- o detector de angulos (`pontos_notaveis`)
 # saiu a pedido do usuario; ficam os testes de area e do snap da curva.
 PISO = {
+    'paredes_selecao': 34,
     'fundos': 30,
     'solda': 16,
     'soldas_biblioteca': 22,
     'correcao_internos': 10,
     'auditoria_internos': 9,
     'paredes_composicao': 67,
-    'paredes_edicao': 68,
+    'paredes_edicao': 81,
     'organizacao': 9,
     'divisorias': 24,
-    'estrutura': 51, 'gaveta': 71, 'portas': 154, 'hud': 180,
+    'estrutura': 51, 'gaveta': 79, 'portas': 154, 'hud': 180,
     'importacao': 80, 'puxadores': 25, 'snapshot': 7, 'operadores': 51, 'frentes': 29,
     'biblioteca': 84, 'cobertura': 4, 'gui_interacao': 58,
     'orcamento': 17, 'paredes': 15, 'armarios': 20, 'formas': 62, 'gavetas': 50,

@@ -28,7 +28,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = _gavetas = None
 _gaveta_desenho = None
-_paredes_edicao = None
+_paredes_edicao = _paredes_selecao = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -144,7 +144,7 @@ def _faixas(inicios, totais):
     return np.repeat(inicios - (fins - totais), totais) + np.arange(fins[-1])
 
 
-def _calcular_regiao(malha, mundo, ponto, normal, face, u):
+def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, conferir_vertices=False):
     """Regiao da face em lote (numpy): uma casa real tem centenas de milhares
     de faces, e o laco em Python por face travava o Blender a cada passo do
     mouse (relato do usuario, v321)."""
@@ -168,7 +168,10 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u):
     # centro = media dos vertices, como o `poly.center` do Blender
     centros = np.add.reduceat(vertices[vertices_dos_lacos], inicios) / totais[:, None]
     n = np.array(normal, dtype=np.float64)
-    coplanar = normais @ n >= COPLANAR_MIN
+    coplanar = normais @ n >= (COPLANAR_MIN if orientacao_min is None else orientacao_min)
+    if conferir_vertices:
+        perto=np.abs((vertices-np.array(ponto))@n)<=TOLERANCIA_PLANO_M
+        coplanar &= np.logical_and.reduceat(perto[vertices_dos_lacos],inicios)
     distancias = (centros - np.array(ponto)) @ n
     if face is not None and 0 <= face < n_faces and coplanar[face] \
             and abs(distancias[face]) <= TOLERANCIA_PLANO_M:
@@ -251,6 +254,11 @@ def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
 
     A regiao calculada vale para TODAS as faces dela: o mouse andando pela
     mesma parede so' consulta o cache."""
+    s=_paredes_edicao._sessao[0]
+    if s and s.get('recorte_explicito') and parede is not None and parede.name==s['parede']:
+        n=Vector(s['normal'])
+        if Vector(normal).dot(n)>=COPLANAR_MIN and abs((Vector(ponto)-Vector(s['ponto'])).dot(n))<=TOLERANCIA_PLANO_M:
+            return s['regiao'] if _paredes_selecao.ponto_na_regiao(s['regiao'],Vector(ponto),Vector(s['u'])) else None
     eixos = eixos_da_parede(normal)
     if eixos is None or parede is None or parede.type != 'MESH':
         return None
@@ -823,6 +831,17 @@ def raio_ate_parede(context, inicio, direcao, ignorar):
     """O mesmo, com o raio em mundo (sem a tela: o teste usa)."""
     inicio, direcao = Vector(inicio), Vector(direcao).normalized()
     dep = context.evaluated_depsgraph_get()
+    s=_paredes_edicao._sessao[0]
+    if s and s.get('recorte_explicito') and _paredes_edicao.ativa(context):
+        exibicao=bpy.data.objects.get(s.get('exibicao',''))
+        fonte=_paredes_selecao.fonte_da_exibicao(exibicao)
+        if fonte is None or fonte.name in ignorar:
+            return None
+        inversa=exibicao.matrix_world.inverted_safe()
+        ok,p,n,_indice=exibicao.ray_cast(inversa@inicio,(inversa.to_3x3()@direcao).normalized(),depsgraph=dep)
+        if not ok:
+            return None
+        return fonte,exibicao.matrix_world@p,Vector(s['normal']),s['face']
     origem = inicio
     for _vez in range(32):
         acertou, ponto, normal, face, obj, _m = context.scene.ray_cast(
@@ -830,6 +849,9 @@ def raio_ate_parede(context, inicio, direcao, ignorar):
         if not acertou or obj is None:
             return None
         original = obj.original
+        fonte=_paredes_selecao.fonte_da_exibicao(original)
+        if fonte is not None:
+            return fonte,ponto,normal,int(original.get('parede_origem_face',0))
         if original.name in ignorar:
             origem = ponto + direcao * 1e-4
             continue

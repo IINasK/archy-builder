@@ -1061,6 +1061,10 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._alvo = None
         self._normal = Vector((0.0, 0.0, 1.0))
         self._bbox_atual = []
+        self._erro_posicionamento = ''
+        self._aviso_ajuste = ''
+        self._cache_ajuste = {}
+        self._caixa_prevista = None
         self._valido = False
         self._em_superficie = False
         self._handler_preview = None
@@ -1070,8 +1074,11 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._ocultar_staging(context)
             self._handler_preview = bpy.types.SpaceView3D.draw_handler_add(
                 self._desenhar_preview, (), 'WINDOW', 'POST_VIEW')
+            self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
+                self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
         except Exception as e:
             print("[Cabinet Creator] preview do arraste:", e)
+            self._encerrar_visual(context)
             self._apagar()
             self._restaurar_selecao(context)
             self.report({'ERROR'}, "Nao consegui preparar o preview")
@@ -1136,8 +1143,9 @@ class OBJECT_OT_arrastar_preset(Operator):
             context.workspace.status_text_set("Carregando %s..." % self._nome)
         except Exception:
             pass
-        self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
-            self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
+        if self._handler_aviso is None:
+            self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
+                self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
         self._tique = context.window_manager.event_timer_add(0.05, window=context.window)
         self._area_preview.tag_redraw()
         return {'RUNNING_MODAL'}
@@ -1181,8 +1189,11 @@ class OBJECT_OT_arrastar_preset(Operator):
         return self._confirmar(context)
 
     def _desenhar_aviso(self):
-        """"Carregando <nome>..." sobre o wireframe solto, na caixa preta da HUD."""
+        """Carregamento ou restricao junto a' previa, sem abrir pop-up."""
         try:
+            erro = getattr(self, '_erro_posicionamento', '') or getattr(self, '_aviso_ajuste', '')
+            if not self._carregando and not erro:
+                return
             regiao = bpy.context.region
             if (regiao is None or regiao.as_pointer() != self._regiao_ptr
                     or self._alvo is None):
@@ -1192,11 +1203,13 @@ class OBJECT_OT_arrastar_preset(Operator):
             if xy is None:
                 return
             escala = bpy.context.preferences.system.ui_scale
-            texto = "Carregando %s..." % self._nome
+            texto = "Carregando %s..." % self._nome if self._carregando else erro
             blf.size(0, 13 * escala)
             largura, altura = blf.dimensions(0, texto)
-            x, y = xy.x - largura / 2, xy.y - altura / 2
             folga = 6 * escala
+            largura = min(largura, regiao.width - 2 * folga)
+            x = max(folga, min(regiao.width - largura - folga, xy.x - largura / 2))
+            y = max(folga, min(regiao.height - altura - folga, xy.y - altura / 2))
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             gpu.state.blend_set('ALPHA')
             shader.bind()
@@ -1204,11 +1217,10 @@ class OBJECT_OT_arrastar_preset(Operator):
             x0, y0, x1, y1 = x - folga, y - folga, x + largura + folga, y + altura + folga
             batch_for_shader(shader, 'TRIS', {'pos': ((x0, y0), (x1, y0), (x1, y1),
                                                       (x0, y0), (x1, y1), (x0, y1))}).draw(shader)
-            blf.color(0, 1.0, 1.0, 1.0, 1.0)
-            blf.position(0, x, y, 0)
-            blf.draw(0, texto)
+            _gaveta._texto_cabivel_gaveta(x, y, texto, largura,
+                                         tamanho=13 * escala, cor=(1, 1, 1, 1))
         except Exception as e:
-            print("[Cabinet Creator] aviso de carregamento:", e)
+            print("[Cabinet Creator] aviso de posicionamento:", e)
         finally:
             gpu.state.blend_set('NONE')
 
@@ -1265,7 +1277,7 @@ class OBJECT_OT_arrastar_preset(Operator):
 
     def _desenhar_preview(self):
         """Desenha box e mira sobre a viewport sem criar geometria."""
-        if not self._valido or not self._bbox_atual:
+        if not self._bbox_atual:
             return
         regiao = getattr(bpy.context, "region", None)
         if regiao is None or regiao.as_pointer() != self._regiao_ptr:
@@ -1300,7 +1312,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             gpu.state.line_width_set(1.5)
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             shader.bind()
-            shader.uniform_float("color", (0.1, 1.0, 0.2, 0.9))
+            shader.uniform_float("color", (0.1, 1.0, 0.2, 0.9) if self._valido else (1.0, 0.15, 0.1, 0.9))
             batch_for_shader(
                 shader, 'LINES', {"pos": linhas_box}).draw(shader)
             shader.uniform_float(
@@ -1326,6 +1338,10 @@ class OBJECT_OT_arrastar_preset(Operator):
 
     def _mover(self, context, event):
         """Usa raycast na cena e plano do cursor como contingencia."""
+        self._erro_posicionamento = ''
+        self._aviso_ajuste = ''
+        self._caixa_prevista = None
+        self._bbox_atual = []
         if not self._na_viewport(event):
             self._valido = False
             self._area_preview.tag_redraw()
@@ -1433,21 +1449,13 @@ class OBJECT_OT_arrastar_preset(Operator):
             context, modulo, ponto, sessao, self._caixa_parede_base,
             _paredes.SNAP_PX / px if px else 0)
         if erro:
-            self._valido = False
-            self._status(context, erro)
-            self._area_preview.tag_redraw()
-            return True
-        modulo.matrix_world = _paredes.matriz_na_parede(
-            modulo, costas, n, u, caixa=self._caixa_parede_base)
-        context.view_layer.update()
-        matriz = modulo.matrix_world @ self._matriz_parede_base.inverted_safe()
-        self._bbox_atual = [matriz @ p for p in self._bbox_base]
-        lo, hi = self._caixa_parede_base
-        self._alvo = costas + Vector((0, 0, (hi.z - lo.z) * modulo.matrix_world.to_scale().z / 2))
-        self._normal = n.copy()
-        self._na_parede = (parede.name, tuple(costas), tuple(n), regiao['face'])
-        self._em_superficie = self._valido = True
-        self._status(context, "Solte para associar a' parede %s" % parede.name)
+            costas, self._caixa_prevista, erro = _paredes_edicao.ajustar_na_face(
+                context, modulo, ponto, sessao, self._caixa_parede_base, self._cache_ajuste)
+        if erro:
+            self._na_parede = None
+        else:
+            self._na_parede = (parede.name, tuple(costas), tuple(n), regiao['face'])
+        self._prever_na_parede(context, ponto, costas, n, u, erro)
         self._area_preview.tag_redraw()
         return True
 
@@ -1457,26 +1465,45 @@ class OBJECT_OT_arrastar_preset(Operator):
         except Exception:
             pass
 
+    def _prever_na_parede(self, context, ponto, costas, normal, u, erro):
+        modulo = self._raizes[0]
+        lo, hi = self._caixa_prevista or self._caixa_parede_base
+        altura = abs((hi.z - lo.z) * _paredes.escala_no_referencial(modulo).z)
+        if erro:
+            # A recusa deve continuar visivel, sem permitir inserir ou esticar.
+            costas = ponto - Vector((0, 0, altura / 2))
+        modulo.matrix_world = _paredes.matriz_na_parede(modulo, costas, normal, u,
+                                                       caixa=self._caixa_prevista or self._caixa_parede_base)
+        context.view_layer.update()
+        matriz = modulo.matrix_world @ self._matriz_parede_base.inverted_safe()
+        self._bbox_atual = [matriz @ p for p in self._bbox_base]
+        if self._caixa_prevista is not None:
+            referencia = _paredes.referencial(modulo)
+            self._bbox_atual = [referencia @ Vector((x, y, z)) for z in (lo.z, hi.z)
+                for x, y in ((lo.x, lo.y), (hi.x, lo.y), (hi.x, hi.y), (lo.x, hi.y))]
+        self._alvo = costas + Vector((0, 0, altura / 2))
+        self._normal = normal.copy()
+        self._em_superficie = True
+        self._valido = not erro
+        self._erro_posicionamento = ('A: %.1f mm | %s' % (altura * 1000, erro)) if erro else ''
+        original = self._caixa_parede_base[1] - self._caixa_parede_base[0]
+        if not erro and any(abs((hi - lo)[i] - original[i]) > 1e-7 for i in range(3)):
+            escala = _paredes.escala_no_referencial(modulo)
+            self._aviso_ajuste = 'Ajustado: %.1f x %.1f mm | Solte para inserir' % (
+                abs((hi.x - lo.x) * escala.x) * 1000, altura * 1000)
+        self._status(context, self._erro_posicionamento or self._aviso_ajuste or 'Solte para inserir na parede')
+
     def _mover_na_parede(self, context, event):
         self._valido = False
         ponto = _paredes_edicao.ponto_no_evento(context, event)
         if ponto is not None:
-            modulo = self._raizes[0]
             # Objetos ocultos nao atualizam os filhos no depsgraph. A previa
             # usa a caixa medida antes de ocultar, nunca uma caixa defasada.
-            costas, erro = _paredes_edicao.posicao_do_modelo(context, modulo, ponto, self._caixa_parede_base)
-            if not erro:
-                s = _paredes_edicao._sessao[0]
-                modulo.matrix_world = _paredes.matriz_na_parede(modulo, costas,
-                    Vector(s['normal']), Vector(s['u']), caixa=self._caixa_parede_base)
-                context.view_layer.update()
-                matriz = modulo.matrix_world @ self._matriz_parede_base.inverted_safe()
-                self._bbox_atual = [matriz @ p for p in self._bbox_base]
-                altura = (self._caixa_parede_base[1].z - self._caixa_parede_base[0].z) * modulo.matrix_world.to_scale().z
-                self._alvo = costas + Vector((0, 0, altura / 2))
-                self._normal = Vector(s['normal'])
-                self._ponto_parede = tuple(ponto)
-                self._em_superficie = self._valido = True
+            costas, self._caixa_prevista, erro = _paredes_edicao.encaixe_do_modelo(
+                context, self._raizes[0], ponto, self._caixa_parede_base, self._cache_ajuste)
+            s = _paredes_edicao._sessao[0]
+            self._prever_na_parede(context, ponto, costas, Vector(s['normal']), Vector(s['u']), erro)
+            self._ponto_parede = tuple(ponto)
         self._area_preview.tag_redraw()
 
     def _apagar(self):
@@ -1560,6 +1587,12 @@ class OBJECT_OT_arrastar_preset(Operator):
             nome, costas, n, face = self._na_parede
             parede = bpy.data.objects.get(nome)
             if parede is not None:
+                if self._caixa_prevista is not None:
+                    erro = _paredes_edicao.aplicar_ajuste_do_modelo(self._raizes[0], self._caixa_prevista, self._novos)
+                    if erro:
+                        self.report({'WARNING'}, erro)
+                        return self._cancelar(context)
+                    _paredes.colocar_na_parede(self._raizes[0], parede, Vector(costas), Vector(n))
                 _paredes.associar(self._raizes[0], parede, Vector(costas), Vector(n), face)
                 _paredes_edicao.registrar_posicionado(context, self._raizes[0], self._novos)
         try:
@@ -1622,13 +1655,13 @@ class OBJECT_OT_arrastar_preset(Operator):
                 if getattr(self, '_sessao_parede', 0):
                     self._mover(context, event)
                 if not self._valido:
-                    self.report({'WARNING'}, "Posicione dentro da viewport")
+                    self.report({'WARNING'}, self._erro_posicionamento or "Posicione dentro da viewport")
                     return self._cancelar(context)
                 return self._confirmar(context)
         if (event.type in {'RET', 'NUMPAD_ENTER'} and
                 event.value == 'PRESS'):
             if not self._valido:
-                self.report({'WARNING'}, "Posicione dentro da viewport")
+                self.report({'WARNING'}, self._erro_posicionamento or "Posicione dentro da viewport")
                 return {'RUNNING_MODAL'}
             return self._confirmar(context)
         if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':

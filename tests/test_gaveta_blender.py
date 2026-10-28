@@ -34,6 +34,170 @@ class _Contexto:
 
 
 class TestGaveta(unittest.TestCase):
+    def contexto_abas(self, largura=190, altura=900):
+        g = addon.gaveta
+        tela = bpy.context.screen
+        for chave, valor in ((g._CHAVE_SUSPENSO, ''), (g._CHAVE_OPCOES, 0),
+                             (g._CHAVE_ROLAGEM, 0), (g._CHAVE_ROLAGEM_BIB, 0)):
+            anterior = tela.get(chave)
+            def restaurar(chave=chave, anterior=anterior):
+                if anterior is None:
+                    tela.pop(chave, None)
+                else:
+                    tela[chave] = anterior
+            self.addCleanup(restaurar)
+            tela[chave] = valor
+        ctx = _Contexto(largura, altura)
+        ctx.area = SimpleNamespace(tag_redraw=lambda: None, as_pointer=lambda: 0)
+        return ctx
+
+    def clicar_aba(self, ctx, widget):
+        evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS',
+                                 mouse_region_x=widget[0] + widget[2] / 2,
+                                 mouse_region_y=widget[1] + widget[3] / 2)
+        return addon.gaveta_eventos.OBJECT_OT_interagir_gaveta.invoke(
+            SimpleNamespace(report=lambda *_a: None), ctx, evento)
+
+    def test_abas_mudam_para_lista_no_limite_real_da_fonte(self):
+        import blf
+        import math
+        g = addon.gaveta
+        self.contexto_abas()
+        blf.size(0, 12)
+        minimo = max(blf.dimensions(0, curto)[0] + 18 for _, curto, _ in g.ABAS_GAVETA)
+        limite = math.ceil(minimo * 7 + 4 * 6 + 24)
+        # Reproducao: sete celulas a 190 px cortavam ate' as abreviacoes.
+        self.assertLess((190 - 24 - 24) / 7, minimo)
+        for largura in (190, 320, limite - 1, limite, 564):
+            cab = g._partes_gaveta(g._widgets_gaveta(bpy.context, largura, 900))[0]
+            self.assertEqual(len(cab), 1 if largura < limite else 7)
+            for v in cab:
+                self.assertGreaterEqual(v[0], 12)
+                self.assertLessEqual(v[0] + v[2], largura - 12 + .01)
+                blf.size(0, 12)
+                self.assertLessEqual(blf.dimensions(0, v[4])[0] + (30 if len(cab) == 1 else 18), v[2])
+
+    def test_lista_das_abas_abre_e_seleciona_as_sete_categorias(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        for rotulo, _, aba in g.ABAS_GAVETA:
+            cab = g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))[0]
+            self.assertEqual(self.clicar_aba(ctx, cab[0]), {'FINISHED'})
+            itens = g._widgets_gaveta(ctx, 190, 900)
+            flutuante = g._separar_flutuante(g._partes_gaveta(itens)[2])[1]
+            self.assertEqual([v[4] for v in flutuante[1:]], [a[0] for a in g.ABAS_GAVETA])
+            # A troca usa o mesmo despacho e zera a rolagem.
+            ctx.screen[g._CHAVE_ROLAGEM] = 80
+            alvo = next(v for v in flutuante if v[5] == ('aba', aba))
+            self.assertEqual(self.clicar_aba(ctx, alvo), {'FINISHED'})
+            self.assertEqual(ctx.scene.cabinet_aba, aba)
+            self.assertEqual(ctx.screen[g._CHAVE_SUSPENSO], '')
+            self.assertEqual(ctx.screen[g._CHAVE_ROLAGEM], 0)
+            self.assertEqual(g._widgets_gaveta(ctx, 190, 900)[0][4], rotulo)
+
+    def test_lista_das_abas_tem_prioridade_e_nao_vaza_na_biblioteca(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        ctx.screen[g._CHAVE_SUSPENSO] = g.CHAVE_ABAS
+        cab, conteudo, rodape = g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))
+        flutuante = g._separar_flutuante(rodape)[1]
+        self.assertEqual(g._widgets_interativos(ctx)[:7], flutuante[1:])
+        self.assertLess(flutuante[0][1] + flutuante[0][3], cab[0][1])
+        fx, fy, fw, fh = flutuante[0][:4]
+        for v in conteudo:
+            if v[5] and v[5][0] == 'divisa':
+                continue
+            self.assertFalse(v[0] < fx + fw and fx < v[0] + v[2]
+                             and v[1] < fy + fh and fy < v[1] + v[3])
+        self.assertFalse(any(v[5] and v[5][0] == 'nivel' for v in flutuante))
+
+    def test_abas_ficam_fixas_sem_perder_primeiros_campos_na_rolagem(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        for largura in (190, 564):
+            a = g._partes_gaveta(g._widgets_conteudo_gaveta(ctx, largura, 900, 0, 0))
+            b = g._partes_gaveta(g._widgets_conteudo_gaveta(ctx, largura, 900, 90, 0))
+            self.assertEqual(a[0], b[0])
+            cima_a = g._paineis_gaveta(a[1])[0]
+            cima_b = g._paineis_gaveta(b[1])[0]
+            self.assertTrue(cima_a)
+            self.assertIsNone(cima_a[0][5])
+            self.assertEqual(len([v for v in cima_a if v[5] and v[5][0] == 'medida']), 3)
+            self.assertEqual([v[5] for v in cima_a], [v[5] for v in cima_b])
+            self.assertEqual([v[1] + 90 for v in cima_a], [v[1] for v in cima_b])
+
+    def test_expandir_abas_preserva_selecao_e_descarta_lista_flutuante(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        self.cena.cabinet_aba = 'DIVISORIAS'
+        objeto = bpy.context.object
+        malha = [tuple(v.co) for v in objeto.data.vertices]
+        selecionados = [o.name for o in bpy.context.selected_objects]
+        ctx.screen[g._CHAVE_SUSPENSO] = g.CHAVE_ABAS
+        for largura in (190, 564, 190):
+            cab, _, rodape = g._partes_gaveta(g._widgets_gaveta(ctx, largura, 900))
+            if largura == 564:
+                self.assertEqual(len(cab), 7)
+                self.assertFalse(g._separar_flutuante(rodape)[1])
+            else:
+                self.assertEqual(cab[0][4], 'Divisorias')
+            self.assertEqual(self.cena.cabinet_aba, 'DIVISORIAS')
+            self.assertEqual([tuple(v.co) for v in objeto.data.vertices], malha)
+            self.assertEqual([o.name for o in bpy.context.selected_objects], selecionados)
+
+    def test_lista_das_abas_fecha_no_campo_e_no_vazio(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        campo = g._widgets_gaveta(ctx, 190, 900)[0]
+        self.clicar_aba(ctx, campo)
+        self.clicar_aba(ctx, g._widgets_gaveta(ctx, 190, 900)[0])
+        self.assertEqual(ctx.screen[g._CHAVE_SUSPENSO], '')
+        self.clicar_aba(ctx, campo)
+        self.clicar_aba(ctx, (-20, 450, 2, 2, '', None))
+        self.assertEqual(ctx.screen[g._CHAVE_SUSPENSO], '')
+        self.assertEqual(self.cena.cabinet_aba, 'MODULOS')
+
+    def test_lista_das_abas_e_cascata_compartilham_abertura_exclusiva(self):
+        g = addon.gaveta
+        ctx = self.contexto_abas()
+        conteudo = g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))[1]
+        campo = next(v for v in conteudo if v[5] and v[5][0] == 'suspenso' and len(v[5]) > 3)
+        ctx.screen[g._CHAVE_SUSPENSO] = campo[5][1]
+        self.clicar_aba(ctx, g._widgets_gaveta(ctx, 190, 900)[0])
+        self.assertEqual(ctx.screen[g._CHAVE_SUSPENSO], g.CHAVE_ABAS)
+        flutuante = g._separar_flutuante(g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))[2])[1]
+        self.assertEqual([v[5][0] for v in flutuante[1:]], ['aba'] * 7)
+
+    def test_desenho_restaura_campo_suspenso_apos_fundo_e_destaca_aba_atual(self):
+        from unittest.mock import patch, Mock
+        from contextlib import ExitStack
+        g, d = addon.gaveta, addon.gaveta_desenho
+        ctx = self.contexto_abas()
+        ctx.region.type = 'WINDOW'
+        ctx.screen[g._CHAVE_SUSPENSO] = g.CHAVE_ABAS
+        cab, _, rodape = g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))
+        linhas = g._separar_flutuante(rodape)[1][1:]
+        chamadas = []
+        def botao(x, y, w, h, **opcoes):
+            chamadas.append(('botao', (x, y, w, h), opcoes.get('ativo', False)))
+        def fundo(x, y, w, h, *_a):
+            chamadas.append(('fundo', (x, y, w, h), False))
+        with ExitStack() as pilha:
+            pilha.enter_context(patch.object(d, 'bpy', SimpleNamespace(context=ctx)))
+            pilha.enter_context(patch.object(d, 'gpu', SimpleNamespace(state=Mock())))
+            pilha.enter_context(patch.object(g, '_eh_area_gaveta', return_value=True))
+            pilha.enter_context(patch.object(g, '_widgets_gaveta', return_value=cab + rodape))
+            pilha.enter_context(patch.object(g, '_botao_gaveta', side_effect=botao))
+            pilha.enter_context(patch.object(g, '_retangulo_gaveta', side_effect=fundo))
+            for nome in ('_retangulo_arredondado_gaveta', '_glow_gaveta', '_texto_cabivel_gaveta'):
+                pilha.enter_context(patch.object(g, nome))
+            pilha.enter_context(patch.object(d, '_seta_suspensa_gaveta'))
+            d._desenhar_gaveta(tela=True)
+        limpeza = chamadas.index(('fundo', (0, 852, 190, 48), False))
+        self.assertIn(('botao', cab[0][:4], True), chamadas[limpeza + 1:])
+        for v in linhas:
+            self.assertIn(('botao', v[:4], v[5][1] == self.cena.cabinet_aba), chamadas)
+
     def test_botoes_criar_e_confirmar_solda_usam_destaque_laranja_existente(self):
         self.assertIn('object.cabinet_conectar_vertices',addon.gaveta.OPERADORES_DESTAQUE)
         self.assertIn('object.cabinet_confirmar_conexao',addon.gaveta.OPERADORES_DESTAQUE)
@@ -181,7 +345,7 @@ class TestGaveta(unittest.TestCase):
         por_tipo = lambda tipo: [v for v in widgets if v[5] and v[5][0] == tipo]
         for tipo in ('aba', 'modo'):
             abas = por_tipo(tipo)
-            self.assertEqual(abas[-1][0] + abas[-1][2], 552)
+            self.assertAlmostEqual(abas[-1][0] + abas[-1][2], 552)
         # sem rodape: nome, "Chapa" e "Auto-regenerar" sairam (usuario)
         self.assertFalse(por_tipo('auto') or por_tipo('chapa')
                          or por_tipo('nome_objeto'))
@@ -1540,7 +1704,7 @@ class TestGaveta(unittest.TestCase):
         bpy.context.screen['cabinet_gaveta_rolagem'] = 9999
         fim = addon.gaveta._widgets_gaveta(bpy.context, largura, altura)
         # o primeiro widget depois do cabecalho (abas e correntes) rola
-        n = addon.gaveta.WIDGETS_CABECALHO
+        n = len(addon.gaveta._partes_gaveta(inicio)[0])
         self.assertEqual(fim[n][1] - inicio[n][1], limite)
         bpy.context.screen['cabinet_gaveta_rolagem'] = 0
 

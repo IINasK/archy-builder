@@ -1,11 +1,8 @@
 # Setor montagem e associacoes
-
 Consulta explicita para `cabinet_creator/solda.py`, `paredes.py`,
 `orcamento.py` e a filiacao em `modulos/`. Este guia nao e' herdado
 por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
-
 ## Onde alterar
-
 | Tarefa | Entrada | Suite |
 |---|---|---|
 | Juntar ou desvincular chapa | `solda.juntar_conexao`, `solda.desagregar` | hud |
@@ -15,7 +12,6 @@ por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 | Vista 2D/Local View, previa e distribuir modelos | `paredes_edicao.py` | paredes_edicao, gaveta |
 | Cotas de modulo, larguras fixas, redistribuir/trocar modelo | `paredes_composicao.py` | paredes_composicao, hud |
 | Comodo e arquivo vendido | `orcamento.py` | orcamento |
-
 Leia tambem `cabinet_creator/modulos/AGENTS.md` para envelope, Collections
 compartilhadas e dependentes; `planejamento/setores/interface/AGENTS.md`
 para precedencia de clique e gizmos.
@@ -23,12 +19,17 @@ Paredes exigem tambem [integracao](../integracao/AGENTS.md): gesto DIREITO,
 associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
 
 ## Decisoes e armadilhas
-
+- Importacao 364: resize pode recriar componentes; `aplicar_ajuste_do_modelo` atualiza `novos` no finally pela hierarquia nativa. Registro/Local View usam a mesma geracao viva; rollback inclui recriados.
+- Parede 361: paredes_selecao valida vertices BMesh conectados (1 grau/2 mm),
+  poligono de 3+ pontas e hover pelo raio/realce do atach. Local View mostra
+  somente exibicao temporaria da regiao + moveis reais associados por area;
+  malha original fica intacta. Proxy resolve fonte/UID no raio e e' limpo
+  ao sair/salvar/unregister, ou no timer apos undo.
 - Parede 2D (296): `paredes_edicao` guarda sessao numerica/nomes; Local
   View nativo preserva isolamento anterior e ocultacao manual. Orbita/Walk/Fly
   encerram; zoom/pan nao. Undo/abrir/salvar/unregister encerram antes de
   invalidar referencias. Getter Local View 4.2 usa objeto avaliado.
-  Biblioteca insere pelo ponto de soltura, sem resize; duplo clique poe a'
+  Biblioteca ajusta L/A ate limite (363: 10 mm; zero desliga), E constante; duplo clique poe a'
   direita do ultimo ou no centro se exceder. Redistribuicao e' explicita.
   Folgas/espacamentos e obstaculos por altura/face entram
   no planejamento; BVH/raycast nativos consultam retornos. Desenho so' le

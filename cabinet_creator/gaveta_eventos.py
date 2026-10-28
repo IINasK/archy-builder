@@ -570,6 +570,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                          if len(acao) > 5 and acao[5] else None)
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif len(acao)>5 and acao[5]==_paredes_edicao.ALVO_AREA:
+                    _paredes_edicao.definir_metodo(context,acao[2])
                 elif len(acao)>5 and acao[5] == _fundos.ALVO_MENU:
                     try:
                         obj = context.object

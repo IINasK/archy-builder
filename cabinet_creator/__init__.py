@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (360, 0, 0),
+    "version": (364, 0, 0),
     "blender": (4, 0, 0),
     "location": "View3D > gaveta esquerda",
     "doc_url": "",
@@ -53,6 +53,7 @@ from . import perguntas as _perguntas
 from . import portas_viewport as _portas_viewport
 from . import gaveta_desenho as _gaveta_desenho
 from . import paredes as _paredes
+from . import paredes_selecao as _paredes_selecao
 from . import paredes_edicao as _paredes_edicao
 from . import paredes_composicao as _paredes_composicao
 from . import formas as _formas
@@ -70,7 +71,7 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
-            _paredes_edicao, _paredes_composicao, _fundos)
+            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao)
 
 
 def _ligar_modulos():
@@ -96,6 +97,9 @@ CLASSES = (
     _paredes_composicao.OBJECT_OT_mover_na_parede,
     _paredes_composicao.OBJECT_OT_restaurar_guias_parede,
     _paredes_edicao.OBJECT_OT_editar_parede,
+    _paredes_edicao.OBJECT_OT_confirmar_area_parede,
+    _paredes_edicao.OBJECT_OT_voltar_area_parede,
+    _paredes_edicao.OBJECT_OT_cancelar_area_parede,
     _paredes_edicao.OBJECT_OT_sair_parede,
     _paredes_edicao.OBJECT_OT_escolher_vao_parede,
     _paredes_edicao.OBJECT_OT_cancelar_previa_parede,
@@ -337,6 +341,7 @@ def _garantir_unidade_padrao_mm():
 
 
 def register():
+    _paredes_selecao.esquecer()
     if not bpy.app.timers.is_registered(_gaveta._limitar_largura_gaveta):
         bpy.app.timers.register(_gaveta._limitar_largura_gaveta,
                                first_interval=0.3, persistent=True)
@@ -488,6 +493,7 @@ def register():
     _garantir_unidade_padrao_mm()
     bpy.types.VIEW3D_MT_object_context_menu.append(_portas.menu_contexto_porta)
     bpy.types.VIEW3D_MT_object_context_menu.append(_paredes_edicao.menu_contexto)
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.append(_paredes_edicao.menu_contexto)
 
     if _chapas.ao_atualizar_depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_chapas.ao_atualizar_depsgraph)
@@ -525,7 +531,10 @@ def unregister():
     _paredes_edicao._alvo_contexto[0] = None
     _paredes_edicao._aviso[0] = ''
     _paredes_edicao._sequencia[0] = 0
+    _paredes_selecao.limpar_exibicoes(forcar=True)
+    _paredes_selecao._limpeza_pendente[0] = False
     bpy.types.VIEW3D_MT_object_context_menu.remove(_paredes_edicao.menu_contexto)
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.remove(_paredes_edicao.menu_contexto)
     _solda.encerrar_conexao_nativa()
     bpy.types.VIEW3D_MT_object_context_menu.remove(_portas.menu_contexto_porta)
     _solda._tecla_corrente_segurada[0] = False

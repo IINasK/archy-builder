@@ -11,6 +11,24 @@ Edit Mode.
 
 ## Estrutura
 
+Importacao na parede (364): resize sincroniza a lista do append com a
+hierarquia atual do modulo, inclusive se recriar ferragens. Local View,
+selecao e cancelamento usam a geracao viva, sem referencias removidas.
+
+Arraste (363): o modulo reduz largura/altura para caber no vao real, ate o
+Ajuste maximo configurado na parede (padrao 10 mm por dimensao; zero desliga).
+Previa informa o tamanho; confirmar aplica resize preservando E. Acima do
+limite, caixa vermelha/aviso mostram a restricao sem inserir ou alterar o preset.
+
+Menu (362): as sete abas viram uma lista suspensa com nomes completos
+quando nem as abreviacoes cabem. Alargar a area restaura a linha de abas,
+preservando a categoria selecionada.
+
+Paredes (361): Editar parede aceita vertices conectados em Edit Mode ou,
+em Object Mode, hover Automatico e delimitacao Por pontos (3+ cantos).
+Enter confirma, Backspace remove e direito/Esc cancela; mesmas acoes no
+menu. A vista isola a regiao e os moveis associados sem alterar a planta.
+
 Fundos (360): nova aba com criacao por dois cantos e snap nativo. Oferece
 canal recuado (6/9 mm, recorte booleano nos apoios), sobreposto pregado e
 interno rente (15 mm). Gavetas e prateleiras vinculadas acompanham a face

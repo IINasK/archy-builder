@@ -34,11 +34,14 @@ blender --background --factory-startup --python tests/rodar_testes.py
 Sem python no PATH: Blender 5.2/5.2/python/bin/python.exe.
 Durante trabalho, harness com `-- --suites <area>`; antes de entregar, completo.
 Nova funcionalidade exige teste e tests/FUNCIONALIDADES.md; piso so' sobe.
+Cada bug corrigido exige cenario reproduzivel que demonstre a falha antiga.
+Cada melhoria exige cenario com parametros e resultados esperados. Criar
+cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 `--gui` ABRE Blender: so' com usuario liberando o PC AGORA.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 360).
+Cada entrega incrementa bl_info["version"] (atual 364).
 
 ## Preferencias globais
 

@@ -1545,7 +1545,7 @@ def _limites_rolagem_gaveta(context, largura, altura):
     """(limite do painel da aba, limite da biblioteca). Cada painel rola
     ate' o ultimo widget passar inteiro pela borda de baixo DELE."""
     conteudo = _widgets_conteudo_gaveta(context, largura, altura, 0, 0)
-    cima, divisa, baixo = _paineis_gaveta(conteudo[WIDGETS_CABECALHO:])
+    cima, divisa, baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])
     piso_bib = 18 + ALTURA_RODAPE_GAVETA
     piso = (divisa[1] + divisa[3] / 2 + 10) if divisa else piso_bib
     limite = max(0, int(piso - min((v[1] for v in cima), default=piso)))
@@ -1593,7 +1593,7 @@ def _rolar_biblioteca_ate_pergunta(context):
                                             regiao.height, 0, 0)
         limite_bib = _limites_rolagem_gaveta(bpy.context, regiao.width,
                                              regiao.height)[1]
-    baixo = _paineis_gaveta(conteudo[WIDGETS_CABECALHO:])[2]
+    baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])[2]
     caixa = next((v for v in baixo if v[5] == ('pergunta',)), None)
     if caixa is None:
         return
@@ -1612,18 +1612,35 @@ ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
                ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras', 'Prat.', 'PRATELEIRAS'),
                ('Divisorias', 'Div.', 'DIVISORIAS'),
                ('Puxadores', 'Pux.', 'PUXADORES'))
-# As correntes entre as abas (porta no modulo, puxador na folha) foram
-# DESCONTINUADAS a pedido do usuario: o cabecalho e' so' as tres abas.
-# Os operadores seguem existindo (F3) -- so' sairam da gaveta.
+# Os operadores das antigas correntes seguem no F3, fora do cabecalho.
 OPERADORES_CORRENTE = ()
-# As abas sao os primeiros widgets da lista, sempre nesta conta
+# Conta da linha expandida; o cabecalho estreito ocupa apenas um widget.
 WIDGETS_CABECALHO = len(ABAS_GAVETA) + len(OPERADORES_CORRENTE)
+CHAVE_ABAS = 'cabinet_abas_gaveta'
 
 
 def _no_cabecalho(acao):
-    """O que pode ser clicado na faixa do cabecalho: abas e correntes."""
-    return bool(acao) and (acao[0] == 'aba' or (
+    """A navegacao fica fixa, inclusive quando vira lista suspensa."""
+    return bool(acao) and (acao[0] == 'aba' or acao[:2] == ('suspenso', CHAVE_ABAS) or (
         acao[0] == 'operador' and acao[1] in OPERADORES_CORRENTE))
+
+
+def _tamanho_cabecalho(widgets):
+    # So' o prefixo: as escolhas da lista flutuante tambem usam 'aba'.
+    return next((i for i, v in enumerate(widgets) if not _no_cabecalho(v[5])), len(widgets))
+
+
+def _cabecalho_gaveta(context, x, y, w):
+    aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
+    blf.size(0, 12)
+    if any(blf.dimensions(0, curto)[0] + 18 > aba_w for _, curto, _ in ABAS_GAVETA):
+        atual = next(rotulo for rotulo, _, aba in ABAS_GAVETA if aba == context.scene.cabinet_aba)
+        aberto = context.screen.get(_CHAVE_SUSPENSO, '') == CHAVE_ABAS
+        return [(x, y, w, 29, atual, ('suspenso', CHAVE_ABAS, aberto,
+                 CHAVE_ABAS, tuple(a[0] for a in ABAS_GAVETA), atual))]
+    return [(x + i * (aba_w + 4), y, aba_w, 29,
+             rotulo if blf.dimensions(0, rotulo)[0] + 18 <= aba_w else curto, ('aba', aba))
+            for i, (rotulo, curto, aba) in enumerate(ABAS_GAVETA)]
 
 
 def _widgets_gaveta(context, largura, altura, _rolagem=None,
@@ -1648,6 +1665,7 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
                 context.screen.get(_CHAVE_ROLAGEM_BIB, 0))))
     itens = _widgets_conteudo_gaveta(context, largura, altura, _rolagem,
                                      _rolagem_bib)
+    n = _tamanho_cabecalho(itens)
     x, w = 12, max(24, min(540, largura - 24))
     rodape = _rodape_gaveta(context, x, w)
     painel = _retangulo_painel_opcoes(rodape)
@@ -1659,22 +1677,27 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
         def coberto(v):
             return (v[0] < px + pw and px < v[0] + v[2]
                     and v[1] < py + ph and py < v[1] + v[3])
-        itens = itens[:WIDGETS_CABECALHO] + [
+        itens = itens[:n] + [
             (v[:5] + (('divisa', False),) if coberto(v) else v)
             if v[5] and v[5][0] == 'divisa' else v
-            for v in itens[WIDGETS_CABECALHO:]
+            for v in itens[n:]
             if (v[5] and v[5][0] == 'divisa') or not coberto(v)]
-    # Lista suspensa da cascata: vai para a camada flutuante (desenhada
-    # por ultimo, atende primeiro) e o que ela cobre sai de desenho e
-    # clique. Fica no painel da biblioteca, abaixo da divisoria.
-    divisa = next((v for v in itens[WIDGETS_CABECALHO:]
+    # Listas flutuam sobre o conteudo e atendem primeiro. A cascata fica
+    # abaixo da divisoria; a navegacao das abas abre sob o cabecalho.
+    divisa = next((v for v in itens[n:]
                    if v[5] and v[5][0] == 'divisa'), None)
-    lista = _lista_da_cascata(itens[WIDGETS_CABECALHO:], ALTURA_RODAPE_GAVETA,
-                              divisa[1] if divisa else altura - 48)
+    lista = _lista_da_cascata(itens[:n], ALTURA_RODAPE_GAVETA, altura)
+    if lista:
+        # Reutiliza o mesmo despacho das abas, sem navegar na biblioteca.
+        abas = {rotulo: aba for rotulo, _, aba in ABAS_GAVETA}
+        lista = [lista[0]] + [v[:5] + (('aba', abas[v[4]]),) for v in lista[1:]]
+    else:
+        lista = _lista_da_cascata(itens[n:], ALTURA_RODAPE_GAVETA,
+                                  divisa[1] if divisa else altura - 48)
     if lista:
         fx, fy, fw, fh = lista[0][:4]
-        itens = itens[:WIDGETS_CABECALHO] + [
-            v for v in itens[WIDGETS_CABECALHO:]
+        itens = itens[:n] + [
+            v for v in itens[n:]
             if (v[5] and v[5][0] == 'divisa') or not (
                 v[0] < fx + fw and fx < v[0] + v[2] and v[1] < fy + fh and fy < v[1] + v[3])]
         rodape = rodape + lista
@@ -1746,7 +1769,8 @@ def _partes_gaveta(widgets):
     """(cabecalho, conteudo, rodape) -- o rodape comeca na engrenagem."""
     inicio = next((i for i, v in enumerate(widgets)
                    if v[5] == ('operador', OP_OPCOES)), len(widgets))
-    return (widgets[:WIDGETS_CABECALHO], widgets[WIDGETS_CABECALHO:inicio],
+    n = _tamanho_cabecalho(widgets)
+    return (widgets[:n], widgets[n:inicio],
             widgets[inicio:])
 
 
@@ -1977,17 +2001,8 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     # Mesmo se a area for alargada drasticamente, o menu permanece uma
     # coluna vertical legivel; miniaturas nao viram faixas gigantes.
     x, w = 12, max(24, min(540, largura - 24))
-    itens = []
+    itens = _cabecalho_gaveta(context, x, altura - 40, w)
     metade = (w - 6) / 2
-    # Cabecalho: as abas, na largura toda (as
-    # correntes entre elas foram descontinuadas)
-    aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
-    cx = x
-    blf.size(0, 11)
-    for rotulo, curto, acao in ABAS_GAVETA:
-        itens.append((cx, altura - 40, aba_w, 29,
-                      rotulo if blf.dimensions(0, rotulo)[0] + 12 <= aba_w else curto, ('aba', acao)))
-        cx += aba_w + 4
     y = altura - 105 + _rolagem
     solda=_solda._conexao_manual[0]
     if solda is not None and solda.get('moderna'):

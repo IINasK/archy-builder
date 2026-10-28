@@ -20,7 +20,7 @@ from mathutils.bvhtree import BVHTree
 
 _paredes = _modulos = _biblioteca = _chapas = _hud = None
 _gaveta = _opcoes = _eventos = _biblioteca_faixa = None
-_paredes_composicao = None
+_paredes_composicao = _paredes_selecao = None
 
 _sessao = [None]
 _ultima_face = [None]
@@ -29,6 +29,9 @@ _sequencia = [0]
 _aviso = ['']
 _handler = [None]
 _plano = [None]
+_escolha_area = [None]
+ALVO_AREA = '__PAREDE_AREA__'
+METODOS_AREA = (('AUTO','Automatico'),('PONTOS','Por pontos'))
 ALVO_QUANTIDADE = 'paredes_quantidade'
 CHAVE_VISUAL = 'cabinet_parede_exibicao_2d'
 CHAVE_ORDEM = 'parede_ordem_posicionamento'
@@ -40,7 +43,7 @@ SNAP_DA_VISTA = {'use_snap': True, 'snap_elements': {'VERTEX'},
 
 
 def superficie(obj):
-    return obj is not None and obj.type == 'MESH' and not _paredes.eh_movel(obj)
+    return obj is not None and obj.type == 'MESH' and not obj.get(_paredes_selecao.MARCA_EXIBICAO) and not _paredes.eh_movel(obj)
 
 
 def lembrar_face(context, posicao, contexto=False):
@@ -130,6 +133,11 @@ def associados(parede, ponto, normal, objetos, regiao=None):
         if plano and plano[1].dot(normal) >= _paredes.COPLANAR_MIN and abs(
                 (plano[0] - ponto).dot(normal)) <= _paredes.TOLERANCIA_PLANO_M:
             if regiao is not None:
+                if regiao.get('delimitada'):
+                    if not _paredes_selecao.modulo_na_regiao(obj,regiao,normal):
+                        continue
+                    resultado.append(obj)
+                    continue
                 propria = _paredes.regiao_da_parede(parede, plano[0], plano[1],
                         bpy.context.evaluated_depsgraph_get(), obj.get(_paredes.CHAVE_PAREDE_FACE))
                 if propria is None or propria['face'] not in regiao['faces']:
@@ -329,8 +337,10 @@ def _restaurar_visual(area, s):
     _restaurar_fios()
 
 
-def iniciar(context, obj):
-    face = face_do_objeto(context, obj)
+def iniciar(context, obj, face=None, recortar=False):
+    if _eventos._desfazendo[0]:
+        return 'Aguarde o processamento de desfazer/refazer'
+    face = face if face is not None else face_do_objeto(context, obj)
     area = viewport(context)
     if face is None or area is None:
         return 'Selecione uma face plana vertical voltada para a vista'
@@ -350,21 +360,31 @@ def iniciar(context, obj):
         'camada': context.view_layer.name,
         'parede': obj.name, 'ponto': tuple(ponto), 'normal': tuple(n),
         'u': tuple(u), 'face': regiao['face'],
-        'regiao': {'retangulo': tuple(regiao['retangulo']), 'faces': regiao['faces'],
-                   'contorno': [(tuple(a), tuple(b)) for a, b in regiao['contorno']]},
+        'regiao': dict(regiao, retangulo=tuple(regiao['retangulo']),
+                      contorno=[(tuple(a), tuple(b)) for a, b in regiao['contorno']],delimitada=recortar),
         'modelo': None, 'substituir': '', 'ultimo_modulo': '',
         'perspectiva_anterior': perspectiva_anterior,
         'escolhendo': False, 's': sum(regiao['retangulo'][:2]) / 2,
         'quantidade': 1, 'esquerda': 0.0, 'direita': 0.0, 'espacamento': 0.0,
+        'ajuste_maximo': context.scene.get('parede_ajuste_maximo_mm', 10.0),
         'instalacao': regiao['retangulo'][2] * 1000.0,
         'altura': 720.0, 'profundidade': 550.0,
         'local_anterior': False, 'membros_anteriores': [],
         'enquadrando': True,
+        'recorte_explicito': recortar, 'exibicao': '',
+        'parede_matriz': _paredes._assinatura(obj.matrix_world),
     }
     reg = next(r for r in area.regions if r.type == 'WINDOW')
     try:
         with context.temp_override(area=area, region=reg):
-            _aplicar_isolamento(context, area, _visiveis_da_face(context, obj, ponto, n))
+            manter=_visiveis_da_face(context,obj,ponto,n)
+            if recortar:
+                exibicao=_paredes_selecao.criar_exibicao(context,obj,regiao)
+                _sessao[0]['exibicao']=exibicao.name
+                manter.add(exibicao.name)
+            _aplicar_isolamento(context, area, manter)
+            if recortar:
+                obj.local_view_set(area.spaces.active,False)
             _preparar_visual(area, obj)
             rv = area.spaces.active.region_3d
             rot = Matrix((u, Vector((0, 0, 1)), n)).transposed().to_quaternion()
@@ -394,6 +414,7 @@ def iniciar(context, obj):
 
 
 def encerrar(perspectiva=False):
+    encerrar_escolha()
     s = _sessao[0]
     if s is None:
         return
@@ -424,6 +445,7 @@ def encerrar(perspectiva=False):
                              rv.view_distance, rv.view_perspective)
                     bpy.ops.view3d.localview(frame_selected=False)
                     rv.view_rotation, rv.view_location, rv.view_distance, rv.view_perspective = vista
+                camada.update()
         if area and area.type == 'VIEW_3D':
             rv = area.spaces.active.region_3d
             if rv.view_perspective == 'ORTHO' and (perspectiva or s.get('perspectiva_anterior') == 'PERSP'):
@@ -434,6 +456,8 @@ def encerrar(perspectiva=False):
             janela.scene = cena_atual
             janela.view_layer = cena_atual.view_layers.get(camada_atual) or cena_atual.view_layers[0]
         _sessao[0] = None
+        if not _eventos._desfazendo[0]:
+            _paredes_selecao.limpar_exibicoes()
         _paredes_composicao.esquecer()
         _paredes_composicao.remover_objeto_guias()
         _plano[0] = None
@@ -451,6 +475,7 @@ def verificar(atualizar_previa=True):
     if _eventos._desfazendo[0]:
         return
     if not ativa():
+        _paredes_selecao.limpar_exibicoes()
         _restaurar_fios()
         # Undo/redo pode restaurar a aparencia temporaria gravada no
         # snapshot. A marca identifica so' o que o modo 2D alterou.
@@ -473,6 +498,14 @@ def verificar(atualizar_previa=True):
         encerrar()
         return
     rv = area.spaces.active.region_3d
+    if s.get('recorte_explicito'):
+        fonte=bpy.data.objects.get(s['parede'])
+        if (bpy.data.objects.get(s.get('exibicao','')) is None or
+                fonte is not None and (fonte.data.is_editmode or _paredes._assinatura(fonte.matrix_world)!=s['parede_matriz'])):
+            encerrar()
+            return
+        if fonte is not None and bpy.context.object!=fonte and any(o.select_get() for o in bpy.context.selected_objects):
+            fonte.select_set(False)
     mudou = abs(rv.view_rotation.dot(Quaternion(s['rotacao']))) < 0.999999
     if mudou or rv.view_perspective != 'ORTHO' or area.spaces.active.local_view is None:
         encerrar(perspectiva=mudou)
@@ -526,6 +559,9 @@ def navegacao_de_saida(context, event):
 
 
 def contexto_painel(context):
+    escolha=_escolha_area[0]
+    if escolha:
+        return bpy.data.objects.get(escolha['objeto'])
     if ativa(context):
         return bpy.data.objects.get(_sessao[0]['parede'])
     obj = context.object
@@ -545,6 +581,25 @@ def widgets(context, itens, x, topo, w):
     # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
     # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
+        escolha=_escolha_area[0]
+        if escolha:
+            metodo=escolha['metodo']
+            topo=_gaveta._linha_escolha_gaveta(itens,x,topo-25,w,'','metodo',METODOS_AREA,metodo,alvo=ALVO_AREA)+23
+            mensagem=('Aponte a parede e clique para confirmar' if metodo=='AUTO' else
+                      '%d pontas | Enter confirma | Backspace remove' % len(escolha['pontos']))
+            itens.append((x,topo-22,w,22,mensagem,None))
+            topo-=32
+            for rotulo,acao in (('Confirmar area','CONFIRMAR'),('Remover ultimo ponto','VOLTAR'),('Cancelar selecao','CANCELAR')):
+                botao(rotulo,'object.cabinet_area_parede_'+acao.lower())
+            if escolha.get('erro'):
+                itens.append((x,topo-22,w,22,escolha['erro'],None))
+            return topo-58
+        if context.mode=='EDIT_MESH':
+            itens.append((x,topo-22,w,22,'Usar vertices selecionados e conectados',None))
+            topo-=30
+        elif context.scene.cabinet_aba=='MODULOS':
+            topo=_gaveta._linha_escolha_gaveta(itens,x,topo-25,w,'','metodo',METODOS_AREA,
+                context.scene.get('parede_metodo_selecao','AUTO'),alvo=ALVO_AREA)+23
         botao('Editar parede', 'object.cabinet_editar_parede', 30)
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
@@ -554,6 +609,9 @@ def widgets(context, itens, x, topo, w):
     botao('Sair da edicao da parede', 'object.cabinet_sair_parede', 30)
     topo = _paredes_composicao.widgets(context, itens, x, topo - 12, w)
     topo = _paredes_composicao.widgets_guias(context, itens, x, topo, w)
+    itens.append((x, topo - 37, w, 37, 'Ajuste maximo: %s' % _opcoes._texto_medida(s['ajuste_maximo']),
+                  ('medida', 'paredes', 'ajuste_maximo', 'Ajuste maximo', s['ajuste_maximo'])))
+    topo -= 45
     # Folgas Esquerda/Direita/Espacamento sairam do menu (pedido do usuario);
     # a distribuicao segue usando os valores da sessao.
     if s['modelo'] is None:
@@ -596,10 +654,12 @@ def editar_parametro(nome, valor):
         if not 1 <= valor <= 100 or int(valor) != valor:
             return 'Quantidade deve ser um inteiro entre 1 e 100'
         s[nome] = int(valor)
-    elif nome in ('instalacao', 'altura', 'profundidade', 'esquerda', 'direita', 'espacamento'):
+    elif nome in ('instalacao', 'altura', 'profundidade', 'esquerda', 'direita', 'espacamento', 'ajuste_maximo'):
         if not math.isfinite(valor) or valor < 0:
             return 'A medida deve ser positiva ou zero'
         s[nome] = valor
+        if nome == 'ajuste_maximo':
+            bpy.context.scene['parede_ajuste_maximo_mm'] = valor
     else:
         return 'Parametro de parede desconhecido'
     _redesenhar()
@@ -633,13 +693,13 @@ def ponto_no_evento(context, event):
     origem = view3d_utils.region_2d_to_origin_3d(regiao, rv, xy)
     direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv, xy)
     s = _sessao[0]
-    parede = bpy.data.objects.get(s['parede'])
+    parede = bpy.data.objects.get(s.get('exibicao') or s['parede'])
     if parede is None:
         return None
     inversa = parede.matrix_world.inverted_safe()
     avaliado = parede.evaluated_get(context.evaluated_depsgraph_get())
     acertou, local, normal, face = avaliado.ray_cast(inversa @ origem, inversa.to_3x3() @ direcao)
-    if not acertou or face not in s['regiao']['faces']:
+    if not acertou or (not s.get('recorte_explicito') and face not in s['regiao']['faces']):
         return None
     return parede.matrix_world @ local
 
@@ -652,13 +712,17 @@ def posicao_do_modelo(context, modulo, ponto=None, caixa=None):
     caixa = caixa or _paredes.caixa_do_modulo(modulo)
     if caixa is None:
         return None, 'O modelo precisa conter um modulo completo'
+    alvo = _alvo_do_modelo(context, modulo, ponto, caixa)
+    return encaixar_na_face(context, modulo, alvo, s, caixa)
+
+
+def _alvo_do_modelo(context, modulo, ponto, caixa):
+    s = _sessao[0]
     lo, hi = caixa
     escala = _paredes.escala_no_referencial(modulo)
     largura, altura = (hi.x - lo.x) * escala.x, (hi.z - lo.z) * escala.z
     s0, s1, z0, z1 = s['regiao']['retangulo']
     esquerda, direita = s0 + s['esquerda'] / 1000, s1 - s['direita'] / 1000
-    if largura > direita - esquerda + .00005 or altura > z1 - z0 + .00005:
-        return None, 'O tamanho original do modelo nao cabe na parede'
     u, n, plano = (Vector(s[k]) for k in ('u', 'normal', 'ponto'))
     if ponto is None:
         ultimo = next((f for f in _paredes_composicao.itens_da_face(context)
@@ -676,7 +740,25 @@ def posicao_do_modelo(context, modulo, ponto=None, caixa=None):
                 base, largura, altura, _paredes.SNAP_PX / px)
     alvo = plano + u * (centro - plano.dot(u))
     alvo.z = base + altura / 2
-    return encaixar_na_face(context, modulo, alvo, s, caixa)
+    return alvo
+
+
+def encaixe_do_modelo(context, modulo, ponto=None, caixa=None, cache=None):
+    caixa = caixa or _paredes.caixa_do_modulo(modulo)
+    costas, erro = posicao_do_modelo(context, modulo, ponto, caixa)
+    if not erro or caixa is None or not ativa(context):
+        return costas, caixa, erro
+    alvo = _alvo_do_modelo(context, modulo, ponto, caixa)
+    costas, caixa, ajuste = ajustar_na_face(context, modulo, alvo, _sessao[0], caixa, cache)
+    return costas, caixa, ('%s | %s' % (erro, ajuste)) if ajuste else None
+
+
+def _objetos_vigentes_do_modelo(modulo, novos=None):
+    # O resize pode remover/recriar ferragens: a lista do append nao e' mais a montagem.
+    objetos = [modulo, *modulo.children_recursive]
+    if isinstance(novos, list):
+        novos[:] = objetos
+    return objetos
 
 
 def registrar_posicionado(context, modulo, novos=()):
@@ -685,6 +767,7 @@ def registrar_posicionado(context, modulo, novos=()):
         return
     # A ordem persiste ao sair do 2D ou reabrir o arquivo, sem guardar IDs globais.
     modulo[CHAVE_ORDEM] = time.time()
+    objetos = _objetos_vigentes_do_modelo(modulo, novos)
     if not ativa(context):
         return
     s = _sessao[0]
@@ -694,7 +777,6 @@ def registrar_posicionado(context, modulo, novos=()):
         return
     s['ultimo_modulo'] = modulo.name
     janela, area, regiao = _janela_da_sessao()
-    objetos = list(novos) or [modulo, *modulo.children_recursive]
     if area.spaces.active.local_view:
         for obj in objetos:
             obj.local_view_set(area.spaces.active, True)
@@ -707,15 +789,43 @@ def registrar_posicionado(context, modulo, novos=()):
 
 
 def posicionar_modelo(context, modulo, ponto=None, novos=()):
-    costas, erro = posicao_do_modelo(context, modulo, ponto)
+    original = _paredes.caixa_do_modulo(modulo)
+    costas, caixa, erro = encaixe_do_modelo(context, modulo, ponto, original)
     if erro:
         return erro
     s = _sessao[0]
+    erro = aplicar_ajuste_do_modelo(modulo, caixa, novos)
+    if erro:
+        return erro
     parede = bpy.data.objects[s['parede']]
     normal = Vector(s['normal'])
     _paredes.colocar_na_parede(modulo, parede, costas, normal)
     _paredes.associar(modulo, parede, costas, normal, s['face'])
     registrar_posicionado(context, modulo, novos)
+    return None
+
+
+def aplicar_ajuste_do_modelo(modulo, caixa, novos=None):
+    try:
+        return _redimensionar_modelo(modulo, caixa)
+    finally:
+        # Tambem na falha: o cancelamento deve remover a geracao atual.
+        _objetos_vigentes_do_modelo(modulo, novos)
+
+
+def _redimensionar_modelo(modulo, caixa):
+    original = _paredes.caixa_do_modulo(modulo)
+    if any(abs((caixa[1] - caixa[0])[i] - (original[1] - original[0])[i]) > 1e-7 for i in range(3)):
+        escala = _paredes.escala_no_referencial(modulo)
+        medidas = tuple(abs((caixa[1] - caixa[0])[i] * escala[i]) * 1000 for i in (0, 2, 1))
+        try:
+            _modulos.redimensionar_orientado(modulo, _paredes.medidas_na_parede(modulo, medidas))
+        except (ValueError, RuntimeError) as erro:
+            return 'Nao foi possivel ajustar o modulo: %s' % erro
+        # O dominio pode recusar um minimo fisico; nunca confirmar uma caixa ficticia.
+        real = _paredes.caixa_do_modulo(modulo)
+        if real is None or any(abs((real[1] - real[0])[i] - (caixa[1] - caixa[0])[i]) > .00005 for i in range(3)):
+            return 'O ajuste ultrapassa o minimo fisico das chapas do modulo'
     return None
 
 
@@ -846,6 +956,87 @@ def faixas_livres(context, s, base, topo, profundidade, excluir=()):
     return faixas
 
 
+def _alturas_para_ajuste(context, s, profundidade, excluir):
+    """Apoios reais pelo mesmo BVH/recorte usado para verificar colisoes."""
+    z0, z1 = s['regiao']['retangulo'][2:]
+    alturas = [z0, z1]
+    ponto, n, u = (Vector(s[k]) for k in ('ponto', 'normal', 'u'))
+    parede = bpy.data.objects.get(s['parede'])
+    for obj in associados(parede, ponto, n, context.scene.objects, s['regiao']):
+        if obj.name not in excluir:
+            ficha = _paredes_composicao.ficha(obj, s)
+            alturas.extend((ficha['base'], ficha['base'] + ficha['altura']))
+    dep = context.evaluated_depsgraph_get()
+    for obj in context.scene.objects:
+        if not superficie(obj):
+            continue
+        avaliado = obj.evaluated_get(dep)
+        cx = _caixa_no_referencial(avaliado, u, n, ponto)
+        if cx[3] <= z0 + 1e-6 or cx[2] >= z1 - 1e-6 or cx[5] <= 1e-5 or cx[4] >= profundidade:
+            continue
+        for a, b in _faces_no_volume(obj, avaliado, dep, s, z0, z1, profundidade, alturas=True):
+            alturas.extend((a, b))
+    return sorted({max(z0, min(z1, round(z, 6))) for z in alturas})
+
+
+def ajustar_na_face(context, modulo, ponto, s, caixa, cache=None):
+    """Reduz L/A dentro do limite; o resize da madeira so' acontece na confirmacao."""
+    limite = context.scene.get('parede_ajuste_maximo_mm', 10.0) / 1000
+    erro = 'Sem vao livre dentro do ajuste maximo de %.1f mm' % (limite * 1000)
+    if not math.isfinite(limite) or limite <= 0:
+        return None, caixa, erro
+    escala = _paredes.escala_no_referencial(modulo)
+    lo, hi = caixa
+    largura, altura, prof = (abs((hi[i] - lo[i]) * escala[i]) for i in (0, 2, 1))
+    minima_l, minima_a = max(.02, largura - limite), max(.02, altura - limite)
+    s0, s1, z0, z1 = s['regiao']['retangulo']
+    if s1 - s0 < minima_l - .00005 or z1 - z0 < minima_a - .00005:
+        return None, caixa, erro
+    cache = {} if cache is None else cache
+    chave = (s['parede'], tuple(s['normal']), tuple(s['ponto']), tuple(s['regiao']['retangulo']), prof)
+    if chave not in cache:
+        cache.clear()
+        cache[chave] = _alturas_para_ajuste(context, s, prof, (modulo.name,))
+    alturas = cache[chave]
+    alvo_base = max(z0, min(z1 - min(altura, z1 - z0), ponto.z - altura / 2))
+    bases = {alvo_base, z0, max(z0, z1 - altura)}
+    bases.update(z for z in alturas if z0 <= z <= z1 - minima_a + 1e-6)
+    opcoes = set()
+    for base in bases:
+        for topo in [min(z1, base + altura), *alturas]:
+            a = topo - base
+            # O vao continua sob o cursor: nao saltar para uma outra fileira.
+            if minima_a - 1e-6 <= a <= altura + 1e-6 and base - 1e-6 <= ponto.z <= topo + 1e-6:
+                opcoes.add((base, min(altura, a)))
+    melhor = None
+    u, plano = Vector(s['u']), Vector(s['ponto'])
+    for base, a in sorted(opcoes, key=lambda ba: (altura - ba[1], abs(ba[0] - alvo_base))):
+        if melhor is not None and altura - a > melhor[0] + 1e-6:
+            break
+        faixa = ('faixas', base, a, prof)
+        # Cache numerico pertence ao arraste; confirmar refaz a consulta.
+        if faixa not in cache:
+            cache[faixa] = faixas_livres(context, s, base, base + a, prof, (modulo.name,))
+        for inicio, fim in cache[faixa]:
+            inicio = max(inicio, s0 + s.get('esquerda', 0) / 1000)
+            fim = min(fim, s1 - s.get('direita', 0) / 1000)
+            l = min(largura, fim - inicio)
+            if l < minima_l - 1e-6:
+                continue
+            centro = max(inicio + l / 2, min(fim - l / 2, ponto.dot(u)))
+            ordem = (largura - l + altura - a, abs(base - alvo_base) + abs(centro - ponto.dot(u)))
+            if melhor is None or ordem < melhor[:2]:
+                melhor = (*ordem, centro, base, l, a)
+    if melhor is None:
+        return None, caixa, erro
+    _, _, centro, base, l, a = melhor
+    costas = plano + u * (centro - plano.dot(u))
+    costas.z = base
+    alto = hi.copy()
+    alto.x, alto.z = lo.x + l / abs(escala.x), lo.z + a / abs(escala.z)
+    return costas, (lo.copy(), alto), None
+
+
 def encaixar_na_face(context, modulo, ponto, s, caixa=None, tolerancia=0):
     """Limita o volume inteiro e escolhe o vao valido mais proximo do alvo.
 
@@ -903,7 +1094,7 @@ def _recortar_poligono(pontos, eixo, limite, sinal):
     return saida
 
 
-def _faces_no_volume(obj, avaliado, dep, s, base, topo, profundidade):
+def _faces_no_volume(obj, avaliado, dep, s, base, topo, profundidade, alturas=False):
     """Consulta espacial nativa, sem varrer vertices da cena no gesto."""
     u, n, ponto = (Vector(s[k]) for k in ('u', 'normal', 'ponto'))
     s0, s1 = s['regiao']['retangulo'][:2]
@@ -932,7 +1123,7 @@ def _faces_no_volume(obj, avaliado, dep, s, base, topo, profundidade):
         if pontos:
             a, b = min(p.x for p in pontos), max(p.x for p in pontos)
             if b - a > 1e-6:
-                intervalos.append((a, b))
+                intervalos.append((min(p.y for p in pontos), max(p.y for p in pontos)) if alturas else (a, b))
     return intervalos
 
 
@@ -1134,14 +1325,254 @@ def desenhar():
             gpu.state.blend_set('NONE')
 
 
+def _janela_da_escolha():
+    e=_escolha_area[0]
+    if e:
+        for janela in bpy.context.window_manager.windows:
+            if janela.as_pointer()==e['janela']:
+                area=next((a for a in janela.screen.areas if a.as_pointer()==e['area']),None)
+                regiao=next((r for r in area.regions if r.type=='WINDOW'),None) if area else None
+                return janela,area,regiao
+    return None,None,None
+
+
+def encerrar_escolha():
+    e=_escolha_area[0]
+    if e is None:
+        return
+    janela,area,_regiao=_janela_da_escolha()
+    _escolha_area[0]=None
+    if e.get('handler') is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(e['handler'],'WINDOW')
+    if e.get('timer') is not None:
+        try:
+            bpy.context.window_manager.event_timer_remove(e['timer'])
+        except (ReferenceError,RuntimeError):
+            pass
+    if area is not None:
+        area.header_text_set(None)
+        area.tag_redraw()
+    if janela is not None:
+        janela.cursor_modal_restore()
+    _paredes_selecao.esquecer()
+    _redesenhar()
+
+
+def preparar_escolha(context,obj):
+    if _eventos._desfazendo[0]:
+        return 'Aguarde o processamento de desfazer/refazer'
+    if not superficie(obj) or context.mode!='OBJECT':
+        return 'Selecione a malha da planta ou da parede'
+    encerrar()
+    area=viewport(context)
+    if area is None:
+        return 'Sem viewport 3D para escolher a parede'
+    regiao=next((r for r in area.regions if r.type=='WINDOW'),None)
+    if regiao is None:
+        return 'Sem regiao 3D para escolher a parede'
+    _paredes_selecao.limpar_exibicoes()
+    e=dict(objeto=obj.name,cena=context.scene.name,janela=context.window.as_pointer(),
+           area=area.as_pointer(),regiao=regiao.as_pointer(),metodo=context.scene.get('parede_metodo_selecao','AUTO'),
+           pontos=[],base=None,candidata=None,cursor=None,erro='',acao='',
+           objetos=len(context.scene.objects),
+           ignorar={o.name for o in context.scene.objects if _paredes.eh_movel(o)})
+    _escolha_area[0]=e
+    _aviso[0]=''
+    try:
+        e['handler']=bpy.types.SpaceView3D.draw_handler_add(_desenhar_escolha,(),'WINDOW','POST_PIXEL')
+        e['timer']=context.window_manager.event_timer_add(.1,window=context.window)
+        context.window.cursor_modal_set('CROSSHAIR')
+        area.header_text_set('Escolher parede: clique confirma | Enter aceita | Direito/Esc cancela')
+    except Exception:
+        encerrar_escolha()
+        raise
+    _redesenhar()
+    return None
+
+
+def definir_metodo(context,metodo):
+    if metodo not in dict(METODOS_AREA):
+        raise ValueError('Metodo de selecao de parede invalido')
+    context.scene['parede_metodo_selecao']=metodo
+    e=_escolha_area[0]
+    if e:
+        e.update(metodo=metodo,pontos=[],base=None,candidata=None,cursor=None,erro='')
+    _redesenhar()
+
+
+def atualizar_escolha(context,xy):
+    e=_escolha_area[0]
+    janela,area,regiao=_janela_da_escolha()
+    if e is None or area is None or not(0<=xy[0]<regiao.width and 0<=xy[1]<regiao.height):
+        return
+    rv=area.spaces.active.region_3d
+    if e['objetos']!=len(context.scene.objects):
+        e['objetos']=len(context.scene.objects)
+        e['ignorar']={o.name for o in context.scene.objects if _paredes.eh_movel(o)}
+    if e['metodo']=='PONTOS' and e['base'] is not None:
+        inicio=view3d_utils.region_2d_to_origin_3d(regiao,rv,xy)
+        direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv,xy)
+        ponto=intersect_line_plane(inicio,inicio+direcao,Vector(e['base']['ponto']),Vector(e['base']['normal']),False)
+        e['cursor']=tuple(ponto) if ponto is not None else None
+    else:
+        with context.temp_override(window=janela,area=area,region=regiao):
+            acerto=_paredes._raio_ignorando(context,regiao,rv,xy,e['ignorar'])
+            e['candidata']=None
+            if acerto:
+                obj,ponto,normal,indice=acerto
+                try:
+                    p,n,r=_paredes_selecao.automatica(context,obj,ponto,normal,indice)
+                    e['candidata']=dict(objeto=obj.name,ponto=tuple(p),normal=tuple(n),regiao=r,matriz=_paredes._assinatura(obj.matrix_world))
+                    e['cursor']=tuple(ponto)
+                    e['erro']=''
+                except ValueError as erro:
+                    e['erro']=str(erro)
+                    e['cursor']=None
+    area.tag_redraw()
+
+
+def acao_escolha(context,acao):
+    e=_escolha_area[0]
+    if not e:
+        return 'CANCELLED'
+    if acao=='CANCELAR':
+        encerrar_escolha()
+        return 'CANCELLED'
+    if acao=='VOLTAR':
+        if e['pontos']:
+            e['pontos'].pop()
+        if not e['pontos']:
+            e['base']=None
+        e['erro']=''
+        _redesenhar()
+        return 'RUNNING_MODAL'
+    if acao=='PONTO' and e['metodo']=='PONTOS':
+        if e['base'] is None:
+            e['base']=e['candidata']
+        if e['base'] is not None and e['cursor'] is not None:
+            e['pontos'].append(tuple(e['cursor']))
+        _redesenhar()
+        return 'RUNNING_MODAL'
+    if acao not in {'PONTO','CONFIRMAR'}:
+        return 'RUNNING_MODAL'
+    base=e['base'] if e['metodo']=='PONTOS' else e['candidata']
+    if base is None:
+        e['erro']='Aponte para a parede desejada'
+        return 'RUNNING_MODAL'
+    obj=bpy.data.objects.get(base['objeto'])
+    if obj is None or ('matriz' in base and base['matriz']!=_paredes._assinatura(obj.matrix_world)):
+        e['erro']='A parede mudou; remova os pontos e selecione a area novamente'
+        return 'RUNNING_MODAL'
+    try:
+        regiao=(_paredes_selecao.recortar(base['regiao'],e['pontos'],Vector(base['normal']))
+                if e['metodo']=='PONTOS' else base['regiao'])
+    except ValueError as erro:
+        e['erro']=str(erro)
+        _redesenhar()
+        return 'RUNNING_MODAL'
+    obj=bpy.data.objects.get(base['objeto'])
+    face=(Vector(base['ponto']),Vector(base['normal']),regiao)
+    encerrar_escolha()
+    if obj is not None and context.object!=obj:
+        for selecionado in context.selected_objects:
+            selecionado.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active=obj
+    erro=iniciar(context,obj,face=face,recortar=True) if obj is not None else 'A parede nao existe mais'
+    _aviso[0]=erro or ''
+    return 'CANCELLED' if erro else 'FINISHED'
+
+
+def _desenhar_escolha():
+    e=_escolha_area[0]
+    context=bpy.context
+    if not e or _eventos._desfazendo[0] or context.region.as_pointer()!=e['regiao']:
+        return
+    rv=context.region_data
+    tela=lambda p:view3d_utils.location_3d_to_region_2d(context.region,rv,Vector(p))
+    realce=_hud._cor_realce_hud()
+    if e['candidata'] and (e['metodo']=='AUTO' or not e['pontos']):
+        _paredes._desenhar_face_alvo(e['candidata']['regiao'],tela,realce,context.region,rv)
+    if e['metodo']=='PONTOS' and e['pontos']:
+        pontos=list(e['pontos'])
+        if e['cursor'] is not None:
+            pontos.append(e['cursor'])
+        segmentos=[v for a,b in zip(pontos,pontos[1:]) if tela(a) is not None and tela(b) is not None for v in (tela(a),tela(b))]
+        shader=gpu.shader.from_builtin('UNIFORM_COLOR')
+        try:
+            gpu.state.blend_set('ALPHA');gpu.state.line_width_set(2)
+            shader.bind();shader.uniform_float('color',realce)
+            if segmentos:
+                batch_for_shader(shader,'LINES',{'pos':segmentos}).draw(shader)
+            marcas=[tela(p) for p in e['pontos'] if tela(p) is not None]
+            if marcas:
+                gpu.state.point_size_set(5)
+                batch_for_shader(shader,'POINTS',{'pos':marcas}).draw(shader)
+        finally:
+            gpu.state.point_size_set(1);gpu.state.line_width_set(1);gpu.state.blend_set('NONE')
+
+
+def entrar_por_vertices(context,obj):
+    try:
+        face=_paredes_selecao.dos_vertices(context,obj)
+    except ValueError as erro:
+        return str(erro)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return iniciar(context,obj,face=face,recortar=True)
+
+
 class OBJECT_OT_editar_parede(Operator):
     bl_idname = 'object.cabinet_editar_parede'
     bl_label = 'Editar parede'
     objeto: StringProperty(options={'SKIP_SAVE'})
 
+    def invoke(self,context,event):
+        obj=bpy.data.objects.get(self.objeto) if self.objeto else context.object
+        if context.mode=='EDIT_MESH':
+            erro=entrar_por_vertices(context,obj)
+            _aviso[0]=erro or ''
+            if erro:self.report({'WARNING'},erro)
+            return {'CANCELLED'} if erro else {'FINISHED'}
+        erro=preparar_escolha(context,obj)
+        if erro:
+            _aviso[0]=erro;self.report({'WARNING'},erro)
+            return {'CANCELLED'}
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self,context,event):
+        try:
+            e=_escolha_area[0]
+            janela,area,regiao=_janela_da_escolha()
+            if e is None:return {'CANCELLED'}
+            if area is None or context.scene.name!=e['cena'] or _eventos._desfazendo[0]:
+                encerrar_escolha();return {'CANCELLED'}
+            acao=e.pop('acao','')
+            if acao:return {acao_escolha(context,acao)}
+            if event.value=='PRESS':
+                if event.type in {'ESC','RIGHTMOUSE'}:return {acao_escolha(context,'CANCELAR')}
+                if event.type=='BACK_SPACE':return {acao_escolha(context,'VOLTAR')}
+                if event.type in {'RET','NUMPAD_ENTER'}:return {acao_escolha(context,'CONFIRMAR')}
+            xy=(event.mouse_x-regiao.x,event.mouse_y-regiao.y)
+            dentro=0<=xy[0]<regiao.width and 0<=xy[1]<regiao.height
+            if event.type=='MOUSEMOVE' and dentro:
+                atualizar_escolha(context,xy)
+            if event.type=='LEFTMOUSE' and event.value=='PRESS' and dentro:
+                atualizar_escolha(context,xy)
+                return {acao_escolha(context,'PONTO')}
+            if not dentro or event.type in {'MIDDLEMOUSE','WHEELUPMOUSE','WHEELDOWNMOUSE','NDOF_MOTION'} or navegacao_de_saida(context,event):
+                return {'PASS_THROUGH'}
+            return {'RUNNING_MODAL'}
+        except Exception:
+            encerrar_escolha()
+            raise
+
+    def cancel(self,context):
+        encerrar_escolha()
+
     def execute(self, context):
         obj = bpy.data.objects.get(self.objeto) if self.objeto else context.object
-        erro = iniciar(context, obj)
+        erro = entrar_por_vertices(context,obj) if context.mode=='EDIT_MESH' else iniciar(context, obj)
         _aviso[0] = erro or ''
         if erro:
             self.report({'WARNING'}, erro)
@@ -1155,6 +1586,37 @@ class OBJECT_OT_sair_parede(Operator):
     def execute(self, context):
         encerrar()
         return {'FINISHED'}
+
+
+class AcaoDaArea:
+    @classmethod
+    def poll(cls,context):
+        return _escolha_area[0] is not None
+
+    def execute(self,context):
+        if _escolha_area[0] is None:
+            return {'CANCELLED'}
+        _escolha_area[0]['acao']=self.ACAO
+        _redesenhar()
+        return {'FINISHED'}
+
+
+class OBJECT_OT_confirmar_area_parede(AcaoDaArea,Operator):
+    bl_idname='object.cabinet_area_parede_confirmar'
+    bl_label='Confirmar area da parede'
+    ACAO='CONFIRMAR'
+
+
+class OBJECT_OT_voltar_area_parede(AcaoDaArea,Operator):
+    bl_idname='object.cabinet_area_parede_voltar'
+    bl_label='Remover ultimo ponto'
+    ACAO='VOLTAR'
+
+
+class OBJECT_OT_cancelar_area_parede(AcaoDaArea,Operator):
+    bl_idname='object.cabinet_area_parede_cancelar'
+    bl_label='Cancelar selecao da parede'
+    ACAO='CANCELAR'
 
 
 class OBJECT_OT_escolher_vao_parede(Operator):
@@ -1302,7 +1764,7 @@ class VIEW3D_MT_parede_cabinet(Menu):
 
 def menu_contexto(self, context):
     alvo = _alvo_contexto[0]
-    obj = bpy.data.objects.get(alvo) if alvo is not None else context.object
-    if superficie(obj) and context.mode == 'OBJECT':
+    obj = context.edit_object if context.mode=='EDIT_MESH' else bpy.data.objects.get(alvo) if alvo is not None else context.object
+    if superficie(obj) and context.mode in {'OBJECT','EDIT_MESH'}:
         self.layout.separator()
         self.layout.menu('VIEW3D_MT_parede_cabinet')

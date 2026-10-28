@@ -53,6 +53,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.parede.select_set(True)
         bpy.context.view_layer.objects.active = self.parede
         self.tmp = tempfile.TemporaryDirectory()
+        bpy.context.scene.pop('parede_ajuste_maximo_mm', None)
 
     def tearDown(self):
         E.encerrar()
@@ -74,11 +75,23 @@ class TestEdicaoParedes(unittest.TestCase):
         bpy.ops.object.cabinet_agrupar()
         return next(o for o in bpy.context.selected_objects if addon.chapas.MARCA_CONJUNTO in o)
 
-    def fixture(self, rotacao=0):
+    def fixture(self, rotacao=0, altura=None, com_rig=False):
         modulo = self.modulo()
+        if altura is not None:
+            addon.chapas._ocupado[0] = True
+            try:
+                modulo.conj_altura_mm = altura
+            finally:
+                addon.chapas._ocupado[0] = False
+            addon.modulos.redimensionar_conjunto(modulo)
         modulo.rotation_euler.z = rotacao
         bpy.context.view_layer.update()
         colecao = next(c for c in modulo.users_collection if c.get('eh_colecao_modulo'))
+        if com_rig:
+            rig = bpy.data.objects.new('Controle regeneravel', None)
+            colecao.objects.link(rig)
+            rig.parent = modulo
+            rig['teste_regeneravel'] = True
         caminho = os.path.join(self.tmp.name, 'modelo.blend')
         bpy.data.libraries.write(caminho, {colecao})
         for obj in [modulo] + list(modulo.children_recursive):
@@ -727,6 +740,332 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertLess(f['largura'], 1)
         self.assertTrue(modulo.visible_get(viewport=self.area.spaces.active))
         self.assertIsNone(op._novos)
+
+    # Regressao (era BUG, corrigido na 363): recusa silenciosa pelo piso.
+    def test_arraste_bloqueado_por_piso_mostra_previa_e_motivo_sem_alterar_modelo(self):
+        caminho = self.fixture(altura=2620)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.addCleanup(lambda: op._cancelar(bpy.context))
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                op._mover(bpy.context, evento)
+            self.assertFalse(op._valido)
+            self.assertTrue(getattr(op, '_erro_posicionamento', ''))
+            self.assertEqual(len(op._bbox_atual), 8)
+            self.assertAlmostEqual(max(p.z for p in op._bbox_atual) - min(p.z for p in op._bbox_atual), 2.620, places=5)
+            self.assertIn('2620', op._erro_posicionamento)
+
+    # Regressao (era BUG, corrigido na 363): aviso apontava fora da viewport.
+    def test_soltar_arraste_invalido_relata_restricao_e_limpa_tentativa(self):
+        caminho = self.fixture(altura=2620)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        antes = set(bpy.data.objects.keys())
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            op._arrastando, op._moveu = True, True
+            evento = SimpleNamespace(type='LEFTMOUSE', value='RELEASE',
+                      mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            mensagens = []
+            op.report = lambda _tipo, texto: mensagens.append(texto)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
+        self.assertEqual(set(bpy.data.objects.keys()), antes)
+        self.assertTrue(any('2620' in texto and 'vao' in texto for texto in mensagens), mensagens)
+        self.assertIsNone(op._handler_preview)
+        self.assertIsNone(op._handler_aviso)
+
+    # Regressao (era BUG, corrigido na 363): caixa antiga sobrava fora da vista.
+    def test_arraste_recupera_encaixe_ao_sair_do_obstaculo_sem_mudar_dimensoes(self):
+        caminho = self.fixture(altura=1200)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.addCleanup(lambda: op._cancelar(bpy.context))
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, .05))):
+                op._mover(bpy.context, evento)
+            self.assertFalse(op._valido)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.4))):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            self.assertFalse(getattr(op, '_erro_posicionamento', ''))
+            self.assertAlmostEqual(max(p.z for p in op._bbox_atual) - min(p.z for p in op._bbox_atual), 1.2, places=5)
+            evento.mouse_x = evento.mouse_y = -100
+            op._mover(bpy.context, evento)
+            self.assertFalse(op._valido)
+            self.assertFalse(getattr(op, '_erro_posicionamento', ''))
+            self.assertFalse(op._bbox_atual)
+
+    def test_previa_invalida_desenha_caixa_vermelha_e_valida_volta_ao_verde(self):
+        from unittest.mock import Mock
+        B = addon.biblioteca
+        caminho = self.fixture()
+        self.iniciar()
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.addCleanup(lambda: op._cancelar(bpy.context))
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.4))):
+                op._mover(bpy.context, evento)
+            shader = Mock()
+            gpu = SimpleNamespace(state=Mock(), shader=SimpleNamespace(from_builtin=lambda _: shader))
+            lote = Mock()
+            with patch.object(B, 'gpu', gpu), patch.object(B, 'batch_for_shader', return_value=lote):
+                op._valido = False
+                op._desenhar_preview()
+                shader.uniform_float.assert_any_call('color', (1.0, .15, .1, .9))
+                self.assertEqual(lote.draw.call_count, 2)
+                shader.reset_mock()
+                op._valido = True
+                op._desenhar_preview()
+                shader.uniform_float.assert_any_call('color', (.1, 1.0, .2, .9))
+
+    def test_ajuste_automatico_de_tres_mm_preserva_espessuras_e_previa_confere(self):
+        caminho = self.fixture(altura=2603)
+        addon.biblioteca.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            chapas = [o for o in op._novos if addon.chapas.MARCA_CHAPA in o]
+            for o in chapas:
+                bm = bmesh.new()
+                try:
+                    bm.from_mesh(o.data)
+                    bmesh.ops.subdivide_edges(bm, edges=list(bm.edges), cuts=1, use_grid_fill=True)
+                    bm.to_mesh(o.data)
+                finally:
+                    bm.free()
+                o.data.update()
+                addon.chapas.guardar_referencia_malha(o, o.chapa_largura_mm / 1000, o.chapa_comprimento_mm / 1000)
+            antes = [(o, (len(o.data.vertices), len(o.data.polygons)), o.chapa_espessura_mm,
+                       max(v.co.z for v in o.data.vertices) - min(v.co.z for v in o.data.vertices)) for o in chapas]
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                op._mover(bpy.context, evento)
+                self.assertTrue(op._valido)
+                self.assertIn('Ajustado', op._aviso_ajuste)
+                prevista = [tuple(p) for p in op._bbox_atual]
+                self.assertAlmostEqual(max(p[2] for p in prevista) - min(p[2] for p in prevista), 2.6, places=5)
+                real = P.caixa_do_modulo(op._raizes[0])
+                self.assertAlmostEqual(real[1].z - real[0].z, 2.603, places=5)
+                # A segunda consulta reaproveita somente numeros, sem nova BVH.
+                with patch.object(E, '_alturas_para_ajuste', side_effect=AssertionError('Repetiu BVH')):
+                    op._mover(bpy.context, evento)
+            self.assertEqual(op._confirmar(bpy.context), {'FINISHED'})
+        modulo = bpy.context.object
+        f = addon.paredes_composicao.ficha(modulo, E._sessao[0])
+        self.assertAlmostEqual(f['altura'], 2.6, places=5)
+        self.assertAlmostEqual(f['base'], .1, places=5)
+        self.assertAlmostEqual(f['inicio'], min(p[0] for p in prevista), places=5)
+        for o, topologia, espessura, fisica in antes:
+            self.assertEqual((len(o.data.vertices), len(o.data.polygons)), topologia)
+            self.assertEqual(o.chapa_espessura_mm, espessura)
+            self.assertAlmostEqual(max(v.co.z for v in o.data.vertices) - min(v.co.z for v in o.data.vertices), fisica, places=6)
+        # A biblioteca real usa a caixa gravada: encaixar sem carregar madeira.
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.assertIsNotNone(op._previa)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((.9, 1, 1.35))):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            self.assertAlmostEqual(max(v.z for v in op._bbox_atual) - min(v.z for v in op._bbox_atual), 2.6, places=5)
+            self.assertEqual(op._confirmar(bpy.context), {'RUNNING_MODAL'})
+            self.assertEqual(op._carregar(bpy.context), {'FINISHED'})
+        f = addon.paredes_composicao.ficha(bpy.context.object, E._sessao[0])
+        self.assertAlmostEqual(f['altura'], 2.6, places=5)
+        self.assertAlmostEqual(f['base'], .1, places=5)
+        self.assertIsNone(op._handler_aviso)
+        self.assertIsNone(op._handler_preview)
+
+    def test_ajuste_maximo_no_menu_persiste_zero_desliga_e_limite_recusa(self):
+        caminho = self.fixture(altura=2603)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        itens = []
+        E.widgets(bpy.context, itens, 12, 1000, 320)
+        campo = next(v for v in itens if v[5] and v[5][:3] == ('medida', 'paredes', 'ajuste_maximo'))
+        self.assertEqual(campo[5][-1], 10)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            self.addCleanup(lambda: op._cancelar(bpy.context))
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            for limite, valido in ((0, False), (2, False), (4, True)):
+                self.assertIsNone(E.editar_parametro('ajuste_maximo', limite))
+                with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                    op._mover(bpy.context, evento)
+                self.assertEqual(op._valido, valido)
+                self.assertEqual(bpy.context.scene['parede_ajuste_maximo_mm'], limite)
+        E.encerrar()
+        self.iniciar()
+        self.assertEqual(E._sessao[0]['ajuste_maximo'], 4)
+
+    def test_ajuste_de_largura_no_vao_nao_altera_altura_ou_profundidade(self):
+        caminho = self.fixture(altura=1200)
+        caixa('Apoio esquerdo', (1.2, .55, 2.7), (-.9, .725, 1.35))
+        caixa('Apoio direito', (1.203, .55, 2.7), (.8985, .725, 1.35))
+        self.iniciar()
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            original = op._caixa_parede_base[1] - op._caixa_parede_base[0]
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            self.assertAlmostEqual((op._caixa_prevista[1] - op._caixa_prevista[0]).x, .597, places=5)
+            self.assertEqual(op._confirmar(bpy.context), {'FINISHED'})
+        real = P.caixa_do_modulo(bpy.context.object)
+        tamanho = real[1] - real[0]
+        self.assertAlmostEqual(tamanho.x, .597, places=5)
+        self.assertAlmostEqual(tamanho.y, original.y, places=5)
+        self.assertAlmostEqual(tamanho.z, original.z, places=5)
+
+    def test_ajuste_em_parede_e_preset_girados_preserva_encaixe_e_cancelamento(self):
+        caminho = self.fixture(rotacao=1.1, altura=2603)
+        caixa('Piso elevado', (10, 10, .1), (0, 0, .05))
+        self.parede.rotation_euler.z = .6
+        bpy.context.view_layer.update()
+        self.iniciar()
+        antes = set(bpy.data.objects.keys())
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            p = Vector(E._sessao[0]['ponto']); p.z = 1.35
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(E, 'ponto_no_evento', return_value=p):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            self.assertAlmostEqual(max(v.z for v in op._bbox_atual) - min(v.z for v in op._bbox_atual), 2.6, places=5)
+            self.assertEqual(op._cancelar(bpy.context), {'CANCELLED'})
+        self.assertEqual(set(bpy.data.objects.keys()), antes)
+        self.assertIsNone(op._handler_aviso)
+        self.assertIsNone(op._handler_preview)
+
+    def test_ajuste_na_insercao_tem_undo_redo_nativo_com_dimensoes_finais(self):
+        caminho = self.fixture(altura=2603)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        bpy.ops.ed.undo_push(message='Antes do ajuste automatico')
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            self.assertEqual(bpy.ops.object.cabinet_inserir_preset(pasta=self.tmp.name,
+                arquivo=os.path.basename(caminho), tipo='modulo'), {'FINISHED'})
+        nome = bpy.context.object.name
+        self.assertAlmostEqual(addon.modulos.medir_conjunto(bpy.context.object)[1], 2600, places=2)
+        bpy.ops.ed.undo_push(message='Ajuste automatico concluido')
+        bpy.ops.ed.undo()
+        addon.eventos._fim_do_desfazer()
+        self.assertNotIn(nome, bpy.data.objects)
+        self.assertFalse(E.ativa())
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        bpy.context.view_layer.update()
+        restaurado = bpy.data.objects[nome]
+        self.assertIn(restaurado.name, bpy.context.scene.objects)
+        self.assertAlmostEqual(addon.modulos.medir_conjunto(restaurado)[1], 2600, places=2)
+
+    def test_ajuste_no_atach_fora_do_modo_2d_confirma_o_mesmo_envelope(self):
+        caminho = self.fixture(altura=2603)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        acerto = P.raio_ate_parede(bpy.context, (0, -3, 1.35), (0, 1, 0), set())
+        self.assertEqual(acerto[0], self.parede)
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(P, 'raio_ate_parede', return_value=acerto), patch.object(P, '_px_por_metro', return_value=None):
+                op._mover(bpy.context, evento)
+            self.assertTrue(op._valido)
+            prevista = [p.copy() for p in op._bbox_atual]
+            self.assertEqual(op._confirmar(bpy.context), {'FINISHED'})
+        modulo = bpy.context.object
+        self.assertEqual(P.parede_do_modulo(modulo), self.parede)
+        lo, hi = P.caixa_do_modulo(modulo)
+        self.assertAlmostEqual(hi.z - lo.z, 2.6, places=5)
+        self.assertAlmostEqual(min(p.z for p in prevista), .1, places=5)
+        self.assertAlmostEqual(P.ponto_das_costas(modulo).z, .1, places=5)
+
+    def recriar_controle(self, modulo):
+        antigo = next(o for o in modulo.children_recursive if o.get('teste_regeneravel'))
+        nome = antigo.name
+        colecao = antigo.users_collection[0]
+        bpy.data.objects.remove(antigo, do_unlink=True)
+        novo = bpy.data.objects.new(nome, None)
+        colecao.objects.link(novo)
+        novo.parent = modulo
+        novo['teste_regeneravel'] = True
+        return novo
+
+    # Regressao (era BUG, corrigido na 364): lista ainda apontava ao removido.
+    def test_registro_na_parede_descarta_referencias_removidas_e_inclui_recriadas(self):
+        modulo = self.modulo()
+        rig = bpy.data.objects.new('Controle regeneravel', None)
+        modulo.users_collection[0].objects.link(rig)
+        rig.parent = modulo
+        rig['teste_regeneravel'] = True
+        novos = [modulo, *modulo.children_recursive]
+        atual = self.recriar_controle(modulo)
+        self.iniciar()
+        n = Vector(E._sessao[0]['normal'])
+        P.colocar_na_parede(modulo, self.parede, Vector((0, 1, 0)), n)
+        P.associar(modulo, self.parede, Vector((0, 1, 0)), n)
+        E.registrar_posicionado(bpy.context, modulo, novos)
+        self.assertEqual(set(novos), {modulo, *modulo.children_recursive})
+        self.assertIn(atual, novos)
+        self.assertTrue(all(E.esta_na_vista(o, self.area.spaces.active, bpy.context) for o in novos))
+
+    # Regressao (era BUG, corrigido na 364): resize invalida append/Local View.
+    def test_importacao_com_resize_e_geracao_nova_funciona_com_e_sem_cache(self):
+        caminho = self.fixture(altura=2603, com_rig=True)
+        B = addon.biblioteca
+        B.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        redimensionar = addon.modulos.redimensionar_orientado
+        gerados = []
+        def remontar(modulo, medidas):
+            redimensionar(modulo, medidas)
+            gerados.append(self.recriar_controle(modulo))
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            for x, em_cache in ((-.8, False), (.8, True)):
+                op = self.arraste_de_teste(caminho)
+                self.assertEqual(op._previa is not None, em_cache)
+                evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+                with patch.object(E, 'ponto_no_evento', return_value=Vector((x, 1, 1.35))):
+                    op._mover(bpy.context, evento)
+                with patch.object(addon.modulos, 'redimensionar_orientado', side_effect=remontar):
+                    resultado = op._confirmar(bpy.context)
+                    if em_cache:
+                        self.assertEqual(resultado, {'RUNNING_MODAL'})
+                        resultado = op._carregar(bpy.context)
+                    self.assertEqual(resultado, {'FINISHED'})
+                modulo = bpy.context.object
+                self.assertAlmostEqual(addon.modulos.medir_conjunto(modulo)[1], 2600, places=2)
+                self.assertEqual(set(op._novos), {modulo, *modulo.children_recursive})
+                self.assertTrue(gerados[-1].select_get())
+                self.assertTrue(E.esta_na_vista(gerados[-1], self.area.spaces.active, bpy.context))
+                self.assertIsNone(op._handler_preview)
+                self.assertIsNone(op._handler_aviso)
+
+    # Regressao (era BUG, corrigido na 364): nova geracao sobrava no cancelar.
+    def test_falha_no_resize_limpa_tambem_componentes_recriados(self):
+        caminho = self.fixture(altura=2603, com_rig=True)
+        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        self.iniciar()
+        antes = set(bpy.data.objects.keys())
+        def falhar(modulo, _medidas):
+            self.recriar_controle(modulo)
+            raise ValueError('Falha durante remontagem')
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            op = self.arraste_de_teste(caminho)
+            evento = SimpleNamespace(mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
+            with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
+                op._mover(bpy.context, evento)
+            with patch.object(addon.modulos, 'redimensionar_orientado', side_effect=falhar):
+                self.assertEqual(op._confirmar(bpy.context), {'CANCELLED'})
+        self.assertEqual(set(bpy.data.objects.keys()), antes)
 
     def test_duplo_clique_no_posicionador_da_biblioteca_confirma_sem_mirar(self):
         caminho = self.fixture()

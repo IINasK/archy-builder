@@ -1,5 +1,80 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Referencias da importacao (364): resize pode remover/recriar ferragens ou
+controladores. A lista do append e' reconciliada com a hierarquia atual
+no finally do ajuste (inclusive quando falha); registro na parede faz a
+mesma reconciliacao antes de Local View/fios. Selecao e cancelamento
+compartilham a lista atualizada. Tres regressoes em paredes_edicao:
+controle nativo removido/recriado com mesmo nome, importacao com/sem caixa
+em cache apos resize real, falha na regeneracao sem deixar a nova geracao.
+Validacao 364: 2620 testes em 60 execucoes (Blender 4.2/5.2), OK;
+paredes_edicao com 81 testes por versao. Sem gestos GUI no projeto real.
+
+Encaixe automatico (363): caso real com parede de 2600 mm, piso elevado
+de 100 mm e armario de 2503 mm. Agora reduz a 2500 mm ate limite do menu
+(10 mm L/A; zero desliga), preserva E/modelagem/profundidade e o preset.
+Dez regressoes em paredes_edicao: piso/deficit 3 mm, largura reduzida no
+vao real, modelo e parede girados, limite 0/2/4 mm persistente, topologia/E
+conservadas, cache numerico da previa e resize so' na confirmacao, undo/redo
+nativo, atach fora do 2D, cancelamento/staging/handlers. Acima do limite, caixa vermelha e
+motivo/altura no POST_PIXEL/status; RELEASE relata a restricao real.
+Validacao: harness completo 4.2/5.2, 2614 testes/60 execucoes, OK; cache da
+biblioteca e carga adiada conferidos nas duas versoes. Auditoria separada
+com parede/piso reais e Armario Quarto 01: 2503 -> 2500 mm, dez chapas com
+E fisica/parametrica preservada; limite 2 mm recusa. Render Workbench
+conferido; projeto original nao gravado. Gestos GUI nao executados.
+
+Abas responsivas (362): sete categorias em linha enquanto as abreviacoes
+couberem com fonte 12/margem 18; abaixo disso, suspenso com nome completo
+da aba atual e as sete escolhas. Suite gaveta: limite real da fonte,
+abertura/troca/fecho pelo despacho normal, prioridade sobre conteudo,
+exclusividade com a cascata, rolagem sem perder campos e ida/volta de
+largura sem mudar malha/selecao. `test_cabecalho_tem_as_sete_abas` valida
+tambem os presets importados; snapshot atualiza apenas o cabecalho.
+Regressao do desenho cobre campo apos a limpeza do topo e destaque da
+escolha atual. Auditoria visual: renderizador GPU/BLF nativo, offscreen em
+564/320/190 px, sem abrir janela ou alterar a cena; gestos GUI nao rodados.
+Validacao 362: harness completo 4.2/5.2, 2594 testes em 60 execucoes, OK;
+gaveta com 79 testes por versao (oito regressoes novas), snapshot revisado.
+
+Selecao de parede (361): Edit Mode usa vertices/faces BMesh conectados,
+mesma orientacao (1 grau) e mesmo plano (2 mm), sem reconstruir a selecao.
+Object Mode: Editar parede inicia Automatico por hover; Por pontos marca
+poligono com 3+ cantos. Esquerdo adiciona, Backspace remove, Enter confirma,
+direito/Esc cancela. Menu lateral tem metodo e acoes equivalentes; eventos
+fora da viewport passam, navegacao nativa permanece durante a escolha.
+Hover reutiliza raycast e realce do atach; cache por regiao, sem varrer
+vertices Python no gesto. Triangulacao e' nativa, recorte respeita concavidade,
+buracos e limites reais. Pontos ficam no plano da primeira face escolhida.
+Local View mostra somente a exibicao temporaria do trecho e os moveis
+REAIS associados por plano/area, incluindo descendentes. A planta original
+fica fora dessa viewport, sem modificar sua Mesh, materiais ou modelagem.
+Raycast da insercao resolve o UID/face da fonte, nunca associa ao temporario.
+Sair/orbitar/salvar/desativar remove a exibicao e restaura estados nativos;
+undo/redo remove restos somente no timer normal, depois da guarda nativa.
+Se a fonte mudar ou a exibicao desaparecer, encerra e devolve a cena.
+Seletores novos aparecem no grupo Paredes de Modulos ou durante a escolha;
+nao invadem segmentos dos assistentes de portas/gavetas/prateleiras.
+`test_paredes_selecao_blender` (34): planta monolitica com parede frontal
+bloqueando o raio antigo, selecao BMesh, conectividade, orientacao, tolerancia,
+3+ pontos, concavidade, janela, bordas coincidentes, hover/cache, Enter/
+Backspace/Esc/direito, acoes do menu fora da viewport, parede girada,
+moveis de outra area/face, fonte nao editavel sem residuos, Local View
+anterior, ocultacao manual, restauro, exclusao, fonte movida e undo/redo.
+Cenario reproduzivel e renders antes/depois: `D:/Blender/Backups/CabinetCreator/`
+`paredes361-cenario.blend`, `paredes361-antes.png`, `paredes361-depois.png`;
+script `paredes361-visual.py`. Render aplica os membros da Local View SO'
+aos hide_render da cena de teste; projeto do usuario nao foi modificado.
+AGENTS/CLAUDE e seus espelhos de tests agora exigem explicitamente cenario
+por bug/melhoria, com parametros e resultados, em dados temporarios.
+Pendencias anteriores commitadas ANTES desta implementacao: e786876 e
+564233d; sem push. Sem consulta ao Home Builder nesta etapa.
+Validacao final 361 (2026-10-27): 2578 testes em 60 execucoes, TUDO OK
+no Blender 4.2/5.2. Log: `D:/Blender/Backups/CabinetCreator/paredes361-completo.log`.
+Pacote dist/cabinet_creator.zip v361 conferido. Novas alteracoes sem commit;
+ativacao na instancia aberta exige recarregar o add-on. Sem harness GUI
+de gestos reais: validacao visual por render na cena descartavel acima.
+
 Fundos por vao (360): aba Fundos, dois cantos com AssistenteDoVao/snap
 nativo, undo unico e selecao da chapa. Canal recuado 6/9 mm usa Boolean
 EXACT nos apoios, sem substituir suas malhas; sobreposto pregado fica por

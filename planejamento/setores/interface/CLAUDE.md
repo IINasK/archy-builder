@@ -12,9 +12,7 @@ Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
 Fundos (360): aba propria com campos/segmentos existentes e Criar Fundo
 no SOLTAR. UNPINNED desassocia na aba Fundos ou nos internos vinculados.
 ## Rota de trabalho
-
 Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
-
 | Tarefa | Arquivo: funcao/classe | Suite |
 |---|---|---|
 | Contexto/layout | gaveta.py: `_widgets_gaveta`, `_widgets_interativos` | gaveta, estrutura, snapshot |
@@ -30,13 +28,16 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
 | Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
 ## Decisoes de interacao
-
+- Parede 361: Edit Mode usa vertices; Object Mode tem Automatico/Por pontos
+  no grupo Paredes. Modal repassa eventos do menu/navegacao; esquerdo marca,
+  Backspace volta, Enter confirma, direito/Esc cancela; menu oferece iguais
+  acoes. Hover reutiliza o desenho do atach, sem inferencia no redraw.
 - Parede (299): menu nao exibe nem edita medidas da parede identificada.
   Na edicao 2D, cotas sao dos modulos/vaos; clique digita, Esc cancela.
   Parede e modulos solidos/OBJECT/FLAT com contornos pretos nativos. Estado
   anterior e' devolvido na saida; G/Tab continuam nativos. Redistribuir
   exige comando (fora do menu desde 338); troca so' apos confirmar.
-  Orbita volta a PERSP; biblioteca solta no cursor sem esticar. Duplo clique
+  Orbita volta a PERSP; biblioteca ajusta L/A ate limite do menu (363). Duplo clique
   segue o ultimo para a direita ou centra na parede quando exceder.
   Chapas usam show_wire nativo temporario; ferragens ficam sem a sobreposicao.
   So' nesta vista, clique em qualquer peca seleciona modulo; duplo isola.
@@ -44,7 +45,6 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   proximas da peca; extracao no timer, redraw consulta somente cache numerico.
   Cotas (301): traco do tema sobre halo opaco, setas e fonte minima 14;
   item ativo usa realce da HUD. Numeros desenhados depois das linhas.
-
 - Sim/Nao passa por `_perguntar`: pop-up SO' da viewport; botao do menu =
   caixa preta na gaveta; pergunta da biblioteca fica na faixa. Nunca abrir
   `popup_menu` em background. Operador que abre modal/pergunta dispara no
@@ -92,7 +92,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   nativo. `OBJECT_OT_selecionar.poll` recusa fora de Object Mode ou com
   `selecao_por_grupo` desligada; props SKIP_SAVE.
 ## Gaveta e biblioteca
-
+- Abas (362): sem espaco (BLF/fonte 12/margem 18), suspenso fixo com aba atual; lista flutuante despacha `aba`. Prefixo dinamico.
 - Gaveta por CONTEXTO em toda aba: sem selecao, SO' criar laranja (Modulos:
   nada); criando, campos etapa a etapa, copia clicavel da caixa atendida
   pelo modal; selecionado, SO' controles do ITEM. Porta sem dobradica;

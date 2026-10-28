@@ -1106,12 +1106,17 @@ class TestImportacao(unittest.TestCase):
         # e as Prateleiras/Divisorias vem antes de Puxadores.
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
-            cabecalho = widgets[:addon.gaveta.WIDGETS_CABECALHO]
-            self.assertEqual([w[5][0] for w in cabecalho], ['aba'] * 7)
+            cabecalho = addon.gaveta._partes_gaveta(widgets)[0]
+            if largura < 400:
+                self.assertEqual(len(cabecalho), 1)
+                self.assertEqual(cabecalho[0][5][:2], ('suspenso', addon.gaveta.CHAVE_ABAS))
+                self.assertEqual(cabecalho[0][5][4], tuple(a[0] for a in addon.gaveta.ABAS_GAVETA))
+            else:
+                self.assertEqual([w[5][0] for w in cabecalho], ['aba'] * 7)
+                self.assertEqual([w[5][1] for w in cabecalho],
+                                 ['MODULOS', 'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'])
             self.assertFalse(any(w[5] and w[5][0] == 'operador'
                                  and w[1] > 1200 - 48 for w in widgets))
-            self.assertEqual([w[5][1] for w in cabecalho if w[5][0] == 'aba'],
-                             ['MODULOS', 'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'])
             fim = cabecalho[-1]
             self.assertAlmostEqual(fim[0] + fim[2], 12 + min(540, largura - 24))
         # sem selecao, as correntes nao tem o que ligar

@@ -246,7 +246,7 @@ A nas quinas. Recorte < 100 mm (quina de tras aberta) nao muda o desenho.
 Na aba Modulos o mesmo modulo ganha a secao FORMATO (P1, P2, Raio e o
 Angulo da diagonal, que deixa a frente do canto parada).
 
-**Gavetas (aba propria, pedido do usuario).** Cabecalho com 7 abas (Modulos | Portas | Fundos | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Fundo | Gav. | Prat. | Div. | Pux.). Fundos: Criar Fundo no topo, dois pontos/snap nativo; tipos Em canal/Sobreposto (pregado)/Interno rente, espessuras 6/9/15 e campos existentes. Desassociar fundo usa UNPINNED com texto, sem corrente/regua; tambem nos internos vinculados. Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
+**Gavetas (aba propria, pedido do usuario).** Cabecalho com 7 abas (Modulos | Portas | Fundos | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Fundo | Gav. | Prat. | Div. | Pux.). Se nem as abreviacoes couberem, substitui a linha por um suspenso fixo com o nome completo da aba atual. Limite medido por BLF com a mesma fonte 12 e margem lateral 9 do desenho, sem corte fixo por largura. Lista flutuante oferece as sete categorias, atende antes do conteudo e fecha ao escolher, clicar no campo ou fora; a troca conserva o contexto e zera a rolagem da aba. Alargar devolve a linha sem alterar a selecao. Separacao cabecalho/conteudo usa prefixo dinamico, nao sete widgets fixos. Fundos: Criar Fundo no topo, dois pontos/snap nativo; tipos Em canal/Sobreposto (pregado)/Interno rente, espessuras 6/9/15 e campos existentes. Desassociar fundo usa UNPINNED com texto, sem corrente/regua; tambem nos internos vinculados. Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
 o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
 a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
 scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
@@ -605,7 +605,7 @@ pendencias aparecem numa caixa preta logo abaixo, dentro do painel, por
 "Criar Puxador": mesmo padrao do "Criar Portas" -- LARANJA, no topo da
 aba Puxadores, largura inteira, texto centralizado, mais forte enquanto
 posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
-"Editar parede" / "Sair da edicao da parede" (v339, pedido do usuario):
+"Editar parede" / "Sair da edicao da parede" (v361): tres entradas -- vertices BMesh conectados em Edit Mode (1 grau/2 mm), Automatico por hover e Por pontos (3+ pontas) em Object Mode. Esquerdo marca, Backspace volta, Enter aceita, direito/Esc cancela; menu lateral oferece as mesmas acoes. Hover reaproveita o realce do atach. Local View usa exibicao temporaria SO' da area, mantendo moveis reais associados; a malha original nao muda e as outras partes da mesma planta deixam de bloquear a camera. Sair restaura isolamento/ocultacao; limpeza de undo no timer normal. Seletores de metodo ficam em Modulos ou durante a escolha, sem invadir outros assistentes. Entrar/sair continuam:
 o mesmo padrao, 30 px, laranja para entrar e laranja forte para sair
 (`OPERADORES_DESTAQUE`, tupla: a acao nunca e' hasheada).
 Posicionando, aparece o MODELO num carrossel de RETRATOS (pedido do
@@ -747,6 +747,17 @@ Arrastar da biblioteca (v321, como o BlenderKit): so' o WIREFRAME, pela
 wireframe fica parado com "Carregando <nome>..." (caixa preta da HUD) e o
 .blend carrega no tique seguinte, ja' no lugar (parede/associacao
 inclusive). Preset sem `caixa`: o 1o arraste carrega antes e a grava.
+Encaixe no arraste (363): Ajuste maximo no grupo Paredes, padrao 10 mm por
+dimensao (L/A); zero desliga. Reduz so' o necessario, sem aumentar ou mudar
+profundidade/E. Apoios/obstaculos reais e aberturas definem o vao sob o
+cursor; nao saltar para outra fileira. Previa numerica mostra tamanho e
+aviso Ajustado; so' confirmar chama o resize do dominio. Piso/teto/objetos
+fora da vista continuam limitando fisicamente. Limite excedido = caixa
+vermelha e aviso preto/branco com altura/causa, tambem na barra de status.
+Vale no 2D e atach fora dele; soltar invalido cancela so' a tentativa.
+Cache numerico pertence ao modal; confirmar recalcula. Sair da viewport
+limpa a previa antiga. POST_PIXEL compartilhado com o carregamento sai
+no encerramento; o preset da biblioteca nao e' modificado.
 
 Zig-zag (pedido do usuario): o assistente oferece 1-8 folhas e filtra as
 aberturas pela quantidade; Zig-zag aceita 2-8. Escolher a borda determina

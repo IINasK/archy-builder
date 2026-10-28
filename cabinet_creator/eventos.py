@@ -10,7 +10,7 @@ _ferragens = _prateleiras = _selecao = _formas = _divisorias = None
 _frentes = _solda = _fundos = None
 _hud_volume = None
 _gavetas = None
-_paredes_edicao = None
+_paredes_edicao = _paredes_selecao = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -266,6 +266,7 @@ def _esquecer_referencias(*_args):
     essas acoes liberam (ver `_hud._alvo_vivo`). O proximo movimento do mouse
     acha o alvo de novo."""
     _paredes_edicao.encerrar()
+    _paredes_selecao.esquecer()
     _paredes_edicao._ultima_face[0] = None
     _paredes_edicao._alvo_contexto[0] = None
     _hud._hover_hud.clear()

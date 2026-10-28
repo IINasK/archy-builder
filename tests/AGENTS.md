@@ -35,6 +35,10 @@ liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
 
 ## Regras
 
+Cada bug corrigido exige cenario reproduzivel que demonstre a falha antiga.
+Cada melhoria exige cenario com parametros e resultados esperados. Criar
+cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
+
 1. **Funcionalidade nova = teste novo no mesmo commit.** A trava falha
    se uma classe registrada nao e' citada por nenhum teste. Excecao so'
    em `SEM_TESTE_ACEITO` (com motivo); a lista so' encolhe.
