@@ -1,5 +1,20 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Selecao multipla de unidades de gaveta (384): apos duplo clique isolar uma,
+Shift+clique em outra do mesmo vao soma somente essa unidade. Shift+duplo
+remove a selecao global daquele vao antes de isolar, pois o primeiro PRESS
+pode ter somado o conjunto inteiro; outros objetos/grupos ficam selecionados.
+Clique simples sem Shift continua global; portas/puxadores mantem gestos.
+HUD +3: sequencia real das props do keymap PRESS/DOUBLE_CLICK/Shift, duas
+unidades com Tab nativo sem incluir a terceira, Shift+duplo conservando
+objeto externo e selecao individual, volta ao conjunto por clique simples.
+As duas primeiras reproduziram a falha anterior (selecao384-repro.log).
+Helper restaura a aba do menu por cleanup, sem contaminar os outros testes.
+Validacao direcionada: 658 testes / 6 execucoes, tudo OK nos Blenders 4.2/5.2
+(selecao384-cenarios.log). Gestos fisicos na janela nao executados.
+Harness completo: 2984 testes / 64 execucoes, tudo OK nos Blenders 4.2/5.2
+(selecao384-completo.log). ZIP 384 conferido contra as 39 fontes Python.
+
 Tab em gaveta individual (383): selecao.malhas_para_editar reconhece
 eh_gaveta, alem do conjunto eh_grupo_gavetas. A mesma entrada de grupos
 abre caixa e puxador no Edit Mode multiobjeto nativo, sem incluir outras

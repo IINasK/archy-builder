@@ -1148,6 +1148,11 @@ def selecionar(context, obj, nivel, somar=False):
         return False
     alvo = gaveta_de(obj) if nivel == 'GAVETA' else None
     alvo = alvo or grupo
+    if somar and alvo!=grupo and grupo.select_get():
+        # O primeiro PRESS do Shift+duplo somou o vao; isolar so' este vao.
+        for o in context.selected_objects:
+            if o==grupo or grupo_de(o)==grupo:
+                o.select_set(False)
     if not somar:
         for o in context.selected_objects:
             o.select_set(False)

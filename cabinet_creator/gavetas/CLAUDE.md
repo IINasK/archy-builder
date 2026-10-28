@@ -32,6 +32,7 @@ Puxadores e referencia da frente: [portas](../portas/AGENTS.md), `../frentes.py`
 - Trilho e' BLOCAGEM em tamanho real; o modelo definitivo nao esta' pronto.
 - Clique = todas, duplo = uma; SO' elas com linha na HUD. Slider ANDA com
   a frente e nunca fica coberto. Modulo selecionado absorve os filhos.
+- Selecao 384: depois de isolar unidade, Shift+clique soma outra do mesmo vao. Shift+duplo reduz so' o vao clicado, preservando selecoes externas. Clique sem Shift continua grupo; Tab edita somente as unidades escolhidas.
 - Alt edita 3 pontos: duas quinas da frente + profundidade. Snap NATIVO pelo
   translate do cursor; Esc restaura cursor E alvos.
 - Redimensionar move pela face proxima sem crescer. Consumir a folga real

@@ -321,9 +321,12 @@ class OBJECT_OT_selecionar(Operator):
             # GAVETA (pedido do usuario, como a porta): clique = todas as
             # gavetas do vao, duplo = so' aquela; Shift soma. O corpo do
             # modulo continua selecionando o modulo.
+            grupo=_gavetas.grupo_de(atingido[0])
+            somar=self.toggle or self.extend
+            individual=(self.modo=='INDIVIDUAL' or (somar and not grupo.select_get()
+                and any(g.select_get() for g in _gavetas.gavetas_do_grupo(grupo))))
             _gavetas.selecionar(context, atingido[0],
-                                'GAVETA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
-                                somar=self.toggle or self.extend)
+                                'GAVETA' if individual else 'GRUPO',somar=somar)
             return {'FINISHED'}
         if atingido is not None and _divisorias.grupo_de(atingido[0]) is not None:
             _divisorias.selecionar(context, atingido[0],

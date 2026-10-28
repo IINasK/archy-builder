@@ -2456,6 +2456,54 @@ class TestHUD(unittest.TestCase):
         self.clicar_pelo_keymap(chapa, 'PRESS', shift)
         self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK', shift)
 
+    def _gavetas_para_clique(self):
+        self.addCleanup(setattr,bpy.context.scene,'cabinet_aba',bpy.context.scene.cabinet_aba)
+        modulo=self.modulo()
+        grupo=addon.gavetas.criar_gavetas(bpy.context,modulo,(18,18,18,18,0),
+                                         dict(quantidade=3,profundidade_mm=300))
+        unidades=addon.gavetas.gavetas_do_grupo(grupo)
+        return grupo,unidades,[addon.gavetas.frente_da_gaveta(g) for g in unidades]
+
+    # Regressao (era BUG, corrigido na 384): Shift voltava ao vao inteiro.
+    def test_shift_apos_duplo_na_gaveta_soma_unidade_sem_expandir_conjunto(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        self.duplo(frentes[0])
+        self.clicar_pelo_keymap(frentes[2],'PRESS',shift=True)
+        self.assertFalse(grupo.select_get())
+        self.assertTrue(unidades[0].select_get());self.assertTrue(unidades[2].select_get())
+        self.assertFalse(any(o.select_get() for o in [unidades[1],*unidades[1].children_recursive]))
+        self.assertIs(bpy.context.object,unidades[2])
+        esperados={o for g in (unidades[0],unidades[2]) for o in g.children_recursive if o.type=='MESH'}
+        self.assertEqual(set(addon.selecao.malhas_para_editar(bpy.context)),esperados)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertEqual(set(bpy.context.objects_in_mode),esperados)
+        bpy.ops.object.cabinet_editar_grupo()
+        self.assertFalse(grupo.select_get())
+
+    def test_shift_duplo_encolhe_so_o_grupo_da_gaveta_e_conserva_objeto_externo(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        bpy.ops.mesh.primitive_cube_add(location=(3,0,0))
+        externo=bpy.context.object
+        self.duplo(frentes[0],shift=True)
+        self.assertFalse(grupo.select_get())
+        self.assertTrue(unidades[0].select_get())
+        self.assertFalse(any(g.select_get() for g in unidades[1:]))
+        self.assertTrue(externo.select_get())
+        self.duplo(frentes[2],shift=True)
+        self.assertTrue(unidades[0].select_get());self.assertTrue(unidades[2].select_get())
+        self.assertFalse(unidades[1].select_get())
+        self.assertTrue(externo.select_get())
+        self.assertIs(bpy.context.object,unidades[2])
+
+    def test_clique_simples_da_gaveta_ainda_seleciona_todo_o_conjunto(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        self.duplo(frentes[0])
+        self.clicar_pelo_keymap(frentes[2],'PRESS',shift=True)
+        self.clicar_pelo_keymap(frentes[1],'PRESS')
+        self.assertTrue(grupo.select_get())
+        self.assertTrue(all(g.select_get() for g in unidades))
+        self.assertIs(bpy.context.object,grupo)
+
     def test_material_nativo_usa_chapa_mestre_sem_perder_modulos_selecionados(self):
         destino, outro = self.dois_modulos()
         origem = addon.modulos._chapas_do_conjunto(outro)[0]
