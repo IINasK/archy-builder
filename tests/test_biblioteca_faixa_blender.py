@@ -106,7 +106,8 @@ class TestFaixa(unittest.TestCase):
                 self.assertEqual(F.acoplada(tela), lugar_escolhido == 'MENU')
                 with patch.object(F, 'abrir') as abrir, \
                      patch.object(addon.gaveta, '_area_gaveta',
-                                  return_value=SimpleNamespace(x=0, y=0, width=10, height=10)):
+                                  return_value=SimpleNamespace(type='VIEW_3D', x=0, y=0, width=10, height=10)), \
+                     patch.object(addon.editor, 'configurar'):
                     addon.gaveta._reconectar_gavetas()
                 self.assertEqual(abrir.called, migra, lugar_escolhido)
         finally:
@@ -504,7 +505,8 @@ class TestFaixa(unittest.TestCase):
             cabinet_editar_modelo=Mock(return_value={'RUNNING_MODAL'}),
             cabinet_bloqueio=Mock(return_value={'FINISHED'})))
         op = SimpleNamespace(pasta=it['pasta'], arquivo=it['arquivo'], report=Mock())
-        with patch.object(F, 'bpy', SimpleNamespace(ops=ops)):
+        with patch.object(F, 'bpy', SimpleNamespace(ops=ops)), \
+             patch.object(addon.editor, 'bpy', SimpleNamespace(ops=ops)):
             for indice in range(3):
                 op.indice = indice
                 self.assertEqual(F.OBJECT_OT_acao_item_biblioteca.execute(op, self.ctx), {'FINISHED'})
@@ -530,7 +532,7 @@ class TestFaixa(unittest.TestCase):
         op = SimpleNamespace(pasta=it['pasta'], arquivo=it['arquivo'], indice=0, report=Mock())
         posicionar = Mock(return_value={'RUNNING_MODAL'})
         with patch.object(addon.gaveta_eventos, '_modelo_do_criador', return_value='CRIAR') as criador, \
-             patch.object(F, 'bpy', SimpleNamespace(ops=SimpleNamespace(object=SimpleNamespace(
+             patch.object(addon.editor, 'bpy', SimpleNamespace(ops=SimpleNamespace(object=SimpleNamespace(
                  cabinet_posicionar_puxador=posicionar)))):
             self.assertEqual(F.OBJECT_OT_acao_item_biblioteca.execute(op, self.ctx), {'FINISHED'})
         criador.assert_called_once_with(op, self.ctx, it, 0)

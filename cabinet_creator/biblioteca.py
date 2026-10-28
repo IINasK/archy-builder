@@ -943,7 +943,7 @@ class OBJECT_OT_arrastar_preset(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == 'VIEW_3D'
+        return context.area is not None and (context.area.type == 'VIEW_3D' or _gaveta._eh_area_gaveta(context))
 
     def invoke(self, context, event):
         if (self.arquivo and _paredes_edicao.ativa(context)

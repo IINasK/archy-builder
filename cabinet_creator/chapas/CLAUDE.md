@@ -20,6 +20,7 @@ Referencia das frentes: [FRONTES.md](../../FRONTES.md).
 
 ## Decisoes e armadilhas
 
+- Delete 370: handler PERSISTENT conserva o gatilho ao abrir arquivo. Contagens de IDs E objetos por cena; reset no undo/load. Conferir ferragens so' no timer estavel, nunca no depsgraph.
 - MODULO selecionado: sempre caixa convencional, 8 cantos/12 cotas nos
   limites do envelope. Nao inferir forma/angulos do grupo; resize e' CAIXA.
   Eventos antigos de formato do grupo foram recusados, inclusive hover anterior.

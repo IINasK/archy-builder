@@ -20,7 +20,17 @@ O gesto e' `gavetas.AssistenteDoVao`; nao criar outro assistente ou modulo.
 
 ## Decisoes e armadilhas
 
-- Mesmo `AssistenteDoVao`/SNAP nativo das prateleiras, na vertical.
+- Blocagem (379): CHAVE_BLOCAGEM/cabinet_blocagem_uid e' comum aos segmentos e aos tipos criados na mesma sessao. Grupos seguem independentes para geometria; selecao/HUD agregam so' a orientacao ativa no mesmo modulo/UID. Copias de particao conservam o vinculo antes do recorte; legado sem UID usa exclusivamente apoios gravados e referencia/altura/profundidade compativeis, no timer ou selecao. Moldura agregada nao redimensiona um segmento isolado.
+- Internos (375): criacao e' coordenada em areas_criacao.py, aba unica com
+  prateleiras e volume reutilizado. Perguntar tipo antes e outro tipo/Sair
+  depois. Lacuna: MANTER/ESQUERDA/DIREITA, antes de mutar, em ambas as ordens.
+- Prateleira aceita divisoria rasa, obliqua e parcial na espessura. Planos
+  por subconjunto de chapas/nome, sem exigir alinhamento de profundidade.
+  Preenchimento estende so' a escolhida ate' a outra face do apoio; Boolean
+  DIFFERENCE/EXACT nativo conserva o encaixe vivo. Mesh/UV base preservados;
+  tampas do bisect alinhadas ao plano evitam cunhas de precisao simples.
+  Apoio grava face min/max para resize. Contato coplanar nao e' intersecao.
+- Mesmo `AssistenteDoVao`/SNAP nativo das prateleiras, na vertical. 376: tres pontos em qualquer ordem delimitam caixa ortogonal ao modulo; frente escolhida por clique antes da quantidade, sem inferir inclinacao da diagonal.
   Seguir o protocolo compartilhado de gavetas, sem varreduras no gesto.
 - Segmentar gavetas/prateleiras atravessadas, inclusive criadas DEPOIS,
   descontando E da divisoria. Apoios por UID da chapa REAL; sem modulo novo.

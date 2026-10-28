@@ -15,7 +15,7 @@ import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import bpy
 from mathutils import Matrix, Vector
@@ -28,6 +28,220 @@ G = addon.gavetas
 
 
 class TestGavetas(unittest.TestCase):
+    def substituir_macro(self, chamada):
+        # bpy.ops cria proxies a cada acesso; substituir o alias do dono
+        # evita iniciar um transform interativo num Blender sem janela.
+        return patch.object(G, 'bpy', SimpleNamespace(data=bpy.data, app=bpy.app, types=bpy.types,
+            context=bpy.context, ops=SimpleNamespace(object=SimpleNamespace(
+                cabinet_marcar_ponto_vao=chamada))))
+
+    def invocar_assistente(self):
+        area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
+        regiao = next(r for r in area.regions if r.type == 'WINDOW')
+        wm = SimpleNamespace(modal_handler_add=lambda op: None,
+                             event_timer_add=lambda *a, **kw: None)
+        class Contexto:
+            window_manager = wm
+            def __getattr__(self, nome):
+                return getattr(bpy.context, nome)
+        op = G.AssistenteDoVao()
+        with bpy.context.temp_override(area=area, region=regiao):
+            self.assertEqual(op.invoke(Contexto(), None), {'RUNNING_MODAL'})
+        self.addCleanup(op.cancel, bpy.context)
+        return op
+
+    # Regressao (era BUG, corrigido na 377): o grupo so' era descoberto
+    # depois do primeiro ponto, e outro modulo/teto podia capturar o snap.
+    def test_criar_trava_modulo_selecionado_antes_do_primeiro_snap(self):
+        grupo = self.gavetas(quantidade=1)
+        self.conj.select_set(True)
+        bpy.context.view_layer.objects.active = self.conj
+        op = self.invocar_assistente()
+        self.assertEqual(op._w['modulo_alvo'], self.conj.name)
+        self.assertIn(self.conj.name, op._w['alvos_snap'])
+        self.assertTrue(all(o.name in op._w['alvos_snap'] for o in grupo.children_recursive))
+        self.assertNotIn('ponto_confirmado', op._w)
+        self.assertFalse(op._w.get('iniciar_snap', False))
+        self.assertTrue(op._w['soltar_confirma'])
+
+    def test_camera_entre_os_pontos_nao_inicia_translate_nem_perde_pontos(self):
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        op = self.invocar_assistente()
+        op._w['etapa'] = 'CANTO2'; op._w['pontos'] = [Vector((-.3,-.2,.6))]
+        antes = list(op._w['pontos'])
+        evento = SimpleNamespace(type='GRLESS',value='PRESS',shift=True,
+            mouse_x=op._regiao.x+80,mouse_y=op._regiao.y+80)
+        with patch.object(G,'evento_de_navegacao',return_value=True), \
+             patch.object(op,'_iniciar_snap_nativo',side_effect=AssertionError('Prendeu a camera')):
+            self.assertEqual(op._modal(bpy.context,evento),{'PASS_THROUGH'})
+        self.assertEqual(op._w['pontos'],antes)
+        self.assertEqual(op._w['etapa'],'CANTO2')
+
+    def test_clique_inicia_snap_ate_soltar_e_nao_reabre_apos_confirmar(self):
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        op = self.invocar_assistente()
+        ponto = Vector((-.382,-.28,.682))
+        chapa = addon.modulos._chapas_do_conjunto(self.conj)[0]
+        evento = SimpleNamespace(type='LEFTMOUSE',value='PRESS',
+            mouse_x=op._regiao.x+80,mouse_y=op._regiao.y+80)
+        def apontar(*a):op._w.update(cursor=ponto,cursor_obj=chapa.name)
+        with patch.object(op,'_atualizar_ponto',side_effect=apontar), \
+             self.substituir_macro(Mock(return_value={'RUNNING_MODAL'})) as falso:
+            self.assertEqual(op._modal(bpy.context,evento),{'RUNNING_MODAL'})
+            parametros=falso.ops.object.cabinet_marcar_ponto_vao.call_args.kwargs['TRANSFORM_OT_translate']
+            self.assertTrue(parametros['release_confirm'])
+        bpy.context.scene.cursor.location=ponto
+        G.OBJECT_OT_confirmar_ponto_vao.execute(None,bpy.context)
+        evento.type='TIMER';evento.value='NOTHING'
+        op._modal(bpy.context,evento)
+        self.assertEqual(op._w['etapa'],'CANTO2')
+        self.assertFalse(op._w.get('iniciar_snap', False))
+        with patch.object(op,'_iniciar_snap_nativo',side_effect=AssertionError('Reabriu o transform')):
+            op._modal(bpy.context,evento)
+        self.assertIsNone(G._snap_criacao[0])
+
+    def test_navegacao_respeita_keymap_do_usuario_inclusive_walk_fly_e_enquadramento(self):
+        atual = SimpleNamespace(idname='view3d.walk')
+        combinar = Mock(side_effect=lambda e:atual)
+        contexto=SimpleNamespace(window_manager=SimpleNamespace(keyconfigs=SimpleNamespace(
+            user=SimpleNamespace(keymaps={'3D View':SimpleNamespace(keymap_items=SimpleNamespace(match_event=combinar))}))))
+        evento=SimpleNamespace(type='F7',value='PRESS')
+        for operador in ('view3d.navigate','view3d.walk','view3d.fly','view3d.view_selected','view3d.move','view3d.zoom'):
+            atual.idname=operador
+            self.assertTrue(G.evento_de_navegacao(contexto,evento))
+        atual.idname='transform.translate'
+        self.assertFalse(G.evento_de_navegacao(contexto,evento))
+        self.assertEqual(combinar.call_count,7)
+
+    def test_hover_atualiza_previa_sem_abrir_gesto_e_scroll_com_shift_navega(self):
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        op=self.invocar_assistente()
+        evento=SimpleNamespace(type='MOUSEMOVE',value='NOTHING',
+            mouse_x=op._regiao.x+80,mouse_y=op._regiao.y+80)
+        with patch.object(op,'_atualizar_ponto') as atualizar, \
+             patch.object(op,'_iniciar_snap_nativo',side_effect=AssertionError('Snap no hover')):
+            op._modal(bpy.context,evento)
+            atualizar.assert_called_once()
+        self.assertFalse(op._w.get('iniciar_snap', False))
+        op._w['etapa']='QUANTIDADE'
+        quantidade=op._w['p']['quantidade']
+        evento.type='WHEELUPMOUSE';evento.value='PRESS';evento.shift=True
+        self.assertEqual(op._modal(bpy.context,evento),{'PASS_THROUGH'})
+        self.assertEqual(op._w['p']['quantidade'],quantidade)
+
+    def test_snap_nativo_ignora_outro_modulo_teto_curva_e_restaura_apos_confirmar(self):
+        outro = addon.modulos.criar_armario(bpy.context, 'Vizinho', 800, 700, 560)
+        bpy.ops.mesh.primitive_cube_add(location=(0, -1, .4))
+        teto = bpy.context.object; teto.name = 'Teto com costas invisiveis'
+        teto.show_transparent = True
+        bpy.ops.curve.primitive_bezier_curve_add()
+        curva = bpy.context.object
+        antes = {o.name: (o.hide_select, o.hide_get()) for o in bpy.context.scene.objects}
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        op = self.invocar_assistente()
+        cursor = bpy.context.scene.cursor.location.copy()
+        def iniciar(*args, **kwargs):
+            parametros = kwargs['TRANSFORM_OT_translate']
+            self.assertTrue(parametros['use_snap_selectable'])
+            self.assertEqual(parametros['snap_elements'], {'VERTEX','EDGE_MIDPOINT','FACE'})
+            self.assertTrue(teto.hide_select)
+            self.assertTrue(curva.hide_select)
+            self.assertTrue(all(o.hide_select for o in outro.children_recursive))
+            self.assertFalse(any(o.hide_select for o in self.conj.children_recursive))
+            self.assertFalse(teto.hide_get())
+            return {'RUNNING_MODAL'}
+        with self.substituir_macro(iniciar):
+            op._iniciar_snap_nativo(bpy.context)
+        bpy.context.scene.cursor.location = (.382,-.28,.018)
+        G.OBJECT_OT_confirmar_ponto_vao.execute(None,bpy.context)
+        self.assertIsNone(G._snap_criacao[0])
+        self.assertEqual({o.name:(o.hide_select,o.hide_get()) for o in bpy.context.scene.objects}, antes)
+        self.assertLess((bpy.context.scene.cursor.location-cursor).length,1e-6)
+
+    def test_confirmacao_identifica_so_pecas_do_modulo_mesmo_com_malha_externa_coincidente(self):
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        op = self.invocar_assistente()
+        chapa = addon.modulos._chapas_do_conjunto(self.conj)[0]
+        ponto = chapa.matrix_world @ chapa.data.vertices[0].co
+        copia = bpy.data.objects.new('Teto invertido coincidente', chapa.data.copy())
+        bpy.context.scene.collection.objects.link(copia); copia.matrix_world = chapa.matrix_world.copy()
+        bpy.context.view_layer.update()
+        contexto = SimpleNamespace(visible_objects=[copia,chapa])
+        self.assertEqual(G._objeto_do_ponto_criacao(contexto,ponto),chapa.name)
+        self.assertIsNone(G._objeto_do_ponto_criacao(SimpleNamespace(visible_objects=[copia]),ponto))
+        self.assertEqual(op._w['modulo_alvo'], self.conj.name)
+
+    def test_primeiro_ponto_sem_selecao_fixa_modulo_e_nao_aceita_outro_nos_pontos_seguintes(self):
+        op = G.AssistenteDoVao()
+        area = SimpleNamespace(header_text_set=lambda *a: None)
+        op._area = area
+        op._w = dict(etapa='CANTO1',pontos=[],p=dict(G.PARAMETROS_PADRAO),volume_3d=True)
+        op._ir = lambda etapa: op._w.update(etapa=etapa)
+        chapa = addon.modulos._chapas_do_conjunto(self.conj)[0]
+        ponto = chapa.matrix_world @ chapa.data.vertices[0].co
+        op._aceitar_canto(bpy.context,ponto,chapa.name)
+        self.assertEqual(op._w['modulo_alvo'],self.conj.name)
+        outro = addon.modulos.criar_armario(bpy.context,'Outro',800,700,560)
+        externa = addon.modulos._chapas_do_conjunto(outro)[0]
+        op._aceitar_canto(bpy.context,ponto,externa.name)
+        self.assertEqual(len(op._w['pontos']),1)
+        self.assertEqual(op._w['etapa'],'CANTO2')
+        self.assertTrue(op._w['iniciar_snap'])
+
+    def test_objeto_ativo_desselecionado_nao_trava_modulo_errado_na_entrada(self):
+        outro = addon.modulos.criar_armario(bpy.context,'Outro',800,700,560)
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        bpy.context.view_layer.objects.active = self.conj
+        op = self.invocar_assistente()
+        self.assertNotIn('modulo_alvo',op._w)
+        chapa = addon.modulos._chapas_do_conjunto(outro)[0]
+        op._aceitar_canto(bpy.context,chapa.matrix_world@chapa.data.vertices[0].co,chapa.name)
+        self.assertEqual(op._w['modulo_alvo'],outro.name)
+
+    def test_cancelar_e_excecao_do_snap_restauram_bloqueios_sem_revelar_ocultos(self):
+        bpy.ops.mesh.primitive_cube_add()
+        externo = bpy.context.object; externo.hide_select = True
+        bpy.ops.mesh.primitive_cube_add()
+        teto = bpy.context.object
+        bpy.ops.mesh.primitive_cube_add()
+        oculto = bpy.context.object; oculto.hide_set(True)
+        bpy.context.view_layer.objects.active = self.conj
+        self.conj.select_set(True)
+        antes = {o.name: (o.hide_select,o.hide_get()) for o in bpy.context.scene.objects}
+        for falha in (False, True):
+            op = self.invocar_assistente()
+            with self.substituir_macro(Mock(
+                    side_effect=RuntimeError('Falha de teste') if falha else None,
+                    return_value={'RUNNING_MODAL'})):
+                if falha:
+                    with self.assertRaises(RuntimeError):op._iniciar_snap_nativo(bpy.context)
+                else:
+                    op._iniciar_snap_nativo(bpy.context)
+                    self.assertTrue(teto.hide_select)
+                    op.cancel(bpy.context)
+            self.assertIsNone(G._snap_criacao[0])
+            self.assertEqual({o.name:(o.hide_select,o.hide_get()) for o in bpy.context.scene.objects},antes)
+
+    def test_raio_do_modulo_atravessa_teto_invertido_sem_consultar_cena_inteira(self):
+        bpy.ops.mesh.primitive_cube_add(location=(-1.2,0,.35))
+        teto = bpy.context.object; teto.name = 'Malha externa invertida'
+        teto.scale = (-.05,1,1)
+        material = bpy.data.materials.new('Costas invisiveis'); material.use_backface_culling = True
+        teto.data.materials.append(material)
+        bpy.context.view_layer.update()
+        origem = Vector((-2,0,.35)); direcao = Vector((1,0,0))
+        acerto = bpy.context.scene.ray_cast(bpy.context.evaluated_depsgraph_get(),origem,direcao)
+        self.assertTrue(acerto[0]); self.assertEqual(acerto[4].original,teto)
+        alvo = G.raio_no_modulo(bpy.context,self.conj,origem,direcao)
+        self.assertIsNotNone(alvo)
+        self.assertIs(addon.modulos._conj_de(alvo[0]),self.conj)
+        self.assertGreater(alvo[1].x, -.5)
+
     def test_segundo_clique_modal_recupera_modulo_do_estado(self):
         w=G.AssistenteDoVao()
         w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=['Tampo'],

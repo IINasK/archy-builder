@@ -33,7 +33,7 @@ VERBOS = frozenset({
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
     'rolar_nivel', 'separador', 'slider', 'wireframe', 'escolha',
     'ler_portas', 'cadeado', 'suspenso', 'faixa', 'cor', 'fundo',
-    'divisa', 'pergunta', 'resposta', 'nivel',
+    'divisa', 'pergunta', 'resposta', 'nivel', 'rolagem',
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
@@ -65,13 +65,13 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         self.assertIn('screen.area_close', fonte)
         self.assertEqual(addon.gaveta._CHAVE_GAVETA, 'cabinet_gaveta_area')
 
-    def test_area_e_localizada_por_ponteiro_na_screen(self):
-        # Ponteiro de area nao sobrevive a recarga de .blend; por isso
-        # existe _reconectar_gavetas. Trocar por busca "a primeira
-        # VIEW_3D estreita" reabre o bug das areas fantasma.
+    def test_area_e_localizada_por_identidade_nativa_com_migracao_do_ponteiro(self):
+        # A migracao pedida na 365 conserva o ponteiro apenas para o legado;
+        # o subtipo salvo no .blend impede capturar uma viewport do usuario.
         self.assertTrue(callable(addon.gaveta._area_gaveta))
         self.assertTrue(callable(addon.gaveta._reconectar_gavetas))
         fonte = inspect.getsource(addon.gaveta._area_gaveta)
+        self.assertIn('_editor.TIPO_MENU', fonte)
         self.assertIn('as_pointer()', fonte)
         self.assertIsNone(addon.gaveta._area_gaveta(bpy.context.screen))
 

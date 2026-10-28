@@ -29,6 +29,8 @@ _divisorias = _fundos = None
 _formas = None
 _biblioteca_faixa = None
 _paredes_edicao = None
+_editor = None
+_areas_criacao = None
 _paredes_composicao = None
 _paredes = None
 
@@ -261,6 +263,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
             return 'O modulo nao tem mais esse formato'
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
+    if dono == 'area_criacao':
+        return _areas_criacao.aplicar(context, _areas_criacao.objeto(), (propriedade,), valor * 1000)
     if dono == 'fundos':
         try:
             _fundos.editar(context, bpy.data.objects.get(objeto), propriedade, valor*1000)
@@ -379,8 +383,8 @@ def _modelo_do_criador(op, context, it, indice):
             op.report({'INFO'}, "Modelo de fabrica: protegido")
         elif indice == 1:
             if not _biblioteca.item_bloqueado(it):
-                bpy.ops.object.cabinet_editar_modelo(
-                    'INVOKE_DEFAULT', pasta=it['pasta'], arquivo=it['arquivo'])
+                _editor.executar(context, 'object.cabinet_editar_modelo',
+                    pasta=it['pasta'], arquivo=it['arquivo'])
         else:
             bpy.ops.object.cabinet_bloqueio(pasta=it['pasta'],
                                             arquivo=it['arquivo'])
@@ -428,15 +432,18 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        if event.type in {'MIDDLEMOUSE', 'TRACKPADZOOM'}:
+            return {'FINISHED'}
         if event.type == 'RIGHTMOUSE':
             return self._botao_direito(context, event)
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN'}:
             if _biblioteca_faixa.eh_faixa(context):
-                _biblioteca_faixa.rolar(context, event)
+                if event.type != 'TRACKPADPAN':
+                    _biblioteca_faixa.rolar(context, event)
                 return {'FINISHED'}
-            for wx, wy, w, h, _, acao in _gaveta._widgets_gaveta(
-                    context, context.region.width, context.region.height):
+            for wx, wy, w, h, _, acao in _gaveta._widgets_interativos(context):
                 if (acao and acao[0] in {'navegar', 'rolar_nivel'}
+                        and event.type != 'TRACKPADPAN'
                         and wx <= event.mouse_region_x <= wx + w
                         and wy <= event.mouse_region_y <= wy + h):
                     chave, limite = ((acao[3], acao[4]) if acao[0] == 'navegar'
@@ -448,6 +455,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     return {'FINISHED'}
             # Rola o painel que esta' sob o mouse: a aba em cima da
             # divisoria, a biblioteca embaixo.
+            if not _gaveta.ALTURA_RODAPE_GAVETA < event.mouse_region_y < context.region.height - 48:
+                return {'FINISHED'}
             limites = _gaveta._limites_rolagem_gaveta(
                 context, context.region.width, context.region.height)
             de_baixo = (context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
@@ -456,7 +465,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
             chave = _gaveta._CHAVE_ROLAGEM_BIB if de_baixo else _gaveta._CHAVE_ROLAGEM
             limite = limites[1] if de_baixo else limites[0]
             atual = max(0, min(limite, int(context.screen.get(chave, 0))))
-            passo = -85 if event.type == 'WHEELUPMOUSE' else 85
+            passo = (event.mouse_y - event.mouse_prev_y if event.type == 'TRACKPADPAN'
+                     else -85 if event.type == 'WHEELUPMOUSE' else 85)
             context.screen[chave] = max(0, min(limite, atual + passo))
             context.area.tag_redraw()
             return {'FINISHED'}
@@ -485,6 +495,17 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 context.scene.cabinet_aba = acao[1]
                 context.screen[_gaveta._CHAVE_ROLAGEM] = 0
                 _gaveta._fechar_opcoes(context.screen)
+            elif acao[0] == 'rolagem':
+                base, tamanho = _gaveta._alca_rolagem(wy, h, acao[2], acao[3])
+                original = max(0, min(acao[2], acao[3]))
+                atual = original if base <= y <= base + tamanho else round(
+                    acao[2] * max(0, min(1, (wy + h - tamanho / 2 - y) / max(1, h - tamanho))))
+                context.screen[acao[1]] = atual
+                self._rolagem = dict(chave=acao[1], limite=acao[2], original=original,
+                    atual=atual, inicio=y, percurso=max(1, h - tamanho))
+                context.window_manager.modal_handler_add(self)
+                context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
             elif acao[0] == 'suspenso':
                 context.screen[_gaveta._CHAVE_SUSPENSO] = '' if acao[2] else acao[1]
             elif acao[0] == 'faixa':
@@ -650,16 +671,16 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     bpy.ops.ed.undo_push(message='Cadeado do puxador')
             elif acao[0] == 'criar_puxador':
                 if not acao[2]:         # ja' posicionando: Esc cancela
-                    bpy.ops.object.cabinet_posicionar_puxador('INVOKE_DEFAULT')
+                    _editor.executar(context, 'object.cabinet_posicionar_puxador')
             elif acao[0] == 'gavetas':
                 if not acao[2]:         # ja' marcando: Esc cancela
-                    bpy.ops.object.cabinet_criar_gavetas('INVOKE_DEFAULT')
+                    _editor.executar(context, 'object.cabinet_criar_gavetas')
             elif acao[0] == 'prateleiras':
                 if not acao[2]:
-                    bpy.ops.object.cabinet_criar_prateleiras('INVOKE_DEFAULT')
+                    _editor.executar(context, 'object.cabinet_criar_prateleiras')
             elif acao[0] == 'divisorias':
                 if not acao[2]:
-                    bpy.ops.object.cabinet_criar_divisorias('INVOKE_DEFAULT')
+                    _editor.executar(context, 'object.cabinet_criar_divisorias')
             elif acao[0] == 'portas':
                 if acao[3]:
                     self.report({'WARNING'}, acao[3])
@@ -668,7 +689,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     # outra porta e' a partir do modulo (clique simples)
                     pass
                 else:
-                    bpy.ops.object.cabinet_apanhar_vao('INVOKE_DEFAULT')
+                    _editor.executar(context, 'object.cabinet_apanhar_vao')
             elif acao[0] == 'preset' and _eh_modelo_do_criador(acao[1]):
                 if _modelo_do_criador(self, context, acao[1], 0):
                     # abre modal: no SOLTAR, como `_solda.OPERADORES_NO_SOLTAR`
@@ -730,8 +751,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             else:
                 _perguntas._na_gaveta[0] = True
                 try:
-                    modulo, nome = acao[1].split('.')
-                    getattr(getattr(bpy.ops, modulo), nome)('INVOKE_DEFAULT')
+                    _editor.executar(context, acao[1])
                 except Exception as e:
                     self.report({'WARNING'}, str(e))
                 finally:
@@ -750,6 +770,21 @@ class OBJECT_OT_interagir_gaveta(Operator):
         else:
             context.scene.chapa_tam_bloco = 2 + round(fracao * 6)
         context.area.tag_redraw()
+
+    def _modal_rolagem(self, context, event):
+        estado = self._rolagem
+        if event.type == 'MOUSEMOVE':
+            valor = estado['atual'] + round((estado['inicio'] - event.mouse_region_y)
+                                           * estado['limite'] / estado['percurso'])
+            context.screen[estado['chave']] = max(0, min(estado['limite'], valor))
+            context.area.tag_redraw()
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            context.screen[estado['chave']] = estado['original']
+            context.area.tag_redraw()
+            return {'CANCELLED'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            return {'FINISHED'}
+        return {'RUNNING_MODAL'}
 
     def _arrastar_cor(self, context, x, y):
         acao = self._cor['acao']
@@ -983,9 +1018,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
                 _perguntas._na_gaveta[0] = True     # pergunta que nascer vem na gaveta
                 try:
-                    modulo, nome = self._no_soltar.split('.')
-                    getattr(getattr(bpy.ops, modulo), nome)(
-                        'INVOKE_DEFAULT', **getattr(self, '_props_no_soltar', {}))
+                    _editor.executar(context, self._no_soltar, **getattr(self, '_props_no_soltar', {}))
                 except Exception as e:
                     self.report({'WARNING'}, str(e))
                 finally:
@@ -997,6 +1030,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return {'RUNNING_MODAL'}
         if hasattr(self, '_campo'):
             return self._modal_campo(context, event)
+        if hasattr(self, '_rolagem'):
+            return self._modal_rolagem(context, event)
         if hasattr(self, '_divisa'):
             return self._modal_divisa(context, event)
         if hasattr(self, '_faixa') or hasattr(self, '_cor'):
@@ -1041,7 +1076,7 @@ class OBJECT_OT_opcoes_gaveta(Operator):
         tela[_gaveta._CHAVE_OPCOES] = 0 if aberto else 1
         tela[_gaveta._CHAVE_ROLAGEM] = 0
         for area in tela.areas:
-            if area.type == 'VIEW_3D':
+            if area.type == 'VIEW_3D' or _editor.eh_editor(area):
                 area.tag_redraw()
         return {'FINISHED'}
 
@@ -1074,8 +1109,7 @@ class OBJECT_OT_alternar_gaveta(Operator):
 
 def _poll_operador(idname):
     try:
-        modulo, nome = idname.split('.')
-        return getattr(getattr(bpy.ops, modulo), nome).poll()
+        return _editor.pode_executar(idname)
     except Exception:
         return False
 
@@ -1153,18 +1187,8 @@ class VIEW3D_GT_alca_gaveta(Gizmo):
         return 0 if 0 <= x <= 26 and abs(y - centro) <= 35 else -1
 
 
-class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
-    """Alca e icones nativos na interface independente."""
-    bl_idname = "VIEW3D_GGT_cabinet_gaveta"
-    bl_label = "Alca Cabinet Creator"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'WINDOW'
-    bl_options = {'PERSISTENT', 'SCALE'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.area is not None and context.area.type == 'VIEW_3D'
-
+class _GizmosGaveta:
+    """Mesmo pool nativo de botoes/campos nos editores e na alca da cena."""
     def setup(self, context):
         self.botoes = []
         self.campos = []
@@ -1304,7 +1328,7 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
                 cx, cy = _centro_icone(x, y, w, h, acao)
                 botao.matrix_basis[0][3] = cx
                 botao.matrix_basis[1][3] = cy
-                if ao_lado or (acao[0] == 'operador'
+                if _editor.eh_editor(context.area) or ao_lado or (acao[0] == 'operador'
                                and acao[1] in _solda.OPERADORES_NO_SOLTAR):
                     # o gizmo dispara no PRESS; a gaveta espera o soltar.
                     # Com texto ao lado, o clique no icone e' o do botao
@@ -1319,3 +1343,15 @@ class VIEW3D_GGT_cabinet_gaveta(GizmoGroup):
             _gaveta_desenho._desenhar_gaveta(tela=True)
             return
         _gaveta._realcar(context, 'alca', self.alca.is_highlight)
+
+
+class VIEW3D_GGT_cabinet_gaveta(_GizmosGaveta, GizmoGroup):
+    bl_idname = 'VIEW3D_GGT_cabinet_gaveta'
+    bl_label = 'Alca Cabinet Creator'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'PERSISTENT', 'SCALE'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == 'VIEW_3D'

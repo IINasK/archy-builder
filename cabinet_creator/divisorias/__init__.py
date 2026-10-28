@@ -14,6 +14,7 @@ MARCA_GRUPO = 'eh_grupo_divisorias'
 MARCA_DIVISORIA = 'eh_divisoria'
 CHAVE_PARAMETROS = 'divisorias_parametros'
 CHAVE_APOIOS = 'divisorias_apoios'
+CHAVE_BLOCAGEM = 'cabinet_blocagem_uid'
 # Referencia de vao compartilhada; a marca do grupo define quem o edita.
 CHAVE_MARGENS = _gavetas.CHAVE_MARGENS
 CHAVE_REFERENCIA = _gavetas.CHAVE_REFERENCIA
@@ -41,6 +42,65 @@ def pecas(grupo):
 def parametros(grupo):
     return dict(PARAMETROS_PADRAO, **_portas._copiar_parametros(
         grupo.get(CHAVE_PARAMETROS, {})))
+
+
+def garantir_blocagem(grupo):
+    uid = grupo.get(CHAVE_BLOCAGEM)
+    if uid:
+        return uid
+    membros = [grupo]
+    if _prateleiras.MARCA_GRUPO in grupo and grupo.parent is not None:
+        # Legado: somente segmentos coplanares ligados ao mesmo apoio real.
+        pendentes = [g for g in grupo.parent.children
+                     if _prateleiras.MARCA_GRUPO in g and not g.get(CHAVE_BLOCAGEM) and g != grupo]
+        inv = grupo.matrix_world.inverted_safe()
+        _l, altura, prof = _prateleiras.medidas(grupo)
+        ligacoes = lambda g: {a['uid'] for a in g.get(CHAVE_APOIOS, {}).values() if a.get('uid')}
+        apoios = ligacoes(grupo)
+        while apoios:
+            novas = []
+            for outro in pendentes:
+                r = inv @ outro.matrix_world
+                _l, a, p = _prateleiras.medidas(outro)
+                if (apoios & ligacoes(outro) and abs(a-altura) < TOL and abs(p-prof) < TOL
+                        and abs(r.translation.y) < 1e-5 and abs(r.translation.z) < 1e-5
+                        and all(abs(r[i][j] - float(i == j)) < 1e-5 for i in range(3) for j in range(3))):
+                    novas.append(outro)
+            if not novas:
+                break
+            for outro in novas:
+                membros.append(outro); pendentes.remove(outro); apoios |= ligacoes(outro)
+    uid = _chapas._garantir_uid(grupo)
+    for membro in membros:
+        membro[CHAVE_BLOCAGEM] = uid
+    return uid
+
+
+def grupos_da_blocagem(grupo):
+    uid = grupo.get(CHAVE_BLOCAGEM)
+    marca = _prateleiras.MARCA_GRUPO if _prateleiras.MARCA_GRUPO in grupo else MARCA_GRUPO
+    if not uid or grupo.parent is None:
+        return [grupo]
+    return [grupo] + [g for g in grupo.parent.children
+        if g != grupo and marca in g and g.get(CHAVE_BLOCAGEM) == uid]
+
+
+def linhas_da_blocagem(grupo, chapas, linhas_do_grupo):
+    cantos, linhas = linhas_do_grupo(grupo, chapas)
+    grupos = [g for g in grupos_da_blocagem(grupo) if g.visible_get()]
+    if len(grupos) <= 1:
+        return cantos, linhas
+    geometrias = [(cantos, linhas)] + [linhas_do_grupo(g, []) for g in grupos if g != grupo]
+    inv = grupo.matrix_world.inverted_safe()
+    pontos = [inv @ p for c, _l in geometrias for p in c]
+    lo = Vector(tuple(min(p[i] for p in pontos) for i in range(3)))
+    hi = Vector(tuple(max(p[i] for p in pontos) for i in range(3)))
+    cantos = [grupo.matrix_world @ Vector((x,y,z)) for z in (lo.z,hi.z)
+              for y in (lo.y,hi.y) for x in (lo.x,hi.x)]
+    moldura = [dict(l, tipo='contorno_forma', editavel=False,
+                    pontos=[cantos[i] for i in l['cantos']])
+               for l in linhas if l.get('cantos')]
+    return cantos, moldura + [l for _c, ls in geometrias for l in ls if l.get('vao')]
 
 
 def calcular(largura, altura, p):
@@ -74,6 +134,10 @@ def medidas(grupo):
 
 
 def linhas_hud(grupo, chapas):
+    return linhas_da_blocagem(grupo, chapas, _linhas_hud_grupo)
+
+
+def _linhas_hud_grupo(grupo, chapas):
     """Vao do sistema e distancias livres ate' as faces das divisorias."""
     largura, altura, prof = medidas(grupo)
     m = grupo.matrix_world
@@ -131,7 +195,8 @@ def limitar_vao(grupo, largura, altura, matriz):
         chapa = por_uid.get(apoio['uid'])
         if chapa is not None:
             lo, hi = _limites_malha(chapa, mundo)
-            extremos[k] = hi.x if k == 0 else lo.x
+            extremos[k] = (hi.x if apoio.get('face') == 'max' else lo.x
+                           if apoio.get('face') == 'min' else hi.x if k == 0 else lo.x)
         else:
             # A exclusao da divisoria nao funde sistemas que o usuario
             # pode ter editado independentemente depois da separacao.
@@ -216,7 +281,15 @@ def _cortar_chapa(obj, mundo, inicio, fim):
                       if isinstance(v, bmesh.types.BMEdge) and v.is_boundary]
             if bordas:
                 bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
-        bm.normal_update()
+            eixo = max(range(3), key=lambda k: abs(normal[k]))
+            if abs(normal[eixo]) > 1 - 1e-6:
+                # Bisect conserva vertices quase no plano; alinhar a tampa
+                # elimina cunhas de precisao simples antes do Boolean nativo.
+                tampa = [v for v in bm.verts if abs(v.co[eixo] - ponto[eixo]) < 1e-6]
+                projecao = Matrix.Identity(4)
+                projecao[eixo][eixo] = 0; projecao[eixo][3] = ponto[eixo]
+                bmesh.ops.transform(bm, matrix=projecao, verts=tampa)
+        bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
         bm.to_mesh(obj.data)
         obj.data.update()
     finally:
@@ -234,10 +307,11 @@ def _plano(conj, matriz, caixas, alvo=None):
             l, a, m = dono.vao(grupo)
             p = dono.parametros(grupo)
             transformacao = (conj.matrix_world @ m).inverted_safe() @ mundo
-            cortes = []
-            atingidos = set()
             prateleiras = (_prateleiras.prateleiras_do_grupo(grupo)
                           if dono is _prateleiras else [])
+            locais = [_limites_malha(obj, conj.matrix_world @ m) for obj in prateleiras]
+            por_peca = {k: [] for k in range(len(prateleiras))} if prateleiras else {None: []}
+            parciais = set()
             for i, caixa in enumerate(caixas):
                 pts = [transformacao @ Vector((x / 1000, y / 1000, z / 1000)) * 1000
                        for x in caixa[:2] for y in caixa[2:4] for z in caixa[4:6]]
@@ -247,48 +321,55 @@ def _plano(conj, matriz, caixas, alvo=None):
                         or lo[1] >= float(p['profundidade_mm']) - TOL
                         or hi[2] <= TOL or lo[2] >= a - TOL):
                     continue
-                if abs(abs(transformacao.to_3x3().col[0].normalized().x) - 1) > 1e-5:
+                obliqua = abs(abs(transformacao.to_3x3().col[0].normalized().x) - 1) > 1e-5
+                if obliqua and dono is _gavetas:
                     raise ValueError('A divisoria deve acompanhar a orientacao dos sistemas atravessados')
                 if dono is _prateleiras:
-                    locais = [_limites_malha(obj, conj.matrix_world @ m) for obj in prateleiras]
                     indices = {k for k, (baixo, cima) in enumerate(locais)
                                if baixo.x < lo[0] - TOL and cima.x > hi[0] + TOL
-                               and cima.z > lo[2] + TOL and baixo.z < hi[2] - TOL}
+                               and cima.z > lo[2] + TOL and baixo.z < hi[2] - TOL
+                               and cima.y > lo[1] + TOL and baixo.y < hi[1] - TOL}
                     if not indices:
                         continue
-                    if any(locais[k][0].z < lo[2] - TOL or locais[k][1].z > hi[2] + TOL
-                           for k in indices):
-                        raise ValueError('A divisoria deve atravessar a espessura inteira da prateleira')
-                    if atingidos and indices != atingidos:
-                        raise ValueError('Marque um vao comum para as prateleiras atravessadas')
-                    atingidos = indices
-                elif lo[2] > TOL or hi[2] < a - TOL:
-                    raise ValueError('Marque a altura inteira do vao de %s' % grupo.name)
-                if lo[1] > TOL or hi[1] < float(p['profundidade_mm']) - TOL:
-                    raise ValueError('A divisoria deve cobrir a profundidade de %s' % grupo.name)
-                cortes.append((lo[0], hi[0], i))
-            if not cortes:
-                continue
-            cortes.sort()
-            segmentos, inicio, anterior = [], 0.0, None
-            for esquerda, direita, indice in cortes:
-                segmentos.append((inicio, esquerda, anterior, indice))
-                inicio, anterior = direita, indice
-            segmentos.append((inicio, l, anterior, None))
-            for k, (x0, x1, _min, _max) in enumerate(segmentos):
-                novo = _parametros_largura(dono, grupo, x1 - x0, l, k, len(segmentos),
-                                          caixas[0][1] - caixas[0][0])
-                dono.calcular(x1 - x0, a, novo)
-            planos.append((dono, grupo, l, a, m, segmentos, atingidos))
+                    if obliqua or any(lo[1] > locais[k][0].y + TOL or hi[1] < locais[k][1].y - TOL
+                            or lo[2] > locais[k][0].z + TOL or hi[2] < locais[k][1].z - TOL for k in indices):
+                        parciais.add(i)
+                else:
+                    if lo[2] > TOL or hi[2] < a - TOL:
+                        raise ValueError('Marque a altura inteira do vao de %s' % grupo.name)
+                    if lo[1] > TOL or hi[1] < float(p['profundidade_mm']) - TOL:
+                        raise ValueError('A divisoria deve cobrir a profundidade de %s' % grupo.name)
+                    indices = {None}
+                for k in indices:
+                    por_peca[k].append((lo[0], hi[0], i))
+            conjuntos = {}
+            for k, cortes in por_peca.items():
+                if cortes:
+                    conjuntos.setdefault(tuple(sorted(cortes)), set()).add(k)
+            for cortes, atingidos in conjuntos.items():
+                segmentos, inicio, anterior = [], 0.0, None
+                for esquerda, direita, indice in cortes:
+                    segmentos.append((inicio, esquerda, anterior, indice))
+                    inicio, anterior = direita, indice
+                segmentos.append((inicio, l, anterior, None))
+                for k, (x0, x1, _min, _max) in enumerate(segmentos):
+                    novo = _parametros_largura(dono, grupo, x1 - x0, l, k, len(segmentos),
+                                              caixas[0][1] - caixas[0][0])
+                    dono.calcular(x1 - x0, a, novo)
+                # Identidade das chapas evita indices mudando ao separar outro subconjunto.
+                nomes = {prateleiras[k].name for k in atingidos} if prateleiras else set()
+                planos.append((dono, grupo, l, a, m, segmentos, nomes, parciais))
     return planos
 
 
-def _apoios(grupo, m, x0, x1, minimo, maximo, chapas):
+def _apoios(grupo, m, x0, x1, minimo, maximo, chapas, faces=None):
     valores = _portas._copiar_parametros(grupo.get(CHAVE_APOIOS, {}))
     for lado, indice, x in (('min', minimo, x0), ('max', maximo, x1)):
         if indice is not None:
             ponto = m @ Vector((x / 1000, 0, 0))
             valores[lado] = dict(uid=chapas[indice]['chapa_uid'], ponto=list(ponto))
+            if faces and lado in faces:
+                valores[lado]['face'] = faces[lado]
     grupo[CHAVE_APOIOS] = valores
 
 
@@ -321,18 +402,32 @@ def _separar_prateleiras(fonte, indices):
     return nova
 
 
-def _partir(conj, planos, chapas):
-    for dono, fonte, largura, altura, m, segmentos, indices in planos:
+def _partir(conj, planos, chapas, preenchimento='MANTER'):
+    for dono, fonte, largura, altura, m, segmentos, nomes, parciais in planos:
         if dono is _prateleiras:
+            garantir_blocagem(fonte)
+        if dono is _prateleiras:
+            indices = {i for i, o in enumerate(_prateleiras.prateleiras_do_grupo(fonte)) if o.name in nomes}
             fonte = _separar_prateleiras(fonte, indices)
         grupos = [fonte] + [_duplicar(fonte) for _ in segmentos[1:]]
         bpy.context.view_layer.update()
         mundo = conj.matrix_world @ m
         for k, (grupo, (x0, x1, minimo, maximo)) in enumerate(zip(grupos, segmentos)):
+            faces, recortes = {}, []
+            if dono is _prateleiras:
+                for lado, indice in (('min', minimo), ('max', maximo)):
+                    if indice in parciais and ((lado == 'max' and preenchimento == 'ESQUERDA')
+                            or (lado == 'min' and preenchimento == 'DIREITA')):
+                        baixo, cima = _limites_malha(chapas[indice], mundo)
+                        if lado == 'max':
+                            x1 = cima.x; faces[lado] = 'max'
+                        else:
+                            x0 = baixo.x; faces[lado] = 'min'
+                        recortes.append(chapas[indice])
             poses = {o.name: o.matrix_world.copy() for o in _prateleiras.prateleiras_do_grupo(grupo)} if dono is _prateleiras else {}
             p = _parametros_largura(dono, grupo, x1 - x0, largura, k, len(segmentos),
                                     chapas[0].chapa_espessura_mm)
-            _apoios(grupo, m, x0, x1, minimo, maximo, chapas)
+            _apoios(grupo, m, x0, x1, minimo, maximo, chapas, faces)
             nova = m @ Matrix.Translation((x0 / 1000, 0, 0))
             grupo.matrix_parent_inverse = Matrix.Identity(4)
             grupo.matrix_basis = nova
@@ -363,6 +458,10 @@ def _partir(conj, planos, chapas):
                 for obj in _prateleiras.prateleiras_do_grupo(grupo):
                     _cortar_chapa(obj, mundo, x0, x1)
                     _chapas.absorver_malha_editada(obj, reorientar=False)
+                    for apoio in recortes:
+                        # O Boolean nativo acompanha mover/resize sem reconstruir a madeira.
+                        corte = obj.modifiers.new('Encaixe divisoria', 'BOOLEAN')
+                        corte.operation = 'DIFFERENCE'; corte.solver = 'EXACT'; corte.object = apoio
                     lo_obj, hi_obj = _limites_malha(obj, conj.matrix_world @ nova)
                     q = dict(_prateleiras.parametros_individuais(p, int(obj[_prateleiras.CHAVE_INDICE])))
                     individuais.append({chave: q[chave] for chave in _prateleiras.CAMPOS_INDIVIDUAIS if chave in q})
@@ -413,7 +512,7 @@ def montar(grupo):
     bpy.context.view_layer.update()
 
 
-def criar_divisorias(context, conj, margens, p, referencial=None):
+def planejar(conj, margens, p, referencial=None):
     p = dict(PARAMETROS_PADRAO, **p)
     ref = referencial if referencial is not None else Matrix.Identity(3)
     lo, hi = _gavetas.limites_na_referencia(conj, ref)
@@ -423,6 +522,12 @@ def criar_divisorias(context, conj, margens, p, referencial=None):
         Vector((lo.x + esq, lo.y + frente, lo.z + baixo)) / 1000)
     dados = calcular(l, a, p)
     planos = _plano(conj, matriz, dados['divisorias'])
+    return p, planos
+
+
+def criar_divisorias(context, conj, margens, p, referencial=None, blocagem_uid=None):
+    p, planos = planejar(conj, margens, p, referencial)
+    ref = referencial if referencial is not None else Matrix.Identity(3)
     grupo = bpy.data.objects.new('Divisorias %s' % conj.name, None)
     (_modulos._colecao_do_modulo(conj) or conj.users_collection[0]).objects.link(grupo)
     grupo[MARCA_GRUPO] = 1
@@ -430,16 +535,35 @@ def criar_divisorias(context, conj, margens, p, referencial=None):
     grupo[CHAVE_MARGENS] = list(margens)
     grupo[CHAVE_REFERENCIA] = [v for linha in ref for v in linha]
     grupo.parent = conj
+    grupo[CHAVE_BLOCAGEM] = blocagem_uid or _chapas._garantir_uid(grupo)
     _chapas._ocultar_empty(grupo)
     ocupado = _chapas._ocupado[0]
     _chapas._ocupado[0] = True
     try:
         montar(grupo)
-        _partir(conj, planos, pecas(grupo))
+        _partir(conj, planos, pecas(grupo), p.get('preenchimento', 'MANTER'))
         _formas.esquecer()
     finally:
         _chapas._ocupado[0] = ocupado
     return grupo
+
+
+def prever_lacunas_prateleiras(conj, margens, p, referencial=None):
+    ref = referencial if referencial is not None else Matrix.Identity(3)
+    lo, hi = _gavetas.limites_na_referencia(conj, ref)
+    esq, direita, baixo, cima, frente = margens
+    l, a = hi.x-lo.x-esq-direita, hi.z-lo.z-baixo-cima
+    m = ref.to_4x4() @ Matrix.Translation(Vector((lo.x+esq,lo.y+frente,lo.z+baixo))/1000)
+    caixas = _prateleiras.calcular(l,a,dict(_prateleiras.PARAMETROS_PADRAO,**p))['prateleiras']
+    for div in (g for g in conj.children if MARCA_GRUPO in g):
+        for chapa in pecas(div):
+            minimo, maximo = _limites_malha(chapa, conj.matrix_world @ m)
+            for x0,x1,y0,y1,z0,z1 in caixas:
+                if (x0 < minimo.x-TOL and x1 > maximo.x+TOL and y1 > minimo.y+TOL
+                        and y0 < maximo.y-TOL and z1 > minimo.z+TOL and z0 < maximo.z-TOL):
+                    if minimo.y > y0+TOL or maximo.y < y1-TOL or minimo.z > z0+TOL or maximo.z < z1-TOL:
+                        return True
+    return False
 
 
 def particionar_grupo(grupo):
@@ -462,7 +586,9 @@ def particionar_grupo(grupo):
             for alvo in list(alvos):
                 anteriores = {o.name for o in conj.children}
                 planos = _plano(conj, div.matrix_basis, caixas, alvo=alvo)
-                _partir(conj, planos, chapas)
+                preenchimento = (_prateleiras.parametros(grupo).get('preenchimento_divisorias')
+                    if _prateleiras.MARCA_GRUPO in grupo else None)
+                _partir(conj, planos, chapas, preenchimento or parametros(div).get('preenchimento', 'MANTER'))
                 alvos.extend(o for o in conj.children if o.name not in anteriores
                              and (_gavetas.MARCA_GRUPO in o or _prateleiras.MARCA_GRUPO in o))
         except ValueError:
@@ -560,10 +686,12 @@ def selecionar(context, obj, nivel='GRUPO', somar=False):
     grupo = grupo_de(obj)
     if grupo is None:
         return False
+    garantir_blocagem(grupo)
     if not somar:
         for o in context.selected_objects:
             o.select_set(False)
-    alvos = [obj] if nivel == 'INDIVIDUAL' and obj != grupo else [grupo, *pecas(grupo)]
+    alvos = ([obj] if nivel == 'INDIVIDUAL' and obj != grupo else
+             [o for g in grupos_da_blocagem(grupo) for o in [g, *pecas(g)]])
     for o in alvos:
         if o.visible_get():
             o.select_set(True)

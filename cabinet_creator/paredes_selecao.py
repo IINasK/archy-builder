@@ -9,6 +9,9 @@ from mathutils.geometry import tessellate_polygon, intersect_line_line_2d
 _paredes = _paredes_edicao = None
 ORIENTACAO_MIN = math.cos(math.radians(1))
 MARCA_EXIBICAO = 'cabinet_parede_recorte_2d'
+MARCA_MODULO_RECORTADO = 'cabinet_modulo_recorte_2d'
+MARCA_BLOQUEIO = 'cabinet_modulo_recorte_selecao'
+FRACAO_EDITAVEL = .9
 _candidatas = [{}]
 _limpeza_pendente = [True]
 
@@ -247,22 +250,102 @@ def ponto_na_regiao(regiao,ponto,u):
 
 
 def modulo_na_regiao(modulo,regiao,normal):
-    caixa=_paredes.caixa_do_modulo(modulo)
+    # Amostrar alturas perdia paredes giradas por ruido nos cruzamentos.
+    return fracao_visivel(modulo, regiao, normal) > 1e-8
+
+
+def fracao_visivel(modulo, regiao, normal):
+    """Area frontal do envelope dentro da superficie real, descontando buracos."""
+    caixa = _paredes.caixa_do_modulo(modulo)
     if caixa is None:
-        return False
-    lo,hi=caixa
-    matriz=_paredes.referencial(modulo)
-    u=_paredes.eixos_da_parede(normal)[1]
-    costas=[matriz @ Vector((x,hi.y,z)) for x in (lo.x,hi.x) for z in (lo.z,hi.z)]
-    a,b=min(p.dot(u) for p in costas),max(p.dot(u) for p in costas)
-    z0=max(regiao['retangulo'][2],min(p.z for p in costas))
-    z1=min(regiao['retangulo'][3],max(p.z for p in costas))
-    if z1-z0<1e-6:
-        return False
-    alturas={z0+2e-6,(z0+z1)/2,z1-2e-6}
-    alturas.update(v[2] for par in regiao['contorno'] for v in par if z0<v[2]<z1)
-    return any(min(b,d)-max(a,c)>1e-6 for z in alturas
-               for c,d in _paredes_edicao.faixas_da_face(regiao,u,z-1e-7,z+1e-7))
+        return 0.0
+    lo, hi = caixa
+    matriz = _paredes.referencial(modulo)
+    u = _paredes.eixos_da_parede(normal)[1]
+    cantos = [matriz @ Vector((x, hi.y, z)) for x in (lo.x, hi.x) for z in (lo.z, hi.z)]
+    a, b = min(p.dot(u) for p in cantos), max(p.dot(u) for p in cantos)
+    z0, z1 = min(p.z for p in cantos), max(p.z for p in cantos)
+    area = (b - a) * (z1 - z0)
+    if area <= 1e-12:
+        return 0.0
+    plano = Vector(regiao['plano'])
+    pontos = []
+    for x, z in ((a, z0), (b, z0), (b, z1), (a, z1)):
+        p = plano + u * (x - plano.dot(u)); p.z = z
+        pontos.append(p)
+    try:
+        corte = recortar(regiao, pontos, normal)
+    except ValueError:
+        return 0.0
+    tris = np.asarray(corte['triangulos']).reshape(-1, 3, 3)
+    dentro = np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1).sum() / 2
+    return min(1.0, float(dentro / area))
+
+
+def recortar_modulos(context, modulos, regiao, normal):
+    """Copia avaliada e Boolean nativo: nunca corta a modelagem do usuario."""
+    editaveis, bloqueados, exibicoes = set(), set(), set()
+    inativos = []
+    for modulo in modulos:
+        if fracao_visivel(modulo, regiao, normal) >= FRACAO_EDITAVEL - 1e-6:
+            editaveis.add(modulo.name)
+        else:
+            inativos.append(modulo)
+    if not inativos:
+        return editaveis, bloqueados, exibicoes
+    # O volume e' construido uma vez e atende concavidades e aberturas.
+    fonte = bpy.data.objects[_paredes_edicao._sessao[0]['parede']]
+    volume = criar_exibicao(context, fonte, regiao)
+    del volume[MARCA_EXIBICAO]
+    volume[MARCA_MODULO_RECORTADO] = True
+    planos = [abs((o.matrix_world @ Vector(p) - Vector(regiao['plano'])).dot(normal))
+              for m in inativos for o in m.children_recursive if o.type == 'MESH' for p in o.bound_box]
+    solido = volume.modifiers.new('Volume do recorte', 'SOLIDIFY')
+    solido.thickness = max(planos, default=1) * 2 + 2
+    solido.offset = 0
+    volume.hide_set(True)
+    dep = context.evaluated_depsgraph_get()
+    tema = context.preferences.themes[0].user_interface.wcol_regular
+    cinza = (sum(tema.text[:3]) + sum(tema.inner[:3])) / 6
+    for modulo in inativos:
+        bm = bmesh.new()
+        try:
+            familia = [modulo, *modulo.children_recursive]
+            for obj in familia:
+                if obj.type != 'MESH' or not obj.visible_get(viewport=context.space_data):
+                    continue
+                avaliado = obj.evaluated_get(dep)
+                malha = avaliado.to_mesh()
+                try:
+                    anteriores = set(bm.verts)
+                    bm.from_mesh(malha)
+                    bmesh.ops.transform(bm, verts=list(set(bm.verts) - anteriores), matrix=obj.matrix_world)
+                finally:
+                    avaliado.to_mesh_clear()
+            dados = bpy.data.meshes.new('Modulo recortado 2D')
+            bm.to_mesh(dados)
+        finally:
+            bm.free()
+        obj = bpy.data.objects.new('Modulo recortado 2D', dados)
+        context.scene.collection.objects.link(obj)
+        obj[MARCA_MODULO_RECORTADO] = True
+        obj.hide_select = True
+        obj.hide_render = True
+        obj.color = (cinza, cinza, cinza, 1)
+        corte = obj.modifiers.new('Recorte temporario', 'BOOLEAN')
+        corte.operation = 'INTERSECT'; corte.solver = 'EXACT'; corte.use_self = True
+        corte.object = volume
+        context.view_layer.update()
+        exibicoes.add(obj.name)
+        for original in familia:
+            original[MARCA_BLOQUEIO] = original.hide_select
+            original.hide_select = True
+            if context.view_layer.objects.get(original.name) == original:
+                original.select_set(False)
+            bloqueados.add(original.name)
+        if context.view_layer.objects.active in familia:
+            context.view_layer.objects.active = None
+    return editaveis, bloqueados, exibicoes
 
 
 def criar_exibicao(context,parede,regiao):
@@ -315,7 +398,10 @@ def limpar_exibicoes(forcar=False):
     if not forcar and not _limpeza_pendente[0]:
         return
     for obj in list(bpy.data.objects):
-        if obj.get(MARCA_EXIBICAO):
+        if MARCA_BLOQUEIO in obj:
+            obj.hide_select = bool(obj[MARCA_BLOQUEIO])
+            del obj[MARCA_BLOQUEIO]
+        if obj.get(MARCA_EXIBICAO) or obj.get(MARCA_MODULO_RECORTADO):
             malha=obj.data
             bpy.data.objects.remove(obj,do_unlink=True)
             if malha and malha.users==0:

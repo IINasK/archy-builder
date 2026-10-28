@@ -288,6 +288,62 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertFalse(E.obstaculos(bpy.context, s, 0, .8, .5))
         self.assertTrue(E.obstaculos(bpy.context, s, 1.8, 2.6, .5))
 
+    def test_piso_continuo_define_base_de_cotas_guias_proxy_e_arraste(self):
+        # Regressao (era BUG, corrigido na 367): o retangulo incluia 100 mm enterrados.
+        caixa('Piso real', (3, 2, .1), (0, 0, .05))
+        modulo = self.modulo()
+        P.colocar_na_parede(modulo, self.parede, Vector((0, 1, .3)), Vector((0, -1, 0)))
+        P.associar(modulo, self.parede, Vector((0, 1, .3)), Vector((0, -1, 0)))
+        ids = {o.name: o.data.as_pointer() for o in modulo.children_recursive if o.type == 'MESH'}
+        matriz = modulo.matrix_world.copy()
+        self.iniciar()
+        s = E._sessao[0]
+        self.assertAlmostEqual(s['regiao']['retangulo'][2], .1, places=6)
+        self.assertTrue(s['recorte_explicito'])
+        proxy = bpy.data.objects[s['exibicao']]
+        self.assertAlmostEqual(min((proxy.matrix_world @ v.co).z for v in proxy.data.vertices), .1, places=6)
+        self.assertEqual(modulo.matrix_world, matriz)
+        self.assertIn(modulo.name, {f['nome'] for f in addon.paredes_composicao.itens_da_face(bpy.context)})
+        self.assertAlmostEqual(addon.paredes_composicao.itens_da_face(bpy.context)[0]['cota_inferior'], .2, places=5)
+        self.assertIsNone(addon.paredes_composicao.editar_modulo(bpy.context, modulo.name, 'cota_inferior', 0))
+        self.assertAlmostEqual(addon.paredes_composicao.itens_da_face(bpy.context)[0]['base'], .1, places=5)
+        self.assertEqual({o.name: o.data.as_pointer() for o in modulo.children_recursive if o.type == 'MESH'}, ids)
+        guias = next(o for o in bpy.data.objects if o.get(addon.paredes_composicao.MARCA_OBJETO_GUIAS))
+        self.assertAlmostEqual(min(v.co.z for v in guias.data.vertices), .25, places=5)
+
+    def test_apoio_respeita_parede_rotacionada_e_altura_negativa(self):
+        from mathutils import Matrix
+        piso = caixa('Piso real', (3, 2, .1), (0, 0, .05))
+        transformacao = Matrix.Translation((1, 2, -.8)) @ Matrix.Rotation(.6, 4, 'Z')
+        for obj in (self.parede, piso):
+            obj.matrix_world = transformacao @ obj.matrix_world
+        bpy.context.view_layer.update()
+        self.area.spaces.active.region_3d.view_rotation = (transformacao.to_quaternion() @
+            Quaternion((1, 0, 0), math.pi / 2))
+        self.iniciar()
+        s = E._sessao[0]
+        self.assertAlmostEqual(s['regiao']['retangulo'][2], -.7, places=5)
+        proxy = bpy.data.objects[s['exibicao']]
+        self.assertAlmostEqual(min((proxy.matrix_world @ v.co).z for v in proxy.data.vertices), -.7, places=5)
+
+    def test_piso_parcial_ou_obstaculo_suspenso_nao_levanta_base_inteira(self):
+        parcial = caixa('Piso parcial', (1, 2, .1), (-1, 0, .05))
+        self.iniciar()
+        self.assertAlmostEqual(E._sessao[0]['regiao']['retangulo'][2], 0, places=6)
+        E.encerrar()
+        bpy.data.objects.remove(parcial, do_unlink=True)
+        caixa('Viga suspensa', (3, 2, .1), (0, 0, .45))
+        self.iniciar()
+        self.assertAlmostEqual(E._sessao[0]['regiao']['retangulo'][2], 0, places=6)
+
+    def test_modulos_e_objetos_afastados_nao_viram_piso_da_parede(self):
+        modulo = self.modulo()
+        P.colocar_na_parede(modulo, self.parede, Vector((0, 1, 0)), Vector((0, -1, 0)))
+        P.associar(modulo, self.parede, Vector((0, 1, 0)), Vector((0, -1, 0)))
+        caixa('Objeto afastado da parede', (3, .2, .1), (0, .4, .05))
+        self.iniciar()
+        self.assertAlmostEqual(E._sessao[0]['regiao']['retangulo'][2], 0, places=6)
+
     def test_contorno_com_abertura_recorta_faixa_so_na_altura_correspondente(self):
         contorno = []
         for pontos in (((0, 0, 0), (3, 0, 0), (3, 0, 3), (0, 0, 3)),
@@ -296,6 +352,19 @@ class TestEdicaoParedes(unittest.TestCase):
         regiao = {'retangulo': (0, 3, 0, 3), 'contorno': contorno}
         self.assertEqual(E.faixas_da_face(regiao, Vector((1, 0, 0)), 0, .9), [(0, 3)])
         self.assertEqual(E.faixas_da_face(regiao, Vector((1, 0, 0)), 0, 2.5), [(0, 1), (2, 3)])
+
+    def test_encaixe_na_borda_tolera_ruido_float_sem_liberar_fora_da_face(self):
+        self.iniciar()
+        s = E._sessao[0]
+        z0, z1 = s['regiao']['retangulo'][2:]
+        u = Vector(s['u'])
+        esperado = E.faixas_da_face(s['regiao'], u, z0, z1)
+        for base, topo in ((z0 - 2e-7, z1), (z0, z1 + 2e-7),
+                           (z0 - 2e-7, z1 + 2e-7)):
+            with self.subTest(base=base, topo=topo):
+                self.assertEqual(E.faixas_da_face(s['regiao'], u, base, topo), esperado)
+        self.assertEqual(E.faixas_da_face(s['regiao'], u, z0 - 2e-6, z1), [])
+        self.assertEqual(E.faixas_da_face(s['regiao'], u, z0, z1 + 2e-6), [])
 
     def test_retorno_de_parede_considera_profundidade(self):
         s = self.modelo()
@@ -781,7 +850,8 @@ class TestEdicaoParedes(unittest.TestCase):
     # Regressao (era BUG, corrigido na 363): caixa antiga sobrava fora da vista.
     def test_arraste_recupera_encaixe_ao_sair_do_obstaculo_sem_mudar_dimensoes(self):
         caminho = self.fixture(altura=1200)
-        caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
+        # Apoio parcial continua obstaculo local; piso continuo agora e' a base da vista.
+        caixa('Piso elevado parcial', (2.9, 2, .1), (0, 0, .05))
         self.iniciar()
         with bpy.context.temp_override(area=self.area, region=self.regiao):
             op = self.arraste_de_teste(caminho)

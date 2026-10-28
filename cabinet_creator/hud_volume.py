@@ -10,6 +10,7 @@ from bpy.types import Operator, Macro
 _hud = None
 _eventos = None
 _opcoes = None
+_areas_criacao = None
 _estado = [None]
 _timer_observador = [None]
 _assinatura_mapa_snap = [None]
@@ -20,6 +21,8 @@ _CAMPOS_EVENTO = ('type', 'value', 'any', 'shift', 'ctrl', 'alt', 'oskey',
 
 def controles(geometria):
     """Seis centros de face, so' no envelope convencional (8 cantos)."""
+    if geometria['modo'] == 'AREA_CRIACAO' and len(geometria['cantos']) == 4:
+        return _areas_criacao.controles_plano(geometria)
     if (not _opcoes._opcao('hud_pontos_apoio') or len(geometria['cantos']) != 8 or (geometria['modo'] != 'GRUPO'
             and _hud._sistema_hud(geometria['modo']) is None)):
         return []
@@ -83,6 +86,11 @@ def preparar(context, alvo, backup):
     obj = alvo['objeto']
     proprias = [o for o in [obj, *obj.children_recursive]
                 if o.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}]
+    if alvo['tipo'] == 'area_criacao':
+        modulo = bpy.data.objects.get(obj.get('area_modulo', ''))
+        if modulo is not None:
+            nomes = {o.name for o in [modulo, *modulo.children_recursive]}
+            proprias = [o for o in context.visible_objects if o.name not in nomes]
     bloqueados = [(o.name, o.hide_select) for o in proprias]
     alvo_numerico = dict(alvo)
     if _hud._sistema_hud(alvo['tipo']) is not None:

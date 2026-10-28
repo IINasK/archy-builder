@@ -798,6 +798,7 @@ def absorver_malha_editada(obj, reorientar=True):
 
 
 # ============================= HANDLER: age SO' depois do modal acabar
+@bpy.app.handlers.persistent
 def ao_atualizar_depsgraph(scene, depsgraph):
     """A chapa deforma normalmente durante o arraste do S (a ferramenta
     nativa do Blender trabalha sem interferencia). Assim que o operador
@@ -823,10 +824,12 @@ def ao_atualizar_depsgraph(scene, depsgraph):
     _eventos.sincronizar_contornos()
     # apagou/duplicou algo: as ferragens das portas se conferem depois
     # (num timer: remover objeto dentro do handler do depsgraph nao)
-    if len(bpy.data.objects) != _ferragens._contagem_objetos[0]:
+    contagem = (len(bpy.data.objects), tuple((s.name, len(s.objects)) for s in bpy.data.scenes))
+    anterior = _ferragens._contagem_objetos[0]
+    if contagem != anterior:
         _solda._normalizar_pendente[0] = True
-        surgiu = len(bpy.data.objects) > _ferragens._contagem_objetos[0] >= 0
-        _ferragens._contagem_objetos[0] = len(bpy.data.objects)
+        surgiu = anterior is not None and contagem[0] > anterior[0]
+        _ferragens._contagem_objetos[0] = contagem
         if not bpy.app.timers.is_registered(_ferragens._conferir_ferragens):
             bpy.app.timers.register(_ferragens._conferir_ferragens, first_interval=0.0)
         # Ctrl+D numa chapa: a copia sai com identidade propria e sem as

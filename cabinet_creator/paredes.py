@@ -1140,7 +1140,7 @@ class OBJECT_OT_guia_parede(Operator):
             return {'CANCELLED'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
             try:
-                valor = _gaveta_desenho._ler_medida_digitada(estado['texto']) * 1000.0
+                valor = _gaveta_desenho._ler_medida_digitada(estado['texto'], minimo=0) * 1000.0
             except (ValueError, TypeError) as erro:
                 self.report({'WARNING'}, str(erro))
                 return {'RUNNING_MODAL'}

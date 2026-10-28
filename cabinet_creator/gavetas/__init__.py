@@ -1,7 +1,6 @@
 """Gavetas do MOVEL (nao confundir com a "gaveta", o menu GPU a' esquerda):
 um grupo de gavetas num vao do modulo -- frente, caixa e trilhos --, o
-assistente que cria (2 cliques na diagonal do vao, scroll = quantas,
-mouse = profundidade, trilho), a abertura por slider, a HUD de medidas e
+assistente que cria (3 pontos -> frente explicita -> quantidade -> trilho), a abertura por slider, a HUD de medidas e
 os 3 pontos editaveis com Alt.
 
 Referencial: o grupo e' filho do modulo, nos eixos dele, com a origem no
@@ -16,6 +15,7 @@ import math
 import bpy, bmesh, blf, gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
+from mathutils.geometry import intersect_line_plane
 from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, IntProperty, StringProperty
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
@@ -25,6 +25,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 _chapas = _modulos = _portas = _puxadores = _hud = _assistente = None
 _eventos = _gaveta = _solda = _portas_viewport = _selecao = None
 _geometria = _prateleiras = _divisorias = _fundos = None
+_areas_criacao = None
 
 # Marcas gravadas no .blend (renomear quebra arquivos salvos)
 MARCA_GRUPO = 'eh_grupo_gavetas'
@@ -1837,20 +1838,62 @@ def _acompanhar_snap_criacao():
     return 1/60
 
 
+def fixar_modulo_criacao(estado, modulo):
+    estado['modulo_alvo'] = modulo.name
+    estado['alvos_snap'] = tuple(o.name for o in [modulo, *modulo.children_recursive])
+
+
+def evento_de_navegacao(context, event):
+    if event.type in {'MIDDLEMOUSE', 'NDOF_MOTION', 'TRACKPADPAN', 'TRACKPADZOOM', 'MOUSEROTATE'}:
+        return True
+    if event.type in {'TIMER', 'MOUSEMOVE', 'LEFTMOUSE', 'RIGHTMOUSE', 'ESC'}:
+        return False
+    config = context.window_manager.keyconfigs.user
+    mapa = config.keymaps.get('3D View') if config else None
+    item = mapa.keymap_items.match_event(event) if mapa else None
+    return bool(item and (item.idname in {
+        'view3d.navigate', 'view3d.walk', 'view3d.fly', 'view3d.rotate', 'view3d.move', 'view3d.zoom',
+        'view3d.dolly', 'view3d.view_axis', 'view3d.view_orbit', 'view3d.view_pan',
+        'view3d.view_persportho', 'view3d.view_camera', 'view3d.view_selected',
+        'view3d.view_all'} or item.idname.startswith('view3d.ndof_')))
+
+
+def raio_no_modulo(context, modulo, origem, direcao):
+    """Consulta apenas BVHs nativos das pecas do modulo, sem oclusores externos."""
+    nomes = {o.name for o in modulo.children_recursive}
+    dep = context.evaluated_depsgraph_get(); melhor = None
+    for obj in context.visible_objects:
+        if obj.name not in nomes or obj.type != 'MESH' or obj.hide_select:
+            continue
+        mundo = obj.matrix_world; inv = mundo.inverted_safe()
+        hit, co, normal, face = obj.ray_cast(inv @ origem,
+            (inv.to_3x3() @ direcao).normalized(), depsgraph=dep)
+        if hit:
+            ponto = mundo @ co; distancia = (ponto - origem).length_squared
+            if melhor is None or distancia < melhor[0]:
+                normal = (inv.to_3x3().transposed() @ normal).normalized()
+                melhor = distancia, (obj, ponto, normal, face, mundo.copy())
+    return melhor[1] if melhor else None
+
+
 def _objeto_do_ponto_criacao(context, ponto):
-    area=context.area;regiao=context.region;rv3d=area.spaces.active.region_3d
-    tela=view3d_utils.location_3d_to_region_2d(regiao,rv3d,ponto)
-    if tela is not None:
-        origem=view3d_utils.region_2d_to_origin_3d(regiao,rv3d,tela)
-        direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv3d,tela)
-        hit,co,_n,_f,obj,_m=context.scene.ray_cast(context.evaluated_depsgraph_get(),origem,direcao)
-        if hit and obj is not None and (co-ponto).length<.005:return obj.original.name
+    estado = _estado_criacao() or {}
+    alvos = set(estado['alvos_snap']) if 'alvos_snap' in estado else None
+    if alvos is None:
+        area=context.area;regiao=context.region;rv3d=area.spaces.active.region_3d
+        tela=view3d_utils.location_3d_to_region_2d(regiao,rv3d,ponto)
+        if tela is not None:
+            origem=view3d_utils.region_2d_to_origin_3d(regiao,rv3d,tela)
+            direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv3d,tela)
+            hit,co,_n,_f,obj,_m=context.scene.ray_cast(context.evaluated_depsgraph_get(),origem,direcao)
+            if hit and obj is not None and (co-ponto).length<.005:return obj.original.name
     # Quina exata fica na tangente do raio (ele passa para o fundo do vao).
     # So' o modulo ativo nao bastava: sem selecao a porta nova nao achava a
     # chapa. Pecas que o snap enxerga, com a caixa no ponto, pelo BVH nativo
     # -- sem ler/projetar vertices da cena.
     melhor=None
     for obj in context.visible_objects:
+        if alvos is not None and obj.name not in alvos:continue
         if obj.type!='MESH' or obj.hide_select:continue
         inv=obj.matrix_world.inverted();local=inv@ponto
         caixa=obj.bound_box
@@ -1896,8 +1939,8 @@ def registrar_macro_criacao():
 
 
 class AssistenteDoVao:
-    """O assistente que marca um vao do modulo: 2 cliques na diagonal ->
-    scroll = quantas -> mouse = profundidade -> trilho. As PRATELEIRAS usam
+    """Tres pontos delimitam uma caixa; a frente e' escolhida separadamente.
+    As PRATELEIRAS usam
     o mesmo (`prateleiras.OBJECT_OT_criar_prateleiras`), parando na
     quantidade; o que muda entre os dois sao os ganchos logo abaixo. Mixin, nao Operator: subclasse de operador
     registrado nao se registra de novo."""
@@ -1940,6 +1983,8 @@ class AssistenteDoVao:
             round(self._w['p']['profundidade_mm']), dados['trilho_mm'])
 
     def _depois_da_quantidade(self, context):
+        if self._w.get('area_livre'):
+            return self._depois_da_profundidade(context)
         self._ir('PROFUNDIDADE')
         return {'RUNNING_MODAL'}
 
@@ -1977,7 +2022,8 @@ class AssistenteDoVao:
             if ponto is None:ponto=context.scene.cursor.location.copy()
             context.scene.cursor.location=ponto
             self._area.spaces.active.overlay.show_cursor=False
-            params=dict(cursor_transform=True,snap=True,snap_elements=set(w.get('elementos_snap',('VERTEX','EDGE_MIDPOINT'))),
+            elementos = ('VERTEX', 'EDGE_MIDPOINT', 'FACE') if w.get('volume_3d') else ('VERTEX','EDGE_MIDPOINT')
+            params=dict(cursor_transform=True,snap=True,snap_elements=set(w.get('elementos_snap', elementos)),
                         snap_target='CENTER',snap_align=False,use_snap_selectable=True)
             if w.get('soltar_confirma'):params['release_confirm']=True
             if w['etapa']=='PROFUNDIDADE':
@@ -2045,9 +2091,17 @@ class AssistenteDoVao:
         w = self._w
         linhas_vao, linhas = [], []
         pontos = list(w['pontos'])
-        if w['etapa'] == 'CANTO2' and w.get('cursor') is not None:
+        if w['etapa'] in ('CANTO2', 'CANTO3') and w.get('cursor') is not None:
             pontos.append(w['cursor'])
-        if len(pontos) == 2 and w['etapa'] == 'CANTO2':
+        caixa = w.get('caixa_area') if w['etapa'] == 'FRENTE' else None
+        if w.get('volume_3d') and w['etapa'] in ('CANTO2', 'CANTO3'):
+            conj = bpy.data.objects.get(w.get('modulo', ''))
+            if conj is not None:
+                caixa = _areas_criacao.caixa_de_pontos(conj, pontos, validar=False)
+        if caixa is not None:
+            c = _areas_criacao.cantos_dados(caixa)
+            linhas_vao = [c[i] for par in ARESTAS for i in par]
+        elif not w.get('volume_3d') and len(pontos) == 2 and w['etapa'] == 'CANTO2':
             conj = bpy.data.objects.get(w.get('modulo', ''))
             if conj is not None:
                 ref=referencia_do_vao(conj,*pontos,limites=w.get('limites'))
@@ -2073,6 +2127,8 @@ class AssistenteDoVao:
             gpu.state.depth_test_set('NONE')
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             shader.bind()
+            if caixa is not None and w['etapa'] == 'FRENTE':
+                _areas_criacao.realcar_frente(shader, caixa, w.get('face_hover'))
             gpu.state.line_width_set(2.0)
             if linhas_vao:
                 shader.uniform_float('color', _portas.COR_FIO_VAO)
@@ -2081,7 +2137,7 @@ class AssistenteDoVao:
                 shader.uniform_float('color', (1.0, 1.0, 1.0, 0.85))
                 batch_for_shader(shader, 'LINES', {'pos': linhas}).draw(shader)
             marcas = list(w['pontos'])
-            if w.get('cursor') is not None and w['etapa'] in ('CANTO1', 'CANTO2'):
+            if w.get('cursor') is not None and w['etapa'] in ('CANTO1', 'CANTO2', 'CANTO3'):
                 marcas.append(w['cursor'])
             if marcas:
                 gpu.state.point_size_set(11.0)
@@ -2115,12 +2171,28 @@ class AssistenteDoVao:
         if not any(o.type=='MESH' for o in context.visible_objects):
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
             return {'CANCELLED'}
+        if self.ABA in {'PRATELEIRAS', 'DIVISORIAS'}:
+            _areas_criacao.preparar_assistente_internos(self.ABA)
         self._w = {'etapa': 'CANTO1', 'regiao': self._regiao_ptr, 'pontos': [],
                    'cursor': None, 'modulo': '', 'p': self._parametros_padrao(),
                    'botoes': [], 'bolinhas': [], 'snap_tela': None,
                    'mouse': None, 'recado': self.RECADOS['CANTO1'], 'pergunta': ''}
         self._w['iniciar_snap']=True
+        self._w['volume_3d'] = self.ABA in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'}
+        if self._w['volume_3d']:
+            # Translate apenas durante o clique: parado, a camera pertence ao Blender.
+            self._w.update(iniciar_snap=False, soltar_confirma=True)
+            self._w['recado'] = 'Marque o primeiro ponto da area | Esc cancela'
+        ativo = context.object
+        modulo = _modulos._conj_de(ativo) if ativo is not None and ativo.select_get() else None
+        if modulo is not None:
+            fixar_modulo_criacao(self._w, modulo)
         self._estado[0] = self._w
+        area = _areas_criacao.consumir(self.ABA)
+        if area is not None:
+            _areas_criacao.receber_internos(self, area)
+            if self.ITEM[0] == 'fundo':
+                return self._criar(context)
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
         self._handler_2d = bpy.types.SpaceView3D.draw_handler_add(
@@ -2151,13 +2223,21 @@ class AssistenteDoVao:
 
     def cancel(self, context):
         self._encerrar(context)
+        if self.ABA in {'PRATELEIRAS', 'DIVISORIAS'}:
+            _areas_criacao.cancelar_internos()
 
     def _ir(self, etapa):
         w = self._w
         w['etapa'] = etapa
         w['botoes'], w['hover_botao'] = [], None
-        w['recado'] = self.RECADOS[etapa]
-        if etapa in ('CANTO1','CANTO2'):w['iniciar_snap']=True
+        if w.get('volume_3d') and etapa in ('CANTO1', 'CANTO2', 'CANTO3', 'FRENTE'):
+            w['recado'] = (_areas_criacao.RECADO_FRENTE if etapa == 'FRENTE' else
+                'Marque o %s ponto da area | Esc cancela' % {'CANTO1':'primeiro', 'CANTO2':'segundo', 'CANTO3':'terceiro'}[etapa])
+        else:
+            w['recado'] = self.RECADOS[etapa]
+        if etapa in ('CANTO1','CANTO2','CANTO3'):w['iniciar_snap']=not w.get('volume_3d', False)
+        elif etapa == 'FRENTE':
+            w['iniciar_snap'] = False
         if etapa == 'TRILHO':
             escala = max(1.0, bpy.context.preferences.system.ui_scale)
             w['botoes'] = _assistente._botoes_assistente(
@@ -2219,19 +2299,27 @@ class AssistenteDoVao:
                 if self._dados()[0] is not None:return self._depois_da_profundidade(context)
                 return {'RUNNING_MODAL'}
             return self._aceitar_canto(context,ponto,nome)
-        if w.pop('iniciar_snap',False):
+        if w.pop('iniciar_snap',False) and not w.get('volume_3d'):
             self._iniciar_snap_nativo(context)
             return {'RUNNING_MODAL'}
         if w.get('snap_pendente'):return {'PASS_THROUGH'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
-            self._encerrar(context)
+            self.cancel(context)
             return {'CANCELLED'}
+        if event.type == 'BACK_SPACE' and event.value == 'PRESS' and w.get('volume_3d'):
+            if w['etapa'] == 'FRENTE' and w.get('pontos_area'):
+                w['pontos'] = [Vector(p) for p in w['pontos_area'][:2]]
+                w['nomes'] = w['nomes'][:2]
+                self._ir('CANTO3')
+            elif w['etapa'] == 'QUANTIDADE' and w.get('caixa_area'):
+                self._ir('FRENTE')
+            return {'RUNNING_MODAL'}
         if event.type == 'MIDDLEMOUSE':
             return {'PASS_THROUGH'}
         mouse = self._mouse(event)
         dentro = 0 <= mouse.x < self._regiao.width and 0 <= mouse.y < self._regiao.height
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            if w['etapa'] != 'QUANTIDADE':
+            if w['etapa'] != 'QUANTIDADE' or getattr(event, 'shift', False):
                 return {'PASS_THROUGH'}
             n = w['p']['quantidade'] + (1 if event.type == 'WHEELUPMOUSE' else -1)
             w['p']['quantidade'] = max(1, min(self.MAXIMO, n))
@@ -2241,8 +2329,13 @@ class AssistenteDoVao:
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE' or event.type in {'LEFT_ALT', 'RIGHT_ALT'}:
             w['mouse'] = mouse
-            if w['etapa'] in ('CANTO1', 'CANTO2'):
-                w['iniciar_snap']=True
+            if w['etapa'] in ('CANTO1', 'CANTO2', 'CANTO3'):
+                if w.get('volume_3d'):
+                    self._atualizar_ponto(context, mouse)
+                else:
+                    w['iniciar_snap']=True
+            elif w['etapa'] == 'FRENTE':
+                w['face_hover'] = _areas_criacao.face_no_raio(w['caixa_area'], *self._raio(mouse))
             elif w['etapa'] == 'PROFUNDIDADE':
                 self._profundidade(context, event, mouse)
                 dados, _m = self._dados()
@@ -2256,8 +2349,20 @@ class AssistenteDoVao:
         if event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS' and w['etapa'] == 'TRILHO':
             return self._criar(context, trilho='TELESCOPICO')
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS' or not dentro:
+            if w.get('volume_3d') and evento_de_navegacao(context, event):
+                return {'PASS_THROUGH'}
             return {'RUNNING_MODAL'} if dentro else {'PASS_THROUGH'}
-        if w['etapa'] in ('CANTO1', 'CANTO2'):
+        if w['etapa'] == 'FRENTE':
+            face = _areas_criacao.face_no_raio(w['caixa_area'], *self._raio(mouse))
+            if face is not None:
+                self._receber_frente(face)
+            return {'RUNNING_MODAL'}
+        if w['etapa'] in ('CANTO1', 'CANTO2', 'CANTO3'):
+            if w.get('volume_3d'):
+                self._atualizar_ponto(context, mouse)
+                if w.get('cursor') is not None:
+                    self._iniciar_snap_nativo(context)
+                return {'RUNNING_MODAL'}
             ponto, nome = w.get('cursor'), w.get('cursor_obj')
             if ponto is None:
                 return {'RUNNING_MODAL'}
@@ -2280,6 +2385,21 @@ class AssistenteDoVao:
                 return self._criar(context, trilho=chave)
         return {'RUNNING_MODAL'}
 
+    def _atualizar_ponto(self, context, mouse):
+        w = self._w
+        with context.temp_override(area=self._area, region=self._regiao):
+            modulo = bpy.data.objects.get(w.get('modulo_alvo', ''))
+            if 'modulo_alvo' in w and modulo is None:
+                w['cursor'] = None; w['cursor_obj'] = None
+                return
+            acerto = (raio_no_modulo(context, modulo, *self._raio(mouse)) if modulo else
+                      _hud._raio_cru(context, mouse))
+            origem, direcao = self._raio(mouse)
+            livre = (None if acerto else intersect_line_plane(origem, origem + direcao,
+                context.scene.cursor.location, self._rv3d.view_rotation @ Vector((0, 0, 1))))
+        w['cursor'] = acerto[1].copy() if acerto else livre
+        w['cursor_obj'] = acerto[0].name if acerto else None
+
     def _receber_profundidade(self,ponto):
         _d,matriz=self._dados()
         mm=(ponto-matriz.translation).dot(matriz.to_3x3().col[1].normalized())*1000
@@ -2287,15 +2407,26 @@ class AssistenteDoVao:
 
     def _aceitar_canto(self,context,ponto,nome):
         w=self._w
+        if nome and 'alvos_snap' in w and nome not in w['alvos_snap']:
+            w['recado'] = 'Marque um ponto no modulo escolhido'
+            self._area.header_text_set(w['recado']); w['iniciar_snap'] = True
+            return {'RUNNING_MODAL'}
         if w['etapa'] == 'CANTO1':
             obj = bpy.data.objects.get(nome or '')
-            conj = _portas._modulo_da_chapa(obj) if obj is not None else None
+            conj = (bpy.data.objects.get(w['modulo_alvo']) if 'modulo_alvo' in w else
+                    _portas._modulo_da_chapa(obj) if obj is not None else None)
+            if 'modulo_alvo' in w and conj is None:
+                self.cancel(context); return {'CANCELLED'}
+            if conj is None and w.get('volume_3d'):
+                ativo = context.object
+                conj = _modulos._conj_de(ativo) if ativo is not None and ativo.select_get() else None
             if conj is None:
                 w['recado'] = 'Marque o vao dentro de um modulo'
                 self._area.header_text_set(w['recado'])
                 w['iniciar_snap']=True
                 return {'RUNNING_MODAL'}
             w['modulo'] = conj.name
+            fixar_modulo_criacao(w, conj)
             w['pontos'] = [ponto.copy()]
             w['nomes']=[nome]
             w['limites']=_limites(conj)
@@ -2307,6 +2438,20 @@ class AssistenteDoVao:
             self._encerrar(context);return {'CANCELLED'}
         w['pontos'].append(ponto.copy())
         w['nomes'].append(nome)
+        if w.get('volume_3d'):
+            if len(w['pontos']) == 2:
+                self._ir('CANTO3')
+                return {'RUNNING_MODAL'}
+            try:
+                w['caixa_area'] = _areas_criacao.caixa_de_pontos(conj, w['pontos'])
+            except ValueError as erro:
+                w['pontos'].pop(); w['nomes'].pop()
+                w['recado'] = str(erro); self._area.header_text_set(w['recado'])
+                w['iniciar_snap'] = True
+                return {'RUNNING_MODAL'}
+            w['pontos_area'] = [tuple(p) for p in w['pontos']]
+            self._ir('FRENTE')
+            return {'RUNNING_MODAL'}
         w.pop('referencia',None)
         self._definir_vao(conj)
         dados, _m = self._dados()
@@ -2322,7 +2467,17 @@ class AssistenteDoVao:
         self._ir('QUANTIDADE')
         return {'RUNNING_MODAL'}
 
+    def _receber_frente(self, face):
+        w = self._w
+        d = _areas_criacao.orientar_frente(w['caixa_area'], face)
+        _areas_criacao.receber_internos(self, d)
+
     def _criar(self, context, **extra):
+        if self.ABA in {'PRATELEIRAS', 'DIVISORIAS'}:
+            try:
+                return _areas_criacao.criar_internos(context, self, extra)
+            except ValueError as erro:
+                self.report({'WARNING'}, str(erro)); return {'CANCELLED'}
         w = self._w
         conj = bpy.data.objects.get(w['modulo'])
         p = dict(w['p'], **extra)

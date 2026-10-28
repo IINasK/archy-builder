@@ -2,8 +2,7 @@
 
 ## Papel e fronteiras
 
-Folhas, vao, cobertura, vinculo e reaplicacao. Gesto em [assistente.py](../assistente.py),
-rig/abertura em [ferragens.py](../ferragens.py), alcas em [puxadores.py](../puxadores.py),
+Folhas, vao, cobertura, vinculo e reaplicacao. Gesto em [assistente.py](../assistente.py), rig/abertura em [ferragens.py](../ferragens.py), alcas em [puxadores.py](../puxadores.py),
 slider/cantos em [portas_viewport.py](../portas_viewport.py); referencia comum em
 [frentes.py](../frentes.py) e [FRONTES.md](../../FRONTES.md).
 Menu/gestos gerais: [interface](../../planejamento/setores/interface/AGENTS.md).
@@ -22,6 +21,8 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
 
 ## Decisoes e armadilhas
 
+- Plano livre (372): areas_criacao fixa quatro cantos retangulares, entrega ao wizard em FOLHAS e ao execute por area_definida/matriz_area/medidas_area. Previa/criacao usam o mesmo plano, sem solver de vertices; cobertura zero/embutida e E pelo dono. Voltar nao abre captura de pontos antigos. Entrada numerica valida rigidez e medidas antes de criar.
+- Delete 370: observador persiste ao abrir arquivo; ferragens com indice de folha saem so' com a dona. Outra cena/camada excluida conserva a folha; filhos comuns e ID referenciado sobrevivem. Clique nas ferragens seleciona nativamente, respeita ocultacao e permite Delete; undo restaura a montagem.
 - Limites internos (360): fundo novo nao amplia a caixa de apoio das portas.
 - Portas atualiza SO' folhas/apoios em `atualizar_do_conjunto`. A ordem
   portas -> gavetas -> prateleiras pertence a `modulos.atualizar_sistemas_do_conjunto`.
@@ -43,7 +44,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   scroll = quantidade -> mouse Y = margem -> pistoes. Posicao AUTO:
   aberto = 2x fechado, Y so' sobe. Gaveta: aceite VERDE na etapa; caixa
   nunca cortada. Reposicionar = 2 cliques. Nao usar popup_menu: release responderia.
-- Clique = porta inteira, nunca modulo; duplo = folha, sem contorno nativo.
+- Visibilidade (378): Shift+G contextual oferece Grupo da porta e conserva grupos nativos; selecao por descendencia, so' visiveis/selecionaveis da View Layer, H segue nativo. Esconder porta e agregados no menu usa hide_set da montagem inteira nesta camada, incluindo puxadores/rig/ferragens, sem excluir/remontar; Alt+H e undo nativos. Objetos fora da camada sao ignorados. Clique = porta inteira, nunca modulo; duplo = folha, sem contorno nativo.
   Selecionada POR SI: contorno branco, vao amarelo, fios e slider por folha.
   Alt arrasta SO' os 2 cliques (`CANTOS_DO_GESTO`) de `_cantos_da_porta`: refeitas, nunca gravadas;
   o destino e' o snap NATIVO do cursor (macro `cabinet_mover_canto_porta`).
@@ -97,7 +98,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   da porta persiste na raiz. Referencia numerica na Mesh recupera undo do Tab.
 - Espelhos das ferragens viram vertices antes do Tab, em copia unica e na
   ordem da pilha: Clipping nao pode prender metade da dobradica no arraste.
-- Puxador: clique seleciona SO' ele e suas funcoes, inclusive nas gavetas;
+- Puxador (374): folha unica selecionada fixa alvo pelo ray_cast nativo, sem acertar a vizinha sobreposta; sem alvo, usa raio visivel da HUD. Oculta/bloqueada nao recebe. GIRO <-> CORRER adapta bordas X parametrizadas, conserva dono/fracao, usa pose fechada; correr usa lateral externa. Demais bordas/trocas nao mudam. Clique seleciona SO' ele e suas funcoes, inclusive nas gavetas;
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
   proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
   chapa, nunca delta. PERFIL e' padrao, SEMPRE horizontal salvo guarda-roupa
@@ -115,7 +116,5 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   bordas/normais; PERFIL segue curva, fracao legada migra uma vez. Resize
   reancora pela tangente sem refazer vertices/faces editados.
 ## Suites
-
-Em `../../tests/`: `test_portas_blender.py`, `test_puxadores_blender.py`,
-`test_frentes_blender.py`; consumidores: importacao, hud, gaveta e gavetas.
-Preservar testes de curva controlada E modelagem manual. [Harness](../../tests/AGENTS.md).
+Em `../../tests/`: portas, puxadores e frentes; consumidores: importacao, hud, gaveta e gavetas.
+Preservar curva controlada E modelagem manual. [Harness](../../tests/AGENTS.md).

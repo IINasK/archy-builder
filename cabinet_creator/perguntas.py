@@ -7,6 +7,7 @@ from bpy.types import Operator
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _eventos = None
+_editor = None
 
 def _abrir_pergunta(context):
     """Pop-up so' com janela: em --background o popup_menu derruba o
@@ -62,7 +63,5 @@ class OBJECT_OT_responder_pergunta(Operator):
         if pergunta is None or not 0 <= self.opcao < len(pergunta['opcoes']):
             return {'CANCELLED'}
         _rotulo, _icone, idname, props = pergunta['opcoes'][self.opcao]
-        modulo, nome = idname.split('.')
-        resultado = getattr(getattr(bpy.ops, modulo), nome)(
-            'EXEC_DEFAULT', **props)
+        resultado = _editor.executar(context, idname, 'EXEC_DEFAULT', **props)
         return {'FINISHED'} if 'FINISHED' in resultado else {'CANCELLED'}

@@ -1,5 +1,226 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Internos compartilhados e recortes parciais (375): seis abas, Prateleiras /
+Divisorias juntas; enums antigos continuam lendo .blend e seguindo selecao.
+areas_criacao coordena tipo, pontos/volume, captura numerica unica, quantidade,
+lacuna e continuar com outro tipo/Sair. Guarda nomes/numeros por cena, encerra
+snap antes de perguntar, nao recaptura pontos nem duplica o tipo ja' criado.
+Ambas as ordens detectam lacuna antes de mutar, incluindo prateleiras novas
+com divisorias antigas. Cancelar conserva existentes; invalidos nao criam.
+Divisorias planeja subconjuntos por nome, permite profundidades/alturas
+diferentes e contato coplanar. Mantem restricoes fisicas das gavetas.
+Preencher ESQUERDA/DIREITA estende somente o segmento escolhido, face do
+apoio e Boolean EXACT nativo; MANTER conserva faixa vazia. BMesh bisect/cap
+preserva Mesh/UV/material. Tampas coplanares uniformes evitam a cunha de
+float que criava aresta com quatro faces no Boolean, sem folga artificial.
+Recorte vivo acompanha editar profundidade; undo/redo conserva referencias.
+Divisorias +12: manter/preencher dois lados, criacao depois, coplanar,
+espessura parcial, alturas diferentes, limites das gavetas, resize,
+undo/redo, rotacao e Mirror; volumes nativos fechados conferidos.
+Areas_criacao +7: tipo antes, entrada por volume, continuar sem cliques,
+lacuna/cancelar, prateleiras depois, comando/cena invalidos, aba unificada.
+GUI existente adaptado para tipo -> volume -> divisorias -> prateleiras
+no mesmo volume -> sair; nao executado com janela nesta sessao.
+Validacao: 2836 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK
+(internos375-final.log). Textos finais e encaixe no painel estreito: mais
+56 testes direcionados nos dois Blenders (internos375-perguntas.log).
+Renders manter/esquerda/direita revisados; volume esperado e Mesh preservada
+em Backups/CabinetCreator/internos375-auditoria/ (PNG e resultado.json).
+Snapshot comparado ao anterior: somente cabecalho muda; campos conservados.
+ZIP 375 conferido contra as 39 fontes Python; cena aberta preservada.
+
+Puxadores por folha e troca GIRO/CORRER (374): uma folha selecionada
+individualmente vira alvo nominal do criador, com Object.ray_cast nativo;
+outra folha na frente nao captura o gesto. Sem alvo, reutiliza raio da HUD
+que ignora ocultos. Folha oculta/bloqueada continua protegida. Sem varredura
+Python de vertices. GIRO <-> CORRER adapta borda lateral parametrizada,
+conserva dono/fracao; correr nas bordas externas, giro no lado livre.
+Pose fechada evita inverter a borda com folha aberta. Bordas horizontais,
+puxadores nao parametricos e resize sem troca continuam nos contratos atuais.
+Puxadores +7 cenarios: converter e voltar sem duplicar, perfil novo em
+correr, pose aberta, alvo sobreposto, oculto/bloqueado, ponte HUD visivel,
+excluir/recriar na segunda folha sem alterar a primeira.
+Cena aberta consultada so' em leitura: folhas ocultas e sem puxadores;
+nenhuma tentativa de revelar, reposicionar ou alterar o projeto real.
+Auditoria headless: renders GIRO, CORRER e exclusao/recriacao revisados;
+contagem final um puxador por folha. Evidencias externas em
+Backups/CabinetCreator/puxadores374-auditoria/ (PNG e resultado.json).
+Os gestos completos de mouse na janela real nao foram executados.
+Validacao final: 2798 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK;
+log externo puxadores374-completo.log. ZIP 374 conferido contra as fontes.
+
+Rolagem dos paineis compartilhados (373): aba e biblioteca exibem barras
+verticais do tema somente com excesso, proporcionais ao conteudo e nos seus
+limites. Clique no trilho, arraste, roda e touchpad alteram somente o painel
+apontado; Esc restaura o arraste. Abas/rodape fixos, opcoes/listas por cima.
+Reutiliza os limites/offsets existentes, sem transformar o painel em viewport.
+Verbo rolagem intencional: trilho vertical, diferente do slider de tamanho.
+Gaveta +5 cenarios: todas as abas/overflow, arraste/limites/Esc/independencia,
+roda/touchpad/cabecalho, opcoes sem falsa sobreposicao, proporcao/resize.
+Coluna de 12 px nos paineis com excesso reflui campos/fotos sem sobrepor
+botoes; preserva cabecalho/divisoria. Regressoes de prateleiras conservam
+teste de sobreposicao; biblioteca confere quebra pela largura util.
+Limiar da foto que encolhe nao alterna o layout. TRACKPADPAN usa ANY nativo.
+Snapshot revisto: barra e reflow do painel estreito; demais entradas e
+rotulos conservados, alem das alteracoes pendentes da 372.
+GUI +1: arrastar a barra da aba sem rolar biblioteca e cancelar; incluido,
+sem abrir janela nem executar o cenario nesta sessao.
+Auditoria do layout: primitivas do callback capturadas em cena temporaria,
+recortes/cores do tema, inicio/fim independentes e coluna livre conferidos
+nas imagens de rolagem373-auditoria/ em Backups/CabinetCreator. Exportacao
+2D usa fonte aproximada, nao substitui teste dos gestos na janela real.
+Validacao final: 2784 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK.
+Log: Backups/CabinetCreator/rolagem373-entrega.log; pacote 373 conferido.
+
+Areas livres de criacao (372): areas_criacao.py e' o dono do volume/plano
+temporario. Um clique em face/interior ou plano da vista, sem exigir vertices;
+referencial do modulo selecionado. Empty + limites numericos impedem Edit Mode,
+subdivisao/cisalhamento: 8 cantos no volume, 4 no plano. G/R/S, cotas da HUD,
+centros de face e B reutilizam os caminhos nativos existentes. Aplicar area
+entrega so' numeros/nomes aos assistentes de gavetas/prateleiras/divisorias/
+fundos; portas seguem de FOLHAS com plano explicito. E continua no dominio.
+Quantidade/profundidade nao voltam ao gesto antigo. Copia/restore das cotas,
+cursor e selecao seguem contratos atuais; invalidos conservam a referencia.
+Temporarios saem em Esc, undo/redo, save/load e unregister. Campo/G confirmados
+com Enter nao aplicam a area por engano; zero no S conserva ultimo volume valido.
+21 testes novos em areas_criacao: topologia/ortogonalidade/GRS, plano 4 pontos,
+ancoragem dos lados, validacao, HUD e B depois de deslocar, entrega unica,
+criacao nos cinco dominios, previa = porta final, primeiro clique/Tab,
+campos/menu, cancelamento/undo/redo/save/load e invalidos sem dados parciais.
+Snapshot de layout revisto: somente 12 insercoes do botao Definir por plano;
+nenhum valor/forma anterior alterado. GUI +1: botao -> clique em face sem
+vertice -> Tab bloqueado -> cotas digitadas -> Aplicar -> QUANTIDADE.
+Cenario GUI incluido, sem executar janela nesta sessao.
+Validacao final: 2774 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK.
+Auditoria headless de geometria: cubo inicial 200 mm, volume ajustado
+473 x 600 x 964 mm, plano 473 x 964 mm e prateleira criada no vao direito.
+Renders revisados; corpo preservado e nenhum temporario restante. Renders
+usam os mesmos cantos numericos, sem afirmar validacao da interacao GPU.
+Evidencias externas: Backups/CabinetCreator/area372-entrega.log e
+area372-auditoria/ (PNG e resultado.json).
+
+Selecao e recorte de paredes (371): Object.ray_cast consulta SO' a malha
+escolhida, sem fallback para a cena; pula teto e backfaces ocultas na mesma
+malha. Por pontos usa translate/cursor nativo VERTEX/ONLY_SELECTABLE,
+plano da face e confirmacao no RELEASE; guarda/devolve cursor e hide_select.
+Fracao visivel e' area do envelope frontal intersectada com a regiao real,
+incluindo concavidades/buracos. >=90% na entrada libera pela sessao inteira,
+inclusive se sair dos limites depois; novos modulos registrados sao editaveis.
+Parciais restantes usam copia BMesh avaliada + Boolean EXACT temporario,
+cinza do tema, hide_select e fora das cotas/edicao. Nao altera as fontes.
+Restaurar Local View/ocultacao/undo/erro limpa copia, volume e bloqueios.
+Portas de entrada por vertices, Automatico e Por pontos partilham a regra.
+Paredes_selecao +11 fixtures: teto externo, teto/backface na mesma malha,
+parametros/filtro/confirmacao do snap nativo, cancelamento e erro com
+restauracao, 90%/89.9%/50% e regiao triangular, geometria cortada imutavel,
+permissao retida fora do recorte, parede girada, undo/redo e rollback.
+GUI +1: press/drag/release de tres vertices, snap sem teto, cursor devolvido
+e confirmacao pelo operador do menu. Cenario incluido; janela nao executada.
+Auditoria visual headless: inteiro normal e parcial cinza cortado; oito
+malhas originais preservadas, zero temporarios depois de sair. Artefatos
+em Backups/CabinetCreator/parede371-*; projeto aberto nao alterado.
+Validacao 371: 2732 testes em 62 execucoes (Blender 4.2/5.2), OK.
+ZIP verificado contra as 38 fontes Python; espelhos de instrucoes identicos.
+
+Dobradicas e Delete (370): causa real confirmada no projeto aberto:
+handler de chapas sem PERSISTENT sumia no load; timer geral permanecia,
+mas exclusoes nao agendavam limpeza. Clique nas ferragens esvaziava a
+selecao nativa. Observador agora persiste e clique/Shift selecionam so'
+ferragens visiveis da camada; menu/Alt restauram a selecao depois de editar.
+Indice da folha acompanha tambem ferragens sem rig; exclusao parcial nao
+mantem dobradicas da folha removida nem muda o indice de abertura da outra.
+Portas +5 fixtures: salvar/reabrir e Delete do grupo; selecao de residuos,
+Delete/undo/redo; ocultacao/camada/desmarcar; exclusao de uma folha dupla
+com rig e sem rig, preservando a montagem/abertura da sobrevivente.
+Na copia descartavel da cena real: 210 pecas de ferragens, 170 selecionadas
+nativamente; Delete e limpeza deixam zero residuos, preservando matrizes,
+vertices e materiais dos outros 527 objetos. Projeto aberto nao alterado.
+Validacao 370: 2710 testes em 62 execucoes (Blender 4.2/5.2), OK.
+Auditoria visual por renders antes/depois na copia isolada do armario;
+gestos reais na janela aberta nao executados. ZIP confere com as 38 fontes.
+
+Exclusao e selecao (369): no diagnostico real, Peca LAYER89/LAYER90
+continuavam em children_recursive, sem cena/colecao. Selecao usa agora
+`view_layer.objects` nativo no clique/Shift/porta/Tab, incluindo escolha
+segura do ativo quando o pai esta fora da camada. Nenhuma colecao e'
+religada para forcar a selecao. ID orfao referenciado e' preservado.
+Gatilho do depsgraph observa tambem objetos por cena: Delete pode manter
+len(bpy.data.objects), mas tirar a folha da cena. Timer remove ferragens
+e grupo vazio, sem refazer uma porta excluida; respeita undo/Edit/modal,
+filhos comuns, colecao excluida da View Layer e folha viva em outra cena.
+HUD +3 testes nativos: Delete com ID prop, colecao excluida e pai sem
+camada. Portas +6: Delete referenciado/limpeza/hover, agendamento sem mudar
+contagem de IDs, grupo/folha selecionaveis com outra folha fora, colecao
+excluida preservada, undo/redo e folha em outra cena. Fixtures descartaveis.
+Validacao 369: 2700 testes em 62 execucoes (Blender 4.2/5.2), OK.
+Pacote conferido contra fontes. Diagnostico inicial na cena real somente
+leitura; a conexao MCP caiu antes da conferencia final dos cliques reais.
+
+Indicadores da parede (368): A1/A2/A3 com valor sempre no selecionado;
+A3 Prof. usa chamada na quina inferior direita e edita profundidade pelo
+operador existente. Afastamento e' outro campo. Resize conserva as tres
+dimensoes e oculta distancias. Posicoes respeitam a area livre e evitam
+os numeros existentes. Fonte/escala de background sem DPI usam escala 1.
+Tres testes novos em paredes_composicao: prefixos/valores/linha na quina
+sem sobreposicao; hit-test A3, digitar 600 mm e preservar E; bordas da area.
+Contrato antigo de duas etapas atualizado pelo pedido explicito; cursor
+da HUD continua no valor da cota, sem caixa duplicada. Teste de circulo
+usa escala 1 quando background devolve zero; cota curta valida seu centro.
+Validacao 368: 2682 testes em 62 execucoes (Blender 4.2/5.2), OK.
+Auditoria GPU/BLF offscreen com dados do modulo e area enviados, em vista
+normal e junto a' borda inferior. A1/A2/A3 legiveis, A3 na quina separado
+do afastamento, objetos preservados. Pacote conferido contra fontes;
+gestos reais da nova interface nao simulados.
+
+Base utilizavel da parede (367): a 366 corrigia o parser, mas ainda
+mostrava a borda branca/cota 100 mm abaixo do piso real. Ao entrar,
+`_regiao_acima_do_apoio` consulta as faces avaliadas por BVH na faixa de
+contato e recorta so' bandas inferiores inteiramente ocupadas. Nao muda
+a parede nem o armario; proxy, cotas, guias, encaixe e instalacao usam
+a mesma regiao. Reentrar recalcula; nao ha consulta adicional no redraw.
+Regressoes em paredes_edicao: piso continuo de 100 mm, proxy/guia e cota
+zero coerentes sem remontar Mesh, parede girada com Z negativo, piso
+parcial/viga suspensa, modulos e objetos afastados. O teste de recuperar
+arraste mantem a recusa usando obstaculo parcial de 2,9 m em parede de 3 m;
+um piso continuo agora pertence a' base, fora da area apontavel.
+Composicao atualiza o teste da 366: zero conclui sobre o apoio, arraste
+limita a' base real e penetracao continua recusada.
+Validacao 367: 2676 testes em 62 execucoes (Blender 4.2/5.2), OK.
+Consulta somente leitura na cena enviada: base sobe 100,00038 mm,
+Inferior fica 0,000002 mm e validar zero retorna sem erro. Comparacao
+GPU/BLF offscreen antes/depois conferida; objetos e sessao preservados.
+Pacote conferido com as fontes. Gestos reais da 367 nao simulados.
+
+Cotas zero na parede (366): digitacao de Inferior/Superior, Anterior/
+Posterior e Afastamento aceita 0, inclusive nas guias fora do modo 2D.
+Dimensoes zero/medidas negativas continuam recusadas no dominio/parser.
+Cinco regressoes: confirmacao modal nos cinco afastamentos sem alterar
+vertices/IDs, valores invalidos, piso real de 100 mm bloqueando digitacao
+e arraste, quatro guias legadas e ruido float de 0,2 um na borda da face.
+Tolerancia existente nao aumenta; consulta corta somente o ruido ja'
+aceito antes de amostrar o contorno, mantendo aberturas e colisoes.
+Diagnostico somente leitura na cena enviada: `Parede.004` ocupa
+100 mm abaixo do armario; o limite da regiao fica abaixo desse apoio.
+Validacao 366: 2668 testes em 62 execucoes (Blender 4.2/5.2), OK.
+Auditoria da janela e consulta nativa da cena confirmam Inferior 100 mm
+e o bloqueador real, sem mover objetos ou alterar a digitacao pendente.
+Gestos reais da correcao nao simulados; Blender aberto continua na 365.
+
+Editor proprio (365): CabinetCreatorMenu e CabinetCreatorBiblioteca sao
+subtipos nativos NODE_EDITOR com arvore vazia propria para gizmos no 4.2.
+Suite editor cobre salvar/reabrir, identidade sem ponteiro, papeis distintos,
+arvores comuns intocadas, comando real na viewport com restauracao de
+contexto, texto/arraste na origem, erro sem viewport, migracao de legado
+inclusive faixa/workspace, clique de aba, undo/redo e limpeza no unregister.
+Arraste usa fixture temporaria de modulo e regiao 3D real, sem biblioteca
+real nem eventos simulados em background. GUI da faixa passa a conferir
+os subtipos nativos, preservando seus testes de gestos.
+Validacao 365: 2658 testes em 62 execucoes (Blender 4.2/5.2), OK;
+19 regressoes do editor por versao. Trocar o editor nao reabre o menu;
+desativar conserva as areas e remove somente arvores/registro proprios.
+Pacote conferido contra as fontes. Auditoria visual/gestos GUI nao
+executados: instancia Blender/MCP desconectada, sem abrir janela nova.
+
 Referencias da importacao (364): resize pode remover/recriar ferragens ou
 controladores. A lista do append e' reconciliada com a hierarquia atual
 no finally do ajuste (inclusive quando falha); registro na parede faz a
@@ -973,3 +1194,11 @@ ligado; circulos de face com raio 2 px/hover 3 px, area de clique preservada.
 - Matcher modal direto nao funciona (idname vazio/poll); espelho normal interno preserva atalhos/modificadores e remapeamento, com limpeza no fim/unregister: `TestHUD.test_volume_mapa_snap_nativo_tem_operador_valido_e_copia_atalhos_modais`. Fixture usa itens RNA nativos, sem substituir o matcher por Mock. Prova em Blender aberto: item vazio rejeitado; item valido e reconhecido pelo matcher com evento real; evento de outro atalho rejeitado.
 - Corpo dobrado, quatro gavetas e rotacao 90 graus: tamanho inicial preservado; arraste antes de B, referencia atual e nova translacao mantem medida; Esc restaura: `TestHUD.test_volume_gavetas_em_corpo_dobrado_e_girado_preservam_previa_ao_ancorar`.
 - Gesto completo ate' a quina real do corpo e undo: `gui_interacao.test_snap_b_gavetas_em_corpo_dobrado_e_girado_alinha_vertice_real` (GUI autorizada); o teste confere tambem se B chegou ao observador.
+
+- 376: areas_criacao (40 testes): tres pontos arbitrarios/todas as seis ordens, modulo rotacionado/escalado/espelhado, invalidos/coplanares, seis frentes preservando volume/cantos, raio limitado a previa, fluxo CANTO1/2/3/FRENTE/QUANTIDADE, correcao do terceiro ponto, frente obrigatoria, HUD suspensa, entrega/encerramento do modal pai, criacao real nos tres dominios, Backspace e Esc. Fixtures isoladas; harness completo 4.2/5.2: 2860 testes em 64 execucoes, OK. Auditoria headless: primitivas do callback real e tres prateleiras em caixa 500 x 350 x 700 mm, duas imagens conferidas. GUI atualizada para tres pontos e frente explicita, execucao exige PC livre.
+
+- 377: gavetas (57 testes) / areas_criacao (41): modulo fixo na entrada, filhos internos incluidos, outro modulo/teto invertido/curva excluidos do translate nativo, identificacao limitada aos alvos mesmo com malha externa coincidente, primeiro ponto sem selecao fixa alvo, ativo desselecionado nao fixa, confirmar/Esc/erro restauram flags e cursor sem revelar ocultos. Raio nativo atravessa oclusor externo; volume livre e HUD/B respeitam o modulo. Fixture isolada; macro interativa substituida no alias do dono para nao iniciar gesto em background. Harness completo 4.2/5.2: 2876 testes em 64 execucoes, OK. Auditoria headless: teto intercepta raio global, BVHs do modulo retornam somente Lateral Esquerda/Base; caixa 964 x 600 x 1364 mm e tres gavetas conferidas em renders. Gestos GUI reais nao executados.
+
+- 378: gavetas 61 / areas_criacao 42 / operadores 56 / gaveta 86. Camera livre entre pontos e na frente/volume livre, sem translate no hover; PRESS inicia gesto com release_confirm, confirmacao nao reabre; navigate/walk/fly/pan/zoom pelo keymap, Shift+scroll preserva quantidade. Grupo da porta a partir de folha/puxador, H nativo com agregados; Esconder porta usa mesma descendencia, respeita camada, preserva Mesh, vizinhos, timer e undo/redo; Alt+H nativo. Menu Shift+G conserva grupos do Blender. Volume livre laranja/30 px nas tres larguras; snapshot de altura atualizado/revisado. Harness completo 4.2/5.2: 2900 testes em 64 execucoes, OK. Primitivas do callback de menu renderizadas e conferidas em 190/320/564 px: destaque laranja do volume e acao de esconder porta. GUI inclui Walk/D entre pontos, ainda nao executada; execucao condicionada a PC livre.
+
+- 379: prateleiras 60, divisorias 42, hud 186. Scroll da cota V subdivide vao vazio com apoios fixos, modelo/material/E herdados, estoque nativo sem fonte, reduzir/zero/Esc/undo/redo, falta de espaco atomica e Enter tratando quantidade. Vinculo cabinet_blocagem_uid persistido por particao e sessao comum; HUD/selecao agregam segmentos so' na orientacao ativa; legados via apoio real no timer, blocagens independentes preservadas. Fixture com gavetas a direita verifica Mesh/pose/quantidade do lado oposto. Harness completo 4.2/5.2: 2932 testes em 64 execucoes, OK. Auditoria em cena temporaria: vao inferior 700 mm, tres prateleiras novas e quatro vaos de 161.5 mm; cotas direitas preservadas, divisorias com apenas dois vaos horizontais de 473 mm. GUI de scroll/Enter/Esc preparada, nao executada sem PC livre.

@@ -2,7 +2,7 @@
 
 import bpy
 from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
-from bpy.types import Operator
+from bpy.types import Operator, Menu
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -96,6 +96,79 @@ def _seguir_selecao_na_gaveta(context):
         tela[_gaveta._CHAVE_ROLAGEM] = 0
         _gaveta._fechar_opcoes(tela)
     _eventos._redesenhar_viewports(context)
+
+
+def objetos_na_camada(context, objetos):
+    """Parent pode conservar IDs apagados; a View Layer nativa decide a selecao."""
+    camada = context.view_layer.objects
+    return [o for o in objetos if camada.get(o.name) == o]
+
+
+def montagem_da_porta(context):
+    grupo = _ferragens._grupo_da_ferragem(context.object)
+    return objetos_na_camada(context, [grupo, *grupo.children_recursive]) if grupo else []
+
+
+class OBJECT_OT_selecionar_montagem_porta(Operator):
+    """Seleciona a porta com puxadores, ferragens e demais componentes"""
+    bl_idname = 'object.cabinet_selecionar_montagem_porta'
+    bl_label = 'Grupo da porta'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and bool(montagem_da_porta(context))
+
+    def invoke(self, context, event):
+        return bpy.ops.wm.call_menu(name='VIEW3D_MT_cabinet_grupo_porta')
+
+    def execute(self, context):
+        objetos = [o for o in montagem_da_porta(context)
+                   if not o.hide_select and o.visible_get(view_layer=context.view_layer)]
+        if not objetos:
+            return {'CANCELLED'}
+        ativo = context.object
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in objetos:
+            obj.select_set(True)
+        context.view_layer.objects.active = ativo if ativo in objetos else objetos[0]
+        return {'FINISHED'}
+
+
+class OBJECT_OT_esconder_porta(Operator):
+    """Oculta na View Layer a porta inteira, incluindo seus agregados"""
+    bl_idname = 'object.cabinet_esconder_porta'
+    bl_label = 'Esconder porta e agregados'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return OBJECT_OT_selecionar_montagem_porta.poll(context)
+
+    def execute(self, context):
+        objetos = montagem_da_porta(context)
+        if not objetos:
+            return {'CANCELLED'}
+        for obj in objetos:
+            obj.select_set(False)
+            obj.hide_set(True, view_layer=context.view_layer)
+        if context.view_layer.objects.active in objetos:
+            context.view_layer.objects.active = None
+        _hud._hover_hud.clear()
+        _eventos._redesenhar_viewports(context)
+        return {'FINISHED'}
+
+
+class VIEW3D_MT_grupo_porta(Menu):
+    bl_idname = 'VIEW3D_MT_cabinet_grupo_porta'
+    bl_label = 'Selecionar grupo'
+
+    def draw(self, context):
+        self.layout.operator_context = 'EXEC_DEFAULT'
+        self.layout.operator(OBJECT_OT_selecionar_montagem_porta.bl_idname, icon='OUTLINER_OB_GROUP_INSTANCE')
+        self.layout.separator()
+        self.layout.operator_menu_enum('object.select_grouped', 'type', text='Grupos do Blender')
 
 
 def familia_de(obj):
@@ -224,7 +297,7 @@ class OBJECT_OT_selecionar(Operator):
                 _hud._somar_peca(context, obj)
                 return {'FINISHED'}
             if self.select_passthrough and obj.select_get():
-                familia = set(_hud._familia_do_clique(obj))
+                familia = set(_hud._familia_do_clique(obj, context))
                 if any(o not in familia for o in context.selected_objects):
                     # varios modulos: o arraste leva todos; o CLICK sem
                     # arrastar deixa so' este (`_soltou`)
@@ -300,7 +373,7 @@ class OBJECT_OT_selecionar(Operator):
                 return {'FINISHED'}
             if (self.select_passthrough and not somar
                     and self.modo != 'INDIVIDUAL' and obj.select_get()):
-                familia = set(_hud._familia_do_clique(obj)) | {obj}
+                familia = set(_hud._familia_do_clique(obj, context)) | {obj}
                 if any(o not in familia for o in context.selected_objects):
                     # Clicou num item JA' selecionado junto com outros:
                     # no PRESS nada muda, senao o arraste so' levaria
@@ -353,17 +426,14 @@ class OBJECT_OT_selecionar(Operator):
             return r
 
         obj = context.object
-        familia = familia_de(obj)
+        familia = objetos_na_camada(context, familia_de(obj))
         if not familia:
             return r
 
         # se o clique DESLIGOU a peca (shift), o grupo inteiro apaga junto
         ligado = obj.select_get()
         for o in familia:
-            try:
-                o.select_set(False if self.modo == 'INDIVIDUAL' else ligado)
-            except Exception:
-                pass
+            o.select_set(False if self.modo == 'INDIVIDUAL' else ligado, view_layer=context.view_layer)
         if self.modo == 'INDIVIDUAL':
             obj.select_set(True)
         context.view_layer.objects.active = obj
@@ -378,7 +448,7 @@ def malhas_para_editar(context):
               _gavetas.MARCA_GRUPO, _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
     grupos = [o for o in context.selected_objects if o.type == 'EMPTY'
               and any(m in o for m in marcas)]
-    return list(dict.fromkeys(o for g in grupos for o in g.children_recursive
+    return objetos_na_camada(context, dict.fromkeys(o for g in grupos for o in g.children_recursive
                 if o.type == 'MESH' and not o.hide_render
                 and o.get('cabinet_peca') not in _ferragens.PECAS_OCULTAS_RIG))
 
@@ -552,6 +622,8 @@ def registrar_keymaps():
     # mora la' (e esse keymap vem antes do "3D View"); fora de modulo o
     # operador devolve o evento e o menu abre como sempre.
     km_obj = kc.keymaps.new(name="Object Mode", space_type='EMPTY')
+    kmi = km_obj.keymap_items.new('object.cabinet_selecionar_montagem_porta', 'G', 'PRESS', shift=True)
+    _keymaps.append((km_obj, kmi))
     km_modo = kc.keymaps.new(name='Object Non-modal', space_type='EMPTY')
     kmi = km_modo.keymap_items.new('object.cabinet_editar_grupo', 'TAB', 'PRESS', head=True)
     _keymaps.append((km_modo, kmi))

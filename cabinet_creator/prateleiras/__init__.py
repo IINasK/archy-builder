@@ -224,6 +224,98 @@ def editar_quantidade_local(context, grupo, fonte, quantidade, redistribuir=Fals
     return None
 
 
+def preparar_subdivisao_vao(grupo, indice):
+    _sincronizar_disposicao(grupo)
+    p = parametros(grupo); atuais = prateleiras_do_grupo(grupo)
+    largura, altura, _m = vao(grupo)
+    caixas = calcular(largura, altura, p)['prateleiras']
+    if not 0 <= indice <= len(caixas):
+        raise ValueError('O vao nao existe mais')
+    fonte = atuais[min(indice, len(atuais)-1)] if atuais else None
+    modelo = parametros_individuais(p, int(fonte[CHAVE_INDICE])) if fonte else dict(p)
+    modelo = {k:v for k,v in modelo.items() if k in (*CAMPOS_INDIVIDUAIS, 'x_mm')}
+    return dict(grupo=grupo.name, baixo=caixas[indice-1][5] if indice else 0.,
+        cima=caixas[indice][4] if indice < len(caixas) else altura,
+        p=_portas._copiar_parametros(p), originais=[o.name for o in atuais],
+        fonte=fonte.name if fonte else '', novas=[], quantidade=0,
+        modelo=modelo,
+        encaixe=_portas._copiar_parametros(grupo.get(CHAVE_ENCAIXE)))
+
+
+def subdividir_vao(context, grupo, estado, quantidade):
+    """Insere so' no vao vazio; apoios e outras prateleiras conservam a Mesh e a pose."""
+    if context.mode != 'OBJECT' or _eventos._desfazendo[0]:
+        raise ValueError('Conclua a edicao antes de subdividir o vao')
+    if estado['grupo'] != grupo.name or any(n not in bpy.data.objects for n in estado['originais']):
+        raise ValueError('A estrutura do vao foi alterada')
+    quantidade = int(quantidade)
+    if not 0 <= quantidade <= MAXIMO_PRATELEIRAS-len(estado['originais']):
+        raise ValueError('Quantidade fora do limite das prateleiras')
+    modelo = estado['modelo']
+    local = dict(estado['p'], quantidade=quantidade, espacamento='IGUAL', vaos_mm=[],
+                 individuais=[dict(modelo) for _ in range(quantidade)])
+    dados = calcular(vao(grupo)[0], estado['cima']-estado['baixo'], local)
+    novas = [bpy.data.objects[n] for n in estado['novas'] if n in bpy.data.objects]
+    fonte = bpy.data.objects.get(estado['fonte'])
+    criadas = []
+    try:
+        for i in range(len(novas), quantidade):
+            criadas.append(_copiar_prateleira(grupo, i, fonte) if fonte else
+                _nova_prateleira(grupo, i, _material_do_modulo(modulo_do_grupo(grupo))))
+    except Exception:
+        for obj in criadas:
+            _gavetas._remover(obj)
+        raise
+    for obj in novas[quantidade:]:
+        _gavetas._remover(obj)
+    novas = novas[:quantidade] + criadas
+    if quantidade == 0:
+        cancelar_subdivisao_vao(grupo, estado)
+        estado.update(novas=[], quantidade=0)
+        return
+    context.view_layer.update()
+    inv = grupo.matrix_world.inverted_safe()
+    for obj, caixa in zip(novas, dados['prateleiras']):
+        baixo = estado['baixo'] + caixa[4]
+        if fonte:
+            base = min((inv @ obj.matrix_world @ Vector(c)).z for c in obj.bound_box) * 1000
+            mundo = obj.matrix_world.copy()
+            mundo.translation += grupo.matrix_world.to_3x3() @ Vector((0,0,(baixo-base)/1000))
+            obj.matrix_world = mundo
+        else:
+            _vestir(obj, (*caixa[:4], baixo, estado['baixo']+caixa[5]))
+        obj.select_set(False)
+    context.view_layer.update()
+    originais = [bpy.data.objects[n] for n in estado['originais']]
+    todos = sorted(originais+novas, key=lambda o: min((inv @ o.matrix_world @ Vector(c)).z for c in o.bound_box))
+    antigos = estado['p'].get('individuais') or ()
+    ajustes = {n: dict(antigos[i]) if i < len(antigos) else {} for i,n in enumerate(estado['originais'])}
+    grupo[CHAVE_PARAMETROS] = dict(estado['p'], quantidade=len(todos),
+        individuais=[ajustes.get(o.name, dict(modelo)) for o in todos])
+    for i, obj in enumerate(todos):
+        obj[CHAVE_INDICE] = i
+    _sincronizar_disposicao(grupo)
+    estado.update(novas=[o.name for o in novas], quantidade=quantidade)
+    _hud._hover_hud.clear()
+
+
+def cancelar_subdivisao_vao(grupo, estado):
+    for nome in estado['novas']:
+        obj = bpy.data.objects.get(nome)
+        if obj is not None:
+            _gavetas._remover(obj)
+    for i, nome in enumerate(estado['originais']):
+        obj = bpy.data.objects.get(nome)
+        if obj is not None:
+            obj[CHAVE_INDICE] = i
+    grupo[CHAVE_PARAMETROS] = estado['p']
+    if estado['encaixe'] is not None:
+        grupo[CHAVE_ENCAIXE] = estado['encaixe']
+    elif CHAVE_ENCAIXE in grupo:
+        del grupo[CHAVE_ENCAIXE]
+    bpy.context.view_layer.update()
+
+
 def _digital(obj):
     """Comparacao so' ao entrar/sair de Tab ou adicionar, nunca no redraw."""
     h = hashlib.sha1()
@@ -344,6 +436,9 @@ def sincronizar_exclusoes_da_cena():
     mudou = False
     for grupo in bpy.data.objects:
         if MARCA_GRUPO in grupo:
+            if _divisorias.CHAVE_BLOCAGEM not in grupo:
+                _divisorias.garantir_blocagem(grupo)
+                mudou = True
             mudou = _sincronizar_disposicao(grupo) or mudou
     if mudou:
         _eventos._redesenhar_viewports(bpy.context)
@@ -534,7 +629,7 @@ def montar(grupo, referencia=None):
         bpy.context.view_layer.update()
 
 
-def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
+def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None, blocagem_uid=None):
     """Grupo de prateleiras novo no modulo `conj`. Devolve o grupo."""
     p = dict(PARAMETROS_PADRAO, **p)
     grupo = bpy.data.objects.new('Prateleiras %s' % conj.name, None)
@@ -551,6 +646,7 @@ def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None):
         grupo[CHAVE_REFERENCIA]=[v for linha in referencial for v in linha]
     grupo[CHAVE_MARGENS] = [float(m) for m in margens]
     grupo.parent = conj
+    grupo[_divisorias.CHAVE_BLOCAGEM] = blocagem_uid or _chapas._garantir_uid(grupo)
     try:
         if pecas:
             for obj in pecas:
@@ -1008,10 +1104,12 @@ def selecionar(context, obj, nivel, somar=False):
     grupo = grupo_de(obj)
     if grupo is None:
         return False
+    _divisorias.garantir_blocagem(grupo)
     if nivel == 'PRATELEIRA' and MARCA_PRATELEIRA in obj:
         alvos, ativo = [obj], obj
     else:
-        alvos, ativo = [grupo, *prateleiras_do_grupo(grupo)], grupo
+        alvos = [o for g in _divisorias.grupos_da_blocagem(grupo) for o in [g, *prateleiras_do_grupo(g)]]
+        ativo = grupo
     if not somar:
         for o in context.selected_objects:
             o.select_set(False)
@@ -1042,6 +1140,12 @@ def medidas(grupo):
 
 
 def linhas_hud(grupo, chapas):
+    if individual_ativo(bpy.context, grupo) is not None:
+        return _linhas_hud_grupo(grupo, chapas)
+    return _divisorias.linhas_da_blocagem(grupo, chapas, _linhas_hud_grupo)
+
+
+def _linhas_hud_grupo(grupo, chapas):
     """Linhas da HUD (tipo 'prateleiras'): L/P/A na caixa do vao, como
     as gavetas, e uma linha por VAO entre as prateleiras (o valor ao
     lado; arrastar ou clicar e digitar anda so' a prateleira de cima)."""

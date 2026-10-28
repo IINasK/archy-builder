@@ -31,6 +31,103 @@ def malha_na_chapa(chapa):
 
 
 class TestPuxadores(unittest.TestCase):
+    def porta_de_correr(self):
+        _, grupo = self.nicho_com_porta()
+        p = addon.portas._copiar_parametros(grupo['porta_parametros'])
+        p['abertura'] = 'CORRER'
+        addon.portas._reaplicar_portas(bpy.context, grupo, p)
+        return grupo, addon.portas._folhas_portas(grupo)
+
+    def procurar(self, folha=None, acerto=None):
+        area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
+        regiao = next(r for r in area.regions if r.type == 'WINDOW')
+        estado = dict(alvo=folha.name if folha else '', tipo='ALCA', n=0, chapa=None)
+        op = SimpleNamespace(_estado=estado, _area=area, _regiao=regiao,
+            _rv3d=area.spaces.active.region_3d, _preparar_arame=lambda: None)
+        op._projetados = lambda: {k:(Vector((0,0)),Vector((100,0))) for k in estado.get('segmentos',{})}
+        if folha is not None:
+            origem = folha.matrix_world @ Vector((0,0,1))
+            direcao = -(folha.matrix_world.to_3x3().col[2].normalized())
+        else:
+            origem, direcao = Vector((0,0,1)), Vector((0,0,-1))
+        with patch.object(addon.puxadores.view3d_utils,'region_2d_to_origin_3d',return_value=origem), \
+             patch.object(addon.puxadores.view3d_utils,'region_2d_to_vector_3d',return_value=direcao), \
+             patch.object(addon.hud,'_raio_cru',return_value=acerto) as raio:
+            addon.puxadores.OBJECT_OT_posicionar_puxador._procurar_linha(op,bpy.context,Vector((10,0)))
+        return estado, raio.call_count
+
+    def test_trocar_giro_por_correr_adapta_lados_e_conserva_donos(self):
+        _,grupo=self.nicho_com_porta()
+        puxadores=addon.puxadores.perfis_na_porta(bpy.context,grupo,'LADO')
+        nomes=[p.name for p in puxadores]
+        donos=[p.parent.name for p in puxadores]
+        self.assertEqual([p['puxador_borda'] for p in puxadores],['X+','X-'])
+        p=addon.portas._copiar_parametros(grupo['porta_parametros'])
+        for abertura,esperado in [('CORRER',['X-','X+']),('GIRO',['X+','X-'])]:
+            p['abertura']=abertura
+            addon.portas._reaplicar_portas(bpy.context,grupo,p)
+            self.assertEqual([bpy.data.objects[n]['puxador_borda'] for n in nomes],esperado)
+            self.assertEqual([bpy.data.objects[n].parent.name for n in nomes],donos)
+            self.assertEqual(len([o for o in grupo.children_recursive if addon.chapas.MARCA_PUXADOR in o]),2)
+
+    def test_perfis_novos_da_porta_de_correr_ficam_nas_bordas_externas(self):
+        grupo,folhas=self.porta_de_correr()
+        perfis=addon.puxadores.perfis_na_porta(bpy.context,grupo,'LADO')
+        self.assertEqual([p.parent for p in perfis],folhas)
+        self.assertEqual([p['puxador_borda'] for p in perfis],['X-','X+'])
+
+    def test_lado_do_perfil_independe_da_abertura_atual_da_folha(self):
+        _,grupo=self.nicho_com_porta()
+        folhas=addon.portas._folhas_portas(grupo)
+        p=addon.portas._copiar_parametros(grupo['porta_parametros'])
+        for i,f in enumerate(folhas):
+            f[addon.ferragens.CHAVE_ABERTURA]=1.0
+        addon.portas._reaplicar_portas(bpy.context,grupo,p)
+        perfis=addon.puxadores.perfis_na_porta(bpy.context,grupo,'LADO')
+        self.assertEqual([p['puxador_borda'] for p in perfis],['X+','X-'])
+
+    def test_folha_alvo_usa_raio_nativo_mesmo_com_outra_na_frente(self):
+        _,folhas=self.porta_de_correr()
+        alvo=folhas[0]
+        # Sobrepor a outra folha torna o primeiro hit da cena ambiguo.
+        folhas[1].matrix_world=alvo.matrix_world.copy()
+        folhas[1].location.z += .03
+        bpy.context.view_layer.update()
+        estado,chamadas=self.procurar(alvo)
+        self.assertEqual(estado['chapa'],alvo.name)
+        self.assertTrue(estado['segmentos'])
+        self.assertEqual(chamadas,0)
+
+    def test_folha_alvo_oculta_ou_bloqueada_nao_recebe_puxador(self):
+        _,folhas=self.porta_de_correr()
+        alvo=folhas[0]
+        for oculto,bloqueado in ((True,False),(False,True)):
+            alvo.hide_set(oculto);alvo.hide_select=bloqueado
+            estado,chamadas=self.procurar(alvo)
+            self.assertIsNone(estado['chapa'])
+            self.assertEqual(chamadas,0)
+
+    def test_sem_folha_isolada_reutiliza_acerto_visivel_da_hud(self):
+        _,folhas=self.porta_de_correr()
+        alvo=folhas[1]
+        acerto=(alvo,alvo.matrix_world.translation,alvo.matrix_world.to_3x3().col[2],0,alvo.matrix_world)
+        estado,chamadas=self.procurar(acerto=acerto)
+        self.assertEqual(estado['chapa'],alvo.name)
+        self.assertEqual(chamadas,1)
+
+    def test_apagar_e_recriar_so_puxador_da_segunda_folha(self):
+        _,folhas=self.porta_de_correr()
+        primeiro=addon.puxadores.criar_puxador(bpy.context,folhas[0],'ALCA','X-',1)
+        nome=primeiro.name
+        segundo=addon.puxadores.criar_puxador(bpy.context,folhas[1],'ALCA','X+',1)
+        bpy.data.objects.remove(segundo,do_unlink=True)
+        estado,_=self.procurar(folhas[1])
+        alvo=bpy.data.objects[estado['chapa']]
+        novo=addon.puxadores.criar_puxador(bpy.context,alvo,estado['tipo'],estado['borda'],estado['face'],estado['fracao'])
+        self.assertEqual(novo.parent,folhas[1])
+        self.assertEqual(bpy.data.objects[nome].parent,folhas[0])
+        self.assertEqual([sum(addon.chapas.MARCA_PUXADOR in o for o in f.children) for f in folhas],[1,1])
+
     def test_tab_individual_preserva_modelagem_material_uv_e_undo_do_puxador(self):
         chapa = self.chapa()
         pux = addon.puxadores.criar_puxador(bpy.context, chapa, 'ALCA', 'Y+', 1)

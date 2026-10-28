@@ -808,9 +808,9 @@ def criar_puxador(context, chapa, tipo, borda, face, fracao=0.5, arquivo=''):
     return pux
 
 
-def _borda_na_direcao(folha, direcao):
+def _borda_na_direcao(folha, direcao, matriz=None):
     """A borda (X-/X+/Y-/Y+) da folha que aponta para `direcao` (mundo)."""
-    rot = folha.matrix_world.to_3x3()
+    rot = (matriz if matriz is not None else folha.matrix_world).to_3x3()
     eixos = {'X+': rot.col[0], 'X-': -rot.col[0],
              'Y+': rot.col[1], 'Y-': -rot.col[1]}
     return max(eixos, key=lambda b: eixos[b].normalized().dot(direcao))
@@ -848,6 +848,30 @@ def puxador_terminal(context, grupo):
 ALTURA_MAO_MM = 1000.0     # 'ALTURA': a borda horizontal mais perto da mao
 
 
+def _borda_lateral_da_folha(grupo, folha, indice, folhas):
+    p = dict(grupo.get('porta_parametros') or {})
+    fechada = _ferragens._matriz_fechada(folha)
+    if p.get('abertura') == 'CORRER':
+        centro = grupo.matrix_world.inverted_safe() @ fechada.translation
+        sinal = -1 if centro.x <= float(grupo['porta_vao_largura_mm']) / 2000 else 1
+        direcao = grupo.matrix_world.to_3x3().col[0].normalized() * sinal
+    else:
+        lado = _ferragens._lado_da_folha(p, indice, len(folhas))
+        direcao = fechada.to_3x3().col[0].normalized() * (1 if lado == 'ESQUERDA' else -1)
+    return _borda_na_direcao(folha, direcao, fechada)
+
+
+def adaptar_abertura(grupo, anterior):
+    atual = grupo.get('porta_parametros', {}).get('abertura')
+    if {anterior, atual} != {'GIRO', 'CORRER'}:
+        return
+    folhas = _portas._folhas_portas(grupo)
+    for i, folha in enumerate(folhas):
+        for pux in folha.children:
+            if _eh_puxador_parametrico(pux) and pux.get('puxador_borda') in {'X-', 'X+'}:
+                pux['puxador_borda'] = _borda_lateral_da_folha(grupo, folha, i, folhas)
+
+
 def perfis_na_porta(context, grupo, posicao):
     """Um perfil por folha, na face da FRENTE: 'CIMA' (balcao), 'BAIXO'
     (aereo), 'ALTURA' (torre: a borda de cima ou de baixo mais perto de
@@ -876,14 +900,12 @@ def perfis_na_porta(context, grupo, posicao):
             perto = (abs(max(alturas) - ALTURA_MAO_MM) < abs(min(alturas) - ALTURA_MAO_MM))
             direcao = cima if perto else -cima
         else:
-            lado = _ferragens._lado_da_folha(p, i, len(folhas))
-            direita_folha = _ferragens._matriz_fechada(folha).to_3x3().col[0].normalized()
-            direcao = direita_folha if lado == 'ESQUERDA' else -direita_folha
+            borda = _borda_lateral_da_folha(grupo, folha, i, folhas)
         # Folha nativa: +Z e' a frente, inclusive na outra perna do L.
         # Comparar com -Y da caixa invertia o perfil perpendicular.
         face = 1
         perfis.append(criar_puxador(context, folha, 'PERFIL',
-                                    _borda_na_direcao(folha, direcao), face))
+                                    borda if posicao == 'LADO' else _borda_na_direcao(folha, direcao), face))
     return perfis
 
 
@@ -1103,6 +1125,9 @@ class OBJECT_OT_posicionar_puxador(Operator):
                         'tipo': tipo, 'arquivo': arquivo,
                         'chapa': None, 'face': 1, 'borda': None,
                         'segmentos': {}, 'n': 0, 'fracao': 0.5, 'pux': None}
+        selecionados = list(context.selected_objects)
+        self._estado['alvo'] = (selecionados[0].name if len(selecionados) == 1
+            and _chapas.MARCA_FOLHA in selecionados[0] else '')
         _posicionador_puxador[0] = self._estado
         _eventos._redesenhar_viewports(context)
         if _handler_posicionador[0] is None:
@@ -1138,12 +1163,27 @@ class OBJECT_OT_posicionar_puxador(Operator):
         estado = self._estado
         origem = view3d_utils.region_2d_to_origin_3d(self._regiao, self._rv3d, mouse)
         direcao = view3d_utils.region_2d_to_vector_3d(self._regiao, self._rv3d, mouse)
-        acertou, _p, normal, _f, obj, _m = context.scene.ray_cast(
-            context.evaluated_depsgraph_get(), origem, direcao)
-        chapa = obj.original if acertou and obj is not None else None
+        alvo = bpy.data.objects.get(estado.get('alvo', ''))
+        chapa = None
+        with context.temp_override(area=self._area, region=self._regiao):
+            if estado.get('alvo'):
+                if (alvo is not None and alvo.visible_get(view_layer=context.view_layer,
+                        viewport=self._area.spaces.active) and not alvo.hide_select):
+                    mundo = alvo.matrix_world
+                    inversa = mundo.inverted_safe()
+                    acertou, _p, normal, _f = alvo.ray_cast(inversa @ origem,
+                        inversa.to_3x3() @ direcao,
+                        depsgraph=context.evaluated_depsgraph_get())
+                    if acertou:
+                        chapa = alvo
+                        normal = (inversa.to_3x3().transposed() @ normal).normalized()
+            else:
+                acerto = _hud._raio_cru(bpy.context, mouse)
+                if acerto:
+                    chapa, _p, normal, _f, _m = acerto
         if chapa is not None and _chapas.MARCA_PUXADOR in chapa:
             chapa = chapa.parent        # mirou no puxador: vale a chapa dele
-        if chapa is None or _chapas.MARCA_CHAPA not in chapa:
+        if chapa is None or _chapas.MARCA_CHAPA not in chapa or chapa.hide_select:
             estado.update(chapa=None, borda=None, segmentos={}, arame=[],
                           chave_arame=None)
             return

@@ -183,6 +183,21 @@ class TestParedes(unittest.TestCase):
         self.assertAlmostEqual(valores['teto'], 200.0, places=2)
         self.assertAlmostEqual(P.ponto_das_costas(conj).y, 1.0, places=5)
 
+    def test_zero_digitado_nas_guias_da_parede_encosta_o_modulo(self):
+        conj = self.modulo()
+        for lado in P.LADOS:
+            with self.subTest(lado=lado):
+                self.encostar(conj, s=.2, base=.4)
+                avisos = []
+                op = SimpleNamespace(_aplicar=lambda contexto, valor: P.aplicar_guia(conj, lado, valor),
+                    report=lambda categoria, mensagem: avisos.append(mensagem))
+                P._edicao_guia[0] = dict(texto='0', cursor=1, selecionado=False)
+                evento = SimpleNamespace(value='PRESS', type='RET', ctrl=False, unicode='')
+                self.assertEqual(P.OBJECT_OT_guia_parede._digitar(op, bpy.context, evento),
+                                 {'FINISHED'}, avisos)
+                self.assertAlmostEqual(P.calcular_guias(conj)['valores'][lado], 0, places=2)
+                self.assertIsNone(P._edicao_guia[0])
+
     def test_parede_que_anda_e_gira_leva_o_modulo(self):
         conj = self.modulo()
         self.encostar(conj, s=0.3, base=0.4)

@@ -1805,7 +1805,9 @@ class TestMateriais(BaseBiblioteca):
             self.assertEqual([m[5][1] for m in modos], ['MODULOS', 'MATERIAIS'])
             self.assertEqual([m[5][2] for m in modos], [False, True])  # aceso
             # ao lado do titulo quando cabe; senao, na linha de baixo
-            self.assertEqual(abs(modos[0][1] - titulo[1]) < 1, largura >= 320,
+            reserva = 12 if any(w[5] and w[5][:2] ==
+                ('rolagem', addon.gaveta._CHAVE_ROLAGEM_BIB) for w in ws) else 0
+            self.assertEqual(abs(modos[0][1] - titulo[1]) < 1, largura - reserva >= 320,
                              largura)
             esferas = [w for w in ws if w[5] and w[5][0] == 'material']
             self.assertEqual(len(esferas), madeirados)

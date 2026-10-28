@@ -326,6 +326,8 @@ def selecionado(context, itens=None):
     if obj is None or not obj.select_get():
         return None
     modulo = _paredes.modulo_de(obj)
+    if not _paredes_edicao.modulo_editavel(modulo):
+        return None
     return next((f for f in (itens if itens is not None else itens_da_face(context))
                  if modulo and f['nome'] == modulo.name), None)
 
@@ -366,6 +368,8 @@ def _aplicar(context, item, s):
 
 
 def _transacao(context, itens):
+    if any(not _paredes_edicao.modulo_editavel(bpy.data.objects.get(item['nome'])) for item in itens):
+        return 'Selecione um modulo editavel'
     backups, vinculos = [], []
     for item in itens:
         obj = bpy.data.objects[item['nome']]
@@ -401,6 +405,8 @@ def editar_modulo(context, nome, propriedade, valor_mm):
     if not _paredes_edicao.ativa(context):
         return 'Entre na edicao da parede'
     obj = _paredes.modulo_de(bpy.data.objects.get(nome))
+    if not _paredes_edicao.modulo_editavel(obj):
+        return 'Selecione um modulo editavel'
     s = _paredes_edicao._sessao[0]
     item = next((f for f in itens_da_face(context) if obj and f['nome'] == obj.name), None)
     if item is None:
@@ -782,6 +788,7 @@ def atualizar_quina_hover(event, regiao, rv3d):
     px = _paredes._px_por_metro(regiao, rv3d, Vector(s['ponto']), Vector(s['u'])) if mouse else None
     if px:
         candidatas = [(math.dist(xz, mouse), f['nome'], xz) for f in resumo['itens']
+                      if _paredes_edicao.modulo_editavel(bpy.data.objects.get(f['nome']))
                       for xz in quinas_da_ficha(f).values()]
         dist, nome, xz = min(candidatas, default=(math.inf, None, None))
         if dist <= QUINA_PX / px:
@@ -1041,14 +1048,14 @@ def desenhar(context):
         return
     s = _paredes_edicao._sessao[0]
     n, u, ponto = (Vector(s[k]) for k in ('normal', 'u', 'ponto'))
-    escala = context.preferences.system.ui_scale
+    escala = context.preferences.system.ui_scale or 1.0
     estilo = estilo_cotas(context)
     tamanho = estilo['tamanho'] * escala
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     segmentos, realces, rotulos, textos = [], [], [], []
     ativo = selecionado(context, resumo['itens'])
-    # Duas etapas (pedido do usuario): selecionado, as distancias aos
-    # vizinhos/face; editando a geometria pela HUD, so' largura e altura.
+    # A1/A2/A3 identificam o volume sempre; durante o resize as distancias
+    # aos vizinhos somem para deixar o valor em edicao livre.
     editando = ativo is not None and modulo_em_edicao() == ativo['nome']
     digitada = digitacao_hud() if editando else (None, None)
     livre = area_livre(context)
@@ -1070,12 +1077,28 @@ def desenhar(context):
         x = (centro.x + 4 * escala if lado > 0 else
              centro.x - largura - 4 * escala if lado < 0 else centro.x - largura / 2)
         y = centro.y - tamanho / 2
+        if prop in ('largura', 'altura', 'profundidade'):
+            x = max(livre[0] + 5 * escala, min(x, livre[2] - largura - 5 * escala))
+            y = max(livre[1] + 4 * escala, min(y, livre[3] - tamanho - 4 * escala))
+            candidatos = [y]
+            for r in rotulos:
+                candidatos.extend((r[1] - tamanho - 8, r[1] + r[3] + 8))
+            # Distancias conservam sua referencia; indicadores novos se
+            # afastam dos numeros existentes, inclusive em modulo pequeno.
+            for candidato in sorted(candidatos, key=lambda v: abs(v - y)):
+                if not livre[1] + 4 <= candidato <= livre[3] - tamanho - 4:
+                    continue
+                if not any(x - 5 < r[0] + r[2] and x + largura + 5 > r[0]
+                           and candidato - 4 < r[1] + r[3] and candidato + tamanho + 4 > r[1]
+                           for r in rotulos):
+                    y = candidato
+                    break
         if edicao is not None and edicao is digitada[1]:
             # O clique DENTRO da caixa posiciona o cursor da HUD (`_clique_na_caixa`).
             edicao['caixas'] = [(x, y, tamanho, escala)]
         textos.append((x, y, texto, edicao))
         rotulos.append((x - 5, y - 4, largura + 10, tamanho + 8, item['nome'], prop, valor * 1000))
-    def cota(a, b, item, prop, valor, numero, curto=False, lado=1):
+    def cota(a, b, item, prop, valor, numero, curto=False, lado=1, prefixo='', fracao=.5):
         if a is None or b is None or valor <= 1e-6:
             return
         a, b = recortar_cota(a, b, livre, 8 * escala)
@@ -1090,22 +1113,14 @@ def desenhar(context):
             for lado_seta in (-1, 1):
                 linhas.extend((p, p + direcao * sinal * comprimento + normal * lado_seta * 3 * escala))
         vertical = abs(b.x - a.x) < abs(b.y - a.y)
-        rotulo((a + b) / 2, item, prop, valor, lado if vertical else 0)
+        rotulo(a.lerp(b, fracao), item, prop, valor, lado if vertical else 0, prefixo)
     gpu.state.blend_set('ALPHA')
     try:
         for i, item in enumerate(resumo['itens']):
             a, b = tela(item['inicio'], item['base']), tela(item['fim'], item['base'])
             if a is None or b is None or ativo != item:
                 continue
-            if editando:
-                # Cota real de largura, fora da caixa, como uma elevacao.
-                desloc = Vector((0, -14 * escala))
-                cota(a + desloc, b + desloc, item, 'largura', item['largura'], i)
-                topo = tela(item['fim'], item['base'] + item['altura'])
-                base = tela(item['fim'], item['base'])
-                cota(base + Vector((12 * escala, 0)), topo + Vector((12 * escala, 0)),
-                     item, 'altura', item['altura'], i)
-            else:
+            if not editando:
                 # Guias de movimento (desenho do usuario): cada distancia
                 # sai do MEIO da sua face e vai ate' o vizinho/ponta/piso/teto.
                 meio_x = (item['inicio'] + item['fim']) / 2
@@ -1124,6 +1139,19 @@ def desenhar(context):
                 meio = tela((item['inicio'] + item['fim']) / 2, item['base'] + item['altura'] / 2)
                 if meio is not None:
                     rotulo(meio, item, 'afastamento', item['afastamento'], prefixo='Afast. ')
+            # Mesmas propriedades e hit-tests do menu: nenhuma medida paralela.
+            desloc = Vector((0, -14 * escala))
+            cota(a + desloc, b + desloc, item, 'largura', item['largura'], i, prefixo='A1: ')
+            topo = tela(item['fim'], item['base'] + item['altura'])
+            cota(b + Vector((12 * escala, 0)), topo + Vector((12 * escala, 0)),
+                 item, 'altura', item['altura'], i, prefixo='A2: ', fracao=.75)
+            # Na vista frontal a profundidade nao se projeta. Uma chamada
+            # na quina identifica A3 sem fingir uma aresta medida na tela.
+            rotulo(b + Vector((26, 26)) * escala, item, 'profundidade',
+                   item['profundidade'], lado=1, prefixo='A3 Prof.: ')
+            r = rotulos[-1]
+            ponta = Vector((max(r[0], min(b.x, r[0] + r[2])), r[1] + r[3] / 2))
+            realces.extend((b, ponta))
         movendo = _movendo[0]
         item = next((f for f in resumo['itens'] if movendo and f['nome'] == movendo['modulo']), None)
         if item is not None:
@@ -1466,7 +1494,8 @@ class OBJECT_OT_editar_cota_parede(Operator):
             return {'CANCELLED'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
             try:
-                valor = _gaveta_desenho._ler_medida_digitada(estado['texto']) * 1000
+                # Distancia pode zerar; dimensoes e guias validam no dono.
+                valor = _gaveta_desenho._ler_medida_digitada(estado['texto'], minimo=0) * 1000
                 guia = self._guia()
                 erro = (editar_guia(context, guia, valor) if guia is not None
                         else editar_modulo(context, self.objeto, self.propriedade, valor))

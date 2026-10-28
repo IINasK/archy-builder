@@ -977,7 +977,9 @@ OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
                         'object.cabinet_editar_parede',
                         'object.cabinet_resetar_distancia',
                         'object.cabinet_exportar_orcamento',
-                        'object.cabinet_usar_como_puxador'}
+                          'object.cabinet_usar_como_puxador',
+                          'object.cabinet_definir_area', 'object.cabinet_aplicar_area',
+                          'object.cabinet_internos'}
 _desagregar_pendente = [None]    # pecas esperando o "tem certeza?"
 _conexao_pendente = [None]       # alvos esperando o "Juntar ao modulo?"
 _conexao_manual = [None]         # estado do modo "selecionar vertice"

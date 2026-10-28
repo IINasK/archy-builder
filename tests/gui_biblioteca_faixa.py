@@ -62,6 +62,9 @@ def test_abre_acima_das_duas_colunas_e_fecha_restaurando_vista(janela, m):
     menu = addon.gaveta._area_gaveta(janela.screen)
     cena = F.viewport(janela.screen)
     assert topo is not None and menu is not None, [(a.x,a.y,a.width,a.height) for a in janela.screen.areas]
+    assert menu.ui_type == addon.editor.TIPO_MENU
+    assert topo.ui_type == addon.editor.TIPO_BIBLIOTECA
+    assert cena.type == 'VIEW_3D'
     assert topo.y >= menu.y + menu.height - 5
     assert topo.x == menu.x and abs(topo.width - menu.width - cena.width) < 8
     janela.screen[F.CHAVE_AREA] = 0

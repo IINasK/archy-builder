@@ -17,6 +17,7 @@ from . import portas as _portas
 _eventos = _ferragens = _gaveta_eventos = _arame = _gaveta = _hud = None
 _modulos = None
 _gavetas = None
+_areas_criacao = None
 
 PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
 MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
@@ -222,6 +223,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if parametros['dobradica'] == 'ESCOLHER':
             parametros['dobradica'] = 'RETA'
         assistente = getattr(self, '_w', None)
+        area = (assistente or {}).get('area_livre')
         escolhas = assistente.get('escolhas', {}) if assistente else {}
         parametros.update(escolhas)
         # As mesmas espessuras que o operador vai resolver: a previa
@@ -229,19 +231,27 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         # como em `_concluir`).
         modulo = (_portas._modulo_da_chapa(obj_a)
                   if tipo._associar(self, bpy.context) else None)
+        if area and tipo._associar(self, bpy.context):
+            modulo = bpy.data.objects.get(area['modulo'])
         parametros['lateral_mm'] = _portas._espessura_do_vao(modulo, apoios)
         if alvo is None:
             parametros['espessura_mm'] = _portas._espessura_da_porta_nova(
                 modulo, apoios)
-        referencia = self._referencia(obj_a, obj_b)
-        frente = _portas._frente_automatica(referencia, a, b,
-                                    self._centro(obj_a, obj_b))
+        referencia = (_areas_criacao._matriz(area['matriz']).to_3x3()
+                      if area else self._referencia(obj_a, obj_b))
+        frente = ('NEG_Y' if area else _portas._frente_automatica(referencia, a, b,
+                                    self._centro(obj_a, obj_b)))
         embutida = False
         try:
-            (largura, altura, matriz), _, _, coberturas = _portas._preparar_vao_portas(
-                a, b, referencia, frente, parametros,
-                modulo, apoios, portas=portas,
-                forcar=escolhas.get('tipo_correr', ''))
+            if area:
+                largura, altura, matriz = _areas_criacao.vao_porta(area)
+                coberturas = dict.fromkeys(_portas.COBERTURAS_LADOS, 0.0)
+                modulo = bpy.data.objects.get(area['modulo'])
+            else:
+                (largura, altura, matriz), _, _, coberturas = _portas._preparar_vao_portas(
+                    a, b, referencia, frente, parametros,
+                    modulo, apoios, portas=portas,
+                    forcar=escolhas.get('tipo_correr', ''))
             parametros.update(coberturas)
             if alvo is None and _portas._correr_sobreposta(parametros):
                 # com moldura a folha nasce de 18 (pesado) ou 15 (leve)
@@ -446,6 +456,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
             return {'CANCELLED'}
         self._regiao_ptr = self._regiao.as_pointer()
+        area = _areas_criacao.consumir('PORTAS')
 
         # Com uma porta selecionada o gesto REPOSICIONA aquela porta: o
         # vao novo vem da diagonal, os parametros sao os dela.
@@ -465,7 +476,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return {'CANCELLED'}
 
         _ferragens._ferragens_selecionadas[0] = None    # criar encerra aquela selecao
-        if not any(o.type == 'MESH' for o in context.visible_objects):
+        if area is None and not any(o.type == 'MESH' for o in context.visible_objects):
             self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
             return {'CANCELLED'}
         self._pontos = []
@@ -478,6 +489,15 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                    'botoes': [], 'escolhas': {}, 'bolinhas': [],
                    'snap_tela': None, 'mouse': None, 'recado': '',
                    'snap_nativo': True, 'cursor': None, 'iniciar_snap': True}
+        if area:
+            m = _areas_criacao._matriz(area['matriz'])
+            l, _prof, a = area['medidas']
+            modulo = bpy.data.objects.get(area['modulo'])
+            self._pontos = [(m @ Vector((0, 0, a / 1000)), modulo),
+                            (m @ Vector((l / 1000, 0, 0)), modulo)]
+            self._w.update(area_livre=area, iniciar_snap=False, etapa='FOLHAS')
+            self._previa()
+            self._ir('FOLHAS')
         _portas._assistente_porta[0] = self._w
         self._handler = bpy.types.SpaceView3D.draw_handler_add(
             self._desenhar, (), 'WINDOW', 'POST_VIEW')
@@ -797,6 +817,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         """Botao direito: uma etapa para tras."""
         w = self._w
         etapa = w['etapa']
+        if w.get('area_livre') and etapa in {'CONFIRMAR', 'FOLHAS'}:
+            self._ir('FOLHAS')
+            return
         if etapa in {'CONFIRMAR', 'FOLHAS'}:
             # Conserva o primeiro canto para remarcar so' o oposto.
             self._pontos = self._pontos[:1]
@@ -1001,6 +1024,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return {'RUNNING_MODAL'}
 
     def _concluir(self, context, extras=None):
+        if self._w.get('area_livre'):
+            return self._concluir_area(context, extras)
         portas = None
         if len(self._pontos) >= 4:
             (p1, o1), (a, obj_a), (b, obj_b), (p4, o4) = self._pontos[:4]
@@ -1046,6 +1071,22 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return {'FINISHED'}
 
 
+    def _concluir_area(self, context, extras):
+        area = self._w['area_livre']
+        parametros = _portas._parametros_portas_da_cena(context.scene)
+        parametros.update(extras or {})
+        largura, altura, matriz = _areas_criacao.vao_porta(area)
+        modulo = area['modulo'] if self._associar(context) else ''
+        pontos = [tuple(p) for p, _obj in self._pontos[:2]]
+        self._encerrar(context)
+        return bpy.ops.object.cabinet_portas('EXEC_DEFAULT', capturado=True,
+            area_definida=True, matriz_area=tuple(v for linha in matriz for v in linha),
+            medidas_area=(largura, altura), ponto_a=pontos[0], ponto_b=pontos[1],
+            modulo_nome=modulo, quatro_pontos=True,
+            referencia=tuple(v for linha in _areas_criacao._matriz(area['matriz']).to_3x3() for v in linha),
+            **parametros)
+
+
 class OBJECT_OT_portas_parametricas(Operator):
     """Cria portas por 2 vertices diagonais ou reconfigura o grupo selecionado"""
     bl_idname = "object.cabinet_portas"
@@ -1058,6 +1099,9 @@ class OBJECT_OT_portas_parametricas(Operator):
     # que ja' existe -- os parametros sao os DELA e o grupo e' reusado.
     grupo_alvo: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})
     capturado: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+    area_definida: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
+    matriz_area: FloatVectorProperty(size=16, options={'HIDDEN', 'SKIP_SAVE'})
+    medidas_area: FloatVectorProperty(size=2, options={'HIDDEN', 'SKIP_SAVE'})
     ponto_a: FloatVectorProperty(size=3, options={'HIDDEN'})
     ponto_b: FloatVectorProperty(size=3, options={'HIDDEN'})
     # API legada de cobertura explicita. No wizard de dois cliques os
@@ -1197,6 +1241,12 @@ class OBJECT_OT_portas_parametricas(Operator):
                      and _portas._grupo_portas(o) == alvo else o for o in objetos)
 
     def _preparar_vao(self):
+        if self.area_definida:
+            largura, altura = self.medidas_area
+            matriz = _areas_criacao._matriz(self.matriz_area)
+            _areas_criacao.validar_plano((largura, altura), matriz)
+            return ((largura, altura, matriz), [Vector(self.ponto_a), Vector(self.ponto_b)],
+                    {}, dict.fromkeys(_portas.COBERTURAS_LADOS, 0.0))
         return _portas._preparar_vao_portas(
             self.ponto_a, self.ponto_b, self._ref(), self._frente_resolvida(),
             self._parametros(), bpy.data.objects.get(self.modulo_nome),

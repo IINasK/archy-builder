@@ -19,6 +19,8 @@ Paredes exigem tambem [integracao](../integracao/AGENTS.md): gesto DIREITO,
 associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
 
 ## Decisoes e armadilhas
+- Parede 371: escolha consulta SO' o objeto fixado, pulando teto/backfaces ocultas. Pontos usam cursor/translate nativo VERTEX/ONLY_SELECTABLE, com restauracao. Area visivel >=90% na entrada libera edicao pela sessao inteira; demais usam copia avaliada/Boolean EXACT cinza, bloqueada. Fontes intactas, estados/temporarios limpos na saida/undo/save.
+- Base 367: ao entrar, apoio continuo na faixa de contato da parede recorta a area enterrada. Proxy/cotas/guias/arraste partilham a regiao recortada; parciais/suspensos e modulos nao levantam a base. Cotas 366 aceitam zero; dimensoes validam no dono e ruido <=1 um nao libera colisoes.
 - Importacao 364: resize pode recriar componentes; `aplicar_ajuste_do_modelo` atualiza `novos` no finally pela hierarquia nativa. Registro/Local View usam a mesma geracao viva; rollback inclui recriados.
 - Parede 361: paredes_selecao valida vertices BMesh conectados (1 grau/2 mm),
   poligono de 3+ pontas e hover pelo raio/realce do atach. Local View mostra
@@ -78,8 +80,8 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   Costas (324): `caixa_do_modulo` vem no referencial da PAREDE (giro de
   `parede_costas`, oposto a' porta); com ela use `referencial(conj)` e
   `escala_no_referencial`, nunca `matrix_world`. Medidas: `medidas_na_parede`.
-  Cotas em 2 etapas (335): `modulo_em_edicao` (HUD) troca as distancias
-  por largura/altura; HUD na parede via `_geometria_na_parede`/`_hud_na_parede`
+  Cotas (368): A1/A2/A3 sempre no selecionado; A3 Prof. com chamada na quina.
+  Resize oculta distancias; HUD via `_geometria_na_parede`/`_hud_na_parede`
   (so' bolinhas das bordas, `so_faces`; quina do snap ganha); observador
   deixa o clique para o gizmo; digitado vai no numero da cota (`digitacao_hud`).
 
@@ -114,7 +116,6 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
 
 - Orcamento (VENDIDO, nada de "ERP"): fim das OPCOES, .txt da empresa, so' Moveis,
   falta = Pendencia. COMODO = PASTA no Outliner (a unica fonte), linha na Modulos.
-  `cadastro_do_modulo` (300) le geometria avaliada nos eixos do grupo, folhas
-  e gavetas existentes, tipos de dobradica e materiais das faces usadas.
+  `cadastro_do_modulo` (300) le geometria avaliada nos eixos do grupo, folhas/gavetas existentes, tipos de dobradica e materiais das faces usadas.
   Nao persiste contagens no preset; portas abertas nao alteram o envelope.
   Material/tipo de dobradica ausente vira pendencia, nunca uma suposicao.

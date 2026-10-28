@@ -11,6 +11,8 @@ _frentes = _solda = _fundos = None
 _hud_volume = None
 _gavetas = None
 _paredes_edicao = _paredes_selecao = None
+_editor = None
+_areas_criacao = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -58,6 +60,7 @@ def verificar_periodicamente():
     # guarda do depsgraph deve valer ANTES de consultar selecao/malhas.
     if _desfazendo[0]:
         return INTERVALO_TIMER
+    _areas_criacao.verificar()
     try:
         _paredes_edicao.verificar()
     except Exception as erro:
@@ -271,6 +274,7 @@ def _esquecer_referencias(*_args):
     _paredes_edicao._alvo_contexto[0] = None
     _hud._hover_hud.clear()
     _hud_volume.terminar()
+    _areas_criacao.esquecer()
     _paredes.esquecer()
     _prateleiras.esquecer()
     _fundos.esquecer()
@@ -281,6 +285,7 @@ def _esquecer_referencias(*_args):
     _solda._normalizar_pendente[0] = True
     _chapas._chapas_em_edicao.clear()
     _chapas._havia_modal[0] = False
+    _ferragens._contagem_objetos[0] = None
 
 
 # Ctrl+Z / Ctrl+Shift+Z: os dados acabaram de ser recarregados e o
@@ -322,11 +327,17 @@ def _fim_do_desfazer():
     return None
 
 
+@bpy.app.handlers.persistent
+def _encerrar_area_criacao(*_args):
+    _areas_criacao.esquecer()
+
+
 HANDLERS_REFERENCIAS = (('undo_pre', _antes_de_desfazer),
                         ('redo_pre', _antes_de_desfazer),
                         ('undo_post', _depois_de_desfazer),
                         ('redo_post', _depois_de_desfazer),
-                        ('load_pre', _esquecer_referencias))
+                        ('load_pre', _esquecer_referencias),
+                        ('save_pre', _encerrar_area_criacao))
 
 @bpy.app.handlers.persistent
 def _encerrar_vista_parede(*_args):
@@ -342,5 +353,5 @@ HANDLERS_CONTORNO = (('save_pre', _devolver_contornos),
 
 def _redesenhar_viewports(context):
     for area in context.screen.areas if context.screen else ():
-        if area.type == 'VIEW_3D':
+        if area.type == 'VIEW_3D' or _editor.eh_editor(area):
             area.tag_redraw()

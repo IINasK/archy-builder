@@ -70,6 +70,91 @@ def ocupado():
 
 
 class TestOperadores(unittest.TestCase):
+    def porta_com_agregados(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Porta para ocultar',600,1200,550)
+        grupo=addon.portas.porta_no_modulo(conj,folhas=2)
+        puxadores=addon.puxadores.perfis_na_porta(bpy.context,grupo,'CIMA')
+        self.assertTrue(puxadores)
+        self.assertTrue(addon.ferragens._ferragens_portas(grupo))
+        return conj,grupo,puxadores
+
+    def test_grupo_da_porta_pelo_shift_g_permite_h_nativo_com_todos_agregados(self):
+        conj,grupo,puxadores=self.porta_com_agregados()
+        selecionar(puxadores[0])
+        esperados={o.name for o in [grupo,*grupo.children_recursive]
+                   if o.visible_get() and not o.hide_select}
+        self.assertEqual(bpy.ops.object.cabinet_selecionar_montagem_porta('EXEC_DEFAULT'),{'FINISHED'})
+        self.assertEqual({o.name for o in bpy.context.selected_objects},esperados)
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        with bpy.context.temp_override(area=area,region=regiao):
+            self.assertEqual(bpy.ops.object.hide_view_set(unselected=False),{'FINISHED'})
+        self.assertTrue(all(bpy.data.objects[n].hide_get() for n in esperados))
+        self.assertFalse(any(o.hide_get() for o in addon.modulos._chapas_do_conjunto(conj)))
+
+    def test_esconder_porta_oculta_rig_e_puxadores_sem_trocar_malhas_ou_afetar_modulo(self):
+        conj,grupo,puxadores=self.porta_com_agregados()
+        bpy.ops.mesh.primitive_cube_add(location=(3,0,0))
+        externo=bpy.context.object
+        objetos=[grupo,*grupo.children_recursive]
+        malhas={o.name:o.data.as_pointer() for o in objetos if o.type=='MESH'}
+        nomes={o.name for o in bpy.data.objects}
+        selecionar(addon.portas._folhas_portas(grupo)[0],externo)
+        self.assertEqual(bpy.ops.object.cabinet_esconder_porta(),{'FINISHED'})
+        self.assertTrue(all(o.hide_get() for o in objetos))
+        addon.ferragens._conferir_ferragens()
+        self.assertTrue(all(o.hide_get() for o in objetos))
+        self.assertEqual({o.name for o in bpy.data.objects},nomes)
+        self.assertEqual({o.name:o.data.as_pointer() for o in objetos if o.type=='MESH'},malhas)
+        self.assertFalse(externo.hide_get());self.assertTrue(externo.select_get())
+        self.assertFalse(any(o.hide_get() for o in addon.modulos._chapas_do_conjunto(conj)))
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        with bpy.context.temp_override(area=area,region=regiao):
+            bpy.ops.object.hide_view_clear(select=False)
+        addon.ferragens.ocultar_pecas_do_rig()
+        self.assertTrue(all(not f.hide_get() for f in addon.portas._folhas_portas(grupo)))
+        self.assertFalse(puxadores[0].hide_get())
+
+    def test_ocultacao_da_porta_respeita_undo_redo_nativo(self):
+        conj,grupo,puxadores=self.porta_com_agregados()
+        folha=addon.portas._folhas_portas(grupo)[0]
+        nome=folha.name;nome_puxador=puxadores[0].name
+        selecionar(folha)
+        bpy.ops.ed.undo_push(message='Antes de esconder porta')
+        bpy.ops.object.cabinet_esconder_porta()
+        bpy.ops.ed.undo_push(message='Porta escondida')
+        conj=grupo=folha=puxadores=None
+        bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+        self.assertFalse(bpy.data.objects[nome].hide_get())
+        self.assertFalse(bpy.data.objects[nome_puxador].hide_get())
+        bpy.ops.ed.redo();addon.eventos._fim_do_desfazer()
+        self.assertTrue(bpy.data.objects[nome].hide_get())
+        self.assertTrue(bpy.data.objects[nome_puxador].hide_get())
+
+    def test_menu_shift_g_preserva_grupos_nativos_e_nao_intercepta_objeto_comum(self):
+        conj,grupo,puxadores=self.porta_com_agregados()
+        selecionar(puxadores[0])
+        self.assertTrue(addon.selecao.OBJECT_OT_selecionar_montagem_porta.poll(bpy.context))
+        layout=Mock()
+        addon.selecao.VIEW3D_MT_grupo_porta.draw(SimpleNamespace(layout=layout),bpy.context)
+        self.assertEqual(layout.operator_context,'EXEC_DEFAULT')
+        layout.operator.assert_called_once_with('object.cabinet_selecionar_montagem_porta',icon='OUTLINER_OB_GROUP_INSTANCE')
+        layout.operator_menu_enum.assert_called_once_with('object.select_grouped','type',text='Grupos do Blender')
+        if bpy.context.window_manager.keyconfigs.addon is not None:
+            self.assertTrue(any(k.idname=='object.cabinet_selecionar_montagem_porta' and k.type=='G' and k.shift
+                for m,k in addon.selecao._keymaps))
+        selecionar(conj)
+        self.assertFalse(addon.selecao.OBJECT_OT_selecionar_montagem_porta.poll(bpy.context))
+        self.assertFalse(addon.selecao.OBJECT_OT_esconder_porta.poll(bpy.context))
+
+    def test_ocultar_ignora_descendente_fora_da_view_layer(self):
+        conj,grupo,puxadores=self.porta_com_agregados()
+        fora=bpy.data.objects.new('Agregado de outra camada',None);fora.parent=grupo
+        selecionar(addon.portas._folhas_portas(grupo)[0])
+        self.assertNotIn(fora,addon.selecao.montagem_da_porta(bpy.context))
+        self.assertEqual(bpy.ops.object.cabinet_esconder_porta(),{'FINISHED'})
+
     def test_tab_reduz_altura_sem_refazer_puxadores_editados(self):
         # Regressao 357: reconstruir o perfil depois do G anulava a
         # translacao nativa e separava o puxador da madeira recortada.

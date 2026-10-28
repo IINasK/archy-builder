@@ -84,6 +84,83 @@ class TestComposicaoParedes(unittest.TestCase):
         self.iniciar(itens[0])
         return itens
 
+    def confirmar_texto(self, modulo, propriedade, texto):
+        avisos = []
+        op = SimpleNamespace(objeto=modulo.name, propriedade=propriedade,
+            _guia=lambda: None, report=lambda categoria, mensagem: avisos.append(mensagem),
+            cancel=lambda contexto: C.OBJECT_OT_editar_cota_parede.cancel(None, contexto))
+        C._edicao[0] = dict(objeto=modulo.name, propriedade=propriedade,
+                            texto=texto, cursor=len(texto), selecionado=False)
+        evento = SimpleNamespace(value='PRESS', type='RET', ctrl=False, unicode='')
+        resultado = C.OBJECT_OT_editar_cota_parede._modal(op, bpy.context, evento)
+        return resultado, avisos
+
+    def test_zero_digitado_encosta_nos_limites_sem_mudar_dimensoes(self):
+        # Regressao (era BUG, corrigido na 366): o parser recusava 0 antes do dominio.
+        m = self.modulo(base=.3)
+        self.iniciar(m)
+        medidas = tuple(C.ficha(m, E._sessao[0])[k] for k in ('largura', 'altura', 'profundidade'))
+        malhas = {o.name: o.data.as_pointer() for o in m.children_recursive if o.type == 'MESH'}
+        vertices = {o.name: tuple(tuple(v.co) for v in o.data.vertices)
+                    for o in m.children_recursive if o.type == 'MESH'}
+        for prop in ('cota_inferior', 'cota_superior', 'vao_esquerdo', 'vao_direito', 'afastamento'):
+            with self.subTest(cota=prop):
+                if prop == 'afastamento':
+                    self.assertIsNone(C.editar_modulo(bpy.context, m.name, prop, 50))
+                resultado, avisos = self.confirmar_texto(m, prop, '0')
+                self.assertEqual(resultado, {'FINISHED'}, avisos)
+                atual = C.itens_da_face(bpy.context)[0]
+                self.assertAlmostEqual(atual[prop], 0, places=5)
+                for k, medida in zip(('largura', 'altura', 'profundidade'), medidas):
+                    self.assertAlmostEqual(atual[k], medida, places=5)
+                self.assertEqual({o.name: o.data.as_pointer() for o in m.children_recursive if o.type == 'MESH'}, malhas)
+                self.assertEqual({o.name: tuple(tuple(v.co) for v in o.data.vertices)
+                                  for o in m.children_recursive if o.type == 'MESH'}, vertices)
+                self.assertIsNone(C._edicao[0])
+
+    def test_zero_de_dimensao_e_distancia_negativa_seguem_recusados(self):
+        m = self.modulo(base=.3)
+        self.iniciar(m)
+        antes = m.matrix_world.copy()
+        for prop, texto in (('largura', '0'), ('altura', '0'), ('profundidade', '0'),
+                             ('cota_inferior', '-1')):
+            with self.subTest(cota=prop):
+                resultado, avisos = self.confirmar_texto(m, prop, texto)
+                self.assertEqual(resultado, {'RUNNING_MODAL'})
+                self.assertTrue(avisos)
+                self.assertEqual(m.matrix_world, antes)
+
+    def test_zero_digitado_usa_topo_do_piso_real_sem_atravessar_o_apoio(self):
+        # Parede vai ate' z=0, mas o piso real ocupa 0..100 mm, como no projeto.
+        bm = bmesh.new()
+        bmesh.ops.create_cube(bm, size=1)
+        for v in bm.verts:
+            v.co.x *= 3
+            v.co.y *= .8
+            v.co.z *= .1
+        malha = bpy.data.meshes.new('Piso 100 mm')
+        bm.to_mesh(malha)
+        bm.free()
+        piso = bpy.data.objects.new('Piso 100 mm', malha)
+        bpy.context.scene.collection.objects.link(piso)
+        piso.location = (0, .6, .05)
+        m = self.modulo(base=.1, altura=2500)
+        self.iniciar(m)
+        antes = m.matrix_world.copy()
+        resultado, avisos = self.confirmar_texto(m, 'cota_inferior', '0')
+        self.assertEqual(resultado, {'FINISHED'}, avisos)
+        self.assertLess((m.matrix_world.translation - antes.translation).length, 1e-6)
+        self.assertAlmostEqual(C.itens_da_face(bpy.context)[0]['cota_inferior'], 0, places=5)
+        alvo = P.ponto_das_costas(m).copy()
+        alvo.z = .05 + 1.25
+        with bpy.context.temp_override(area=self.area, region=self.regiao):
+            ponto, erro = E.encaixar_na_face(bpy.context, m, alvo, E._sessao[0])
+        self.assertIsNone(erro)
+        self.assertAlmostEqual(ponto.z, .1, places=5)
+        # A base da edicao passa ao apoio, mas penetrar na madeira segue recusado.
+        f = dict(C.ficha(m, E._sessao[0]), base=0)
+        self.assertIsNotNone(C._validar_encaixe(bpy.context, E._sessao[0], f, (m.name,)))
+
     def test_parede_nao_tem_campo_de_medida_no_menu_nem_depois_de_sair(self):
         self.iniciar()
         for estado in (True, False):
@@ -1106,7 +1183,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertGreater(len(ordem[0][1]), 6)
         self.assertLess(max(i for i, a in enumerate(ordem) if a[0] == 'linha'),
                         min(i for i, a in enumerate(ordem) if a[0] == 'texto'))
-        escala = bpy.context.preferences.system.ui_scale
+        escala = bpy.context.preferences.system.ui_scale or 1.0
         self.assertIn(4 * escala, [c.args[0] for c in gpu.state.line_width_set.call_args_list])
         self.assertTrue(C._rotulos[0])
 
@@ -1130,34 +1207,90 @@ class TestComposicaoParedes(unittest.TestCase):
         finally:
             C._quina_hover[0] = None
         centro = Vector((300 - 60, 200 + 72))
-        raio = C.RAIO_QUINA_PX * bpy.context.preferences.system.ui_scale
+        raio = C.RAIO_QUINA_PX * (bpy.context.preferences.system.ui_scale or 1.0)
         no_circulo = [p for pos in posicoes for p in pos
                       if abs((Vector(p[:2]) - centro).length - raio) < 1e-3]
         self.assertGreaterEqual(len(no_circulo), 2 * 24)
 
-    def desenhar_rotulos(self):
+    def desenhar_rotulos(self, projetar=None, livre=(0, 0, 2000, 2000)):
         """{(modulo, propriedade)} das cotas desenhadas agora."""
-        def projetar(regiao, rv, ponto):
-            return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
+        if projetar is None:
+            def projetar(regiao, rv, ponto):
+                return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
-             patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader'), \
+             patch.object(C, 'gpu'), patch.object(C, 'batch_for_shader') as lotes, \
              patch.object(C._hud, '_caixa_texto_hud'), \
-             patch.object(C, 'area_livre', return_value=(0, 0, 2000, 2000)), \
+             patch.object(C, 'area_livre', return_value=livre), \
              patch.object(C.view3d_utils, 'location_3d_to_region_2d', side_effect=projetar):
             C.desenhar(bpy.context)
+        self.lotes_desenho = lotes.call_args_list
         return {(r[4], r[5]) for r in C._rotulos[0]}
 
-    def test_cotas_em_duas_etapas_selecionado_e_editando(self):
-        # Pedido do usuario: selecionado, so' as distancias (laranjas);
-        # editando a geometria pela HUD, so' largura e altura (verdes).
+    def test_a1_a2_a3_identificam_medidas_e_profundidade_sai_da_quina(self):
+        m = self.modulo(base=.3)
+        self.iniciar(m)
+        self.assertIsNone(C.editar_modulo(bpy.context, m.name, 'afastamento', 50))
+        textos = []
+        with patch.object(C, 'caixa_editavel', side_effect=lambda *args: textos.append(args[2])):
+            self.desenhar_rotulos()
+        f = C.ficha(m, E._sessao[0])
+        for prop, prefixo in (('largura', 'A1: '), ('altura', 'A2: '), ('profundidade', 'A3 Prof.: ')):
+            self.assertIn(prefixo + addon.opcoes._texto_medida(f[prop] * 1000), textos)
+        self.assertIn('Afast. ' + addon.opcoes._texto_medida(50), textos)
+        profundidade = next(r for r in C._rotulos[0] if r[5] == 'profundidade')
+        quina = Vector((300 + f['fim'] * 100, 200 + f['base'] * 100))
+        self.assertGreater(profundidade[0], quina.x)
+        self.assertGreater(profundidade[1] + profundidade[3] / 2, quina.y)
+        for r in C._rotulos[0]:
+            if r is profundidade:
+                continue
+            self.assertFalse(profundidade[0] < r[0] + r[2] and profundidade[0] + profundidade[2] > r[0]
+                             and profundidade[1] < r[1] + r[3] and profundidade[1] + profundidade[3] > r[1])
+        linhas = [Vector(p) for chamada in self.lotes_desenho for p in chamada.args[2]['pos']]
+        self.assertTrue(any((p - quina).length < 1e-5 for p in linhas))
+
+    def test_a3_tem_hit_test_e_edita_profundidade_preservando_espessuras(self):
+        m = self.modulo(base=.3)
+        self.iniciar(m)
+        espessuras = {o.name: o.chapa_espessura_mm for o in m.children_recursive
+                      if addon.chapas.MARCA_CHAPA in o}
+        self.desenhar_rotulos()
+        r = next(r for r in C._rotulos[0] if r[5] == 'profundidade')
+        alvo = C.cota_sob(r[0] + r[2] / 2, r[1] + r[3] / 2)
+        self.assertEqual(alvo[4:6], (m.name, 'profundidade'))
+        resultado, avisos = self.confirmar_texto(m, alvo[5], '600')
+        self.assertEqual(resultado, {'FINISHED'}, avisos)
+        f = C.ficha(m, E._sessao[0])
+        self.assertAlmostEqual(f['profundidade'], .6, places=5)
+        self.assertAlmostEqual(f['afastamento'], 0, places=5)
+        self.assertEqual({o.name: o.chapa_espessura_mm for o in m.children_recursive
+                          if addon.chapas.MARCA_CHAPA in o}, espessuras)
+
+    def test_indicadores_permanecem_dentro_da_area_livre_perto_das_bordas(self):
+        m = self.modulo(base=.3)
+        self.iniciar(m)
+        livre = (20, 10, 340, 240)
+        for origem in (Vector((160, -20)), Vector((370, -20))):
+            with self.subTest(origem=tuple(origem)):
+                self.desenhar_rotulos(lambda reg, rv, p: origem + Vector((p.x*100, p.z*100)), livre)
+                dimensoes = [r for r in C._rotulos[0] if r[5] in ('largura', 'altura', 'profundidade')]
+                self.assertEqual(len(dimensoes), 3)
+                for r in dimensoes:
+                    self.assertGreaterEqual(r[0], livre[0] - 1e-5)
+                    self.assertGreaterEqual(r[1], livre[1] - 1e-5)
+                    self.assertLessEqual(r[0] + r[2], livre[2] + 1e-5)
+                    self.assertLessEqual(r[1] + r[3], livre[3] + 1e-5)
+
+    def test_dimensoes_sempre_visiveis_e_distancias_somem_ao_editar(self):
+        # Pedido na 368: A1/A2/A3 tambem selecionado; resize oculta so' distancias.
         a, b, c = self.tres()
         rotulos = self.desenhar_rotulos()
         self.assertIn((a.name, 'afastamento'), rotulos)
         self.assertIn((a.name, 'vao_direito'), rotulos)
-        self.assertFalse({p for _n, p in rotulos} & {'largura', 'altura'})
+        self.assertTrue({'largura', 'altura', 'profundidade'} <= {p for _n, p in rotulos})
         self.assertEqual({n for n, _p in rotulos}, {a.name})
         with patch.object(C, 'modulo_em_edicao', return_value=a.name):
-            self.assertEqual(self.desenhar_rotulos(), {(a.name, 'largura'), (a.name, 'altura')})
+            self.assertEqual(self.desenhar_rotulos(), {(a.name, p) for p in ('largura', 'altura', 'profundidade')})
         for o in bpy.context.selected_objects:
             o.select_set(False)
         C.atualizar(bpy.context)
@@ -1172,12 +1305,15 @@ class TestComposicaoParedes(unittest.TestCase):
         rotulos = {r[5]: r for r in C._rotulos[0]}
         meio_x = 300 + (f['inicio'] + f['fim']) / 2 * 100
         meio_z = 200 + (f['base'] + f['altura'] / 2) * 100
-        escala = bpy.context.preferences.system.ui_scale
+        escala = bpy.context.preferences.system.ui_scale or 1.0
         for prop in ('vao_esquerdo', 'vao_direito'):
             r = rotulos[prop]
             self.assertAlmostEqual(r[1] + r[3] / 2, meio_z, places=3)
-        self.assertLess(rotulos['vao_esquerdo'][0], 300 + f['inicio'] * 100)
-        self.assertGreater(rotulos['vao_direito'][0], 300 + f['fim'] * 100)
+        # Texto pode ser mais largo que um vao curto; seu centro segue a cota real.
+        self.assertAlmostEqual(rotulos['vao_esquerdo'][0] + rotulos['vao_esquerdo'][2] / 2,
+                               300 + (f['inicio'] - f['vao_esquerdo'] / 2) * 100, places=3)
+        self.assertAlmostEqual(rotulos['vao_direito'][0] + rotulos['vao_direito'][2] / 2,
+                               300 + (f['fim'] + f['vao_direito'] / 2) * 100, places=3)
         r = rotulos['cota_superior']
         self.assertAlmostEqual(r[0] + 5, meio_x + 4 * escala, places=3)
         self.assertGreater(r[1], 200 + (f['base'] + f['altura']) * 100)
@@ -1202,7 +1338,7 @@ class TestComposicaoParedes(unittest.TestCase):
         finally:
             addon.hud._edicao_hud[0] = None
         self.assertIn(('750', estado), desenhados)
-        self.assertEqual(len(desenhados), 2)        # largura + altura, sem caixa extra
+        self.assertEqual(len(desenhados), 3)        # A1/A2/A3, sem caixa extra da HUD
         altura = next(r for r in C._rotulos[0] if r[5] == 'altura')
         self.assertEqual(estado['caixas'], [(altura[0] + 5, altura[1] + 4,
                                              estado['caixas'][0][2], estado['caixas'][0][3])])

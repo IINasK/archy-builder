@@ -22,11 +22,16 @@ Menu/HUD despacham para este dominio; malha base pertence a [chapas](../chapas/A
 
 ## Decisoes e armadilhas
 
-- Aba propria. Mesmo `AssistenteDoVao` das gavetas: SO' 2 cliques + scroll.
-  Profundidade ate' o FUNDO; folga da frente e' RECUO. Usar/gravar a mesma
+- Aba compartilhada Prateleiras / Divisorias (375): areas_criacao coordena tipo,
+  volume comum, continuar/Sair e escolha de lacuna antes de mutar. Divisorias
+  e' dona do recorte; preenchimento_divisorias preserva escolha nesta criacao.
+  Mesmo `AssistenteDoVao` das gavetas (376): tres pontos sem ordem -> caixa min/max nos eixos do modulo -> frente explicita -> quantidade.
+  Profundidade vem da caixa; folga da frente e' RECUO. Usar/gravar a mesma
   referencia do vao das gavetas; seguir seu protocolo de snap nativo.
 - Fundo associado (360): profundidade acompanha a face interna via fundos.py;
   mantem alturas e a frente. Vao usa a estrutura sem expandir pelo fundo.
+- Subdivisao por cota (379): preparar_subdivisao_vao fixa apoios e parametros; subdividir_vao copia estoque/modelagem so' no espaco vazio, scroll altera as NOVAS unidades nesta sessao. Originais/vizinhos conservam Mesh, material e pose; capacidade valida antes de alocar. Esc remove so' as copias e restaura indices/parametros antes do backup HUD; Enter confirma quantidade, nao medida. Zero devolve estado inicial; undo e' do operador HUD.
+- Blocagem (379): cabinet_blocagem_uid conserva parentesco dos segmentos recortados; selecionar grupo abrange prateleiras da mesma blocagem/modulo, duplo continua local. HUD tem moldura comum so' de leitura e cotas V de cada segmento, com alvo real preservado. Independentes nao se unem. Timer migra legado por apoio UID/coplanaridade fora de undo; sem inferencia por nome nem escrita no redraw.
 - Menu: campos E de BAIXO para CIMA, apenas os do escopo selecionado.
   Sem Igual/Livre, Entre prateleiras ou Abaixo/Acima.
 - Quantidade: grupo = total/global; unidade = ela e suas copias, distribuidas

@@ -133,6 +133,7 @@ def preparar(janela):
 
 
 def limpar(janela):
+    addon.areas_criacao.esquecer()
     if bpy.context.object and bpy.context.object.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
     for obj in list(bpy.data.objects):
@@ -2484,10 +2485,78 @@ def _gavetas_prontas(janela, conj, n=3):
     return grupo
 
 
+def test_walk_entre_pontos_preserva_criacao_do_volume(janela, m):
+    conj, area, regiao, rv = _gavetas_de_frente(janela)
+    yield
+    m.mover(*widget(janela, lambda v: v[5][0] == 'gavetas')); m.clicar()
+    yield
+    w = addon.gavetas._assistente_gavetas[0]
+    L,A,P,E = conj.conj_largura_mm,conj.conj_altura_mm,conj.conj_profundidade_mm,conj.conj_espessura_mm
+    yield from _clicar_no_mundo(m,regiao,rv,_local(conj,-L/2+E,-P/2,A-E))
+    assert w['etapa']=='CANTO2'
+    pontos=[tuple(p) for p in w['pontos']]
+    assert addon.gavetas._snap_criacao[0] is None
+    modo = bpy.context.preferences.inputs.navigation_mode
+    gravidade = bpy.context.preferences.inputs.walk_navigation.use_gravity
+    try:
+        bpy.context.preferences.inputs.navigation_mode='WALK'
+        bpy.context.preferences.inputs.walk_navigation.use_gravity=False
+        m.mover(regiao.x+regiao.width/2,regiao.y+regiao.height/2)
+        janela.event_simulate('ACCENT_GRAVE','PRESS',shift=True,x=m.x,y=m.y)
+        janela.event_simulate('ACCENT_GRAVE','RELEASE',x=m.x,y=m.y)
+        yield
+        assert any(o.bl_idname=='VIEW3D_OT_walk' for o in janela.modal_operators), 'Walk nao iniciou'
+        inicio=rv.view_location.copy()
+        m.apertar('D')
+        yield
+        yield
+        yield
+        m.soltar('D')
+        yield
+        assert (rv.view_location-inicio).length>1e-5, 'WASD nao moveu a camera'
+        m.tecla('RET')
+        yield
+        assert addon.gavetas._assistente_gavetas[0] is w
+        assert w['etapa']=='CANTO2' and [tuple(p) for p in w['pontos']]==pontos
+        assert addon.gavetas._snap_criacao[0] is None
+    finally:
+        m.tecla('ESC')
+        yield
+        m.tecla('ESC')
+        bpy.context.preferences.inputs.navigation_mode=modo
+        bpy.context.preferences.inputs.walk_navigation.use_gravity=gravidade
+
+
+def test_scroll_na_cota_subdivide_so_vao_e_esc_descarta_previa(janela, m):
+    conj, area, regiao, rv = _gavetas_de_frente(janela)
+    grupo = addon.prateleiras.criar_prateleiras(bpy.context,conj,(18,18,18,18,0),dict(quantidade=2,profundidade_mm=500))
+    addon.prateleiras.selecionar(bpy.context,grupo,'GRUPO')
+    originais={o.name:tuple(o.matrix_world.translation) for o in addon.prateleiras.prateleiras_do_grupo(grupo)}
+    yield
+    for confirmar in (True,False):
+        linha=next(l for l in addon.prateleiras.linhas_hud(grupo,[])[1] if l.get('face')==('V',0))
+        ponto=linha['pontos'][0].lerp(linha['pontos'][1],.35)
+        m.mover(*na_tela(regiao,rv,ponto))
+        yield
+        m.clicar()
+        yield
+        estado=addon.hud._edicao_hud[0]
+        assert estado and estado['alvo'].get('face')==('V',0), 'Nao abriu a cota do vao'
+        n=len(addon.prateleiras.prateleiras_do_grupo(grupo))
+        for _ in range(2):
+            janela.event_simulate('WHEELUPMOUSE','PRESS',x=m.x,y=m.y)
+            yield
+        assert len(addon.prateleiras.prateleiras_do_grupo(grupo))==n+2
+        m.tecla('RET' if confirmar else 'ESC')
+        yield
+        assert addon.hud._edicao_hud[0] is None
+        assert len(addon.prateleiras.prateleiras_do_grupo(grupo))==n+(2 if confirmar else 0)
+        for nome,posicao in originais.items():
+            assert (bpy.data.objects[nome].matrix_world.translation-Vector(posicao)).length<1e-6
+
+
 def test_criar_gavetas_pelo_assistente(janela, m):
-    # Pedido do usuario: "Criar Gavetas" -> 2 cliques na diagonal do vao
-    # (de cima a' esquerda a baixo a' direita) -> scroll = quantas ->
-    # mouse = profundidade -> o trilho (telescopico de padrao).
+    # Tres pontos em qualquer ordem -> frente explicita -> quantidade -> trilho.
     conj, area, regiao, rv3d = _gavetas_de_frente(janela)
     yield
     yield
@@ -2502,23 +2571,21 @@ def test_criar_gavetas_pelo_assistente(janela, m):
     y = -P / 2
     for ponto in ((-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
+    assert w['etapa'] == 'CANTO3', w['etapa']
+    vista = rv3d.view_rotation.copy()
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, L / 2 - E, P / 2, E))
+    assert w['etapa'] == 'FRENTE', w['etapa']
+    rv3d.view_rotation = vista
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, 0, y, A / 2))
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
     for _ in range(2):
         m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
         yield
     assert w['p']['quantidade'] == 3, w['p']['quantidade']
     m.clicar()
-    yield
-    assert w['etapa'] == 'PROFUNDIDADE', w['etapa']
-    # De frente o eixo de profundidade colapsa na tela. Olhar de lado
-    # e usar Alt num vertice traseiro prova a profundidade e o snap reais.
-    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
-    yield
-    destino = na_tela(regiao, rv3d, _local(conj, L / 2 - E, P / 2, E))
-    m.mover(*destino)
-    m.janela.event_simulate('MOUSEMOVE', 'NOTHING', x=m.x, y=m.y, alt=True)
-    yield
-    m.clicar(alt=True)
     yield
     assert w['etapa'] == 'TRILHO', w['etapa']
     (x, yb, bw, bh), _c, _t = next(b for b in w['botoes'] if b[1] == 'TELESCOPICO')
@@ -2538,17 +2605,17 @@ def test_criar_gavetas_pelo_assistente(janela, m):
 
 
 def test_criar_prateleiras_pelo_assistente(janela, m):
-    # Pedido do usuario: "Criar Prateleiras" -> SO' 2 cliques na diagonal
-    # do vao -> scroll = quantas -> o clique cria (sem profundidade: vai
-    # ate' o fundo; a folga da frente e' o Recuo). O assistente e' o das
-    # gavetas (`gavetas.AssistenteDoVao`), com os ganchos das prateleiras.
+    # O mesmo seletor 3D entrega a caixa e a frente ao dono das prateleiras.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
     bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
     yield
     yield
-    m.mover(*widget(janela, lambda v: v[5][0] == 'prateleiras'))
+    m.mover(*widget(janela, lambda v: v[5] == ('operador','object.cabinet_internos')))
     yield
     m.clicar()
+    yield
+    assert addon.areas_criacao._internos[0]['etapa'] == 'TIPO'
+    m.mover(*widget(janela, lambda v: v[5] == ('resposta',0)));m.clicar()
     yield
     w = addon.prateleiras._assistente_prateleiras[0]
     assert w is not None, 'Criar Prateleiras nao abriu'
@@ -2558,6 +2625,15 @@ def test_criar_prateleiras_pelo_assistente(janela, m):
     y = -P / 2
     for ponto in ((-L / 2 + E, y, A - E), (L / 2 - E, y, E)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
+    assert w['etapa'] == 'CANTO3', w['etapa']
+    vista = rv3d.view_rotation.copy()
+    rv3d.view_rotation = Euler((math.radians(65), 0, math.radians(-30))).to_quaternion()
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, L / 2 - E, P / 2, E))
+    assert w['etapa'] == 'FRENTE', w['etapa']
+    rv3d.view_rotation = vista
+    yield
+    yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, 0, y, A / 2))
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
     for _ in range(2):
         m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
@@ -2960,7 +3036,168 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
 
 
-rodar([test_gaveta_abre_na_largura_com_medidas_em_linha,
+def test_pontos_da_parede_usam_snap_nativo_e_menu_permanece_disponivel(janela, m):
+    # Regressao 371: o snap consulta so' a parede, mesmo atras de outro objeto.
+    import bmesh
+    E = addon.paredes_edicao
+    area, regiao, rv = viewport(janela)
+    pontos = [(-1, 1, .5), (1, 1, .5), (1, 1, 2.5), (-1, 1, 2.5)]
+    bm = bmesh.new()
+    bm.faces.new([bm.verts.new(p) for p in pontos])
+    dados = bpy.data.meshes.new('Parede para snap por pontos')
+    bm.to_mesh(dados); bm.free()
+    parede = bpy.data.objects.new(dados.name, dados)
+    bpy.context.scene.collection.objects.link(parede)
+    teto = parede.copy(); teto.data = dados.copy()
+    bpy.context.scene.collection.objects.link(teto)
+    teto.location.y = -2
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    parede.select_set(True); bpy.context.view_layer.objects.active = parede
+    rv.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
+    rv.view_perspective = 'ORTHO'
+    rv.view_location = (0, 1, 1.5); rv.view_distance = 5
+    bpy.context.view_layer.update()
+    yield
+    m.mover(*na_tela(regiao, rv, Vector((0, 1, 1.5))))
+    yield
+    bpy.context.scene['parede_metodo_selecao'] = 'PONTOS'
+    cursor = tuple(bpy.context.scene.cursor.location)
+    ts = bpy.context.scene.tool_settings
+    snap_anterior = (ts.use_snap, set(ts.snap_elements), ts.snap_target)
+    with bpy.context.temp_override(window=janela, area=area, region=regiao):
+        bpy.ops.object.cabinet_editar_parede('INVOKE_DEFAULT')
+    yield
+    try:
+        for indice, ponto in enumerate(pontos[:3]):
+            x, y = na_tela(regiao, rv, Vector(ponto))
+            dx, dy = (4 if ponto[0] < 0 else -4), (4 if ponto[2] < 1 else -4)
+            m.mover(x + dx, y + dy)
+            yield
+            m.apertar('LEFTMOUSE')
+            yield
+            assert E._snap_area[0] is not None, 'nao iniciou o translate nativo'
+            assert teto.hide_select and not parede.hide_select
+            m.mover(x + dx / 2, y + dy / 2)
+            yield
+            m.soltar('LEFTMOUSE')
+            yield
+            e = E._escolha_area[0]
+            assert len(e['pontos']) == indice + 1
+            assert (Vector(e['pontos'][-1]) - Vector(ponto)).length < 1e-5
+            assert not teto.hide_select and E._snap_area[0] is None
+            assert tuple(bpy.context.scene.cursor.location) == cursor
+            assert (ts.use_snap, set(ts.snap_elements), ts.snap_target) == snap_anterior
+        # Confirmar pelo menu usa a mesma acao; o modal continua atendendo-a.
+        with bpy.context.temp_override(window=janela, area=area, region=regiao):
+            bpy.ops.object.cabinet_area_parede_confirmar()
+        yield
+        assert E.ativa() and E._escolha_area[0] is None
+    finally:
+        E.encerrar()
+
+
+def test_criar_divisorias_e_prateleiras_no_mesmo_volume(janela, m):
+    A = addon.areas_criacao
+    conj = criar_modulo(janela)
+    area, regiao, rv = viewport(janela)
+    rv.view_rotation = Euler((math.radians(70), 0, 0)).to_quaternion()
+    rv.view_location = (0, 0, .35); rv.view_distance = 2
+    bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
+    yield
+    try:
+        m.mover(*widget(janela, lambda v: v[5] == ('operador', 'object.cabinet_definir_area')))
+        m.clicar()
+        yield
+        assert A._internos[0]['etapa'] == 'TIPO'
+        m.mover(*widget(janela, lambda v: v[5] == ('resposta',1)));m.clicar()
+        yield
+        assert A._estado[0] is not None
+        m.mover(*na_tela(regiao, rv, conj.matrix_world @ Vector((-.15, -.18, .018))))
+        m.clicar()
+        yield
+        assert len(A.cantos(A.objeto())) == 8
+        m.tecla('TAB')
+        yield
+        assert bpy.context.mode == 'OBJECT'
+        for chave, mm in (('L', 300), ('A', 350), ('P', 250)):
+            m.mover(*widget(janela, lambda v: v[5][:3] == ('medida', 'area_criacao', chave)))
+            m.clicar()
+            yield
+            m.digitar(str(mm)); m.tecla('RET')
+            yield
+            assert A.objeto() is not None, 'Enter do campo aplicou a area'
+            assert abs(A.valor(A.objeto(), (chave,)) - mm) < .01
+        m.mover(*widget(janela, lambda v: v[5] == ('operador', 'object.cabinet_aplicar_area')))
+        m.clicar()
+        yield
+        assert A._estado[0]['etapa'] == 'FRENTE'
+        c = A.cantos(A.objeto())
+        frente = sum((c[i] for i in (0, 1, 4, 5)), Vector()) / 4
+        yield from _clicar_no_mundo(m, regiao, rv, frente)
+        assert A._estado[0] is None
+        w = addon.divisorias._assistente_divisorias[0]
+        assert w and w['etapa'] == 'QUANTIDADE'
+        assert len(w['pontos']) == 2 and abs(w['p']['profundidade_mm'] - 250) < .01
+        m.mover(regiao.x+regiao.width*.8,regiao.y+regiao.height*.5);m.clicar()
+        yield
+        assert A._internos[0]['etapa'] == 'CONTINUAR'
+        area_criada=dict(A._internos[0]['area'])
+        m.mover(*widget(janela,lambda v:v[5]==('resposta',0)));m.clicar()
+        yield
+        w=addon.prateleiras._assistente_prateleiras[0]
+        assert w and w['etapa']=='QUANTIDADE'
+        assert A._internos[0]['area']==area_criada
+        m.mover(regiao.x+regiao.width*.8,regiao.y+regiao.height*.5);m.clicar()
+        yield
+        assert sum(len(addon.prateleiras.prateleiras_do_grupo(g)) for g in addon.prateleiras.grupos_do_modulo(conj))==2
+        m.mover(*widget(janela,lambda v:v[5]==('resposta',0)));m.clicar()
+        yield
+        assert A._internos[0] is None
+    finally:
+        m.tecla('ESC'); m.tecla('ESC')
+        A.esquecer()
+
+
+def test_barra_do_painel_compartilhado_arrasta_sem_rolar_biblioteca(janela, m):
+    criar_modulo(janela)
+    g = addon.gaveta
+    tela = janela.screen
+    anterior = tela.get(g._CHAVE_DIVISA, g.DIVISA_PADRAO)
+    try:
+        tela[g._CHAVE_DIVISA] = .99
+        tela[g._CHAVE_ROLAGEM] = 0
+        tela[g._CHAVE_ROLAGEM_BIB] = 0
+        bpy.context.scene.cabinet_aba = 'MODULOS'
+        yield
+        area, regiao = gaveta(janela)
+        with contexto(janela, area, regiao):
+            barras = g._widgets_interativos(bpy.context)
+        barra = next(v for v in barras if v[5] and v[5][:2] == ('rolagem', g._CHAVE_ROLAGEM))
+        base, h = g._alca_rolagem(barra[1], barra[3], barra[5][2], 0)
+        x, y = regiao.x + barra[0] + barra[2] / 2, regiao.y + base + h / 2
+        m.mover(x, y); m.apertar()
+        yield
+        m.mover(x, regiao.y + barra[1])
+        yield
+        assert tela[g._CHAVE_ROLAGEM] > 0
+        assert tela[g._CHAVE_ROLAGEM_BIB] == 0
+        m.tecla('ESC')
+        yield
+        m.soltar()
+        assert tela[g._CHAVE_ROLAGEM] == 0
+    finally:
+        tela[g._CHAVE_DIVISA] = anterior
+        tela[g._CHAVE_ROLAGEM] = 0
+        tela[g._CHAVE_ROLAGEM_BIB] = 0
+
+
+rodar([test_scroll_na_cota_subdivide_so_vao_e_esc_descarta_previa,
+       test_walk_entre_pontos_preserva_criacao_do_volume,
+       test_barra_do_painel_compartilhado_arrasta_sem_rolar_biblioteca,
+       test_criar_divisorias_e_prateleiras_no_mesmo_volume,
+       test_pontos_da_parede_usam_snap_nativo_e_menu_permanece_disponivel,
+       test_gaveta_abre_na_largura_com_medidas_em_linha,
        test_clique_no_puxador_da_gaveta_abre_puxadores,
        test_botao_direito_no_material_pinta_o_comodo,
        test_criar_gavetas_pelo_assistente,

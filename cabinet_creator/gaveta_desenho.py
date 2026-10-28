@@ -43,6 +43,8 @@ def _chave_widget(acao):
         return 'resp:%d' % acao[1]
     if verbo in {'suspenso', 'faixa'}:
         return '%s:%s' % (verbo, acao[1])
+    if verbo == 'rolagem':
+        return 'rolagem:' + acao[1]
     if verbo == 'cor':
         # quadro e matiz sao superficie de arraste, nao botao
         if acao[2] == 'amostra':
@@ -402,6 +404,13 @@ def _desenhar_gaveta(tela=False):
         if acao and acao[0] == 'divisa':
             _desenhar_divisa_gaveta(context, largura, meio, acao, cores)
             continue
+        if acao and acao[0] == 'rolagem':
+            base, tamanho = _gaveta._alca_rolagem(y, h, acao[2], acao[3])
+            _gaveta._retangulo_arredondado_gaveta(x, y, w, h, 4, tuple(cores.inner))
+            realce = _gaveta._valor_realce(context, _chave_widget(acao))
+            _gaveta._retangulo_arredondado_gaveta(x, base, w, tamanho, 4,
+                                               (*cores.text[:3], .55 + .35 * realce))
+            continue
         if acao == ('faixa_rodape',):
             _gaveta._retangulo_gaveta(0, 0, largura, _gaveta.ALTURA_RODAPE_GAVETA, fundo)
             _gaveta._retangulo_gaveta(0, _gaveta.ALTURA_RODAPE_GAVETA - 1, largura, 1,
@@ -515,7 +524,7 @@ def _desenhar_gaveta(tela=False):
         aceitar = bool(acao and acao[0] == 'escolha'
                        and acao[1] == _portas.CONFIRMAR_ETAPA)
         ativo = bool(acao and (acao[0] in {'navegar', 'modo', 'biblioteca', 'nivel'} and acao[-1]
-                               or acao[0] == 'aba' and context.scene.cabinet_aba == acao[1]
+                               or acao[0] == 'aba' and _gaveta._aba_no_menu(context.scene) == acao[1]
                                or acao[0] == 'escolha' and acao[3]
                                or acao[0] == 'contador'
                                and not _eh_campo_contador(acao)
@@ -627,7 +636,7 @@ def _desenhar_gaveta(tela=False):
         if acao[0] != 'aba':
             continue        # corrente: so' o icone, desenhado pelo gizmo
         _gaveta._botao_gaveta(x, y, w, h,
-                       ativo=context.scene.cabinet_aba == acao[1])
+                       ativo=_gaveta._aba_no_menu(context.scene) == acao[1])
         _gaveta._texto_cabivel_gaveta(x + 9, y + 8, rotulo, w - 18)
     gpu.state.blend_set('NONE')
 

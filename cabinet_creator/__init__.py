@@ -1,9 +1,9 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (364, 0, 0),
+    "version": (379, 0, 0),
     "blender": (4, 0, 0),
-    "location": "View3D > gaveta esquerda",
+    "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
     "description": "Armarios parametricos: chapas com malha editavel e espessura imune a escala",
     "category": "Object",
@@ -65,13 +65,15 @@ from . import promob as _promob
 from . import geometria as _geometria
 from . import frentes as _frentes
 from . import painel_legado as _painel_legado
+from . import editor as _editor
+from . import areas_criacao as _areas_criacao
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
-            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao)
+            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao)
 
 
 def _ligar_modulos():
@@ -89,6 +91,15 @@ _ligar_modulos()
 
 
 CLASSES = (
+    _selecao.VIEW3D_MT_grupo_porta,
+    _selecao.OBJECT_OT_selecionar_montagem_porta,
+    _selecao.OBJECT_OT_esconder_porta,
+    _areas_criacao.OBJECT_OT_definir_area,
+    _areas_criacao.OBJECT_OT_aplicar_area,
+    _areas_criacao.OBJECT_OT_cancelar_area,
+    _areas_criacao.OBJECT_OT_internos,
+    _editor.CABINET_NT_menu,
+    _editor.CABINET_NT_biblioteca,
     _fundos.OBJECT_OT_criar_fundo,
     _fundos.OBJECT_OT_desassociar_fundo,
     _paredes_composicao.OBJECT_OT_redistribuir_parede,
@@ -97,6 +108,8 @@ CLASSES = (
     _paredes_composicao.OBJECT_OT_mover_na_parede,
     _paredes_composicao.OBJECT_OT_restaurar_guias_parede,
     _paredes_edicao.OBJECT_OT_editar_parede,
+    _paredes_edicao.OBJECT_OT_confirmar_ponto_parede,
+    _paredes_edicao.OBJECT_OT_marcar_ponto_parede,
     _paredes_edicao.OBJECT_OT_confirmar_area_parede,
     _paredes_edicao.OBJECT_OT_voltar_area_parede,
     _paredes_edicao.OBJECT_OT_cancelar_area_parede,
@@ -221,6 +234,7 @@ CLASSES = (
     _solda.OBJECT_OT_digitar_nome_grupo,
     _solda.OBJECT_OT_juntar_modulo,
     _gaveta_eventos.VIEW3D_GGT_cabinet_gaveta,
+    _editor.NODE_GGT_cabinet_gaveta,
     _biblioteca.VIEW3D_AST_cabinet_creator,
 )
 
@@ -353,6 +367,7 @@ def register():
     _hud_volume.registrar_macro()
     _hud.registrar_macro_quina()
     _gavetas.registrar_macro_criacao()
+    _paredes_edicao.registrar_macro_area()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
     # POST_VIEW: a caixa vive em coordenada de MUNDO, junto da cena
@@ -362,6 +377,7 @@ def register():
         _hud._desenhar_hud_texto, (), 'WINDOW', 'POST_PIXEL')
     bpy.app.timers.register(_gaveta._reconectar_gavetas, first_interval=0.1)
     _selecao.registrar_keymaps()
+    _editor.registrar()
     S = bpy.types.Scene
     # Os parametros das portas moram na Scene para a gaveta edita-los
     # sem popup (ver `_portas.ESCOLHAS_PORTAS`). Frente e espessuras nao estao
@@ -525,6 +541,7 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    _areas_criacao.esquecer()
     _paredes_edicao.encerrar()
     _paredes_composicao.esquecer()
     _paredes_edicao._ultima_face[0] = None
@@ -567,7 +584,7 @@ def unregister():
     _solda._nome_grupo_gaveta[0] = None
     _solda._normalizar_pendente[0] = False
     _orcamento._orcamento_gerado[0] = None
-    _ferragens._contagem_objetos[0] = -1
+    _ferragens._contagem_objetos[0] = None
     _ferragens._perfis_trilho_moldura[0] = None
     _solda._bolinha_hover[0] = None
     for timer in (_registrar_bibliotecas_adiado,
@@ -597,6 +614,7 @@ def unregister():
     if bpy.app.timers.is_registered(_gaveta._limitar_largura_gaveta):
         bpy.app.timers.unregister(_gaveta._limitar_largura_gaveta)
     _selecao.remover_keymaps()
+    _editor.desregistrar()
     _gaveta._fechar_gavetas_registradas()
     if _gaveta._handler_gaveta[0] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_gaveta._handler_gaveta[0], 'WINDOW')

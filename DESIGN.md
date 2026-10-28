@@ -10,10 +10,12 @@
 
 ## 1. A gaveta NAO e' um painel do Blender
 
-A UI vive numa **area `VIEW_3D` propria** (`screen.area_split` a
-esquerda), com header, toolbar, regiao N e overlays desligados. Nao
-existe `UILayout` la' dentro: cada pixel e' desenhado por GPU num
-handler `POST_PIXEL`.
+A UI vive no **editor Cabinet Creator**, subtipo nativo `NODE_EDITOR`
+(`CabinetCreatorMenu`, v365). O subtipo salva sua identidade no .blend;
+toolbar, regiao N e overlays ficam desligados. Header nativo conserva o
+seletor de editor. Corpo sem `UILayout`: GPU e gizmos reutilizam o layout
+atual. Arvore vazia propria habilita os gizmos no 4.2, sem nos do usuario.
+Comandos de cena usam `editor.executar`; texto/arraste ficam na origem.
 
 Consequencia direta: **nada de `layout.prop`, `layout.operator`,
 `row()`, `column()`, `grid_flow`, `ui_units_x`, `scale_x`** — essas
@@ -106,6 +108,17 @@ segmento real da borda, inclusive no Alt; a alca usa a tangente do trecho.
 
 ## 6. Responsividade
 
+Prateleiras / Divisorias compartilham uma aba e a area de criacao. Perguntar
+o tipo antes de marcar; ao concluir, oferecer o outro tipo no mesmo volume
+ou Sair. Descontar a espessura nos encontros. Divisoria menor nao exige
+alinhar profundidades: perguntar preencher lacuna pela esquerda/direita
+ou manter vao. Cada grupo conserva seus campos de edicao e selecao nativa.
+
+Paineis compartilhados do menu: controles e biblioteca rolam separadamente.
+Barra vertical do tema so' com excesso; alca proporcional, clique no trilho
+e arraste, roda e touchpad vertical. Cabecalho/divisoria/rodape ficam fixos.
+O painel sob o mouse recebe a rolagem; Esc no arraste devolve a posicao.
+
 Largura util dividida por `ui_scale`; os cortes sao por **largura
 logica**:
 
@@ -127,7 +140,7 @@ Regra de ouro, com teste: widget nenhum termina fora de
 `min(largura - 12, 552)`.
 
 **Biblioteca no topo (versao 229; referencia do usuario em 13/10/2026).**
-Area VIEW_3D dedicada, atravessando o menu e a cena. Primeiro split
+Editor `Biblioteca Cabinet Creator` dedicado, atravessando menu e cena. Primeiro split
 HORIZONTAL, depois VERTICAL na parte inferior. A faixa tem Modulos |
 Materiais, categorias em abas por nivel e UMA fila de fotos com nome e
 tooltip. Abas compactas: altura 18, passo 20, fonte 10, intervalo 2 px
@@ -247,9 +260,7 @@ Na aba Modulos o mesmo modulo ganha a secao FORMATO (P1, P2, Raio e o
 Angulo da diagonal, que deixa a frente do canto parada).
 
 **Gavetas (aba propria, pedido do usuario).** Cabecalho com 7 abas (Modulos | Portas | Fundos | Gavetas | Prateleiras | Divisorias | Puxadores; estreita: Mod. | Portas | Fundo | Gav. | Prat. | Div. | Pux.). Se nem as abreviacoes couberem, substitui a linha por um suspenso fixo com o nome completo da aba atual. Limite medido por BLF com a mesma fonte 12 e margem lateral 9 do desenho, sem corte fixo por largura. Lista flutuante oferece as sete categorias, atende antes do conteudo e fecha ao escolher, clicar no campo ou fora; a troca conserva o contexto e zera a rolagem da aba. Alargar devolve a linha sem alterar a selecao. Separacao cabecalho/conteudo usa prefixo dinamico, nao sete widgets fixos. Fundos: Criar Fundo no topo, dois pontos/snap nativo; tipos Em canal/Sobreposto (pregado)/Interno rente, espessuras 6/9/15 e campos existentes. Desassociar fundo usa UNPINNED com texto, sem corrente/regua; tambem nos internos vinculados. Rotulo completo quando a medicao BLF couber. "Criar Gavetas" laranja no topo;
-o assistente pede 2 cantos na DIAGONAL do vao (de cima a' esquerda a baixo
-a' direita, ima nos vertices; o 2o pode ser livre no plano da frente),
-scroll = quantas, o mouse a profundidade (Alt gruda num vertice) e a caixa
+Criacao 3D (378: translate so' no clique/RELEASE, camera livre entre pontos; view3d.navigate/walk/fly pelo keymap nativo; Definir por volume/plano laranja, 30 px): tres pontos sem ordem -> caixa min/max nos eixos do modulo -> clique na face da frente com realce do tema -> quantidade. Aplicar volume livre tambem exige frente; Backspace volta, Esc cancela. As alcas da HUD ficam suspensas na escolha. Planos de portas/fundos permanecem 2D. Scroll define quantas gavetas; depois vem a caixa
 do trilho (Telescopico | Oculto). Modulo selecionado absorve gavetas e prateleiras na HUD (sem segunda seta); ambos acompanham a face proxima sem crescer. Reduzir a caixa consome a folga antes de diminuir os internos, comparando a escolha com o espaco livre entre as faces reais de apoio (desconta E). Frente/caixa/trilho se adaptam ate' o minimo fisico; devolver espaco restaura a escolha original. Gaveta individual menor tambem conserva sua largura enquanto couber. Vale nos campos, HUD e S nativo; a conversao de S com internos conclui no timer normal, nunca dentro do depsgraph. Esc restaura vao/margens/parametros E malhas. Selecionadas (clique na frente = todas
 do vao, duplo = uma): so' elas tem linha branca; L/A/P da HUD mudam o vao
 (a quina perto do mouse fica) e a profundidade; Alt mostra 3 bolinhas --
@@ -269,10 +280,8 @@ mais gavetas, grupo ou unidade selecionada): iguala as frentes do conjunto
 sem mudar o vao, espacamentos ou escolhas individuais. Arraste usa contorno de previa; confirmar refaz
 as pecas uma vez; Esc restaura parametros, materiais, abertura e selecao.
 
-**Prateleiras (aba propria, pedido do usuario).** O assistente das
-gavetas com SO' 2 pontos ("Criar Prateleiras": canto de cima a' esquerda e
-de baixo a' direita, scroll = quantas, e o clique cria). Sem etapa de
-profundidade nem trilho: a prateleira vai ate' o fundo do modulo e a folga
+**Prateleiras (379).** Cota V em edicao + scroll cria previa de novas unidades so' naquele vao (Enter confirma, Esc cancela; apoios preservados). Mesma blocagem: moldura comum de leitura, cotas de todos os segmentos da orientacao selecionada; nao misturar prateleiras/divisorias. Portas podem ser ocultadas com agregados pelo menu (28 px) ou Shift+G -> Grupo da porta -> H; nao remonta, Alt+H/undo nativos. O assistente das
+gavetas com os mesmos tres pontos sem ordem e frente explicita (376). Scroll define quantas; o clique cria. A profundidade vem da caixa escolhida, sem trilho; folga
 da frente e' o Recuo da aba. Selecionadas (clique = todas do vao, duplo = uma): a HUD tem o
 L/A/P do vao e uma linha por VAO entre as prateleiras, no meio da largura,
 com o VALOR ao lado (sao varios; uma letra so' nao diria qual). Arrastar ou
@@ -701,9 +710,12 @@ colunas de ate' 84 px (5 digitos), rotulos curtos abaixo de 76. Anterior/
 Posterior = vizinho na mesma altura ou ponta da face; Inferior/Superior =
 modulo na mesma faixa ou piso/teto; Afastamento = folga costas-parede,
 numero editavel no meio do modulo (profundidade nao tem linha de frente).
-Na viewport, DUAS ETAPAS (v335, pedido do usuario): selecionado, so' as
-distancias (Anterior/Posterior, Inferior/Superior, Afastamento); editando a
-geometria pela HUD, so' largura e altura. A HUD volta na parede reduzida:
+Na viewport (v368), A1 largura/A2 altura/A3 profundidade ficam visiveis no
+selecionado e editaveis pelo mesmo dominio do menu. A3 Prof. tem chamada na
+quina inferior direita, sem simular projecao de profundidade frontal. Campos
+ficam na area livre e se afastam de numeros existentes. Resize esconde as
+distancias (Anterior/Posterior, Inferior/Superior, Afastamento), conservando
+as tres dimensoes. A HUD volta na parede reduzida:
 so' as bolinhas do centro das bordas NO plano (v337: cheias, 5 px, halo do
 tema; sem setas nas arestas, profundidade, letras, linhas da caixa nem
 ancora -- a quina e' do circulo do snap). Sem selecao,

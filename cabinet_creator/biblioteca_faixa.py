@@ -13,6 +13,7 @@ from bpy.props import StringProperty, IntProperty
 
 _gaveta = _gaveta_eventos = _gaveta_desenho = _biblioteca = _materiais = _perguntas = None
 _opcoes = None
+_editor = _eventos = None
 CHAVE_AREA = 'cabinet_biblioteca_area'
 CHAVE_CENA = 'cabinet_viewport_area'
 CHAVE_LAYOUT = 'cabinet_layout'
@@ -37,6 +38,9 @@ MARGEM_CATEGORIA = 3
 
 
 def area_da_faixa(screen):
+    nativa = next((a for a in screen.areas if _editor.eh_editor(a, _editor.TIPO_BIBLIOTECA)), None) if screen else None
+    if nativa is not None:
+        return nativa
     ptr = int(screen.get(CHAVE_AREA, 0)) if screen else 0
     return next((a for a in screen.areas if a.type == 'VIEW_3D'
                  and a.as_pointer() == ptr), None) if screen else None
@@ -44,7 +48,8 @@ def area_da_faixa(screen):
 
 def eh_faixa(context):
     area = getattr(context, 'area', None)
-    return area is not None and area == area_da_faixa(getattr(context, 'screen', None))
+    return area is not None and (_editor.eh_editor(area, _editor.TIPO_BIBLIOTECA)
+                                or area == area_da_faixa(getattr(context, 'screen', None)))
 
 
 def viewport(screen):
@@ -60,14 +65,7 @@ def viewport(screen):
 
 
 def configurar_interface(area):
-    espaco = area.spaces.active
-    for nome in ('show_region_ui', 'show_region_toolbar', 'show_region_header',
-                 'show_region_tool_header', 'show_region_hud', 'show_gizmo_context',
-                 'show_gizmo_tool', 'show_gizmo_navigate'):
-        setattr(espaco, nome, False)
-    espaco.show_gizmo = True
-    espaco.overlay.show_overlays = False
-    area.tag_redraw()
+    _editor.configurar(area, _editor.TIPO_BIBLIOTECA)
 
 
 def _vista(area):
@@ -105,6 +103,8 @@ def abrir(context):
 
 
 def configurar_pendentes():
+    if _eventos._desfazendo[0]:
+        return .05
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
         estado = _pendentes[0].get(screen.name)
@@ -139,7 +139,7 @@ def configurar_pendentes():
             topo = max(candidatas, key=lambda a: a.y)
             inferior = min(candidatas, key=lambda a: a.y)
             configurar_interface(topo)
-            screen[CHAVE_AREA] = str(topo.as_pointer())
+            screen[CHAVE_AREA] = 0
             screen[CHAVE_ALTURA] = topo.height
             screen[CHAVE_RECOLHIDA] = 0
             estado['retangulo'] = (inferior.x, inferior.y, inferior.width, inferior.height)
@@ -156,8 +156,8 @@ def configurar_pendentes():
             continue
         menu = min(candidatas, key=lambda a: a.x)
         cena = max(candidatas, key=lambda a: a.x)
-        configurar_interface(menu)
-        screen[_gaveta._CHAVE_GAVETA] = str(menu.as_pointer())
+        _editor.configurar(menu)
+        screen[_gaveta._CHAVE_GAVETA] = 0
         screen[CHAVE_CENA] = str(cena.as_pointer())
         screen[CHAVE_LAYOUT] = 2
         _restaurar_vista(cena, estado['vista'])
@@ -178,18 +178,35 @@ def fechar(janela, screen):
 
 
 def reconectar(screen):
+    if _eventos._desfazendo[0]:
+        return
+    _editor.reparar(screen)
     if screen.get(CHAVE_LAYOUT) != 2:
         return
     ocultas = [a for a in screen.areas if a.type == 'VIEW_3D'
                and not a.spaces.active.show_region_header
                and not a.spaces.active.overlay.show_overlays]
     # A largura so' descreve o menu antigo; a faixa inteira e' mais larga.
-    if area_da_faixa(screen) is None and len(ocultas) == 2:
+    if (area_da_faixa(screen) is None and len(ocultas) == 2
+            and (screen.get(CHAVE_AREA) or screen.get(_gaveta._CHAVE_GAVETA))):
         topo = max(ocultas, key=lambda a: a.y)
         menu = next(a for a in ocultas if a != topo)
         if topo.y >= menu.y + menu.height - 5 and topo.width > menu.width:
-            screen[CHAVE_AREA] = str(topo.as_pointer())
-            screen[_gaveta._CHAVE_GAVETA] = str(menu.as_pointer())
+            _editor.configurar(topo, _editor.TIPO_BIBLIOTECA)
+            _editor.configurar(menu)
+            screen[CHAVE_AREA] = screen[_gaveta._CHAVE_GAVETA] = 0
+    menu = _gaveta._area_gaveta(screen)
+    faixa = area_da_faixa(screen)
+    if menu is not None and _editor.eh_editor(menu, _editor.TIPO_MENU):
+        candidatas = [a for a in ocultas if abs(a.x - menu.x) < 6
+                      and abs(a.y - menu.y - menu.height) < 6
+                      and a.width > menu.width]
+        if faixa is not None and faixa.type == 'VIEW_3D':
+            _editor.configurar(faixa, _editor.TIPO_BIBLIOTECA)
+            screen[CHAVE_AREA] = 0
+        elif faixa is None and screen.get(CHAVE_AREA) and len(candidatas) == 1:
+            _editor.configurar(candidatas[0], _editor.TIPO_BIBLIOTECA)
+            screen[CHAVE_AREA] = 0
     cena = viewport(screen)
     if cena is not None:
         screen[CHAVE_CENA] = str(cena.as_pointer())
@@ -694,13 +711,13 @@ class OBJECT_OT_acao_item_biblioteca(Operator):
             return {'CANCELLED'}
         if _gaveta_eventos._eh_modelo_do_criador(it):
             if _gaveta_eventos._modelo_do_criador(self, context, it, self.indice):
-                bpy.ops.object.cabinet_posicionar_puxador('INVOKE_DEFAULT')
+                _editor.executar(context, 'object.cabinet_posicionar_puxador')
             return {'FINISHED'}
         props = dict(pasta=self.pasta, arquivo=self.arquivo)
         if self.indice == 0:
             return bpy.ops.object.cabinet_inserir_preset(tipo=it.get('tipo', 'modulo'), **props)
         if self.indice == 1:
-            bpy.ops.object.cabinet_editar_modelo('INVOKE_DEFAULT', **props)
+            _editor.executar(context, 'object.cabinet_editar_modelo', **props)
             return {'FINISHED'}
         return bpy.ops.object.cabinet_bloqueio(**props)
 

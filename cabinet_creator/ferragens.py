@@ -667,8 +667,10 @@ def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
         if p.get('dobradica_articulada') or (p.get('abertura') == 'ZIGZAG' and i > 0):
             eixo = (aresta['b'] - aresta['a']).normalized()
             for k, d in enumerate(distancias):
-                saida += _volume_articulacao(p, folhas, i, (aresta['a'] + eixo * d).y,
-                                             'ART_%d_%d_' % (i, k))
+                for item in _volume_articulacao(p, folhas, i, (aresta['a'] + eixo * d).y,
+                                                'ART_%d_%d_' % (i, k)):
+                    item['indice_folha'] = i
+                    saida.append(item)
             continue
         if rig:
             # Reta: a dobradica de verdade (asset do usuario), raiz pela
@@ -697,10 +699,13 @@ def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
                 sufixo = '%d_%s' % (i, sufixo)
             apoio = (apoios or {}).get((i, k))
             if apoio:
-                saida += _dobradica_obliqua(apoio, caneco, i, sufixo, centro[2] - e / 2)
+                for item in _dobradica_obliqua(apoio, caneco, i, sufixo, centro[2] - e / 2):
+                    item['indice_folha'] = i
+                    saida.append(item)
             else:
                 saida.append({'id': 'DOBRADICA_' + sufixo, 'tipo': 'DOBRADICA',
-                              'folha': None, 'forma': 'CAIXA', 'cantos': corpo})
+                              'folha': None, 'indice_folha': i,
+                              'forma': 'CAIXA', 'cantos': corpo})
             saida.append({'id': 'CANECO_' + sufixo, 'tipo': 'CANECO',
                           'folha': i, 'forma': 'CILINDRO',
                           'origem': sum(caneco, Vector()) / 8.0,
@@ -708,7 +713,9 @@ def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
                           'comprimento': _portas.CANECO_FUNDO_MM + _portas.CANECO_ABA_MM})
     abertura = p.get('abertura')
     if abertura == 'BASCULANTE' and folhas:
-        saida += _pistoes_da_porta(p, largura, altura, folhas)
+        for item in _pistoes_da_porta(p, largura, altura, folhas):
+            item['indice_folha'] = 0
+            saida.append(item)
     elif abertura == 'CORRER' and folhas:
         saida += _trilhos_correr(p, largura, altura, folhas)
     return saida
@@ -1216,12 +1223,13 @@ def _furar_folhas(folhas, cortadores):
 def _girar_rigs(grupo, folha=None):
     """Controlador de cada dobradica reta no angulo da folha dela (o
     driver e o IK do asset fazem o resto)."""
-    folhas = _portas._folhas_portas(grupo)
+    folhas = {int(f.get('porta_indice', i)): f
+              for i, f in enumerate(_portas._folhas_portas(grupo))}
     for o in _ferragens_portas(grupo):
         if o.get('cabinet_peca') != 'controle':
             continue
         indice = int(o.get('porta_ferragem_folha', 0))
-        if indice >= len(folhas) or (folha is not None and folhas[indice] != folha):
+        if indice not in folhas or (folha is not None and folhas[indice] != folha):
             continue
         graus = _passo_rig(folhas[indice].get(CHAVE_ABERTURA, 0.0))[0]
         o.rotation_euler.z = -math.radians(graus)
@@ -1305,7 +1313,8 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             for parte in [obj, *obj.children_recursive]:
                 parte.hide_select = False
                 existentes.pop(parte.get(CHAVE_ID_FERRAGEM), None)
-                parte['porta_ferragem_folha'] = item['indice_folha']
+                dono = item['indice_folha']
+                parte['porta_ferragem_folha'] = int(folhas[dono].get('porta_indice', dono))
                 if parte.get('cabinet_peca') == 'furo':
                     cortadores.setdefault(item['indice_folha'], []).append(parte)
             continue
@@ -1336,6 +1345,11 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
                 obj.data = obj.data.copy()
             _malha_da_ferragem(obj.data, item)
         indice = item['folha']
+        dono = item.get('indice_folha', indice)
+        if dono is not None:
+            obj['porta_ferragem_folha'] = int(folhas[dono].get('porta_indice', dono))
+        else:
+            obj.pop('porta_ferragem_folha', None)
         origem = _origem_da_ferragem(item)
         if indice is not None and indice < len(folhas):
             pai = folhas[indice]
@@ -1398,7 +1412,7 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     grupo['porta_ferragens_encaixe'] = 1
 
 
-_contagem_objetos = [-1]    # o handler so' confere quando ela muda
+_contagem_objetos = [None]  # (IDs, contagens por cena); Delete pode conservar o ID
 
 
 def _conferir_ferragens():
@@ -1418,15 +1432,27 @@ def _conferir_ferragens():
                                              CHAVE_FERRAGEM))
                     and o.empty_display_size > _chapas.TAMANHO_EMPTY_OCULTO * 1.5):
                 _chapas._ocultar_empty(o)
-        portas_vivas = {g.name for g in bpy.data.objects
-                        if _chapas.MARCA_PORTAS in g and _portas._folhas_portas(g)}
+        portas_vivas = {}
+        for g in bpy.data.objects:
+            if _chapas.MARCA_PORTAS not in g:
+                continue
+            em_cena = bool(g.users_scene)
+            # Delete pode conservar a folha como ID referenciado, mas fora
+            # de todas as cenas. Excluir uma colecao da View Layer nao e' Delete.
+            indices = {int(f.get('porta_indice', i))
+                       for i, f in enumerate(_portas._folhas_portas(g))
+                       if not em_cena or f.users_scene}
+            if indices:
+                portas_vivas[g.name] = indices
         residuos = set()
         for o in bpy.data.objects:
             if (CHAVE_FERRAGEM not in o or o.library is not None
                     or o.override_library is not None):
                 continue
             dono = _grupo_da_ferragem(o)
-            if dono is None or dono.name not in portas_vivas:
+            if (dono is None or dono.name not in portas_vivas
+                    or ('porta_ferragem_folha' in o
+                        and int(o['porta_ferragem_folha']) not in portas_vivas[dono.name])):
                 residuos.add(o)
         # Nunca levar junto um filho comum do usuario. Conserva tambem
         # seus pais, para nao alterar a transformacao de quem fica.
@@ -1443,6 +1469,12 @@ def _conferir_ferragens():
                 getattr(bpy.data, colecao).remove(dados)
         for grupo in [o for o in bpy.data.objects
                       if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')]:
+            if grupo.name not in portas_vivas:
+                if (grupo.library is None and grupo.override_library is None and grupo.users_scene
+                        and not any(o.users_scene for o in grupo.children_recursive)):
+                    _hud._hover_hud.clear()
+                    bpy.data.objects.remove(grupo, do_unlink=True)
+                continue
             _ajustar_espaco_miras(grupo)
             if _portas._folhas_portas(grupo) and not _ferragens_portas(grupo):
                 _refazer_ferragens(grupo)
@@ -1582,10 +1614,7 @@ def _editar_ferragens_selecionadas(context, nome, valor):
     for grupo, _tipos in _ferragens_em_edicao(context):
         erro = _portas._editar_parametro_porta(
             context, grupo, nome, _valor_ferragem(grupo, nome, valor)) or erro
-    for o in context.selected_objects:
-        o.select_set(False)
-    context.view_layer.objects.active = None
-    _ferragens_selecionadas[0] = estado
+    _aplicar_selecao_ferragens(context, estado)
     _eventos._redesenhar_viewports(context)
     return erro
 
@@ -1595,14 +1624,14 @@ def _editar_ferragens_selecionadas(context, nome, valor):
 # volume como no wizard) CRIANDO a porta ou SELECIONADOS. Clique numa
 # dobradica (corpo ou caneco) = todas as dobradicas do MODULO; num pistao
 # (qualquer parte) = todos os pistoes; Shift soma (ou tira) o outro tipo.
-# A selecao do Blender esvazia: porta, modulo e puxadores ficam sem
-# contorno. Com Alt, um controlador por porta e tipo: o da dobradica
+# A selecao nativa contem apenas as ferragens: Delete e G continuam
+# disponiveis. Com Alt, um controlador por porta e tipo: o da dobradica
 # corre na borda (margem, espelhada nas duas pontas), o do pistao na
-# lateral (distancia do topo, travada no curso dele). A ferragem segue
-# fora da selecao do Blender (duplo clique = UMA peca, nativa): a do tipo
-# mora aqui, por NOME.
+# lateral (distancia do topo, travada no curso dele). Duplo clique = UMA
+# peca. O contexto do tipo mora aqui, por NOME, sem guardar objetos.
 TIPOS_SELECAO_FERRAGEM = {
     'DOBRADICA': 'DOBRADICA', 'CANECO': 'DOBRADICA',
+    'DOBRADICA_RIG': 'DOBRADICA',
     'DOBRADICA_PECA': 'DOBRADICA',      # braco, pino, parafuso do rig
     'PISTAO_CORPO': 'PISTAO', 'PISTAO_HASTE': 'PISTAO',
     'PISTAO_SUPORTE': 'PISTAO',
@@ -1641,11 +1670,9 @@ def _selecionar_ferragem(context, obj, somar=False):
     tipos = {tipo}
     if somar and atual is not None and set(atual['portas']) == set(portas):
         tipos = set(atual['tipos']) ^ {tipo}
-    for o in context.selected_objects:
-        o.select_set(False)
-    context.view_layer.objects.active = None
-    _ferragens_selecionadas[0] = ({'portas': portas, 'tipos': sorted(tipos)}
-                                  if tipos else None)
+    _aplicar_selecao_ferragens(context,
+        {'portas': portas, 'tipos': sorted(tipos)} if tipos else None,
+        ativo=obj.name)
     if tipos and context.scene.cabinet_aba != 'PORTAS':
         # a gaveta vai a' aba do item clicado (quantidade e afastamento
         # das ferragens moram na aba Portas)
@@ -1656,6 +1683,28 @@ def _selecionar_ferragem(context, obj, somar=False):
             _gaveta._fechar_opcoes(tela)
     _eventos._redesenhar_viewports(context)
     return True
+
+
+def _alvos_selecao_ferragens(context, estado):
+    """So' pecas visiveis na camada atual; isolamento/ocultacao nao mudam."""
+    camada = context.view_layer
+    return [o for nome in estado['portas']
+            if (grupo := bpy.data.objects.get(nome)) is not None
+            for o in _ferragens_portas(grupo)
+            if TIPOS_SELECAO_FERRAGEM.get(o.get(CHAVE_FERRAGEM)) in estado['tipos']
+            and camada.objects.get(o.name) == o and not o.hide_select
+            and o.visible_get(view_layer=camada)]
+
+
+def _aplicar_selecao_ferragens(context, estado, ativo=None):
+    for o in context.selected_objects:
+        o.select_set(False)
+    alvos = _alvos_selecao_ferragens(context, estado) if estado else []
+    for o in alvos:
+        o.select_set(True, view_layer=context.view_layer)
+    context.view_layer.objects.active = next(
+        (o for o in alvos if o.name == ativo), alvos[0] if alvos else None)
+    _ferragens_selecionadas[0] = estado if alvos else None
 
 
 def _selecionar_peca(context, obj, somar=False):
@@ -1673,11 +1722,12 @@ def _selecionar_peca(context, obj, somar=False):
 
 def _ferragens_em_edicao(context):
     """[(grupo, tipos)] das ferragens selecionadas. Vale enquanto nada
-    mais estiver selecionado no Blender (qualquer selecao encerra)."""
+    alem das proprias ferragens estiver selecionado no Blender."""
     estado = _ferragens_selecionadas[0]
     if estado is None:
         return []
-    if getattr(context, 'selected_objects', None):
+    selecionados = set(getattr(context, 'selected_objects', ()))
+    if not selecionados or selecionados != set(_alvos_selecao_ferragens(context, estado)):
         _ferragens_selecionadas[0] = None
         return []
     saida = []
@@ -1888,10 +1938,7 @@ class OBJECT_OT_arrastar_ferragem(Operator):
         if erro:
             print("[Cabinet Creator] ferragem:", erro)
         # refazer a porta mexe na selecao: as ferragens continuam a dela
-        for o in context.selected_objects:
-            o.select_set(False)
-        context.view_layer.objects.active = None
-        _ferragens_selecionadas[0] = self._estado
+        _aplicar_selecao_ferragens(context, self._estado)
 
     def _encerrar(self):
         _arraste_ferragem[0] = None

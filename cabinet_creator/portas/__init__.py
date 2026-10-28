@@ -1950,6 +1950,7 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
     parametros = _copiar_parametros(parametros)
     calculadas = _calcular_folhas_portas(largura, altura, parametros)
     antigas = _folhas_portas(grupo) if grupo is not None else []
+    abertura_anterior = grupo.get('porta_parametros', {}).get('abertura') if grupo is not None else None
     fracao_zigzag = antigas[0].get(_ferragens.CHAVE_ABERTURA, 0) if antigas else 0
     if any(o.type != 'MESH' or o.mode != 'OBJECT' for o in antigas):
         raise ValueError("Saia do Modo Edicao das portas antes de reconfigurar")
@@ -2042,6 +2043,9 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             _canais_das_bases(parametros))
     finally:
         _chapas._ocupado[0] = ocupado_antes
+    if abertura_anterior != parametros.get('abertura'):
+        context.view_layer.update()
+        _puxadores.adaptar_abertura(grupo, abertura_anterior)
     for folha in _folhas_portas(grupo) + moldura:
         _chapas.gerar_malha_chapa(folha)
     context.view_layer.update()

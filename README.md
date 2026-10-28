@@ -11,6 +11,72 @@ Edit Mode.
 
 ## Estrutura
 
+Vaos de prateleiras (379): clique na cota do espaco vazio e use scroll para inserir/retirar novas prateleiras apenas ali; Enter confirma e Esc descarta a previa. Apoios e vizinhos permanecem. Segmentos da mesma blocagem exibem todas as cotas de prateleiras; selecionar divisorias troca a orientacao das cotas. A moldura comum e' visual; as cotas internas editam o segmento correspondente.
+
+Edicao interna (378): navegue entre os pontos do volume por MMB, zoom ou Shift+` e WASD; o snap nativo trabalha enquanto marca cada ponto e termina ao soltar. Para enxergar o interior, selecione uma peca da porta e use Shift+G -> Grupo da porta -> H, ou Esconder porta e agregados no menu Portas. Alt+H revela novamente. Definir por volume usa o destaque laranja do botao Criar.
+
+Snap de criacao (377): selecione o modulo antes de Criar Gavetas, Prateleiras ou Divisorias para restringir todos os pontos as pecas dele. Tetos, paredes, curvas e outros modulos nao capturam o snap. Sem selecao, o primeiro ponto valido fixa o modulo. A mesma restricao vale ao posicionar/ajustar um volume livre associado; bloqueios temporarios sao restaurados ao terminar.
+
+Na criacao 3D (376), marque tres pontos em qualquer ordem: os limites minimos e maximos formam uma caixa retangular nos eixos do modulo. Clique na face que sera a frente e prossiga para a quantidade. Aplicar um volume livre tambem pede essa escolha; Backspace volta, Esc cancela. Portas e fundos conservam seus planos 2D.
+
+Internos (375): aba Prateleiras / Divisorias. Escolha o tipo, marque por
+pontos ou ajuste o volume; depois continue com o outro tipo na mesma area
+ou saia. Divisoria menor pode recortar a prateleira sem exigir profundidades
+iguais; escolha manter o vao ou preencher pela esquerda/direita.
+
+Puxadores por folha (374): duplo clique isola a folha antes de Criar Puxador;
+o raio nativo prioriza essa folha, mesmo com outra sobreposta. GIRO/CORRER
+adapta os puxadores laterais parametricos sem trocar o dono. Folhas ocultas
+ou bloqueadas devem ser reveladas/desbloqueadas no Outliner para inserir.
+
+Rolagem do menu (373): controles e biblioteca possuem barras verticais
+independentes quando o conteudo nao cabe. Use roda/touchpad ou arraste a
+alca. A coluna da barra reserva espaco dos campos; abas e rodape ficam fixos.
+
+Area livre (372): Definir por volume em gavetas/prateleiras/divisorias;
+Definir por plano em portas/fundos. Um clique posiciona a referencia;
+faces, cotas e G/R/S ajustam uma caixa retangular (plano com quatro cantos).
+Aplicar um volume pede a frente; planos seguem para as opcoes do sistema.
+A captura por pontos usa o fluxo 3D acima, preservando a caixa escolhida.
+
+Selecao de parede (371): consulta apenas a malha escolhida, mesmo com teto
+ou outros objetos na frente. Por pontos usa snap nativo de vertice so'
+nesse objeto. Modulos parciais nao editaveis aparecem recortados em cinza;
+a permissao de edicao dos demais permanece ate' sair da sessao.
+
+Dobradicas e Delete (370): observador de exclusoes sobrevive ao reabrir
+o .blend. Apagar uma folha remove as ferragens dela, preservando a outra.
+Clique nas ferragens usa selecao nativa para permitir Delete; Shift,
+edicao no menu e duplo clique conservam suas funcoes.
+
+Exclusao e selecao (369): clique, Shift e Tab usam a View Layer nativa;
+IDs apagados da cena nao entram na selecao pelo parentesco. Delete com
+referencias ainda agenda a limpeza das dobradicas, mesmo conservando a
+quantidade de IDs. Colecoes excluidas da camada e folhas em outras cenas
+sao preservadas; grupo de portas vazio deixa de ressuscitar a montagem.
+
+Indicadores na parede (368): A1 largura, A2 altura e A3 profundidade
+permanecem no modulo selecionado. A3 Prof. aparece junto a' quina com
+valor clicavel, separado do afastamento. Durante resize, somem apenas
+as distancias aos vizinhos; indicadores conservam os mesmos alvos do menu.
+
+Base da parede (367): ao entrar na edicao, o apoio continuo junto a'
+parede define a base utilizavel. A faixa enterrada no piso sai do desenho;
+Inferior = 0 encosta no apoio real. Cotas, guias e arraste usam essa mesma
+regiao. Apoios parciais continuam obstaculos locais; madeira fica intacta.
+
+Cotas da parede (366): distancias digitadas aceitam zero; dimensoes
+continuam validadas pelo dominio. Encaixe na borda tolera ruido numerico
+sem liberar colisoes. Se um piso ocupar parte da regiao selecionada,
+zerar a distancia ate' essa regiao continua recusado quando invade o piso.
+
+Editor proprio (365): o menu usa o subtipo nativo Cabinet Creator do
+Editor de Nos, disponivel no seletor de editores. Sua identidade e'
+salva no .blend; layouts antigos sao convertidos sem mover a vista da
+cena. Biblioteca superior opcional tambem tem editor proprio. Overlays
+de VIEW_3D nao desenham sobre o menu. Layout, campos e arraste continuam
+os mesmos; comandos de modelagem sao enviados a' viewport 3D real.
+
 Importacao na parede (364): resize sincroniza a lista do append com a
 hierarquia atual do modulo, inclusive se recriar ferragens. Local View,
 selecao e cancelamento usam a geracao viva, sem referencias removidas.

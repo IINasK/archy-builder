@@ -32,6 +32,7 @@ _prateleiras = None
 _divisorias = None
 _assistente = None
 _hud_volume = None
+_areas_criacao = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -149,15 +150,17 @@ def _raio_hud(context, posicao):
     return obj, ponto, normal, face, matriz
 
 
-def _familia_do_clique(obj):
+def _familia_do_clique(obj, context=None):
     """O que um clique simples em `obj` seleciona: o modulo com tudo
     dentro, ou o grupo solto da chapa."""
     modulo = _portas._modulo_da_chapa(obj)
     if modulo is not None:
         # ferragem nao acende com o modulo (seleciona-se por si mesma)
-        return [modulo, *(o for o in modulo.children_recursive
-                          if _ferragens.CHAVE_FERRAGEM not in o)]
-    return _selecao.familia_de(obj)
+        familia = [modulo, *(o for o in modulo.children_recursive
+                            if _ferragens.CHAVE_FERRAGEM not in o)]
+    else:
+        familia = _selecao.familia_de(obj)
+    return _selecao.objetos_na_camada(context or bpy.context, familia)
 
 
 def _somar_peca(context, obj, duplo=False):
@@ -170,7 +173,9 @@ def _somar_peca(context, obj, duplo=False):
     - Shift+duplo clique: isola `obj` DENTRO da selecao: o resto do grupo
       dele sai, os outros grupos e chapas ficam. O 1o clique do duplo ja'
       somou o grupo, por isso o duplo so' encolhe o grupo de `obj`."""
-    familia = [o for o in (_familia_do_clique(obj) or [obj]) if o.visible_get()]
+    familia = [o for o in _familia_do_clique(obj, context) if o.visible_get(view_layer=context.view_layer)]
+    if obj not in familia:
+        return
     marcados = [o for o in familia if o.select_get()]
     inteiro = len(marcados) == len(familia)
     if not duplo and (not marcados or inteiro):
@@ -205,19 +210,22 @@ def _selecionar_chapa_hud(context, obj, individual=False, somar=False):
     `somar` (Shift) junta o modulo a selecao em vez de troca-la: e' assim
     que se seleciona mais de um item para editar a medida de todos."""
     modulo = _portas._modulo_da_chapa(obj)
-    familia = _familia_do_clique(obj)
+    familia = _familia_do_clique(obj, context)
+    alvos = _selecao.objetos_na_camada(context, [obj] if individual else familia or [obj])
+    if not alvos:
+        return
     if not somar:
         for selecionado in context.selected_objects:
             selecionado.select_set(False)
-    for alvo in ([obj] if individual else familia or [obj]):
-        alvo.select_set(True)
+    for alvo in alvos:
+        alvo.select_set(True, view_layer=context.view_layer)
     _chapas._ocupado[0] = True
     try:
         obj.chapa_modo = 'INDIVIDUAL' if individual else 'GRUPO'
     finally:
         _chapas._ocupado[0] = False
     # Shift conserva o grupo, mas a malha clicada e' a mestre dos operadores nativos.
-    context.view_layer.objects.active = obj if individual or somar or modulo is None else modulo
+    context.view_layer.objects.active = modulo if not individual and not somar and modulo in alvos else obj
     if not individual and modulo is None:
         _modulos.sincronizar_grupo(context)
     if context.area:
@@ -248,15 +256,19 @@ def _selecionar_porta_hud(context, folha, nivel, somar=False):
     grupo = _portas._grupo_portas(folha)
     if grupo is None:
         return
+    alvos = _selecao.objetos_na_camada(context,
+        [grupo, *_portas._folhas_portas(grupo)] if nivel == 'PORTA' else [folha])
+    if not alvos or folha not in alvos:
+        return
     if not somar:
         for selecionado in context.selected_objects:
             selecionado.select_set(False)
     if nivel == 'PORTA':
-        for alvo in [grupo, *_portas._folhas_portas(grupo)]:
-            alvo.select_set(True)
-        context.view_layer.objects.active = folha if somar else grupo
+        for alvo in alvos:
+            alvo.select_set(True, view_layer=context.view_layer)
+        context.view_layer.objects.active = grupo if not somar and grupo in alvos else folha
     else:
-        folha.select_set(True)
+        folha.select_set(True, view_layer=context.view_layer)
         _chapas._ocupado[0] = True
         try:
             folha.chapa_modo = 'INDIVIDUAL'
@@ -291,6 +303,11 @@ def _caixa_hud_objetos(objetos, matriz=None):
 
 def _alvo_hud(context):
     """O item do objeto ATIVO (o 1o de `_itens_da_selecao`), ou None."""
+    if _areas_criacao.escolhendo_frente():
+        return None
+    area = _areas_criacao.objeto()
+    if area is not None:
+        return area, 'AREA_CRIACAO', []
     obj = context.object
     if obj is None or not obj.select_get():
         return None
@@ -305,6 +322,11 @@ def _itens_hud(context):
     contorno (pedido do usuario: com dois modulos so' o ultimo aparecia).
     Porta e folha ativas se editam pela gaveta: L/A de uma folha mexida
     na HUD seria apagado no proximo recalculo das folhas."""
+    if _areas_criacao.escolhendo_frente():
+        return []
+    area = _areas_criacao.objeto()
+    if area is not None:
+        return [(area, 'AREA_CRIACAO', [])]
     nativo = _hud_volume._estado[0]
     if nativo and nativo.get('modo') == 'INDIVIDUAL':
         # ONLY_SELECTABLE tira a chapa do snap destino e da selecao nativa.
@@ -315,7 +337,10 @@ def _itens_hud(context):
     if (obj is not None and obj.select_get()
             and (_chapas.MARCA_PORTAS in obj or _chapas.MARCA_FOLHA in obj)):
         return []
-    return _itens_da_selecao(context)
+    itens = _itens_da_selecao(context)
+    orientacao = ('PRATELEIRAS' if _prateleiras.grupo_de(obj) is not None else
+                  'DIVISORIAS' if _divisorias.grupo_de(obj) is not None else None)
+    return [i for i in itens if not orientacao or i[1] not in {'PRATELEIRAS','DIVISORIAS'} or i[1] == orientacao]
 
 
 def _geometrias_hud(context):
@@ -419,15 +444,17 @@ def _itens_da_selecao(context):
             continue
         divisorias = _divisorias.grupo_de(o)
         if divisorias is not None:
-            if ('D', divisorias.name) not in chaves:
-                chaves.add(('D', divisorias.name))
+            chave = ('D', divisorias.parent, divisorias.get(_divisorias.CHAVE_BLOCAGEM, divisorias.name))
+            if chave not in chaves:
+                chaves.add(chave)
                 itens.append((divisorias, 'DIVISORIAS', []))
             continue
         prateleiras = _prateleiras.grupo_de(o)
         if prateleiras is not None:
             # prateleiras (o grupo ou uma, pelo duplo): as linhas do vao
-            if ('PR', prateleiras.name) not in chaves:
-                chaves.add(('PR', prateleiras.name))
+            chave = ('PR', prateleiras.parent, prateleiras.get(_divisorias.CHAVE_BLOCAGEM, prateleiras.name))
+            if chave not in chaves:
+                chaves.add(chave)
                 itens.append((prateleiras, 'PRATELEIRAS', []))
             continue
         grupo = _gavetas.grupo_de(o)
@@ -467,7 +494,7 @@ def _itens_da_selecao(context):
 
 def _sistema_hud(tipo):
     """Mesmo dono para desenho, valor, edicao e cancelamento da cota."""
-    return {'gavetas': _gavetas, 'prateleiras': _prateleiras,
+    return {'gavetas': _gavetas, 'prateleiras': _prateleiras, 'area_criacao': _areas_criacao,
             'divisorias': _divisorias}.get(tipo.lower()) if isinstance(tipo, str) else None
 
 
@@ -1302,7 +1329,8 @@ def _desenhar_hud_texto():
                     edicao.setdefault('caixas', []).append(
                         (x_texto, y, tamanho, escala))
                     _caixa_texto_hud(x_texto, y, _gaveta_desenho._com_cursor(
-                        edicao['texto'], edicao.get('cursor', len(edicao['texto']))),
+                        edicao['texto'], edicao.get('cursor', len(edicao['texto']))) +
+                        (' prateleiras no vao' if edicao.get('subdivisao_vao') else ''),
                         tamanho, escala)
             if alvo and alvo.get('lado') and not parede:
                 _desenhar_seta_hud(context, alvo, geometria)
@@ -2067,6 +2095,10 @@ class OBJECT_OT_arrastar_hud(Operator):
         self._area.tag_redraw()
 
     def cancel(self, context):
+        if getattr(self, '_subdivisao_vao', None):
+            grupo = bpy.data.objects.get(self._subdivisao_vao['grupo'])
+            if grupo is not None:
+                _prateleiras.cancelar_subdivisao_vao(grupo, self._subdivisao_vao)
         if _edicao_hud[0] is not None:_edicao_hud[0].pop('previa_gavetas',None)
         for backup in reversed(getattr(self, '_backups', [self._backup])):
             _restaurar_arraste_hud(context, backup)
@@ -2141,6 +2173,11 @@ class OBJECT_OT_arrastar_hud(Operator):
             return {'RUNNING_MODAL'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
             try:
+                if getattr(self, '_subdivisao_vao', None):
+                    _prateleiras.subdividir_vao(context, self._alvo['objeto'],
+                        self._subdivisao_vao, int(estado['texto']))
+                    self._encerrar()
+                    return {'FINISHED'}
                 if _eh_angulo(self._alvo):
                     valor = float(estado['texto'].replace(',', '.').strip(' \u00b0'))
                 else:
@@ -2184,6 +2221,9 @@ class OBJECT_OT_arrastar_hud(Operator):
         if context.mode != 'OBJECT':
             self.cancel(context)
             return {'CANCELLED'}
+        if (event.type in {'WHEELUPMOUSE','WHEELDOWNMOUSE'} and event.value == 'PRESS'
+                and self._alvo['tipo'] == 'prateleiras' and self._alvo.get('face', ('',))[0] == 'V'):
+            return self._rolar_prateleiras(context, event)
         if (_edicao_hud[0] or {}).get('fase'):
             return self._multiplo(context, event)
         if (_edicao_hud[0] or {}).get('texto') is not None:
@@ -2228,6 +2268,20 @@ class OBJECT_OT_arrastar_hud(Operator):
         try:
             delta = (mouse-self._inicio).dot(self._direcao) * self._por_pixel
             _aplicar_valor_hud(context, self._alvo, self._valor + delta)
+        except (ValueError, TypeError, ReferenceError) as erro:
+            self.report({'WARNING'}, str(erro))
+        self._area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+    def _rolar_prateleiras(self, context, event):
+        try:
+            estado = getattr(self, '_subdivisao_vao', None) or _prateleiras.preparar_subdivisao_vao(
+                self._alvo['objeto'], self._alvo['face'][1])
+            n = max(0, estado['quantidade'] + (1 if event.type == 'WHEELUPMOUSE' else -1))
+            _prateleiras.subdividir_vao(context, self._alvo['objeto'], estado, n)
+            self._subdivisao_vao = estado
+            _edicao_hud[0].update(texto=str(n), cursor=len(str(n)), selecionado=True, subdivisao_vao=True)
+            self._arrastou = True
         except (ValueError, TypeError, ReferenceError) as erro:
             self.report({'WARNING'}, str(erro))
         self._area.tag_redraw()

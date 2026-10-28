@@ -1355,6 +1355,268 @@ class TestPortas(unittest.TestCase):
         self.assertNotIn(pasta, bpy.data.collections)
         self.assertEqual(len(bpy.data.objects), 0)
 
+    def test_delete_nativo_com_folha_referenciada_limpa_dobradicas_e_grupo_vazio(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        nome, nome_grupo = folha.name, grupo.name
+        referencia = bpy.data.objects.new('Referencia do usuario', None)
+        bpy.context.scene.collection.objects.link(referencia)
+        referencia['folha'] = folha
+        corpos = {o.name: o.data.as_pointer() for o in addon.modulos._chapas_do_conjunto(conj)}
+        bpy.ops.object.select_all(action='DESELECT')
+        folha.select_set(True)
+        bpy.context.view_layer.objects.active = folha
+        bpy.ops.object.delete()
+        self.assertIn(nome, bpy.data.objects)
+        self.assertNotIn(nome, bpy.context.scene.objects)
+        addon.hud._hover_hud[4242] = {'objeto': grupo}
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome_grupo, bpy.data.objects)
+        self.assertFalse(addon.hud._hover_hud)
+        self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+        self.assertIs(referencia['folha'], bpy.data.objects[nome])
+        self.assertEqual({o.name: o.data.as_pointer() for o in addon.modulos._chapas_do_conjunto(conj)}, corpos)
+        addon.hud._selecionar_chapa_hud(bpy.context, bpy.data.objects[next(iter(corpos))])
+        self.assertIs(bpy.context.object, conj)
+
+    def test_delete_que_conserva_id_agenda_limpeza_pelo_vinculo_de_cena(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        referencia = bpy.data.objects.new('Referencia que impede remover o ID', None)
+        bpy.context.scene.collection.objects.link(referencia)
+        referencia['folha'] = folha
+        bpy.ops.object.select_all(action='DESELECT')
+        folha.select_set(True)
+        bpy.context.view_layer.objects.active = folha
+        antes = len(bpy.data.objects)
+        F = addon.ferragens
+        if bpy.app.timers.is_registered(F._conferir_ferragens):
+            bpy.app.timers.unregister(F._conferir_ferragens)
+        F._contagem_objetos[0] = (antes, tuple((s.name, len(s.objects)) for s in bpy.data.scenes))
+        bpy.ops.object.delete()
+        bpy.context.view_layer.update()
+        addon.chapas.ao_atualizar_depsgraph(bpy.context.scene, None)
+        self.assertEqual(len(bpy.data.objects), antes)
+        self.assertTrue(bpy.app.timers.is_registered(F._conferir_ferragens))
+        self.assertFalse(folha.users_scene)
+        F._conferir_ferragens()
+        self.assertFalse(any(F.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+
+    # Regressao (era BUG, corrigido na 370): abrir removia o observador de Delete.
+    def test_reabrir_projeto_conserva_observador_e_delete_limpa_dobradicas(self):
+        grupo = self.porta_de_giro(self.nicho())
+        nome = grupo.name
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = os.path.join(pasta, 'portas.blend')
+            bpy.ops.wm.save_as_mainfile(filepath=caminho)
+            grupo = None
+            bpy.ops.wm.open_mainfile(filepath=caminho, load_ui=False)
+        self.assertIn(addon.chapas.ao_atualizar_depsgraph,
+                      bpy.app.handlers.depsgraph_update_post)
+        grupo = bpy.data.objects[nome]
+        folhas = addon.portas._folhas_portas(grupo)
+        corpos = {o.name: o.data.as_pointer()
+                  for o in addon.modulos._chapas_do_conjunto(grupo.parent)}
+        bpy.ops.object.select_all(action='DESELECT')
+        # Clique simples apaga tambem o Empty da porta, como na cena real.
+        for o in [grupo, *folhas]:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = grupo
+        bpy.ops.object.delete()
+        grupo = folhas = None
+        bpy.context.view_layer.update()
+        addon.chapas.ao_atualizar_depsgraph(bpy.context.scene, None)
+        self.assertTrue(bpy.app.timers.is_registered(addon.ferragens._conferir_ferragens))
+        addon.ferragens._conferir_ferragens()
+        self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+        self.assertEqual({n: bpy.data.objects[n].data.as_pointer() for n in corpos}, corpos)
+
+    # Regressao (era BUG, corrigido na 370): Delete nao via a selecao interna.
+    def test_selecionar_dobradicas_orfas_permite_delete_nativo_e_undo(self):
+        F = addon.ferragens
+        self.addCleanup(F._ferragens_selecionadas.__setitem__, 0, None)
+        grupo = self.porta_de_giro(self.nicho())
+        corpos = {o.name for o in addon.modulos._chapas_do_conjunto(grupo.parent)}
+        bpy.ops.object.select_all(action='DESELECT')
+        for folha in addon.portas._folhas_portas(grupo):
+            folha.select_set(True)
+        bpy.ops.object.delete()
+        # Nao chamar a limpeza: reproduz o arquivo com dobradicas restantes.
+        caneco = self.ferragens(grupo, 'CANECO')[0]
+        self.assertTrue(F._selecionar_ferragem(bpy.context, caneco))
+        self.assertIs(bpy.context.object, caneco)
+        selecionadas = {o.name for o in bpy.context.selected_objects}
+        self.assertTrue(selecionadas)
+        self.assertFalse(corpos & selecionadas)
+        self.assertTrue(all(F.CHAVE_FERRAGEM in o for o in bpy.context.selected_objects))
+        bpy.ops.ed.undo_push(message='Ferragens orfas selecionadas')
+        self.assertEqual(bpy.ops.object.delete(), {'FINISHED'})
+        grupo = caneco = folha = None
+        F._conferir_ferragens()
+        self.assertFalse(any(F.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+        self.assertTrue(corpos <= set(bpy.context.scene.objects.keys()))
+        bpy.ops.ed.undo_push(message='Delete nativo das ferragens')
+        bpy.ops.ed.undo()
+        addon.eventos._fim_do_desfazer()
+        self.assertTrue(selecionadas <= set(bpy.context.scene.objects.keys()))
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        self.assertFalse(any(F.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+
+    def test_selecao_ferragens_respeita_ocultacao_camada_e_desmarcar_nativo(self):
+        F = addon.ferragens
+        self.addCleanup(F._ferragens_selecionadas.__setitem__, 0, None)
+        grupo = self.porta_de_giro(self.nicho())
+        canecos = self.ferragens(grupo, 'CANECO')
+        oculto, clicado = canecos[:2]
+        oculto.hide_set(True)
+        fora = next(o for o in F._ferragens_portas(grupo)
+                    if o.type == 'MESH' and o not in canecos and o.visible_get())
+        colecao = bpy.data.collections.new('Ferragem fora da camada')
+        bpy.context.scene.collection.children.link(colecao)
+        self.addCleanup(bpy.data.collections.remove, colecao)
+        colecao.objects.link(fora)
+        for c in list(fora.users_collection):
+            if c != colecao:
+                c.objects.unlink(fora)
+        bpy.context.view_layer.layer_collection.children[colecao.name].exclude = True
+        bpy.context.view_layer.update()
+        F._selecionar_ferragem(bpy.context, clicado)
+        self.assertIs(bpy.context.object, clicado)
+        self.assertTrue(F._ferragens_em_edicao(bpy.context))
+        self.assertFalse(oculto.select_get())
+        self.assertNotIn(fora.name, bpy.context.view_layer.objects)
+        self.assertTrue(oculto.hide_get())
+        bpy.ops.object.select_all(action='DESELECT')
+        self.assertEqual(F._ferragens_em_edicao(bpy.context), [])
+        self.assertIsNone(F._ferragens_selecionadas[0])
+
+    def test_porta_com_folha_fora_da_camada_seleciona_so_as_vivas(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj, folhas=2)
+        apagada, viva = addon.portas._folhas_portas(grupo)
+        for c in list(apagada.users_collection):
+            c.objects.unlink(apagada)
+        bpy.context.view_layer.update()
+        addon.hud._selecionar_porta_hud(bpy.context, viva, 'PORTA')
+        self.assertIs(bpy.context.object, grupo)
+        self.assertEqual(addon.selecao._aba_da_selecao(bpy.context.object), 'PORTAS')
+        self.assertTrue(viva.select_get())
+        self.assertNotIn(apagada.name, bpy.context.view_layer.objects)
+        addon.hud._selecionar_porta_hud(bpy.context, viva, 'FOLHA')
+        self.assertIs(bpy.context.object, viva)
+        self.assertEqual({o.name for o in bpy.context.selected_objects}, {viva.name})
+
+    def _verificar_exclusao_de_uma_folha(self):
+        F = addon.ferragens
+        grupo = self.porta_de_giro(self.nicho(), folhas=2)
+        apagada, viva = addon.portas._folhas_portas(grupo)
+        indice = int(viva['porta_indice'])
+        sobreviventes = {o.name: o.matrix_world.copy() for o in F._ferragens_portas(grupo)
+                         if o.get('porta_ferragem_folha') == indice}
+        removidas = {o.name for o in F._ferragens_portas(grupo)
+                     if o.get('porta_ferragem_folha') == apagada['porta_indice']}
+        self.assertTrue(sobreviventes)
+        self.assertTrue(removidas)
+        referencia = bpy.data.objects.new('Referencia da folha apagada', None)
+        bpy.context.scene.collection.objects.link(referencia)
+        referencia['folha'] = apagada
+        bpy.ops.object.select_all(action='DESELECT')
+        apagada.select_set(True)
+        bpy.context.view_layer.objects.active = apagada
+        bpy.ops.object.delete()
+        with patch.object(F, '_refazer_ferragens', side_effect=AssertionError('Remontou a outra folha')):
+            F._conferir_ferragens()
+        self.assertFalse(removidas & set(bpy.data.objects.keys()))
+        self.assertTrue(sobreviventes.keys() <= set(bpy.data.objects.keys()))
+        for nome, matriz in sobreviventes.items():
+            self.assertEqual(bpy.data.objects[nome].matrix_world, matriz)
+        F._definir_abertura(bpy.context, viva, .5)
+        controles = [o for o in F._ferragens_portas(grupo)
+                     if o.get('cabinet_peca') == 'controle']
+        for o in controles:
+            self.assertAlmostEqual(o.rotation_euler.z,
+                                   -math.radians(F._passo_rig(.5)[0]), places=5)
+
+    def test_delete_uma_folha_remove_so_dobradicas_dela_e_preserva_abertura_da_outra(self):
+        self._verificar_exclusao_de_uma_folha()
+
+    def test_delete_uma_folha_sem_rig_remove_corpo_e_caneco_correspondentes(self):
+        self.sem_rig()
+        self._verificar_exclusao_de_uma_folha()
+
+    def test_excluir_colecao_da_view_layer_preserva_porta_e_ferragens(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        nomes = {o.name for o in grupo.children_recursive}
+        colecao = bpy.data.collections.new('Folha excluida da View Layer')
+        bpy.context.scene.collection.children.link(colecao)
+        self.addCleanup(bpy.data.collections.remove, colecao)
+        colecao.objects.link(folha)
+        for c in list(folha.users_collection):
+            if c != colecao:
+                c.objects.unlink(folha)
+        bpy.context.view_layer.layer_collection.children[colecao.name].exclude = True
+        bpy.context.view_layer.update()
+        self.assertNotIn(folha.name, bpy.context.view_layer.objects)
+        addon.ferragens._conferir_ferragens()
+        self.assertTrue(nomes <= set(bpy.data.objects.keys()))
+        self.assertTrue(addon.ferragens._ferragens_portas(grupo))
+
+    def test_delete_com_referencia_undo_redo_restaura_porta_e_selecao(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        nome_conj, nome_grupo, nome_folha = conj.name, grupo.name, folha.name
+        referencia = bpy.data.objects.new('Referencia que conserva a folha', None)
+        bpy.context.scene.collection.objects.link(referencia)
+        referencia['folha'] = folha
+        nomes = set(bpy.data.objects.keys())
+        bpy.ops.ed.undo_push(message='Porta com referencia antes de apagar')
+        bpy.ops.object.select_all(action='DESELECT')
+        folha.select_set(True)
+        bpy.context.view_layer.objects.active = folha
+        bpy.ops.object.delete()
+        addon.ferragens._conferir_ferragens()
+        bpy.ops.ed.undo_push(message='Folha apagada e ferragens removidas')
+        conj = grupo = folha = referencia = None
+        bpy.ops.ed.undo()
+        addon.eventos._fim_do_desfazer()
+        bpy.context.view_layer.update()
+        addon.ferragens._conferir_ferragens()
+        self.assertEqual(set(bpy.data.objects.keys()), nomes)
+        addon.hud._selecionar_porta_hud(bpy.context, bpy.data.objects[nome_folha], 'PORTA')
+        self.assertEqual(bpy.context.object.name, nome_grupo)
+        bpy.ops.ed.redo()
+        addon.eventos._fim_do_desfazer()
+        bpy.context.view_layer.update()
+        addon.ferragens._conferir_ferragens()
+        self.assertNotIn(nome_grupo, bpy.data.objects)
+        self.assertFalse(any(addon.ferragens.CHAVE_FERRAGEM in o for o in bpy.data.objects))
+        peca = addon.modulos._chapas_do_conjunto(bpy.data.objects[nome_conj])[0]
+        addon.hud._selecionar_chapa_hud(bpy.context, peca)
+        self.assertEqual(bpy.context.object.name, nome_conj)
+
+    def test_folha_ligada_em_outra_cena_nao_e_tratada_como_excluida(self):
+        conj = self.nicho()
+        grupo = self.porta_de_giro(conj)
+        folha = addon.portas._folhas_portas(grupo)[0]
+        nomes = {grupo.name, *(o.name for o in grupo.children_recursive)}
+        cena = bpy.data.scenes.new('Outra cena com folha viva')
+        self.addCleanup(bpy.data.scenes.remove, cena)
+        cena.collection.objects.link(folha)
+        for c in list(folha.users_collection):
+            if c != cena.collection:
+                c.objects.unlink(folha)
+        bpy.context.view_layer.update()
+        self.assertNotIn(folha.name, bpy.context.scene.objects)
+        self.assertIn(cena, folha.users_scene)
+        addon.ferragens._conferir_ferragens()
+        self.assertTrue(nomes <= set(bpy.data.objects.keys()))
+
     def test_delete_parcial_preserva_porta_e_dobradicas(self):
         conj = self.nicho()
         grupo = self.porta_de_giro(conj)
@@ -1981,7 +2243,10 @@ class TestPortas(unittest.TestCase):
             bpy.context, self.ferragens(grupo, 'PISTAO_PONTO')[0]))
 
         self.assertTrue(addon.ferragens._selecionar_ferragem(bpy.context, caneco))
-        self.assertEqual(bpy.context.selected_objects, [])
+        self.assertTrue(bpy.context.selected_objects)
+        self.assertIs(bpy.context.object, caneco)
+        self.assertTrue(all(addon.ferragens.CHAVE_FERRAGEM in o
+                            for o in bpy.context.selected_objects))
         (achado, tipos), = addon.ferragens._ferragens_em_edicao(bpy.context)
         self.assertEqual((achado, tipos), (grupo, {'DOBRADICA'}))
         # na Reta, o volume das pecas grandes do rig (base, suporte, copo)

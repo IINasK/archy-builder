@@ -34,6 +34,8 @@ _paredes_edicao = None
 _paredes_composicao = None
 _paredes = None
 _eventos = None
+_editor = None
+_areas_criacao = None
 
 class OBJECT_OT_modo_medidas(Operator):
     """Alterna a edicao entre uma chapa e o conjunto"""
@@ -106,8 +108,8 @@ def _abreviar(texto, limite):
 
 
 # ===================================================== GAVETA ESQUERDA
-# Area VIEW_3D independente: nao mover a regiao N do usuario. O desenho
-# POST_PIXEL (`_gaveta_desenho._desenhar_gaveta`) e os eventos
+# Editor nativo independente: nao mover a regiao N do usuario. O desenho
+# GPU (`_gaveta_desenho._desenhar_gaveta`) e os eventos
 # (`_gaveta_eventos.OBJECT_OT_interagir_gaveta`) nao passam pelo handler
 # de UILayout; portanto a barra recebe PRESS/MOUSEMOVE/RELEASE de verdade.
 _handler_gaveta = [None]
@@ -152,6 +154,9 @@ def _largura_inicial_gaveta(context):
 
 
 def _area_gaveta(screen):
+    nativa = next((a for a in screen.areas if _editor.eh_editor(a, _editor.TIPO_MENU)), None) if screen else None
+    if nativa is not None:
+        return nativa
     ptr = int(screen.get(_CHAVE_GAVETA, 0)) if screen else 0
     return next((a for a in screen.areas
                  if a.type == 'VIEW_3D' and a.as_pointer() == ptr), None)
@@ -159,7 +164,7 @@ def _area_gaveta(screen):
 
 def _eh_area_gaveta(context):
     return (context.area is not None and context.screen is not None
-            and (context.area == _area_gaveta(context.screen)
+            and (_editor.eh_editor(context.area) or context.area == _area_gaveta(context.screen)
                  or _biblioteca_faixa.eh_faixa(context)))
 
 
@@ -168,14 +173,23 @@ def _limitar_largura_gaveta():
     # nunca disputar eventos com um operador modal do usuario.
     # Com a UI ampliada a largura inicial passa de 564 px; o teto nunca
     # fica abaixo dela, senao as medidas voltariam a quebrar a linha.
+    if _eventos._desfazendo[0]:
+        return 0.3
     teto = max(_LARGURA_MAX_GAVETA, _largura_inicial_gaveta(bpy.context))
     for janela in bpy.context.window_manager.windows:
+        _biblioteca_faixa.reconectar(janela.screen)
         if any(_eventos.modal_interativo(op) for op in getattr(janela, 'modal_operators', ())):
             continue
         painel = _area_gaveta(janela.screen)
+        if (janela.screen.get(_CHAVE_GAVETA) and
+                (painel is None or painel.type == 'VIEW_3D')):
+            # Workspaces inativos so' recebem areas validas ao serem abertos.
+            if not bpy.app.timers.is_registered(_reconectar_gavetas):
+                bpy.app.timers.register(_reconectar_gavetas, first_interval=.05)
         if painel is None:
             continue
-        painel.spaces.active.show_gizmo = True
+        if hasattr(painel.spaces.active, 'show_gizmo'):
+            painel.spaces.active.show_gizmo = True
         if painel.width <= teto:
             continue
         direita = painel.x + painel.width
@@ -195,6 +209,8 @@ def _limitar_largura_gaveta():
 
 def _configurar_gavetas():
     # A geometria da area nova so' fica disponivel no tique seguinte ao split.
+    if _eventos._desfazendo[0]:
+        return .05
     pendente = False
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
@@ -215,18 +231,8 @@ def _configurar_gavetas():
             pendente = True
             continue
         painel = max(candidatas, key=lambda a: a.x)
-        espaco = painel.spaces.active
-        espaco.show_region_ui = False
-        espaco.show_region_toolbar = False
-        espaco.show_region_header = False
-        espaco.show_region_tool_header = False
-        espaco.show_region_hud = False
-        espaco.show_gizmo = True
-        espaco.show_gizmo_context = False
-        espaco.show_gizmo_tool = False
-        espaco.show_gizmo_navigate = False
-        espaco.overlay.show_overlays = False
-        screen[_CHAVE_GAVETA] = str(painel.as_pointer())
+        _editor.configurar(painel)
+        screen[_CHAVE_GAVETA] = 0
         screen[_CHAVE_PENDENTE] = 0
         painel.tag_redraw()
         principal.tag_redraw()
@@ -235,34 +241,38 @@ def _configurar_gavetas():
 
 def _reconectar_gavetas():
     # Ponteiros de areas nao sobrevivem a recarga de um arquivo .blend.
+    if _eventos._desfazendo[0]:
+        return .1
     for janela in bpy.context.window_manager.windows:
         screen = janela.screen
+        _editor.reparar(screen)
         _biblioteca_faixa.reconectar(screen)
         painel = _area_gaveta(screen)
-        # Menu antigo migra para a faixa; o do lugar 'MENU' e' escolha.
-        migrar = (screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
+        migrar = (painel is not None and painel.type == 'VIEW_3D'
+                  and screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
                   and not _biblioteca_faixa.acoplada(screen))
-        if painel is not None and migrar:
+        if migrar:
             principal = _biblioteca_faixa.viewport(screen)
             if principal is not None:
                 with bpy.context.temp_override(window=janela, area=principal):
                     _biblioteca_faixa.abrir(bpy.context)
             continue
-        if not screen.get(_CHAVE_GAVETA) or painel:
+        if painel is not None:
+            if painel.type == 'VIEW_3D':
+                _editor.configurar(painel)
+                screen[_CHAVE_GAVETA] = 0
+            continue
+        if not screen.get(_CHAVE_GAVETA):
             continue
         candidatos = [a for a in screen.areas
-                      if a.type == 'VIEW_3D' and a.width < 600
+                      if a.type == 'VIEW_3D'
                       and not a.spaces.active.show_region_header
                       and not a.spaces.active.show_region_toolbar
                       and not a.spaces.active.overlay.show_overlays]
         if len(candidatos) == 1:
-            screen[_CHAVE_GAVETA] = str(candidatos[0].as_pointer())
+            _editor.configurar(candidatos[0])
+            screen[_CHAVE_GAVETA] = 0
             candidatos[0].tag_redraw()
-            if migrar:
-                principal = _biblioteca_faixa.viewport(screen)
-                if principal is not None:
-                    with bpy.context.temp_override(window=janela, area=principal):
-                        _biblioteca_faixa.abrir(bpy.context)
         else:
             screen[_CHAVE_GAVETA] = 0
     return None
@@ -1133,6 +1143,9 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
     if grupo is None:
         return itens
     topo = y + 26 + 28
+    itens.append((x, topo - 28, w, 28, 'Esconder porta e agregados',
+                  ('operador', 'object.cabinet_esconder_porta')))
+    topo -= 34
     alvo = grupo.name
     valores = _valores_portas(s, grupo)
     moldura = _portas._correr_sobreposta(dict(grupo['porta_parametros']))
@@ -1275,6 +1288,7 @@ COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 # laranja para entrar, o laranja forte da etapa em andamento para sair.
 # Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
 OPERADORES_DESTAQUE = ('object.cabinet_editar_parede', 'object.cabinet_sair_parede',
+                      'object.cabinet_aplicar_area', 'object.cabinet_definir_area', 'object.cabinet_internos',
                       'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao')
 OPERADOR_DESTAQUE_ATIVO = 'object.cabinet_sair_parede'
 
@@ -1541,6 +1555,19 @@ def _paineis_gaveta(conteudo):
     return conteudo[:i], conteudo[i], conteudo[i + 1:]
 
 
+def _reservar_barras_gaveta(context, conteudo, largura, altura, rolagem, rolagem_bib, reservas):
+    if not any(reservas):
+        return conteudo
+    n = _tamanho_cabecalho(conteudo)
+    cima, divisa, baixo = _paineis_gaveta(conteudo[n:])
+    # Refluir os campos e fotos; cobrir sua ponta com a barra roubava cliques.
+    estreito = _widgets_conteudo_gaveta(context, min(largura, 564) - 12,
+                                       altura, rolagem, rolagem_bib)
+    menor_cima, _, menor_baixo = _paineis_gaveta(estreito[_tamanho_cabecalho(estreito):])
+    return (conteudo[:n] + (menor_cima if reservas[0] else cima)
+            + ([divisa] if divisa else []) + (menor_baixo if reservas[1] else baixo))
+
+
 def _limites_rolagem_gaveta(context, largura, altura):
     """(limite do painel da aba, limite da biblioteca). Cada painel rola
     ate' o ultimo widget passar inteiro pela borda de baixo DELE."""
@@ -1551,11 +1578,36 @@ def _limites_rolagem_gaveta(context, largura, altura):
     limite = max(0, int(piso - min((v[1] for v in cima), default=piso)))
     limite_bib = max(0, int(piso_bib - min((v[1] for v in baixo),
                                            default=piso_bib)))
+    conteudo = _reservar_barras_gaveta(context, conteudo, largura, altura, 0, 0,
+                                      (limite > 0, limite_bib > 0))
+    cima, _, baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])
+    # A foto pode encolher ao reservar a barra: evitar alternar o layout no limiar.
+    limite = max(int(limite > 0), int(piso - min((v[1] for v in cima), default=piso)))
+    limite_bib = max(int(limite_bib > 0), int(piso_bib - min((v[1] for v in baixo), default=piso_bib)))
     return limite, limite_bib
 
 
 def _limite_rolagem_gaveta(context, largura, altura):
     return _limites_rolagem_gaveta(context, largura, altura)[0]
+
+
+def _alca_rolagem(y, altura, limite, atual):
+    tamanho = min(altura, max(24, altura * altura / (altura + limite)))
+    base = y + (altura - tamanho) * (1 - max(0, min(limite, atual)) / limite)
+    return base, tamanho
+
+
+def _barras_rolagem_gaveta(context, largura, altura, limites, deslocamentos):
+    meio = (_divisa_gaveta(context, altura)
+            if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2 else None)
+    faixas = ((meio + FOLGA_DIVISA_GAVETA if meio is not None else ALTURA_RODAPE_GAVETA,
+               altura - 48, _CHAVE_ROLAGEM),
+              (ALTURA_RODAPE_GAVETA, meio - FOLGA_DIVISA_GAVETA if meio is not None else 0,
+               _CHAVE_ROLAGEM_BIB))
+    x = min(largura - 12, 552) - 8
+    return [(x, piso + 4, 8, teto - piso - 8, '', ('rolagem', chave, limite, atual))
+            for (piso, teto, chave), limite, atual in zip(faixas, limites, deslocamentos)
+            if limite > 0 and teto - piso > 16]
 
 
 def _rolar_ate_o_fim(context):
@@ -1609,14 +1661,17 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
                ('Fundos', 'Fundo', 'FUNDOS'),
-               ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras', 'Prat.', 'PRATELEIRAS'),
-               ('Divisorias', 'Div.', 'DIVISORIAS'),
+               ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras / Divisorias', 'Prat./Div.', 'PRATELEIRAS'),
                ('Puxadores', 'Pux.', 'PUXADORES'))
 # Os operadores das antigas correntes seguem no F3, fora do cabecalho.
 OPERADORES_CORRENTE = ()
 # Conta da linha expandida; o cabecalho estreito ocupa apenas um widget.
 WIDGETS_CABECALHO = len(ABAS_GAVETA) + len(OPERADORES_CORRENTE)
 CHAVE_ABAS = 'cabinet_abas_gaveta'
+
+
+def _aba_no_menu(scene):
+    return 'PRATELEIRAS' if scene.cabinet_aba == 'DIVISORIAS' else scene.cabinet_aba
 
 
 def _no_cabecalho(acao):
@@ -1634,7 +1689,7 @@ def _cabecalho_gaveta(context, x, y, w):
     aba_w = (w - 4 * (len(ABAS_GAVETA) - 1)) / len(ABAS_GAVETA)
     blf.size(0, 12)
     if any(blf.dimensions(0, curto)[0] + 18 > aba_w for _, curto, _ in ABAS_GAVETA):
-        atual = next(rotulo for rotulo, _, aba in ABAS_GAVETA if aba == context.scene.cabinet_aba)
+        atual = next(rotulo for rotulo, _, aba in ABAS_GAVETA if aba == _aba_no_menu(context.scene))
         aberto = context.screen.get(_CHAVE_SUSPENSO, '') == CHAVE_ABAS
         return [(x, y, w, 29, atual, ('suspenso', CHAVE_ABAS, aberto,
                  CHAVE_ABAS, tuple(a[0] for a in ABAS_GAVETA), atual))]
@@ -1655,8 +1710,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
     """
     if _biblioteca_faixa.eh_faixa(context):
         return _biblioteca_faixa.widgets(context, largura, altura)
+    limite, limite_bib = _limites_rolagem_gaveta(context, largura, altura)
     if _rolagem is None or _rolagem_bib is None:
-        limite, limite_bib = _limites_rolagem_gaveta(context, largura, altura)
         if _rolagem is None:
             _rolagem = max(0, min(limite, int(
                 context.screen.get(_CHAVE_ROLAGEM, 0))))
@@ -1665,6 +1720,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
                 context.screen.get(_CHAVE_ROLAGEM_BIB, 0))))
     itens = _widgets_conteudo_gaveta(context, largura, altura, _rolagem,
                                      _rolagem_bib)
+    itens = _reservar_barras_gaveta(context, itens, largura, altura,
+        _rolagem, _rolagem_bib, (limite > 0, limite_bib > 0))
     n = _tamanho_cabecalho(itens)
     x, w = 12, max(24, min(540, largura - 24))
     rodape = _rodape_gaveta(context, x, w)
@@ -1682,6 +1739,9 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
             if v[5] and v[5][0] == 'divisa' else v
             for v in itens[n:]
             if (v[5] and v[5][0] == 'divisa') or not coberto(v)]
+    else:
+        rodape += _barras_rolagem_gaveta(context, largura, altura,
+            (limite, limite_bib), (_rolagem, _rolagem_bib))
     # Listas flutuam sobre o conteudo e atendem primeiro. A cascata fica
     # abaixo da divisoria; a navegacao das abas abre sob o cabecalho.
     divisa = next((v for v in itens[n:]
@@ -1778,7 +1838,7 @@ def _retangulo_painel_opcoes(rodape):
     """Fundo do painel de opcoes (x, y, w, h), ou None se fechado."""
     # a linha fixa do pe' (engrenagem, Criar Portas) nao e' do painel
     painel = [v for v in _separar_flutuante(rodape)[0]
-              if v[1] >= ALTURA_RODAPE_GAVETA]
+              if v[1] >= ALTURA_RODAPE_GAVETA and not (v[5] and v[5][0] == 'rolagem')]
     if not painel:
         return None
     folga = 8
@@ -2004,6 +2064,12 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     itens = _cabecalho_gaveta(context, x, altura - 40, w)
     metade = (w - 6) / 2
     y = altura - 105 + _rolagem
+    if _areas_criacao._estado[0] is not None:
+        return _areas_criacao.widgets(context, itens, x, y + 54, w)
+    pergunta = _perguntas._pergunta_atual[0]
+    if pergunta and pergunta.get('internos') and pergunta['na_gaveta']:
+        _pergunta_na_gaveta(itens, x, y + 54, w, pergunta)
+        return itens
     solda=_solda._conexao_manual[0]
     if solda is not None and solda.get('moderna'):
         return _painel_criacao_solda(context,itens,x,y+54,w,solda)
@@ -2020,8 +2086,14 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                         else ('Marcando o vao... (Esc cancela)' if _divisorias._criando() else 'Criar Divisorias',
                               ('divisorias', False, _divisorias._criando(), '', False)) if s.cabinet_aba == 'DIVISORIAS'
                         else _botao_criar_puxador())
+        if s.cabinet_aba in {'PRATELEIRAS', 'DIVISORIAS'} and not (_prateleiras._criando() or _divisorias._criando()):
+            rotulo, acao = 'Criar prateleiras ou divisorias', ('operador', 'object.cabinet_internos')
         itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
         y -= 38
+        if _areas_criacao.oferecer(context):
+            rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'
+            itens.append((x, y + 26, w, 30, rotulo, ('operador', 'object.cabinet_definir_area')))
+            y -= 36
     y = _paredes_edicao.widgets(context, itens, x, y, w)
     # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
@@ -2034,10 +2106,10 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                                      metade)
     if s.cabinet_aba == 'GAVETAS':
         return _aba_gavetas_gaveta(context, itens, x, y, w)
-    if s.cabinet_aba == 'PRATELEIRAS':
+    if s.cabinet_aba in {'PRATELEIRAS', 'DIVISORIAS'}:
+        if _divisorias._criando() or _divisorias.grupo_de(_selecionado(context)) is not None:
+            return _aba_divisorias_gaveta(context, itens, x, y, w)
         return _aba_prateleiras_gaveta(context, itens, x, y, w)
-    if s.cabinet_aba == 'DIVISORIAS':
-        return _aba_divisorias_gaveta(context, itens, x, y, w)
     return _aba_modulos_gaveta(context, itens, x, y, w, largura, metade)
 
 
@@ -2515,7 +2587,7 @@ def _trilho_slider_gaveta(acao, x, y, w, h):
 
 def _animar_realces():
     areas = {a.as_pointer(): a for janela in bpy.context.window_manager.windows
-             for a in janela.screen.areas if a.type == 'VIEW_3D'}
+             for a in janela.screen.areas if a.type == 'VIEW_3D' or _editor.eh_editor(a)}
     agora = time.monotonic()
     animando = False
     for chave, estado in list(_realces.items()):
@@ -2534,6 +2606,8 @@ def _animar_realces():
 
 def _eh_area_gaveta_bruto(area):
     """Versao de `_eh_area_gaveta` que aceita a area solta."""
+    if _editor.eh_editor(area):
+        return True
     for janela in bpy.context.window_manager.windows:
         if area in janela.screen.areas.values():
             return area in (_area_gaveta(janela.screen),

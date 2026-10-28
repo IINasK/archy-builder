@@ -36,6 +36,7 @@ Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
 
 ## Presets e publicacao
 
+- Editor 365: arraste nasce no NODE_EDITOR proprio, preservando coordenadas globais e destino VIEW_3D. Outros comandos do menu usam `editor.executar`; nao trocar a origem do modal do preset.
 - Importacao 364: `novos` do append pode conter RNAs removidos apos resize; sincronizar pela hierarquia nativa no finally, incluindo recriados. Nao apenas ignorar ReferenceError: selecao/Local View/rollback precisam da lista atual.
 - Uma SO' biblioteca (`biblioteca.pasta_biblioteca`), fonte unica tambem dos
   modelos do usuario. Limpar entradas antigas antes de registrar a unica.

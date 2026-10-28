@@ -65,12 +65,12 @@ class TestGaveta(unittest.TestCase):
         self.contexto_abas()
         blf.size(0, 12)
         minimo = max(blf.dimensions(0, curto)[0] + 18 for _, curto, _ in g.ABAS_GAVETA)
-        limite = math.ceil(minimo * 7 + 4 * 6 + 24)
+        limite = math.ceil(minimo * len(g.ABAS_GAVETA) + 4 * (len(g.ABAS_GAVETA) - 1) + 24)
         # Reproducao: sete celulas a 190 px cortavam ate' as abreviacoes.
         self.assertLess((190 - 24 - 24) / 7, minimo)
         for largura in (190, 320, limite - 1, limite, 564):
             cab = g._partes_gaveta(g._widgets_gaveta(bpy.context, largura, 900))[0]
-            self.assertEqual(len(cab), 1 if largura < limite else 7)
+            self.assertEqual(len(cab), 1 if largura < limite else len(g.ABAS_GAVETA))
             for v in cab:
                 self.assertGreaterEqual(v[0], 12)
                 self.assertLessEqual(v[0] + v[2], largura - 12 + .01)
@@ -101,7 +101,7 @@ class TestGaveta(unittest.TestCase):
         ctx.screen[g._CHAVE_SUSPENSO] = g.CHAVE_ABAS
         cab, conteudo, rodape = g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))
         flutuante = g._separar_flutuante(rodape)[1]
-        self.assertEqual(g._widgets_interativos(ctx)[:7], flutuante[1:])
+        self.assertEqual(g._widgets_interativos(ctx)[:len(g.ABAS_GAVETA)], flutuante[1:])
         self.assertLess(flutuante[0][1] + flutuante[0][3], cab[0][1])
         fx, fy, fw, fh = flutuante[0][:4]
         for v in conteudo:
@@ -137,10 +137,10 @@ class TestGaveta(unittest.TestCase):
         for largura in (190, 564, 190):
             cab, _, rodape = g._partes_gaveta(g._widgets_gaveta(ctx, largura, 900))
             if largura == 564:
-                self.assertEqual(len(cab), 7)
+                self.assertEqual(len(cab), len(g.ABAS_GAVETA))
                 self.assertFalse(g._separar_flutuante(rodape)[1])
             else:
-                self.assertEqual(cab[0][4], 'Divisorias')
+                self.assertEqual(cab[0][4], 'Prateleiras / Divisorias')
             self.assertEqual(self.cena.cabinet_aba, 'DIVISORIAS')
             self.assertEqual([tuple(v.co) for v in objeto.data.vertices], malha)
             self.assertEqual([o.name for o in bpy.context.selected_objects], selecionados)
@@ -166,7 +166,7 @@ class TestGaveta(unittest.TestCase):
         self.clicar_aba(ctx, g._widgets_gaveta(ctx, 190, 900)[0])
         self.assertEqual(ctx.screen[g._CHAVE_SUSPENSO], g.CHAVE_ABAS)
         flutuante = g._separar_flutuante(g._partes_gaveta(g._widgets_gaveta(ctx, 190, 900))[2])[1]
-        self.assertEqual([v[5][0] for v in flutuante[1:]], ['aba'] * 7)
+        self.assertEqual([v[5][0] for v in flutuante[1:]], ['aba'] * len(g.ABAS_GAVETA))
 
     def test_desenho_restaura_campo_suspenso_apos_fundo_e_destaca_aba_atual(self):
         from unittest.mock import patch, Mock
@@ -206,6 +206,31 @@ class TestGaveta(unittest.TestCase):
         criar=next(w for w in itens if w[4]=='Criar solda' and w[5])
         self.assertEqual(criar[5],('operador','object.cabinet_confirmar_conexao'))
         self.assertIn(criar[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+
+    def test_volume_livre_tem_destaque_e_mesmo_tamanho_do_criar(self):
+        self.cena.cabinet_aba='GAVETAS'
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        for largura in (190,320,564):
+            itens=addon.gaveta._widgets_gaveta(bpy.context,largura,1400)
+            livre=next(i for i in itens if i[5]==('operador','object.cabinet_definir_area'))
+            criar=next(i for i in itens if i[5] and i[5][0]=='gavetas')
+            self.assertEqual(livre[4],'Definir por volume')
+            self.assertEqual((livre[0],livre[2],livre[3]),(criar[0],criar[2],criar[3]))
+            self.assertIn(livre[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+
+    def test_porta_selecionada_oferece_esconder_porta_e_agregados_no_menu(self):
+        conj=addon.modulos.criar_armario(bpy.context,'Porta do menu',600,1200,550)
+        grupo=addon.portas.porta_no_modulo(conj)
+        folha=addon.portas._folhas_portas(grupo)[0]
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        folha.select_set(True);bpy.context.view_layer.objects.active=folha
+        self.cena.cabinet_aba='PORTAS'
+        for largura in (190,320,564):
+            itens=addon.gaveta._widgets_gaveta(bpy.context,largura,1400)
+            esconder=next(i for i in itens if i[5]==('operador','object.cabinet_esconder_porta'))
+            self.assertEqual(esconder[4],'Esconder porta e agregados')
+            self.assertEqual(esconder[3],28)
+            self.assertTrue(addon.selecao.OBJECT_OT_esconder_porta.poll(bpy.context))
 
     def test_criar_solda_tem_painel_proprio_sem_orcamento_e_distancia_editavel(self):
         estado=dict(moderna=True,fase='confirmar',pares=[('---','Destino','+++')],distancias=[.025])
@@ -1135,7 +1160,8 @@ class TestGaveta(unittest.TestCase):
         # selecionando. Na Modulos (sem botao de criar: a biblioteca e' a
         # criacao) nao fica nada: o orcamento mora nas Opcoes.
         bpy.ops.object.select_all(action='DESELECT')
-        for aba, esperado in (('PORTAS', {'portas'}),
+        # A criacao por area (372) acrescenta apenas a alternativa ao gesto por pontos.
+        for aba, esperado in (('PORTAS', {'portas', 'operador'}),
                               ('PUXADORES', {'criar_puxador'}),
                               ('MODULOS', set())):
             self.cena.cabinet_aba = aba
@@ -1143,6 +1169,9 @@ class TestGaveta(unittest.TestCase):
                 addon.gaveta._widgets_gaveta(bpy.context, 320, 1400))
             painel = addon.gaveta._paineis_gaveta(conteudo)[0]
             self.assertEqual({v[5][0] for v in painel if v[5]}, esperado, aba)
+            if aba == 'PORTAS':
+                self.assertEqual([v[5][1] for v in painel if v[5] and v[5][0] == 'operador'],
+                                 ['object.cabinet_definir_area'])
         # ativo sem selecao tambem nao conta
         self.assertIsNone(addon.gaveta._selecionado(bpy.context))
 
@@ -1622,6 +1651,130 @@ class TestGaveta(unittest.TestCase):
         finally:
             tela[addon.gaveta._CHAVE_ROLAGEM] = 0
             tela[addon.gaveta._CHAVE_ROLAGEM_BIB] = 0
+
+    def contexto_rolagem(self, altura=320):
+        ctx = self.contexto_abas(320, altura)
+        chave = addon.biblioteca_faixa.CHAVE_LAYOUT
+        anterior = ctx.screen.get(chave)
+        self.addCleanup(lambda: ctx.screen.pop(chave, None) if anterior is None
+                        else ctx.screen.__setitem__(chave, anterior))
+        ctx.screen[chave] = 0
+        ctx.window_manager = SimpleNamespace(modal_handler_add=lambda *_: None)
+        return ctx
+
+    def test_barras_so_aparecem_com_excesso_e_respeitam_cada_painel(self):
+        # Regressao 373: campos e fotos cortados nao tinham barra visivel.
+        g = addon.gaveta
+        ctx = self.contexto_rolagem()
+        for aba in g.ABAS_GAVETA:
+            ctx.scene.cabinet_aba = aba[2]
+            limites = g._limites_rolagem_gaveta(ctx, 320, 320)
+            barras = [v for v in g._widgets_gaveta(ctx, 320, 320)
+                      if v[5] and v[5][0] == 'rolagem']
+            self.assertEqual(len(barras), sum(l > 0 for l in limites), aba)
+            for v in barras:
+                self.assertLessEqual(v[0] + v[2], 308)
+                self.assertGreaterEqual(v[1], g.ALTURA_RODAPE_GAVETA)
+                self.assertLessEqual(v[1] + v[3], 320 - 48)
+                self.assertIn(v, g._widgets_interativos(ctx))
+                conteudo = g._partes_gaveta(g._widgets_gaveta(ctx, 320, 320))[1]
+                paineis = g._paineis_gaveta(conteudo)
+                painel = paineis[0 if v[5][1] == g._CHAVE_ROLAGEM else 2]
+                self.assertTrue(all(item[0] + item[2] <= v[0] - 4 for item in painel))
+        self.assertEqual(g._barras_rolagem_gaveta(ctx, 320, 320, (0, 0), (0, 0)), [])
+
+    def test_arraste_barra_limites_cancelamento_e_independencia(self):
+        g = addon.gaveta
+        ctx = self.contexto_rolagem(240)
+        barras = [v for v in g._widgets_gaveta(ctx, 320, 240)
+                  if v[5] and v[5][0] == 'rolagem']
+        self.assertEqual(len(barras), 2)
+        for v in barras:
+            chave, limite = v[5][1:3]
+            outra = g._CHAVE_ROLAGEM_BIB if chave == g._CHAVE_ROLAGEM else g._CHAVE_ROLAGEM
+            base, h = g._alca_rolagem(v[1], v[3], limite, 0)
+            op = SimpleNamespace()
+            evento = SimpleNamespace(type='LEFTMOUSE', value='PRESS',
+                mouse_region_x=v[0] + v[2] / 2, mouse_region_y=base + h / 2)
+            classe = addon.gaveta_eventos.OBJECT_OT_interagir_gaveta
+            self.assertEqual(classe.invoke(op, ctx, evento), {'RUNNING_MODAL'})
+            for y, esperado in ((-10000, limite), (10000, 0)):
+                classe._modal_rolagem(op, ctx, SimpleNamespace(type='MOUSEMOVE',
+                    value='NOTHING', mouse_region_y=y))
+                self.assertEqual(ctx.screen[chave], esperado)
+                self.assertEqual(ctx.screen[outra], 0)
+            classe._modal_rolagem(op, ctx, SimpleNamespace(type='MOUSEMOVE',
+                value='NOTHING', mouse_region_y=-10000))
+            self.assertEqual(classe._modal_rolagem(op, ctx,
+                SimpleNamespace(type='ESC', value='PRESS')), {'CANCELLED'})
+            self.assertEqual(ctx.screen[chave], 0)
+            # Clique no trilho perto da base leva ao fim; soltar conserva.
+            evento.mouse_region_y = v[1] + 1
+            self.assertEqual(classe.invoke(op, ctx, evento), {'RUNNING_MODAL'})
+            self.assertEqual(ctx.screen[chave], limite)
+            self.assertEqual(classe._modal_rolagem(op, ctx,
+                SimpleNamespace(type='LEFTMOUSE', value='RELEASE')), {'FINISHED'})
+            self.assertEqual(ctx.screen[chave], limite)
+            self.assertEqual(ctx.screen[outra], 0)
+            ctx.screen[chave] = 0
+
+    def test_roda_e_touchpad_rolam_so_painel_apontado_sem_mover_abas(self):
+        g = addon.gaveta
+        vinculos = {item.type: item.value for _, item in addon.editor._keymaps[0]}
+        self.assertEqual(vinculos['TRACKPADPAN'], 'ANY')
+        self.assertEqual(vinculos['WHEELDOWNMOUSE'], 'PRESS')
+        ctx = self.contexto_rolagem(240)
+        antes = g._widgets_gaveta(ctx, 320, 240)
+        cab = g._partes_gaveta(antes)[0]
+        for y, chave in ((150, g._CHAVE_ROLAGEM), (60, g._CHAVE_ROLAGEM_BIB)):
+            for tipo, delta in (('WHEELDOWNMOUSE', 85), ('TRACKPADPAN', 27)):
+                ctx.screen[chave] = 0
+                evento = SimpleNamespace(type=tipo, value='NOTHING' if tipo == 'TRACKPADPAN' else 'PRESS', mouse_region_x=5,
+                    mouse_region_y=y, mouse_y=100 + delta, mouse_prev_y=100)
+                addon.gaveta_eventos.OBJECT_OT_interagir_gaveta.invoke(SimpleNamespace(), ctx, evento)
+                limites = g._limites_rolagem_gaveta(ctx, 320, 240)
+                limite = limites[0 if chave == g._CHAVE_ROLAGEM else 1]
+                self.assertEqual(ctx.screen[chave], min(delta, limite))
+                self.assertEqual(g._partes_gaveta(g._widgets_gaveta(ctx, 320, 240))[0], cab)
+        valores = (ctx.screen[g._CHAVE_ROLAGEM], ctx.screen[g._CHAVE_ROLAGEM_BIB])
+        for y in (10, 230):
+            addon.gaveta_eventos.OBJECT_OT_interagir_gaveta.invoke(SimpleNamespace(), ctx,
+                SimpleNamespace(type='WHEELDOWNMOUSE', mouse_region_x=5, mouse_region_y=y))
+        self.assertEqual(valores, (ctx.screen[g._CHAVE_ROLAGEM], ctx.screen[g._CHAVE_ROLAGEM_BIB]))
+
+    def test_barra_nao_vira_painel_de_opcoes_e_some_com_opcoes_abertas(self):
+        g = addon.gaveta
+        ctx = self.contexto_rolagem(240)
+        rodape = g._partes_gaveta(g._widgets_gaveta(ctx, 320, 240))[2]
+        self.assertIsNone(g._retangulo_painel_opcoes(rodape))
+        ctx.screen[g._CHAVE_OPCOES] = 1
+        self.assertFalse(any(v[5] and v[5][0] == 'rolagem'
+                             for v in g._widgets_gaveta(ctx, 320, 240)))
+
+    def test_alca_proporcional_no_topo_fundo_e_apos_redimensionar(self):
+        g = addon.gaveta
+        y, h = g._alca_rolagem(50, 100, 100, 0)
+        self.assertEqual((y, h), (100, 50))
+        self.assertEqual(g._alca_rolagem(50, 100, 100, 100), (50, 50))
+        self.assertEqual(g._alca_rolagem(50, 100, 100, 9999), (50, 50))
+        self.assertEqual(g._alca_rolagem(50, 10, 10000, 200), (50, 10))
+        ctx = self.contexto_rolagem(240)
+        ctx.screen[g._CHAVE_ROLAGEM] = 99999
+        ctx.screen[g._CHAVE_ROLAGEM_BIB] = 99999
+        barras = [v for v in g._widgets_gaveta(ctx, 320, 400)
+                  if v[5] and v[5][0] == 'rolagem']
+        for v in barras:
+            self.assertEqual(v[5][3], v[5][2])
+        # Foto que cabe depois de encolher com a coluna nao alterna a barra.
+        from unittest.mock import patch
+        def conteudo(context, largura, altura, *_):
+            meio = g._divisa_gaveta(context, altura)
+            piso = g.ALTURA_RODAPE_GAVETA + 18
+            return [(12, meio - 5, largura - 24, 10, '', ('divisa', True)),
+                    (12, piso - 1 if largura == 320 else piso + 1,
+                     largura - 24, 100, 'Foto da fixture', None)]
+        with patch.object(g, '_widgets_conteudo_gaveta', side_effect=conteudo):
+            self.assertEqual(g._limites_rolagem_gaveta(ctx, 320, 400), (0, 1))
 
     def test_widget_cortado_recebe_clique_so_na_parte_visivel(self):
         largura, altura = 320, 500

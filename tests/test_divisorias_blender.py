@@ -15,6 +15,79 @@ D, G, P = addon.divisorias, addon.gavetas, addon.prateleiras
 
 
 class TestDivisorias(unittest.TestCase):
+    def test_segmentos_mantem_blocagem_unica_e_hud_mostra_cotas_dos_dois_lados(self):
+        original=self.estante(2)
+        uid=original[D.CHAVE_BLOCAGEM]
+        div=self.criar()
+        grupos=sorted(P.grupos_do_modulo(self.conj),key=lambda g:g.matrix_world.translation.x)
+        self.assertEqual(len(grupos),2)
+        self.assertTrue(all(g[D.CHAVE_BLOCAGEM]==uid for g in grupos))
+        P.selecionar(bpy.context,grupos[0],'GRUPO')
+        self.assertTrue(grupos[1].select_get())
+        itens=addon.hud._itens_hud(bpy.context)
+        self.assertEqual(len(itens),1)
+        geometria=addon.hud._geometria_do_item(*itens[0])
+        vaos=[l for l in geometria['linhas'] if l.get('vao')]
+        self.assertEqual(len(vaos),6)
+        self.assertEqual({l['objeto'] for l in vaos},set(grupos))
+        largura=(geometria['cantos'][1]-geometria['cantos'][0]).length*1000
+        self.assertAlmostEqual(largura,964,places=2)
+        self.assertFalse(any(l['tipo']=='divisorias' for l in geometria['linhas']))
+        D.selecionar(bpy.context,div)
+        itens=addon.hud._itens_hud(bpy.context)
+        self.assertEqual([i[1] for i in itens],['DIVISORIAS'])
+        self.assertEqual(len([l for l in D.linhas_hud(div,[])[1] if l.get('vao')]),2)
+
+    def test_orientacao_ativa_filtra_cotas_mesmo_com_selecao_mista(self):
+        pr=self.estante(2);div=self.criar()
+        P.selecionar(bpy.context,pr,'GRUPO')
+        div.select_set(True)
+        self.assertTrue(all(i[1]!='DIVISORIAS' for i in addon.hud._itens_hud(bpy.context)))
+        bpy.context.view_layer.objects.active=div
+        self.assertTrue(all(i[1]!='PRATELEIRAS' for i in addon.hud._itens_hud(bpy.context)))
+
+    def test_migracao_legada_reune_so_segmentos_que_compartilham_apoio_real(self):
+        self.estante(2);self.criar()
+        grupos=P.grupos_do_modulo(self.conj)
+        for g in grupos:del g[D.CHAVE_BLOCAGEM]
+        separado=P.criar_prateleiras(bpy.context,self.conj,(18,18,18,18,0),dict(quantidade=0,profundidade_mm=500))
+        del separado[D.CHAVE_BLOCAGEM]
+        uid=D.garantir_blocagem(grupos[0])
+        self.assertEqual(grupos[1][D.CHAVE_BLOCAGEM],uid)
+        self.assertNotIn(D.CHAVE_BLOCAGEM,separado)
+        self.assertEqual(set(D.grupos_da_blocagem(grupos[0])),set(grupos))
+
+    def test_blocagens_independentes_no_mesmo_modulo_nao_sao_reunidas(self):
+        original=self.estante(2);self.criar()
+        uid=original[D.CHAVE_BLOCAGEM]
+        outro=self.estante(2)
+        self.assertNotEqual(outro[D.CHAVE_BLOCAGEM],uid)
+        P.selecionar(bpy.context,original,'GRUPO')
+        self.assertFalse(outro.select_get())
+        self.assertEqual(len(D.grupos_da_blocagem(original)),2)
+
+    def test_timer_recupera_blocagem_legada_sem_usuario_reselecionar(self):
+        self.estante(2);self.criar()
+        grupos=P.grupos_do_modulo(self.conj)
+        for grupo in grupos:del grupo[D.CHAVE_BLOCAGEM]
+        P.sincronizar_exclusoes_da_cena()
+        self.assertTrue(grupos[0][D.CHAVE_BLOCAGEM])
+        self.assertEqual(grupos[0][D.CHAVE_BLOCAGEM],grupos[1][D.CHAVE_BLOCAGEM])
+
+    def test_inserir_em_vao_da_esquerda_preserva_prateleiras_e_gavetas_da_direita(self):
+        original=self.estante(2);self.criar()
+        grupos=sorted(P.grupos_do_modulo(self.conj),key=lambda g:g.matrix_world.translation.x)
+        gavetas=G.criar_gavetas(bpy.context,self.conj,(509,18,18,600,0),
+            dict(quantidade=3,profundidade_mm=500,cobertura='EMBUTIDA',puxador='SEM'))
+        alvos=[*grupos[1].children_recursive,*gavetas.children_recursive]
+        antes={o.name:(o.matrix_world.copy(),o.data.as_pointer() if o.type=='MESH' else 0) for o in alvos}
+        estado=P.preparar_subdivisao_vao(grupos[0],0)
+        P.subdividir_vao(bpy.context,grupos[0],estado,2)
+        for obj in alvos:
+            self.assertEqual((obj.matrix_world,obj.data.as_pointer() if obj.type=='MESH' else 0),antes[obj.name])
+        self.assertTrue(all(bpy.data.objects[n].matrix_world.translation.x<0 for n in estado['novas']))
+        self.assertEqual(len(P.prateleiras_do_grupo(grupos[1])),2)
+
     def setUp(self):
         addon.eventos._desfazendo[0] = False
         addon.chapas._ocupado[0] = False
@@ -41,6 +114,116 @@ class TestDivisorias(unittest.TestCase):
     def criar(self, n=1, **p):
         return D.criar_divisorias(bpy.context, self.conj, (18, 18, 18, 18, 0),
             dict(quantidade=n, profundidade_mm=500, **p))
+
+    def estante(self, quantidade=1):
+        return P.criar_prateleiras(bpy.context, self.conj, (18,18,18,18,0),
+                                  dict(quantidade=quantidade, profundidade_mm=500))
+
+    def volume(self, obj):
+        bpy.context.view_layer.update()
+        avaliado = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(avaliado.data)
+            self.assertTrue(all(e.is_manifold for e in bm.edges))
+            return abs(bm.calc_volume()) * 1e9
+        finally:
+            bm.free()
+
+    def soma_prateleiras(self):
+        return sum(self.volume(o) for g in P.grupos_do_modulo(self.conj) for o in P.prateleiras_do_grupo(g))
+
+    def test_divisoria_rasa_deixa_vao_sem_exigir_profundidade_igual(self):
+        grupo=self.estante(); original=P.prateleiras_do_grupo(grupo)[0]
+        malha=original.data.as_pointer(); volume=self.volume(original)
+        D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300))
+        self.assertEqual(len(P.grupos_do_modulo(self.conj)),2)
+        self.assertEqual(original.data.as_pointer(),malha)
+        self.assertAlmostEqual(self.soma_prateleiras(),volume-18*500*18,delta=5)
+
+    def verificar_preenchimento(self, lado):
+        grupo=self.estante(); original=P.prateleiras_do_grupo(grupo)[0]
+        malha=original.data.as_pointer(); volume=self.volume(original)
+        d=D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300,preenchimento=lado))
+        self.assertEqual(original.data.as_pointer(),malha)
+        self.assertAlmostEqual(self.soma_prateleiras(),volume-18*300*18,delta=5)
+        grupos=sorted(P.grupos_do_modulo(self.conj),key=lambda g:g.matrix_basis.translation.x)
+        escolhido=grupos[0 if lado=='ESQUERDA' else 1]
+        obj=P.prateleiras_do_grupo(escolhido)[0]
+        modificador=next(m for m in obj.modifiers if m.type=='BOOLEAN')
+        self.assertIs(modificador.object,D.pecas(d)[0])
+        self.assertEqual(modificador.solver,'EXACT')
+        return d,volume
+
+    def test_prateleira_esquerda_preenche_so_a_lacuna_fora_da_divisoria(self):
+        self.verificar_preenchimento('ESQUERDA')
+
+    def test_prateleira_direita_preenche_so_a_lacuna_fora_da_divisoria(self):
+        self.verificar_preenchimento('DIREITA')
+
+    def test_boolean_nativo_acompanha_profundidade_editada(self):
+        d,volume=self.verificar_preenchimento('ESQUERDA')
+        self.assertIsNone(D.editar(bpy.context,d,'profundidade_mm',350))
+        self.assertAlmostEqual(self.soma_prateleiras(),volume-18*350*18,delta=5)
+
+    def test_preenchimento_com_modulo_rotacionado(self):
+        import math
+        self.conj.rotation_euler.z=math.radians(31)
+        bpy.context.view_layer.update()
+        self.verificar_preenchimento('ESQUERDA')
+
+    def test_preenchimento_com_modulo_espelhado(self):
+        self.conj.scale.x=-1
+        bpy.context.view_layer.update()
+        self.verificar_preenchimento('DIREITA')
+
+    def test_prateleira_criada_depois_da_divisoria_rasa_preenche_lacuna(self):
+        D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300,preenchimento='DIREITA'))
+        self.estante()
+        self.assertAlmostEqual(self.soma_prateleiras(),964*500*18-18*300*18,delta=5)
+
+    def test_encontro_coplanar_no_topo_da_prateleira_nao_corta_nem_recusa(self):
+        grupo=self.estante(); obj=P.prateleiras_do_grupo(grupo)[0]
+        _,alto=D._limites_malha(obj,self.conj.matrix_world)
+        coordenadas=[tuple(v.co) for v in obj.data.vertices]
+        D.criar_divisorias(bpy.context,self.conj,(18,18,alto.z-self.lo.z,18,0),dict(profundidade_mm=300))
+        self.assertEqual(len(P.grupos_do_modulo(self.conj)),1)
+        self.assertEqual([tuple(v.co) for v in obj.data.vertices],coordenadas)
+
+    def test_divisoria_parcial_na_espessura_usa_recorte_real(self):
+        grupo=self.estante(); obj=P.prateleiras_do_grupo(grupo)[0]
+        baixo,alto=D._limites_malha(obj,self.conj.matrix_world)
+        meio=(baixo.z+alto.z)/2
+        volume=self.volume(obj)
+        D.criar_divisorias(bpy.context,self.conj,(18,18,18,self.hi.z-meio,0),
+            dict(profundidade_mm=300,preenchimento='ESQUERDA'))
+        self.assertAlmostEqual(self.soma_prateleiras(),volume-18*300*9,delta=5)
+
+    def test_divisorias_em_alturas_diferentes_nao_exigem_vao_comum(self):
+        self.estante(3)
+        D.criar_divisorias(bpy.context,self.conj,(18,18,18,800,0),dict(profundidade_mm=300))
+        D.criar_divisorias(bpy.context,self.conj,(18,18,500,18,0),dict(profundidade_mm=300))
+        self.assertEqual(sum(len(P.prateleiras_do_grupo(g)) for g in P.grupos_do_modulo(self.conj)),6)
+
+    def test_gavetas_continuam_validando_travessia_antes_de_mutar(self):
+        self.sistemas(); nomes=set(bpy.data.objects.keys())
+        with self.assertRaisesRegex(ValueError,'profundidade'):
+            D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300))
+        self.assertEqual(set(bpy.data.objects.keys()),nomes)
+
+    def test_undo_redo_conserva_boolean_e_referencia_nativos(self):
+        self.estante(); nome_modulo=self.conj.name
+        bpy.ops.ed.undo_push(message='Antes do recorte parcial')
+        d=D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300,preenchimento='ESQUERDA'))
+        bpy.ops.ed.undo_push(message='Encaixe com preenchimento')
+        d=self.conj=None
+        bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+        self.conj=bpy.data.objects[nome_modulo]
+        self.assertEqual(len(P.grupos_do_modulo(self.conj)),1)
+        self.conj=None
+        bpy.ops.ed.redo();addon.eventos._fim_do_desfazer()
+        self.conj=bpy.data.objects[nome_modulo]
+        self.assertAlmostEqual(self.soma_prateleiras(),964*500*18-18*300*18,delta=5)
 
     def test_criar_divisorias_usa_assistente_e_snap_nativos(self):
         self.assertTrue(issubclass(D.OBJECT_OT_criar_divisorias, G.AssistenteDoVao))
@@ -264,7 +447,7 @@ class TestDivisorias(unittest.TestCase):
         self.assertEqual(addon.selecao._aba_da_selecao(bpy.context.object), 'DIVISORIAS')
         for largura in (190, 320, 482, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1600)
-            self.assertTrue(any(w[5] and w[5][0] == 'divisorias' for w in widgets))
+            self.assertTrue(any(w[5] == ('operador', 'object.cabinet_internos') for w in widgets))
             campos = [w for w in widgets if w[5] and w[5][:2] == ('medida', 'divisorias')]
             self.assertGreaterEqual(len(campos), 7)
             self.assertTrue(all(w[0] + w[2] <= min(largura - 12, 552) + .01 for w in campos))

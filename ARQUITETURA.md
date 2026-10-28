@@ -9,6 +9,8 @@ automatica do Codex segue o caminho ate' o diretorio de trabalho, nao links.
 
 | Pedido ou sintoma | Dono / entrada | Guia | Suites |
 |---|---|---|---|
+| Criar prateleiras/divisorias no mesmo volume, lacunas e continuidade | `areas_criacao.py`: sessao/perguntas; `divisorias/`: plano e recorte nativo | [Interface](planejamento/setores/interface/AGENTS.md) + [Divisorias](cabinet_creator/divisorias/AGENTS.md) | areas_criacao, divisorias, prateleiras, gaveta |
+| Definir area por tres pontos sem ordem/frente explicita ou caixa/plano livre | `areas_criacao.py`; HUD compartilhada e entrega aos assistentes atuais | [Interface](planejamento/setores/interface/AGENTS.md) + [Gavetas](cabinet_creator/gavetas/AGENTS.md) | areas_criacao, hud, gaveta, portas |
 | Malha, E, Tab, cotas A1..An, angulo individual | `chapas/`; `formas.py`, `geometria.py`, `frentes.py` | [Chapas](cabinet_creator/chapas/AGENTS.md) | formas, geometria, frentes, hud |
 | Caixa do armario, resize, pasta no Outliner, fundo/travessas | `modulos/`: `criar_armario`, `redimensionar_conjunto`, `ajustar_dependentes` | [Modulos](cabinet_creator/modulos/AGENTS.md) | armarios, operadores, hud |
 | Folha, vao, cobertura, abertura, puxador ou dobradica | `portas/`; `assistente.py`, `ferragens.py`, `puxadores.py`, `portas_viewport.py` | [Portas](cabinet_creator/portas/AGENTS.md) | portas, puxadores, frentes |
@@ -17,6 +19,7 @@ automatica do Codex segue o caminho ate' o diretorio de trabalho, nao links.
 | Quantidade, exclusao, vaos E1..En, redistribuir prateleiras | `prateleiras/`: `sincronizar_exclusoes`, `mover_vao`, `montar` | [Prateleiras](cabinet_creator/prateleiras/AGENTS.md) | prateleiras |
 | Dividir sistemas por uma chapa vertical | `divisorias/`: `criar_divisorias`, `particionar_grupo`, `atualizar_dependentes` | [Divisorias](cabinet_creator/divisorias/AGENTS.md) | divisorias, gavetas, prateleiras |
 | Menu esquerdo, clique/duplo/Alt, cotas e hover da viewport | `gaveta*.py`, `hud.py`, `selecao.py`, `eventos.py` | [Interface](planejamento/setores/interface/AGENTS.md) | gaveta, hud, estrutura, snapshot |
+| Editor Cabinet Creator, persistencia da area e comandos na cena | `editor.py`; layout/eventos em `gaveta*.py` | [Interface](planejamento/setores/interface/AGENTS.md) | editor, gaveta, biblioteca_faixa, estrutura |
 | Faixa de fotos, abas, rolagem, materiais | `biblioteca_faixa.py`, `materiais.py`; catalogo em `biblioteca.py` | [Interface](planejamento/setores/interface/AGENTS.md) + [Assets](cabinet_creator/biblioteca/AGENTS.md) | biblioteca_faixa, biblioteca |
 | Solda, ancora, gap, juntar/desvincular, comodo/orcamento | `solda.py`, `modulos/`, `paredes.py`, `orcamento.py` | [Montagem](planejamento/setores/montagem/AGENTS.md) | solda, hud, paredes, orcamento |
 | Selecionar parede por vertices/area/hover, isolamento e composicao 2D | `paredes_selecao.py`, `paredes_edicao.py`, `paredes_composicao.py`; vinculo em `paredes.py`, resize em `modulos/` | [Montagem](planejamento/setores/montagem/AGENTS.md) + [Interface](planejamento/setores/interface/AGENTS.md) | paredes_selecao, paredes_composicao, paredes_edicao, paredes, gaveta |

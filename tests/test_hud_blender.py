@@ -26,6 +26,58 @@ class _ContextoRegiao:
 
 
 class TestHUD(unittest.TestCase):
+    def editor_do_vao(self, espessura=18):
+        addon.eventos._fim_do_desfazer()
+        h=addon.hud;p=addon.prateleiras
+        modulo=addon.modulos.criar_armario(bpy.context,'Vao editavel',800,700,560)
+        grupo=p.criar_prateleiras(bpy.context,modulo,(18,18,18,18,0),dict(quantidade=2,espessura_mm=espessura))
+        p.selecionar(bpy.context,grupo,'GRUPO')
+        alvo=next(l for l in p.linhas_hud(grupo,[])[1] if l.get('face')==('V',1))
+        backup=h._estado_arraste_hud(bpy.context,alvo)
+        op=SimpleNamespace(_alvo=alvo,_area=SimpleNamespace(tag_redraw=lambda:None),
+            _backup=backup,_backups=[backup],_arrastou=False,report=lambda *a:None)
+        classe=h.OBJECT_OT_arrastar_hud
+        op._rolar_prateleiras=lambda c,e:classe._rolar_prateleiras(op,c,e)
+        op._digitar=lambda c,e:classe._digitar(op,c,e)
+        op._encerrar=lambda:classe._encerrar(op)
+        op.cancel=lambda c:classe.cancel(op,c)
+        h._edicao_hud[0]=dict(regiao=4242,alvo=alvo,texto='200',cursor=3,selecionado=True)
+        self.addCleanup(h._edicao_hud.__setitem__,0,None)
+        return grupo,op
+
+    def test_scroll_da_cota_altera_quantidade_local_e_enter_confirma_sem_mudar_distancia(self):
+        p=addon.prateleiras;h=addon.hud;grupo,op=self.editor_do_vao()
+        evento=SimpleNamespace(type='WHEELUPMOUSE',value='PRESS')
+        for n in (1,2):
+            self.assertEqual(h.OBJECT_OT_arrastar_hud.modal(op,bpy.context,evento),{'RUNNING_MODAL'})
+            self.assertEqual(len(p.prateleiras_do_grupo(grupo)),2+n)
+            self.assertEqual(h._edicao_hud[0]['texto'],str(n))
+        evento.type='RET'
+        with patch.object(h,'_aplicar_valor_hud',side_effect=AssertionError('Tratou quantidade como distancia')):
+            self.assertEqual(h.OBJECT_OT_arrastar_hud.modal(op,bpy.context,evento),{'FINISHED'})
+        self.assertIsNone(h._edicao_hud[0])
+        self.assertEqual(p.parametros(grupo)['quantidade'],4)
+
+    def test_esc_da_cota_remove_previa_e_restaura_mesmas_prateleiras(self):
+        p=addon.prateleiras;h=addon.hud;grupo,op=self.editor_do_vao()
+        antes=p.copia(grupo)
+        originais={o.name:(o.matrix_world.copy(),o.data.as_pointer()) for o in p.prateleiras_do_grupo(grupo)}
+        evento=SimpleNamespace(type='WHEELUPMOUSE',value='PRESS')
+        h.OBJECT_OT_arrastar_hud.modal(op,bpy.context,evento)
+        evento.type='ESC'
+        self.assertEqual(h.OBJECT_OT_arrastar_hud.modal(op,bpy.context,evento),{'CANCELLED'})
+        self.assertEqual(p.copia(grupo),antes)
+        self.assertEqual({o.name:(o.matrix_world,o.data.as_pointer()) for o in p.prateleiras_do_grupo(grupo)},originais)
+
+    def test_scroll_sem_espaco_nao_muda_digitacao_de_distancia_para_quantidade(self):
+        h=addon.hud;p=addon.prateleiras;grupo,op=self.editor_do_vao(180)
+        antes=p.copia(grupo)
+        evento=SimpleNamespace(type='WHEELUPMOUSE',value='PRESS')
+        h.OBJECT_OT_arrastar_hud.modal(op,bpy.context,evento)
+        self.assertFalse(getattr(op,'_subdivisao_vao',None))
+        self.assertEqual(h._edicao_hud[0]['texto'],'200')
+        self.assertEqual(p.copia(grupo),antes)
+
     def test_edicao_solda_bloqueia_hud_geometria_e_restaura_ao_terminar(self):
         s=addon.solda;o,n,w=self._nova_solda_manual()
         contexto=_ContextoRegiao();contexto.region=SimpleNamespace(type='WINDOW',as_pointer=lambda:4242)
@@ -1272,6 +1324,60 @@ class TestHUD(unittest.TestCase):
         modulo = bpy.context.object
         bpy.context.view_layer.update()
         return modulo
+
+    def test_delete_com_referencia_id_nao_poem_orfao_na_selecao_ou_tab(self):
+        # Regressao (era BUG, corrigido na 369): children_recursive inclui ID sem cena.
+        modulo = self.modulo()
+        peca, outra = addon.modulos._chapas_do_conjunto(modulo)[:2]
+        nome = peca.name
+        referencia = bpy.data.objects.new('Referencia preservada', None)
+        bpy.context.scene.collection.objects.link(referencia)
+        referencia['peca'] = peca
+        bpy.ops.object.select_all(action='DESELECT')
+        peca.select_set(True)
+        bpy.context.view_layer.objects.active = peca
+        bpy.ops.object.delete()
+        self.assertIn(nome, bpy.data.objects)
+        self.assertNotIn(nome, bpy.context.view_layer.objects)
+        self.assertIn(peca, modulo.children_recursive)
+        addon.hud._selecionar_chapa_hud(bpy.context, outra)
+        self.assertIs(bpy.context.object, modulo)
+        self.assertTrue(outra.select_get())
+        self.assertNotIn(peca, addon.hud._familia_do_clique(outra))
+        self.assertNotIn(peca, addon.selecao.malhas_para_editar(bpy.context))
+        addon.hud._somar_peca(bpy.context, outra, duplo=True)
+        self.assertIs(bpy.context.object, outra)
+        self.assertIs(referencia['peca'], bpy.data.objects[nome])
+
+    def test_grupo_nao_seleciona_colecao_excluida_da_camada(self):
+        modulo = self.modulo()
+        peca, outra = addon.modulos._chapas_do_conjunto(modulo)[:2]
+        colecao = bpy.data.collections.new('Peca em camada excluida')
+        bpy.context.scene.collection.children.link(colecao)
+        self.addCleanup(bpy.data.collections.remove, colecao)
+        colecao.objects.link(peca)
+        for c in list(peca.users_collection):
+            if c != colecao:
+                c.objects.unlink(peca)
+        bpy.context.view_layer.layer_collection.children[colecao.name].exclude = True
+        bpy.context.view_layer.update()
+        self.assertIn(peca.name, bpy.context.scene.objects)
+        self.assertNotIn(peca.name, bpy.context.view_layer.objects)
+        addon.hud._selecionar_chapa_hud(bpy.context, outra)
+        self.assertIs(bpy.context.object, modulo)
+        self.assertNotIn(peca, addon.hud._familia_do_clique(outra))
+        self.assertTrue(bpy.context.view_layer.layer_collection.children[colecao.name].exclude)
+
+    def test_pai_fora_da_camada_conserva_a_peca_clicada_como_ativa(self):
+        modulo = self.modulo()
+        peca = addon.modulos._chapas_do_conjunto(modulo)[0]
+        for c in list(modulo.users_collection):
+            c.objects.unlink(modulo)
+        bpy.context.view_layer.update()
+        addon.hud._selecionar_chapa_hud(bpy.context, peca)
+        self.assertIs(bpy.context.object, peca)
+        self.assertTrue(peca.select_get())
+        self.assertNotIn(modulo.name, bpy.context.view_layer.objects)
 
     def _volume_contexto(self):
         contexto = _ContextoRegiao()
