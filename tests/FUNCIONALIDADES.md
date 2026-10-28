@@ -1215,3 +1215,13 @@ ligado; circulos de face com raio 2 px/hover 3 px, area de clique preservada.
 - Auditoria headless em cena descartavel, comparacao antes/depois com arestas numericas da HUD renderizadas: erro maximo anterior 80 mm, corrigido 0 mm. O projeto aberto e a biblioteca real nao foram editados. Gestos de interface ao vivo nao executados nesta entrega.
 - AGENTS.md/CLAUDE.md da raiz e dos testes explicitam teste automatizado no mesmo commit para todo bug corrigido, com falha antes da correcao e sucesso depois.
 - Validacao final: HUD 192 e gavetas 62 por versao; harness completo Blender 4.2/5.2, 2946 testes em 64 execucoes, tudo OK. Pacote 380 conferido com os 39 arquivos Python identicos ao fonte.
+
+## Fechamento vertical com chapa de moldura (v381)
+
+- `test_tab_afina_moldura_gira_vertical_e_hud_acompanha_malha`: chapa marcada como moldura, 649 x 2531 x 15 mm, cache aquecido; Tab afina X para 64.9 mm fora do centro e R gira 90 graus. Saida atualiza medidas e caixa da HUD sobre arestas reais; conserva Mesh, coordenadas mundiais e parametros do grupo da porta. Reproducao da falha antiga com expectedFailure antes da correcao: molduras eram excluidas da absorcao.
+- `test_moldura_ja_editada_corrige_limites_no_timer_sem_novo_tab`: geometria ja' alterada e nenhuma transicao de Edit Mode guardada, como ao reabrir uma cena; o timer reconhece a divergencia pela bound_box nativa e recupera as medidas. Tambem reproduzido como falha esperada no codigo anterior.
+- `test_fechamento_mais_estreito_que_E_mantem_contorno_e_espessura`: largura 3 mm e E 15 mm, sem trocar eixos nem engrossar a peca.
+- `test_moldura_sincronizada_nao_reextrai_malha_a_cada_timer`: tres verificacoes sem mudanca nao absorvem nem reconhecem a malha novamente.
+- `test_undo_redo_do_fechamento_vertical_conserva_cotas_e_geometria`: tres ciclos nativos de undo/redo retornam entre a largura original e a afinada, com contorno real e E preservada.
+- Auditoria visual headless com as coordenadas reais da HUD: antes, moldura estreita dentro da caixa de 649 mm; depois, contorno acompanha os 64.9 mm da madeira. Cena descartavel; projeto aberto e biblioteca real preservados. Gestos na interface ao vivo nao executados.
+- Validacao final: HUD 197 por versao; harness completo Blender 4.2/5.2 com 2956 testes em 64 execucoes, tudo OK. Pacote 381 conferido com 39 arquivos Python identicos ao fonte; espelhos e limites dos guias conferidos.

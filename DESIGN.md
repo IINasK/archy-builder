@@ -205,6 +205,8 @@ O mini-wireframe da gaveta foi descontinuado; os campos continuam nela.
 Na chapa individual com peles editadas separadamente (380), contorno e
 cotas usam as arestas reais de cada pele, sem projetar o perfil no verso.
 E continua nominal quando a secao nao permite medir espessura uniforme.
+Moldura afinada/girada por Tab (381) atualiza cotas e centro pela malha,
+preservando a madeira no mundo e os parametros do grupo da porta.
 
 A HUD e seus eventos so' funcionam em Object Mode. Clique seleciona o
 modulo; duplo clique na mesma chapa isola essa chapa. Shift soma, como

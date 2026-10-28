@@ -34,6 +34,9 @@ Referencia das frentes: [FRONTES.md](../../FRONTES.md).
 - Tab (380): peles sem correspondencia XY usam arestas estruturais nativas
   no cache de secao, com UID EDGE; nunca extrudar um perfil no verso distinto.
   Cotas seguem o comprimento real; E nominal permanece na secao ambigua.
+- Fechamento (381): moldura tambem absorve Tab, sem reconstruir a Mesh nem
+  editar parametros da porta. Timer recupera medidas antigas divergentes
+  pela bound_box nativa; peca sincronizada nao repete extracao da malha.
 - Deslocamento transversal da linha media MAIOR que E recebe cota propria
   (ex.: A6), sem engrossar a madeira; arraste/Esc conserva referencia original.
 - `normalizar_chapas` adia escala herdada de modulo ainda escalado: o

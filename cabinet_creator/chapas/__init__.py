@@ -714,8 +714,8 @@ def absorver_edicoes_de_malha():
 
     A HUD, a gaveta e a adjacencia leem as PROPS, nao a malha. Esticar
     um lado no Modo Edicao deixava o contorno da HUD com a medida velha
-    (print do usuario). Olha so' a TRANSICAO: chapa importada com malha
-    fora do centro e que ninguem editou nao tem a origem mexida.
+    (print do usuario). Chapas comuns usam so' a transicao; molduras
+    tambem recuperam medidas antigas divergentes pela caixa nativa.
     """
     agora, saidas = set(), []
     for obj in bpy.data.objects:
@@ -726,6 +726,17 @@ def absorver_edicoes_de_malha():
             agora.add(obj.name)
         elif obj.name in _chapas_em_edicao:
             saidas.append(obj)
+        elif (MARCA_MOLDURA in obj and not obj.get('chapa_rebaixos')
+                and obj.data.vertices and not obj.data.is_editmode
+                and all(abs(s-1)<1e-6 for s in obj.scale)):
+            # Cenas ja' editadas perderam a transicao do Tab. A caixa
+            # nativa permite reconhecer a divergencia sem reler a malha.
+            lo,hi=(Vector(obj.bound_box[i]) for i in (0,6))
+            tamanho=(hi-lo)*1000
+            if (abs(tamanho.x-obj.chapa_largura_mm)>.01
+                    or abs(tamanho.y-obj.chapa_comprimento_mm)>.01
+                    or (lo+hi).length>2e-7):
+                saidas.append(obj)
     anteriores = _chapas_em_edicao.copy()
     _chapas_em_edicao.clear()
     _chapas_em_edicao.update(agora)
@@ -790,7 +801,7 @@ def absorver_malha_editada(obj, reorientar=True):
     Devolve True se mudou algo.
     """
     if (obj.mode == 'EDIT' or obj.data.is_editmode or
-            MARCA_FOLHA in obj or MARCA_MOLDURA in obj or obj.get('chapa_rebaixos')
+            MARCA_FOLHA in obj or obj.get('chapa_rebaixos')
             or not obj.data.vertices
             or any(abs(s - 1.0) > 1e-6 for s in obj.scale)):
         return False

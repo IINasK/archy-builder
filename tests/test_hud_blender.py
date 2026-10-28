@@ -1078,6 +1078,79 @@ class TestHUD(unittest.TestCase):
     def test_tab_em_canto_da_chapa_plana_mantem_cotas_nas_arestas_reais(self):
         self._conferir_cotas_na_malha(self._chapa_com_pele_editada_por_tab())
 
+    def _moldura_afinada_para_fechamento(self,registrar_tab=True,fator=.1,guardar_undo=False):
+        grupo=bpy.data.objects.new('Porta com moldura',None)
+        bpy.context.scene.collection.objects.link(grupo)
+        grupo[addon.chapas.MARCA_PORTAS]=1
+        grupo['porta_parametros']=dict(moldura_mm=15.,largura_mm=649.,altura_mm=2531.)
+        o=addon.chapas.nova_chapa('Moldura para fechamento',649,2531,15,
+            (0,0,0),(0,0,0),bpy.context)
+        o[addon.chapas.MARCA_MOLDURA]=1;o.parent=grupo
+        for outro in bpy.context.selected_objects:outro.select_set(False)
+        o.select_set(True);bpy.context.view_layer.objects.active=o
+        addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        if guardar_undo:bpy.ops.ed.undo_push(message='Moldura antes do fechamento')
+        bpy.ops.object.mode_set(mode='EDIT')
+        if registrar_tab:addon.chapas.absorver_edicoes_de_malha()
+        bm=bmesh.from_edit_mesh(o.data)
+        for v in bm.verts:v.co.x=v.co.x*fator-.15
+        bmesh.update_edit_mesh(o.data)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.transform.rotate(value=math.pi/2,orient_axis='X',orient_type='GLOBAL')
+        bpy.context.view_layer.update()
+        return o,grupo
+
+    # Regressao (era BUG, corrigido na 381): moldura conservava caixa de 649 mm.
+    def test_tab_afina_moldura_gira_vertical_e_hud_acompanha_malha(self):
+        o,grupo=self._moldura_afinada_para_fechamento()
+        malha=o.data;mundo=[o.matrix_world@v.co for v in malha.vertices]
+        parametros=grupo['porta_parametros'].to_dict()
+        addon.chapas.absorver_edicoes_de_malha();bpy.context.view_layer.update()
+        self.assertAlmostEqual(o.chapa_largura_mm,64.9,places=3)
+        self.assertAlmostEqual(o.chapa_comprimento_mm,2531,places=3)
+        self.assertAlmostEqual(o.chapa_espessura_mm,15,places=3)
+        self._conferir_cotas_na_malha(o)
+        self.assertEqual(grupo['porta_parametros'].to_dict(),parametros)
+        self.assertIs(o.data,malha)
+        for p,v in zip(mundo,malha.vertices):self.assertLess((p-o.matrix_world@v.co).length,1e-6)
+
+    # Regressao (era BUG, corrigido na 381): cena antiga nao tinha transicao Tab.
+    def test_moldura_ja_editada_corrige_limites_no_timer_sem_novo_tab(self):
+        o,grupo=self._moldura_afinada_para_fechamento(registrar_tab=False)
+        addon.chapas._chapas_em_edicao.clear()
+        addon.frentes.preparar(o)
+        addon.chapas.absorver_edicoes_de_malha()
+        self.assertAlmostEqual(o.chapa_largura_mm,64.9,places=3)
+        self._conferir_cotas_na_malha(o)
+
+    def test_fechamento_mais_estreito_que_E_mantem_contorno_e_espessura(self):
+        o,grupo=self._moldura_afinada_para_fechamento(fator=3/649)
+        addon.chapas.absorver_edicoes_de_malha()
+        self.assertAlmostEqual(o.chapa_largura_mm,3,places=3)
+        self.assertAlmostEqual(o.chapa_espessura_mm,15,places=3)
+        self._conferir_cotas_na_malha(o)
+
+    def test_moldura_sincronizada_nao_reextrai_malha_a_cada_timer(self):
+        o,grupo=self._moldura_afinada_para_fechamento()
+        addon.chapas.absorver_edicoes_de_malha()
+        with patch.object(addon.chapas,'absorver_malha_editada',side_effect=AssertionError('Absorveu sem mudanca')), \
+             patch.object(addon.frentes,'preparar',side_effect=AssertionError('Reextraiu sem mudanca')):
+            for _ in range(3):addon.chapas.absorver_edicoes_de_malha()
+
+    def test_undo_redo_do_fechamento_vertical_conserva_cotas_e_geometria(self):
+        o,grupo=self._moldura_afinada_para_fechamento(guardar_undo=True);nome=o.name
+        addon.chapas.absorver_edicoes_de_malha()
+        bpy.ops.ed.undo_push(message='Fechamento vertical confirmado')
+        o=grupo=None
+        for _ in range(3):
+            for operacao,largura in ((bpy.ops.ed.undo,649),(bpy.ops.ed.redo,64.9)):
+                operacao();addon.eventos._fim_do_desfazer();bpy.context.view_layer.update()
+                addon.chapas.absorver_edicoes_de_malha();addon.frentes.processar_pendentes()
+                o=bpy.data.objects[nome]
+                self.assertAlmostEqual(o.chapa_largura_mm,largura,places=3)
+                self.assertAlmostEqual(o.chapa_espessura_mm,15,places=3)
+                self._conferir_cotas_na_malha(o);o=None
+
     def test_seta_do_topo_editado_segue_a_aresta_clicada(self):
         o=self._chapa_com_pele_editada_por_tab();h=addon.hud
         geo=self._conferir_cotas_na_malha(o)
