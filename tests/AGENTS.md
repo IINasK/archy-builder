@@ -35,7 +35,9 @@ liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
 
 ## Regras
 
-Cada bug corrigido exige cenario reproduzivel que demonstre a falha antiga.
+Todo bug corrigido exige teste automatizado de regressao no mesmo commit:
+cenario reproduzivel que falhe antes da correcao e passe depois. Registrar
+em FUNCIONALIDADES.md; sem esse teste, a correcao nao esta' concluida.
 Cada melhoria exige cenario com parametros e resultados esperados. Criar
 cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 

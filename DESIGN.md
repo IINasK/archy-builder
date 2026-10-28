@@ -202,6 +202,10 @@ os campos de medidas e a edicao continuam disponiveis.
 A representacao do armario agora vive na viewport principal: `gpu`
 em `POST_VIEW` desenha os contornos e `blf` em `POST_PIXEL` as letras.
 O mini-wireframe da gaveta foi descontinuado; os campos continuam nela.
+Na chapa individual com peles editadas separadamente (380), contorno e
+cotas usam as arestas reais de cada pele, sem projetar o perfil no verso.
+E continua nominal quando a secao nao permite medir espessura uniforme.
+
 A HUD e seus eventos so' funcionam em Object Mode. Clique seleciona o
 modulo; duplo clique na mesma chapa isola essa chapa. Shift soma, como
 no Blender (`_somar_peca`): Shift+clique soma o grupo inteiro, ou so' a

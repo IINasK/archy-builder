@@ -2006,7 +2006,7 @@ class AssistenteDoVao:
     def _mouse(self, event):
         return Vector((event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y))
 
-    def _iniciar_snap_nativo(self,context):
+    def _iniciar_snap_nativo(self,context,por_tecla=False):
         w=self._w
         if _snap_criacao[0] is not None:return
         with context.temp_override(area=self._area,region=self._regiao):
@@ -2022,10 +2022,12 @@ class AssistenteDoVao:
             if ponto is None:ponto=context.scene.cursor.location.copy()
             context.scene.cursor.location=ponto
             self._area.spaces.active.overlay.show_cursor=False
-            elementos = ('VERTEX', 'EDGE_MIDPOINT', 'FACE') if w.get('volume_3d') else ('VERTEX','EDGE_MIDPOINT')
+            elementos = ('VERTEX', 'EDGE_MIDPOINT', 'FACE') if w.get('volume_3d') and not por_tecla else ('VERTEX','EDGE_MIDPOINT')
             params=dict(cursor_transform=True,snap=True,snap_elements=set(w.get('elementos_snap', elementos)),
                         snap_target='CENTER',snap_align=False,use_snap_selectable=True)
-            if w.get('soltar_confirma'):params['release_confirm']=True
+            if w.get('soltar_confirma'):
+                # Soltar B so' arma o encaixe; o clique seguinte confirma o ponto.
+                params['release_confirm']=not por_tecla
             if w['etapa']=='PROFUNDIDADE':
                 _d,matriz=self._dados()
                 params.update(orient_type='GLOBAL',orient_matrix_type='GLOBAL',
@@ -2326,6 +2328,12 @@ class AssistenteDoVao:
             self._recado_quantidade()
             self._area.header_text_set(w['recado'])
             self._area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if (w.get('volume_3d') and dentro and event.type == 'B' and event.value == 'PRESS'
+                and w['etapa'] in ('CANTO1', 'CANTO2', 'CANTO3')):
+            self._atualizar_ponto(context, mouse)
+            if w.get('cursor') is not None:
+                self._iniciar_snap_nativo(context,por_tecla=True)
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE' or event.type in {'LEFT_ALT', 'RIGHT_ALT'}:
             w['mouse'] = mouse

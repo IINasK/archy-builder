@@ -1039,6 +1039,129 @@ class TestHUD(unittest.TestCase):
         geo=self._conferir_bordas_reais(o,4)
         self.assertEqual(len({l['rotulo'] for l in geo['linhas'] if l.get('rotulo')}),6)
 
+    def _chapa_com_pele_editada_por_tab(self):
+        o=addon.chapas.nova_chapa('Lateral com topo editado',600,2000,18,
+            (0,0,0),(90,0,0),bpy.context)
+        for outro in bpy.context.selected_objects:outro.select_set(False)
+        o.select_set(True);bpy.context.view_layer.objects.active=o
+        addon.frentes.preparar(o)
+        addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        malha=o.data
+        bpy.ops.object.mode_set(mode='EDIT')
+        addon.chapas.absorver_edicoes_de_malha()
+        bm=bmesh.from_edit_mesh(malha)
+        for v in bm.verts:
+            if v.co.x<0 and v.co.y>0 and v.co.z>0:v.co.y+=.08
+        bmesh.update_edit_mesh(malha)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        addon.chapas.absorver_edicoes_de_malha()
+        bpy.context.view_layer.update()
+        self.assertIs(o.data,malha)
+        self.assertAlmostEqual(o.chapa_espessura_mm,18,places=3)
+        return o
+
+    def _conferir_cotas_na_malha(self,o):
+        malha=o.data
+        geo=addon.hud._geometria_do_item(o,'INDIVIDUAL',[o])
+        reais=[o.matrix_world@v.co for v in malha.vertices]
+        arestas=[(reais[e.vertices[0]],reais[e.vertices[1]]) for e in malha.edges]
+        for linha in geo['linhas']:
+            if linha.get('angulo') or linha['tipo']=='deslocamento':continue
+            a,b=linha['pontos']
+            erro=min(min((a-p).length+(b-q).length,(a-q).length+(b-p).length) for p,q in arestas)
+            self.assertLess(erro,1e-6,'Cota fora da chapa apos Tab: '+str(linha))
+            if linha['tipo']=='aresta':
+                self.assertAlmostEqual(addon.hud._valor_hud(linha),(b-a).length*1000,places=3)
+        return geo
+
+    # Regressao (era BUG, corrigido na 380): Tab de uma pele projetava a outra.
+    def test_tab_em_canto_da_chapa_plana_mantem_cotas_nas_arestas_reais(self):
+        self._conferir_cotas_na_malha(self._chapa_com_pele_editada_por_tab())
+
+    def test_seta_do_topo_editado_segue_a_aresta_clicada(self):
+        o=self._chapa_com_pele_editada_por_tab();h=addon.hud
+        geo=self._conferir_cotas_na_malha(o)
+        contexto=SimpleNamespace(preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=1)))
+        projetar=lambda _c,p:Vector((p.x*1000,p.z*1000))
+        for linha in geo['linhas']:
+            if linha['tipo']!='aresta':continue
+            with patch.object(h,'gpu'),patch.object(h,'batch_for_shader'), \
+                 patch.object(h,'_projetar_hud',side_effect=projetar), \
+                 patch.object(h,'_triangulos_seta_hud',return_value=[]) as seta:
+                h._desenhar_seta_hud(contexto,dict(linha,lado='min'),geo)
+                if (projetar(None,linha['pontos'][1])-projetar(None,linha['pontos'][0])).length<1:continue
+                seta.assert_called_once()
+                a,b=seta.call_args.args[:2]
+                self.assertEqual(a,projetar(None,linha['pontos'][0]))
+                self.assertEqual(b,projetar(None,linha['pontos'][1]))
+
+    def test_contorno_com_peles_diferentes_e_cache_sem_extracao_no_redraw(self):
+        o=self._chapa_com_pele_editada_por_tab()
+        malha=o.data;uv=malha.uv_layers.new(name='UV preservada')
+        material=bpy.data.materials.new('Material preservado');malha.materials.append(material)
+        antes=([tuple(v.co) for v in malha.vertices], [tuple(f.vertices) for f in malha.polygons],
+            [tuple(v.uv) for v in uv.data],o.matrix_world.copy())
+        with patch.object(addon.chapas.bmesh,'new',side_effect=AssertionError('BMesh no redraw')), \
+             patch.object(addon.formas,'forma_do_modulo',side_effect=AssertionError('Perfil no redraw')):
+            for _ in range(3):geo=self._conferir_cotas_na_malha(o)
+        self.assertIs(o.data,malha)
+        self.assertEqual(antes,([tuple(v.co) for v in malha.vertices], [tuple(f.vertices) for f in malha.polygons],
+            [tuple(v.uv) for v in uv.data],o.matrix_world))
+        self.assertIs(malha.materials[0],material)
+        campos=addon.hud.campos_cotas(o,'INDIVIDUAL',[o])
+        self.assertEqual(len(campos),len({l['rotulo'] for l in geo['linhas']}))
+
+    def test_segundo_tab_sem_mudar_envelope_atualiza_as_cotas_reais(self):
+        o=self._chapa_com_pele_editada_por_tab()
+        antes=addon.chapas._secao_espessura(o.data)
+        self.assertIsNone(antes)
+        digital=o.data[addon.chapas.CHAVE_ESPESSURA]['digital']
+        medidas=(o.chapa_largura_mm,o.chapa_comprimento_mm,o.chapa_espessura_mm)
+        bpy.ops.object.mode_set(mode='EDIT');addon.chapas.absorver_edicoes_de_malha()
+        bm=bmesh.from_edit_mesh(o.data)
+        max(bm.verts,key=lambda v:v.co.y).co.x+=.02
+        bmesh.update_edit_mesh(o.data)
+        bpy.ops.object.mode_set(mode='OBJECT');addon.chapas.absorver_edicoes_de_malha()
+        self.assertEqual(medidas,(o.chapa_largura_mm,o.chapa_comprimento_mm,o.chapa_espessura_mm))
+        self.assertNotEqual(digital,o.data[addon.chapas.CHAVE_ESPESSURA]['digital'])
+        self._conferir_cotas_na_malha(o)
+
+    def test_cota_real_de_pele_editada_preserva_mesh_e_undo_redo(self):
+        o=self._chapa_com_pele_editada_por_tab();nome=o.name;malha=o.data
+        geo=self._conferir_cotas_na_malha(o)
+        alvo=next(l for l in geo['linhas'] if l['tipo']=='aresta'
+            and abs((l['pontos'][1]-l['pontos'][0]).z)>.05
+            and abs((l['pontos'][1]-l['pontos'][0]).x)>.5)
+        chave=addon.hud.chave_cota(alvo);valor=addon.hud._valor_hud(alvo)
+        antes=[o.matrix_world@v.co for v in malha.vertices]
+        bpy.ops.ed.undo_push(message='Antes da cota de pele editada')
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,valor+20)
+        self.assertIs(o.data,malha)
+        self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,chave)),valor+20,places=3)
+        self.assertEqual(sum((o.matrix_world@v.co-p).length>1e-6 for v,p in zip(malha.vertices,antes)),2)
+        self._conferir_cotas_na_malha(o)
+        bpy.ops.ed.undo_push(message='Depois da cota de pele editada')
+        o=None;malha=None;alvo=None;geo=None
+        for operacao,esperado in ((bpy.ops.ed.undo,valor),(bpy.ops.ed.redo,valor+20)):
+            operacao();addon.eventos._fim_do_desfazer();bpy.context.view_layer.update()
+            addon.frentes.processar_pendentes()
+            o=bpy.data.objects[nome]
+            self.assertAlmostEqual(addon.hud._valor_hud(addon.hud.alvo_cota(o,chave)),esperado,places=3)
+            self.assertAlmostEqual(o.chapa_espessura_mm,18,places=3)
+            self._conferir_cotas_na_malha(o);o=None
+
+    def test_cota_de_pele_editada_isola_mesh_compartilhada_so_apos_validar(self):
+        o=self._chapa_com_pele_editada_por_tab();malha=o.data
+        copia=o.copy();bpy.context.scene.collection.objects.link(copia)
+        antes=[tuple(v.co) for v in malha.vertices]
+        with self.assertRaises(ValueError):addon.chapas.definir_aresta(o,999999,700)
+        self.assertIs(o.data,malha)
+        alvo=next(l for l in self._conferir_cotas_na_malha(o)['linhas'] if l['tipo']=='aresta')
+        addon.hud._aplicar_valor_hud(bpy.context,alvo,addon.hud._valor_hud(alvo)+20)
+        self.assertIsNot(o.data,malha);self.assertIs(copia.data,malha)
+        self.assertEqual(antes,[tuple(v.co) for v in copia.data.vertices])
+        self._conferir_cotas_na_malha(o)
+
     def test_chanfro_com_desvio_usa_as_duas_peles_reais(self):
         o=self._chapa_com_deslocamento()
         self._conferir_bordas_reais(o,5)

@@ -31,6 +31,9 @@ Referencia das frentes: [FRONTES.md](../../FRONTES.md).
   nao vira espessura; secao ambigua conserva E nominal; resize conserva linha media.
 - Angulos/contorno real so' na CHAPA INDIVIDUAL selecionada, pelo plano local
   da face. Outra chapa, porta ou modulo nao acompanha essa edicao.
+- Tab (380): peles sem correspondencia XY usam arestas estruturais nativas
+  no cache de secao, com UID EDGE; nunca extrudar um perfil no verso distinto.
+  Cotas seguem o comprimento real; E nominal permanece na secao ambigua.
 - Deslocamento transversal da linha media MAIOR que E recebe cota propria
   (ex.: A6), sem engrossar a madeira; arraste/Esc conserva referencia original.
 - `normalizar_chapas` adia escala herdada de modulo ainda escalado: o

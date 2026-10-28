@@ -78,6 +78,12 @@ e recorta secoes numericas em cache, sem varrer malhas no redesenho.
 Na chapa isolada o solver usa seu plano local e separa usuarios da Mesh;
 ao sair de Tab o cache das tres secoes e' invalidado conjuntamente.
 
+Na 380, editar apenas uma pele pode deixar frente e verso com perimetros
+diferentes. Nesse caso a HUD individual usa as arestas estruturais reais,
+com UID EDGE e coordenadas no cache de secao; nao extruda o perfil de
+uma pele sobre a outra. A medida nominal de E nao usa o envelope ambiguo.
+Redraw e hover continuam apenas numericos, sem extracao de BMesh/CDT.
+
 Na 257, formatos obliquos livres sem classificacao parametrica usam a
 uniao nativa `delaunay_2d_cdt` para encontrar os limites reais. Somente
 arestas estruturais da malha, sem diagonais coplanares de triangulacao,

@@ -115,6 +115,36 @@ class TestGavetas(unittest.TestCase):
         self.assertFalse(G.evento_de_navegacao(contexto,evento))
         self.assertEqual(combinar.call_count,7)
 
+    # Regressao (era BUG, corrigido na 380): B era consumido entre cliques.
+    def test_b_ativa_snap_nativo_nos_tres_pontos_sem_confirmar_ao_soltar_tecla(self):
+        self.conj.select_set(True)
+        bpy.context.view_layer.objects.active = self.conj
+        for aba in ('PRATELEIRAS', 'DIVISORIAS', 'GAVETAS'):
+            op = self.invocar_assistente()
+            op.ABA = aba
+            for etapa in ('CANTO1', 'CANTO2', 'CANTO3'):
+                with self.subTest(aba=aba, etapa=etapa):
+                    op._w['etapa'] = etapa
+                    evento = SimpleNamespace(type='B', value='PRESS',
+                        mouse_x=op._regiao.x+80, mouse_y=op._regiao.y+80)
+                    ponto = Vector((-.382, -.28, .682))
+                    def apontar(*args):
+                        op._w.update(cursor=ponto, cursor_obj=None)
+                    with patch.object(op, '_atualizar_ponto', side_effect=apontar), \
+                         self.substituir_macro(Mock(return_value={'RUNNING_MODAL'})) as falso:
+                        self.assertEqual(op._modal(bpy.context, evento), {'RUNNING_MODAL'})
+                        falso.ops.object.cabinet_marcar_ponto_vao.assert_called_once()
+                        params = falso.ops.object.cabinet_marcar_ponto_vao.call_args.kwargs['TRANSFORM_OT_translate']
+                        self.assertTrue(params['snap'])
+                        self.assertEqual(params['snap_elements'], {'VERTEX', 'EDGE_MIDPOINT'})
+                        self.assertFalse(params['release_confirm'])
+                    self.assertTrue(op._w['snap_pendente'])
+                    self.assertEqual(op._w['etapa'], etapa)
+                    self.assertEqual(op._w['pontos'], [])
+                    G._terminar_snap_criacao()
+                    op._w['snap_pendente'] = False
+            op.cancel(bpy.context)
+
     def test_hover_atualiza_previa_sem_abrir_gesto_e_scroll_com_shift_navega(self):
         bpy.context.view_layer.objects.active = self.conj
         self.conj.select_set(True)

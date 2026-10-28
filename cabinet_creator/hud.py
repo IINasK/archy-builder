@@ -509,6 +509,19 @@ def _geometria_do_item(obj, modo, chapas):
                 'cantos': cantos, 'linhas': linhas}
     secao=(obj.data.get(_chapas.CHAVE_ESPESSURA) if modo=='INDIVIDUAL'
            and obj.type=='MESH' and _chapas.MARCA_CHAPA in obj else None)
+    if secao and secao.get('arestas'):
+        cantos=[];linhas=[]
+        for uid,aresta in secao['arestas'].items():
+            pontos=[obj.matrix_world@Vector(p) for p in aresta['pontos']]
+            cantos.extend(pontos)
+            linha=dict(objeto=obj,modo=modo,chapas=chapas,seta_real=True,pontos=pontos)
+            if aresta['espessura']:
+                linha.update(tipo='medida',eixo=2,letra='E',borda_real=('E',int(uid)))
+            else:
+                linha.update(tipo='aresta',face=(int(uid),),letra='BORDA')
+            linhas.append(linha)
+        _numerar_cotas(linhas)
+        return dict(objeto=obj,modo=modo,chapas=chapas,cantos=cantos,linhas=linhas)
     if secao and secao.get('dobrada') and secao.get('bordas'):
         cantos,linhas=_linhas_da_secao(obj,chapas,secao)
         _numerar_cotas(linhas)
@@ -1697,7 +1710,12 @@ def _propriedade_hud(alvo):
 
 def _valor_hud(alvo, context=None):
     if alvo['tipo']=='aresta':
-        borda=alvo['objeto'].data.get(_chapas.CHAVE_ESPESSURA,{}).get('bordas',{}).get(str(alvo['face'][0]))
+        secao=alvo['objeto'].data.get(_chapas.CHAVE_ESPESSURA,{})
+        real=secao.get('arestas',{}).get(str(alvo['face'][0]))
+        if real:
+            matriz=alvo['objeto'].matrix_world
+            return ((matriz@Vector(real['pontos'][1]))-(matriz@Vector(real['pontos'][0]))).length*1000
+        borda=secao.get('bordas',{}).get(str(alvo['face'][0]))
         if not borda:raise ValueError('A aresta nao existe mais')
         matriz=alvo['objeto'].matrix_world
         return ((matriz@Vector(borda[2]))-(matriz@Vector(borda[0]))).length*1000

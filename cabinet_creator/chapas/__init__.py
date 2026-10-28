@@ -155,10 +155,10 @@ def preparar_espessura(obj, digital=None):
     if obj.type!='MESH' or obj.data.is_editmode:return None
     digital=digital or _frentes._digital(obj.data)
     antigo=obj.data.get(CHAVE_ESPESSURA)
-    if antigo and antigo.get('digital')==digital and antigo.get('versao')==2:return antigo
+    if antigo and antigo.get('digital')==digital and antigo.get('versao')==3:return antigo
     secao=_secao_espessura(obj.data)
     envelope=(max(v.co.z for v in obj.data.vertices)-min(v.co.z for v in obj.data.vertices))*1000 if obj.data.vertices else 0.
-    dado=dict(digital=digital,versao=2,espessura_mm=secao['espessura_mm'] if secao else 0.,
+    dado=dict(digital=digital,versao=3,espessura_mm=secao['espessura_mm'] if secao else 0.,
               dobrada=bool(secao and envelope>secao['espessura_mm']+.01),
               pares={str(i):[list(a),list(b)] for i,(a,b) in enumerate(secao['pares'])} if secao else {})
     bordas=_bordas_da_secao(obj.data,secao) if secao and dado['dobrada'] else {}
@@ -175,6 +175,30 @@ def preparar_espessura(obj, digital=None):
         quinas[str(ua)+':'+str(ub)]=dict(face=[ua,ub],ponto=list(par[1]),
             a=list(secao['pares'][a][1]),b=list(secao['pares'][b][1]))
     dado['quinas']=quinas
+    if secao is None and not obj.get('chapa_rebaixos'):
+        # Peles editadas separadamente nao podem ser extrudadas pelo mesmo perfil.
+        # A topologia nativa conserva cada borda, inclusive o verso diferente.
+        bm=bmesh.new()
+        try:
+            bm.from_mesh(obj.data);bm.normal_update();bm.edges.index_update()
+            reais=[e.index for e in bm.edges if len(e.link_faces)!=2 or
+                abs(e.link_faces[0].normal.dot(e.link_faces[1].normal))<.99999]
+        finally:bm.free()
+        atributo=obj.data.attributes.get(ATR_COTA_ARESTA)
+        if atributo is None:atributo=obj.data.attributes.new(ATR_COTA_ARESTA,'INT','EDGE')
+        proximo=max((v.value for v in atributo.data),default=0)+1
+        usados=set();arestas={}
+        for i in reais:
+            uid=atributo.data[i].value
+            if uid<=0 or uid in usados:
+                uid=proximo;proximo+=1;atributo.data[i].value=uid
+            usados.add(uid)
+            a,b=[obj.data.vertices[j].co for j in obj.data.edges[i].vertices]
+            if (b-a).length<1e-8:continue
+            espessura=(abs(a.x-b.x)<1e-6 and abs(a.y-b.y)<1e-6
+                and abs(abs(a.z-b.z)*1000-obj.chapa_espessura_mm)<.01)
+            arestas[str(uid)]=dict(pontos=[list(a),list(b)],espessura=espessura)
+        dado['arestas']=arestas
     centros=[(Vector(a)+Vector(b))/2 for a,b in secao['pares']] if secao else []
     desvio=(max(p.z for p in centros)-min(p.z for p in centros))*1000 if centros else 0.
     # Uma projecao fora da espessura e' uma medida independente da madeira.
@@ -198,7 +222,24 @@ def definir_aresta(obj, uid, valor_mm, lado='min'):
     """Uma ponta anda na direcao real da aresta; as duas peles andam juntas."""
     if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
     secao=_secao_espessura(obj.data)
-    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    if not secao:
+        atributo=obj.data.attributes.get(ATR_COTA_ARESTA)
+        aresta=next((e for e in obj.data.edges if atributo and atributo.data[e.index].value==int(uid)),None)
+        if aresta is None:raise ValueError('A aresta nao existe mais')
+        a,b=aresta.vertices if lado=='min' else tuple(aresta.vertices)[::-1]
+        vetor=obj.data.vertices[b].co-obj.data.vertices[a].co
+        if vetor.length<1e-8:raise ValueError('Aresta sem comprimento')
+        if obj.data.users>1:obj.data=obj.data.copy()
+        delta=vetor.normalized()*(max(1.,float(valor_mm))/1000-vetor.length)
+        # O par topologico conserva o afastamento entre as peles mesmo
+        # quando um canto foi editado sem mover o seu correspondente.
+        pares=[j for e in obj.data.edges if b in e.vertices for j in e.vertices
+            if j not in (a,b) and abs(abs(obj.data.vertices[j].co.z-obj.data.vertices[b].co.z)*1000
+                -obj.chapa_espessura_mm)<.01]
+        obj.data.vertices[b].co+=delta
+        if len(pares)==1:obj.data.vertices[pares[0]].co+=delta
+        _terminar_edicao_secao(obj)
+        return
     bordas=_bordas_da_secao(obj.data,secao)
     par=bordas.get(str(uid))
     if par is None:raise ValueError('A aresta nao existe mais')
