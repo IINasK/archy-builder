@@ -117,6 +117,7 @@ Cada entrega incrementa bl_info["version"] (atual 379).
 
 ## Git e residuos
 
-Commit em portugues, terceira pessoa, so' a pedido; push so' a pedido.
+Commit em portugues e terceira pessoa ao concluir cada etapa validada,
+sem esperar novo pedido do usuario. Push somente a pedido explicito.
 Fora do git: dist/, *.blend1, __pycache__. Nome antigo "Chapa G3"
 (tag chapa-g3); props de Object/Scene ficam. Preserve mudancas pendentes.
