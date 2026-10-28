@@ -622,6 +622,9 @@ def registrar_keymaps():
     # mora la' (e esse keymap vem antes do "3D View"); fora de modulo o
     # operador devolve o evento e o menu abre como sempre.
     km_obj = kc.keymaps.new(name="Object Mode", space_type='EMPTY')
+    kmi=km_obj.keymap_items.new('wm.call_menu','L','PRESS',ctrl=True,head=True)
+    kmi.properties.name='VIEW3D_MT_cabinet_vinculos'
+    _keymaps.append((km_obj,kmi))
     kmi = km_obj.keymap_items.new('object.cabinet_selecionar_montagem_porta', 'G', 'PRESS', shift=True)
     _keymaps.append((km_obj, kmi))
     km_modo = kc.keymaps.new(name='Object Non-modal', space_type='EMPTY')

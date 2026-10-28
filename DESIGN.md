@@ -684,6 +684,11 @@ COMODO que tem armario, "Sem comodo", "Todos" e "Cancelar" -- e depois
 Editar e Apagar; o
 "Apagar?" abre sob a fila e a biblioteca rola ate' ele
 (`_rolar_biblioteca_ate_pergunta`).
+Pintura do grupo (382): catalogo e Ctrl+L preservam puxadores, dobradicas,
+trilhos e malhas filhas de ferragens. Ctrl+L reutiliza o menu e o operador
+nativos; somente o material recebe alvos filtrados. A selecao completa
+permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
+ferragem individual continua nativo.
 
 **Paredes (como no Promob, pedido do usuario).** Botao DIREITO segurado
 num modulo o arrasta; solto numa superficie VERTICAL que nao seja movel

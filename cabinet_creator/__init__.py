@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (381, 0, 0),
+    "version": (382, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -142,6 +142,8 @@ CLASSES = (
     _selecao.OBJECT_OT_selecionar,
     _biblioteca.OBJECT_OT_navegar,
     _materiais.OBJECT_OT_aplicar_material,
+    _materiais.OBJECT_OT_vincular_materiais,
+    _materiais.VIEW3D_MT_vinculos,
     _materiais.OBJECT_OT_novo_material,
     _materiais.OBJECT_OT_editar_material,
     _materiais.OBJECT_OT_apagar_material,

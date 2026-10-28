@@ -6,7 +6,7 @@ rasterizada aqui mesmo -- nenhum render, nenhum arquivo de foto."""
 
 import bpy, json, os, time
 from bpy.props import StringProperty, FloatVectorProperty, EnumProperty, BoolProperty
-from bpy.types import Operator
+from bpy.types import Operator, Menu
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
@@ -14,6 +14,7 @@ _biblioteca = _chapas = _ferragens = _perguntas = _gaveta = _portas = None
 _orcamento = None
 _gavetas = None
 _prateleiras = None
+_divisorias = None
 
 # 1o clique numa esfera: (chave, instante, mouse_x, mouse_y). Clique
 # simples NAO pinta (pedido do usuario: um clique errado mudaria o que nao
@@ -229,13 +230,81 @@ def garantir_material(it):
     return mat
 
 
+def protegida_no_grupo(obj):
+    """A marca pode estar no Empty do acessorio, nao na malha filha."""
+    while obj is not None:
+        if (any(m in obj for m in (_chapas.MARCA_PUXADOR,_chapas.MARCA_ACESSORIO,
+                                  _ferragens.CHAVE_FERRAGEM))
+                or obj.get(_gavetas.MARCA_PECA)=='TRILHO'):
+            return True
+        obj=obj.parent
+    return False
+
+
 def _eh_peca(obj):
     """Malha que leva material: chapa, folha, moldura ou objeto comum --
     nunca puxador, acessorio ou ferragem (essas tem o material delas)."""
-    return (obj.type == 'MESH'
-            and not any(m in obj for m in (_chapas.MARCA_PUXADOR,
-                                           _chapas.MARCA_ACESSORIO,
-                                           _ferragens.CHAVE_FERRAGEM)))
+    return obj.type=='MESH' and not protegida_no_grupo(obj)
+
+
+def _pintando_grupo(context):
+    marcas=(_chapas.MARCA_CONJUNTO,_chapas.MARCA_PORTAS,_gavetas.MARCA_GRUPO,
+            _gavetas.MARCA_GAVETA,_prateleiras.MARCA_GRUPO,_divisorias.MARCA_GRUPO)
+    return any(o.type=='EMPTY' and any(m in o for m in marcas) for o in context.selected_objects)
+
+
+class _LayoutVinculos:
+    """Reutiliza o menu nativo, trocando so' a acao de material do grupo."""
+    def __init__(self,layout):object.__setattr__(self,'_layout',layout)
+    def __getattr__(self,nome):return getattr(self._layout,nome)
+    def __setattr__(self,nome,valor):setattr(self._layout,nome,valor)
+
+    def operator_enum(self,operador,propriedade,**opcoes):
+        if (operador,propriedade)!=('object.make_links_data','type'):
+            return self._layout.operator_enum(operador,propriedade,**opcoes)
+        for item in bpy.ops.object.make_links_data.get_rna_type().properties['type'].enum_items:
+            if not item.identifier:
+                self._layout.separator();continue
+            if item.identifier=='MATERIAL':
+                self._layout.operator(OBJECT_OT_vincular_materiais.bl_idname,
+                    text='Vincular materiais',icon_value=item.icon)
+            else:
+                self._layout.operator(operador,text=item.name,icon_value=item.icon).type=item.identifier
+
+
+class _MenuVinculos:
+    def __init__(self,menu):
+        self._menu=menu;self.layout=_LayoutVinculos(menu.layout)
+    def __getattr__(self,nome):return getattr(self._menu,nome)
+
+
+class VIEW3D_MT_vinculos(Menu):
+    bl_idname='VIEW3D_MT_cabinet_vinculos'
+    bl_label='Vincular/Transferir Dados'
+
+    def draw(self,context):
+        menu=_MenuVinculos(self) if _pintando_grupo(context) else self
+        bpy.types.VIEW3D_MT_make_links.draw(menu,context)
+
+
+class OBJECT_OT_vincular_materiais(Operator):
+    bl_idname='object.cabinet_vincular_materiais'
+    bl_label='Vincular Materiais'
+    bl_description='Vincula materiais preservando puxadores e ferragens do grupo'
+    bl_options={'REGISTER','UNDO'}
+
+    @classmethod
+    def poll(cls,context):
+        return context.mode=='OBJECT' and bpy.ops.object.make_links_data.poll()
+
+    def execute(self,context):
+        if not _pintando_grupo(context):
+            return bpy.ops.object.make_links_data(type='MATERIAL')
+        # Contexto filtrado preserva a selecao para G, H, Delete e duplicacao.
+        alvos=[o for o in context.selected_editable_objects
+               if o==context.active_object or not protegida_no_grupo(o)]
+        with context.temp_override(selected_objects=alvos,selected_editable_objects=alvos):
+            return bpy.ops.object.make_links_data(type='MATERIAL')
 
 
 def pecas_dos_alvos(objs):

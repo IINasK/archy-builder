@@ -4,7 +4,7 @@ Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
 Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`,
-`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py` e `biblioteca_faixa.py`.
+`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `biblioteca_faixa.py` e `materiais.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
 Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
@@ -114,7 +114,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
   chaves de rolagem com hash, maximo 63 bytes.
 - Fotos SO' visiveis, proporcionais a' altura e limitadas pela largura;
   cache RGBA8 de 64 MiB, indice invalidavel. Nada de abrir .blend no redraw.
-- Material = COR SOLIDA no slot do OBJETO. Esfera: clique simples NADA;
-  duplo aplica a' SELECAO; arraste ao de baixo; DIREITO pintura rapida
-  (comodo -> parte). Conservar gestos quando mudar layout.
+- Material = COR SOLIDA no slot do OBJETO. Grupo (382): catalogo/Ctrl+L preservam puxadores, ferragens e filhos; selecao completa. Individual nativo permitido.
+  Ctrl+L reutiliza menu/motor nativos, filtrando somente MATERIAL. Esfera: clique simples NADA;
+  duplo aplica a' SELECAO; arraste ao de baixo; DIREITO pintura rapida (comodo -> parte). Conservar gestos.
 Validacao: `tests/CLAUDE.md`; GUI so' com PC livre AGORA autorizado; callback com erro falha.

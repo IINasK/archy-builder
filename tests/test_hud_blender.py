@@ -2464,6 +2464,7 @@ class TestHUD(unittest.TestCase):
         self.clicar_pelo_keymap(addon.modulos._chapas_do_conjunto(destino)[0], 'PRESS')
         self.clicar_pelo_keymap(origem, 'PRESS', shift=True)
         self.assertEqual(bpy.context.object, origem)
+
         self.assertTrue(destino.select_get())
         self.assertTrue(outro.select_get())
         selecionados = set(bpy.context.selected_objects)
@@ -2477,6 +2478,139 @@ class TestHUD(unittest.TestCase):
                     (o.data.as_pointer(),tuple(tuple(v.co) for v in o.data.vertices)))
         self.assertEqual(set(bpy.context.selected_objects), selecionados)
         self.assertEqual(bpy.context.object, origem)
+
+    def _grupo_para_pintar_com_ferragens(self):
+        modulo=self.modulo();pecas=addon.modulos._chapas_do_conjunto(modulo)
+        metal=bpy.data.materials.new('Metal preservado')
+        ferragens=[]
+        for nome,marca in (('Puxador protegido',addon.chapas.MARCA_PUXADOR),
+                           ('Dobradica protegida',addon.ferragens.CHAVE_FERRAGEM),
+                           ('Acessorio protegido',addon.chapas.MARCA_ACESSORIO)):
+            obj=bpy.data.objects.new(nome,pecas[0].data.copy())
+            bpy.context.scene.collection.objects.link(obj);obj.parent=pecas[0];obj[marca]=1
+            obj.data.materials.clear();obj.data.materials.append(metal);ferragens.append(obj)
+        trilho=bpy.data.objects.new('Trilho protegido',pecas[0].data.copy())
+        bpy.context.scene.collection.objects.link(trilho);trilho.parent=modulo
+        trilho[addon.gavetas.MARCA_PECA]='TRILHO'
+        trilho.data.materials.clear();trilho.data.materials.append(metal);ferragens.append(trilho)
+        origem=bpy.data.objects.new('Origem da madeira',pecas[0].data.copy())
+        bpy.context.scene.collection.objects.link(origem)
+        madeira=bpy.data.materials.new('Madeira para o grupo')
+        origem.data.materials.clear();origem.data.materials.append(madeira)
+        addon.hud._selecionar_chapa_hud(bpy.context,pecas[0])
+        origem.select_set(True);bpy.context.view_layer.objects.active=origem
+        return modulo,pecas,ferragens,origem,madeira,metal
+
+    # Regressao (era BUG, corrigido na 382): grupo pintava o puxador selecionado.
+    def test_vincular_material_do_grupo_preserva_ferragens_sem_mudar_selecao(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        for obj in ferragens:obj.select_set(True)
+        selecionados=set(bpy.context.selected_objects)
+        self.assertEqual(bpy.ops.object.cabinet_vincular_materiais(),{'FINISHED'})
+        for obj in ferragens:self.assertIs(obj.active_material,metal)
+        for obj in pecas:self.assertIs(obj.active_material,madeira)
+        self.assertEqual(set(bpy.context.selected_objects),selecionados)
+        self.assertIs(bpy.context.object,origem)
+
+    # Regressao (era BUG, corrigido na 382): filho sem marca passava pelo filtro.
+    def test_pintura_do_catalogo_reconhece_ferragem_pela_hierarquia(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        obj=bpy.data.objects.new('Filho sem marca do puxador',pecas[0].data.copy())
+        bpy.context.scene.collection.objects.link(obj);obj.parent=ferragens[0]
+        obj[addon.chapas.MARCA_CHAPA]=1
+        obj.data.materials.clear();obj.data.materials.append(metal)
+        alvos=addon.materiais.pecas_dos_alvos([modulo,obj])
+        self.assertNotIn(obj,alvos)
+        addon.materiais.aplicar(alvos,madeira)
+        self.assertIs(obj.active_material,metal)
+        self.assertTrue(all(o.active_material==metal for o in ferragens))
+
+    def test_vincular_material_individual_permite_pintar_puxador(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        bpy.ops.object.select_all(action='DESELECT')
+        ferragens[0].select_set(True);origem.select_set(True)
+        bpy.context.view_layer.objects.active=origem
+        self.assertEqual(bpy.ops.object.cabinet_vincular_materiais(),{'FINISHED'})
+        self.assertIs(ferragens[0].active_material,madeira)
+        self.assertTrue(all(o.active_material==metal for o in ferragens[1:]))
+
+    def test_ferragem_mestre_pode_fornecer_material_sem_pintar_outras_ferragens(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        cromo=bpy.data.materials.new('Cromo da mestre')
+        ferragens[0].material_slots[0].material=cromo
+        for obj in ferragens:obj.select_set(True)
+        bpy.context.view_layer.objects.active=ferragens[0]
+        self.assertEqual(bpy.ops.object.cabinet_vincular_materiais(),{'FINISHED'})
+        self.assertTrue(all(o.active_material==cromo for o in pecas))
+        self.assertTrue(all(o.active_material==metal for o in ferragens[1:]))
+
+    def _desenhar_menu_vinculos(self):
+        class Layout:
+            operator_context='INVOKE_REGION_WIN'
+            def __init__(self):self.itens=[]
+            def operator(self,identificador,**props):
+                op=SimpleNamespace();self.itens.append(('operador',identificador,props,op,self.operator_context));return op
+            def operator_enum(self,identificador,propriedade,**props):
+                self.itens.append(('enum',identificador,propriedade))
+            def operator_menu_enum(self,identificador,propriedade,**props):
+                self.itens.append(('submenu',identificador,propriedade))
+            def separator(self):pass
+        layout=Layout()
+        addon.materiais.VIEW3D_MT_vinculos.draw(SimpleNamespace(layout=layout),bpy.context)
+        return layout
+
+    def test_ctrl_l_reutiliza_menu_nativo_e_protege_so_a_acao_material(self):
+        self._grupo_para_pintar_com_ferragens()
+        layout=self._desenhar_menu_vinculos()
+        operadores=[i for i in layout.itens if i[0]=='operador']
+        self.assertEqual(sum(i[1]=='object.cabinet_vincular_materiais' for i in operadores),1)
+        tipos={i[3].type for i in operadores if i[1]=='object.make_links_data'}
+        originais={i.identifier for i in bpy.ops.object.make_links_data.get_rna_type().properties['type'].enum_items if i.identifier}
+        self.assertEqual(tipos,originais-{'MATERIAL'})
+        self.assertTrue(any(i[1]=='object.data_transfer' for i in operadores))
+        self.assertTrue(any(i[1]=='object.join_uvs' for i in operadores))
+        self.assertTrue(any(k.idname=='wm.call_menu' and k.type=='L' and k.ctrl
+            and k.properties.name=='VIEW3D_MT_cabinet_vinculos' for _m,k in addon.selecao._keymaps))
+
+    def test_ctrl_l_sem_grupo_preserva_enum_nativo_completo(self):
+        bpy.ops.object.select_all(action='DESELECT')
+        layout=self._desenhar_menu_vinculos()
+        self.assertIn(('enum','object.make_links_data','type'),layout.itens)
+        self.assertFalse(any(i[0]=='operador' and i[1]=='object.cabinet_vincular_materiais' for i in layout.itens))
+
+    def test_protecao_de_material_atende_portas_gavetas_prateleiras_e_divisorias(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        marcas=(addon.chapas.MARCA_PORTAS,addon.gavetas.MARCA_GRUPO,addon.gavetas.MARCA_GAVETA,
+                addon.prateleiras.MARCA_GRUPO,addon.divisorias.MARCA_GRUPO)
+        for marca in marcas:
+            with self.subTest(marca=marca):
+                bpy.ops.object.select_all(action='DESELECT')
+                grupo=bpy.data.objects.new('Grupo para pintar',None)
+                bpy.context.scene.collection.objects.link(grupo);grupo[marca]=1;grupo.select_set(True)
+                for o in [*pecas,*ferragens,origem]:o.select_set(True)
+                bpy.context.view_layer.objects.active=origem
+                self.assertEqual(bpy.ops.object.cabinet_vincular_materiais(),{'FINISHED'})
+                self.assertTrue(all(o.active_material==madeira for o in pecas))
+                self.assertTrue(all(o.active_material==metal for o in ferragens))
+
+    def test_undo_redo_da_pintura_protegida_mantem_metal_e_selecao(self):
+        modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
+        for o in ferragens:o.select_set(True)
+        nomes=[o.name for o in pecas];metais=[o.name for o in ferragens]
+        selecionados={o.name for o in bpy.context.selected_objects};ativo=origem.name
+        nome_metal=metal.name;nome_madeira=madeira.name
+        bpy.ops.ed.undo_push(message='Antes da pintura protegida')
+        self.assertEqual(bpy.ops.object.cabinet_vincular_materiais(),{'FINISHED'})
+        bpy.ops.ed.undo_push(message='Pintura protegida concluida')
+        modulo=pecas=ferragens=origem=madeira=metal=None;o=None
+        for operacao,pintado in ((bpy.ops.ed.undo,False),(bpy.ops.ed.redo,True)):
+            operacao();addon.eventos._fim_do_desfazer();bpy.context.view_layer.update()
+            for nome in nomes:
+                material=bpy.data.objects[nome].active_material
+                self.assertEqual(material.name if material else None,nome_madeira if pintado else None)
+            self.assertTrue(all(bpy.data.objects[n].active_material.name==nome_metal for n in metais))
+            self.assertEqual({o.name for o in bpy.context.selected_objects},selecionados)
+            self.assertEqual(bpy.context.object.name,ativo)
 
     def test_material_nativo_de_chapa_isolada_preserva_as_outras_pecas_da_origem(self):
         destino, outro = self.dois_modulos()

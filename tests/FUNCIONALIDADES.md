@@ -1,5 +1,25 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Pintura de grupos preserva ferragens (382): materiais.py filtra puxadores,
+dobradicas, acessorios, trilhos de gavetas e descendentes dessas marcas.
+Ctrl+L reutiliza o desenho do menu nativo; so' Vincular materiais usa o
+operador protegido, que delega ao make_links_data com contexto filtrado.
+Selecao/ativo permanecem; mover, ocultar e duplicar continuam com o grupo
+inteiro. Sem grupo, material individual segue o operador nativo.
+HUD +8: grupo+origem externa, catalogo/filho sem marca, puxador individual,
+ferragem como origem, menu/atalho e demais acoes nativas, menu sem grupo,
+grupos internos e undo/redo. Materiais comparados por referencia/nome real,
+incluindo sufixos .001; sem apagar/acessar biblioteca ou cena reais.
+Falha anterior reproduzida em pintura382-repro.log (dois testes falhando).
+Validacao direcionada: 650 testes / 10 execucoes nos Blenders 4.2 e 5.2,
+tudo OK (pintura382-cenarios-finais.log). Gesto Ctrl+L na janela nao executado.
+Auditoria em cena descartavel: sete chapas receberam a cor, 104 malhas de
+ferragens conservaram metal e a selecao permaneceu. Renders externos/internos
+revisados em Backups/CabinetCreator/pintura382-auditoria/; projeto aberto e
+biblioteca preservados. ZIP 382 conferido contra as 39 fontes Python.
+Harness completo: 2972 testes / 64 execucoes nos Blenders 4.2 e 5.2,
+tudo OK (pintura382-completo.log).
+
 Internos compartilhados e recortes parciais (375): seis abas, Prateleiras /
 Divisorias juntas; enums antigos continuam lendo .blend e seguindo selecao.
 areas_criacao coordena tipo, pontos/volume, captura numerica unica, quantidade,
