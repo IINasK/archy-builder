@@ -98,7 +98,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   da porta persiste na raiz. Referencia numerica na Mesh recupera undo do Tab.
 - Espelhos das ferragens viram vertices antes do Tab, em copia unica e na
   ordem da pilha: Clipping nao pode prender metade da dobradica no arraste.
-- Puxador (374): folha unica selecionada fixa alvo pelo ray_cast nativo, sem acertar a vizinha sobreposta; sem alvo, usa raio visivel da HUD. Oculta/bloqueada nao recebe. GIRO <-> CORRER adapta bordas X parametrizadas, conserva dono/fracao, usa pose fechada; correr usa lateral externa. Demais bordas/trocas nao mudam. Clique seleciona SO' ele e suas funcoes, inclusive nas gavetas;
+- Puxador (374): folha unica selecionada fixa alvo pelo ray_cast nativo, sem acertar a vizinha sobreposta; sem alvo, usa raio visivel da HUD. Oculta/bloqueada nao recebe. GIRO <-> CORRER adapta bordas X parametrizadas, conserva dono/fracao, usa pose fechada; correr usa lateral externa. Demais bordas/trocas nao mudam. Selecao 385: duplo direto isola o puxador; gaveta ja' isolada tambem libera clique simples no proprio puxador, sem afetar objetos comuns;
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
   proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
   chapa, nunca delta. PERFIL e' padrao, SEMPRE horizontal salvo guarda-roupa

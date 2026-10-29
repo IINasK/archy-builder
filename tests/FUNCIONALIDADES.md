@@ -1,5 +1,20 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Hierarquia gaveta/puxador (385): clique no conjunto continua global; duplo
+na frente/corpo seleciona so' uma unidade. Esse escopo selecionado libera
+clique simples no proprio puxador. Duplo direto no puxador tambem isola;
+clicar no acessorio ja' ativo conserva foco. Regra aplicada antes do ramo
+da parede, sem contador global de cliques ou alterar selecao nativa comum.
+HUD +6: frente e fundo da unidade -> puxador/aba, duplo direto, acessorio
+ja' ativo, escopo em parede, puxador de outra unidade sem herdar foco,
+PRESS/CLICK em objetos comuns e parede generica pelo caminho nativo.
+Tres regressoes falharam antes (gestos385-repro.log); os demais cenarios
+preservam contratos. Testes de aba usam cleanup; cena aberta preservada.
+Validacao direcionada: 906 testes / 10 execucoes, tudo OK nos Blenders
+4.2/5.2 (gestos385-cenarios.log). Gestos fisicos na janela nao executados.
+Harness completo: 2996 testes / 64 execucoes, tudo OK nos Blenders 4.2/5.2
+(gestos385-completo.log). ZIP 385 conferido contra as 39 fontes Python.
+
 Selecao multipla de unidades de gaveta (384): apos duplo clique isolar uma,
 Shift+clique em outra do mesmo vao soma somente essa unidade. Shift+duplo
 remove a selecao global daquele vao antes de isolar, pois o primeiro PRESS

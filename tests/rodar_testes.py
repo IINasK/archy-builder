@@ -47,7 +47,7 @@ PISO = {
     'paredes_edicao': 86,
     'organizacao': 9,
     'divisorias': 42,
-    'estrutura': 51, 'gaveta': 86, 'portas': 165, 'hud': 208,
+    'estrutura': 51, 'gaveta': 86, 'portas': 165, 'hud': 214,
     'importacao': 80, 'puxadores': 32, 'snapshot': 7, 'operadores': 59, 'frentes': 29,
     'biblioteca': 84, 'cobertura': 4, 'gui_interacao': 63,
     'orcamento': 17, 'paredes': 16, 'armarios': 20, 'formas': 62, 'gavetas': 62,

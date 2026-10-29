@@ -62,7 +62,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Ferragem: so' aparece criando ou selecionada, ARAME da peca real. Clique
   seleciona todas do tipo NATIVAMENTE (370); Shift soma; Alt controlador; duplo PECA
   com Tab/G/X nativos. Trilho das gavetas permanece com elas.
-- Puxador: clique = a peca dele (folha/frente); DUPLO = SO' ele e funcoes. Alt arrasta
+- Puxador (385): duplo direto = SO' ele; clique no proprio puxador da gaveta isolada tambem, antes da regra da parede. Fora desse escopo, clique = peca/grupo. Alt arrasta
   ancora para outra borda SO' do grupo dele, com snap de linha.
 - Gavetas/prateleiras (379): na cota V selecionada, scroll subdivide so' o vao; campo passa a quantidade e Enter confirma, Esc descarta copias. Prateleiras da mesma blocagem mostram cotas de todos os segmentos; divisorias so' na orientacao ativa, sem poluicao mista. Clique todas do vao, duplo uma; 384: Shift conserva gavetas individuais; Shift+duplo reduz so' o vao clicado. Modulo absorve filhos
   na HUD. Divisorias: clique grupo, duplo chapa. Conservar escopo por tipo.

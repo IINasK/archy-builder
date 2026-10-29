@@ -286,6 +286,17 @@ class OBJECT_OT_selecionar(Operator):
         atingido = _hud._raio_hud(context, self.location)
         if not (self.toggle or self.extend):
             _encerrar_edicao_fora(context, atingido[0] if atingido is not None else None)
+        puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
+        if puxador is not None:
+            gaveta = _gavetas.gaveta_de(puxador)
+            grupo = _gavetas.grupo_de(puxador)
+            isolada = (gaveta is not None and grupo is not None
+                       and gaveta.select_get() and not grupo.select_get())
+            if (self.modo == 'INDIVIDUAL' or isolada
+                    or (puxador.select_get() and context.view_layer.objects.active == puxador)):
+                # O escopo ja' isolado vale antes da selecao do modulo na parede.
+                _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
+                return {'FINISHED'}
         modulo_parede = (_paredes_edicao.modulo_da_peca(context, atingido[0])
                          if atingido is not None else None)
         if modulo_parede is not None and self.modo != 'INDIVIDUAL':
@@ -307,11 +318,6 @@ class OBJECT_OT_selecionar(Operator):
             return {'FINISHED'}
         if atingido is not None and _chapas.MARCA_FUNDO in atingido[0]:
             _fundos.selecionar(context, atingido[0], somar=self.toggle or self.extend)
-            return {'FINISHED'}
-        puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
-        if puxador is not None and self.modo == 'INDIVIDUAL':
-            # Edicao do puxador so' no DUPLO clique (pedido do usuario)
-            _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
             return {'FINISHED'}
         if puxador is not None and puxador.parent is not None:
             # Clique simples vale pela peca em que ele esta' (folha, frente

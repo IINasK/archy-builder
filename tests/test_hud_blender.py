@@ -2504,6 +2504,69 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(all(g.select_get() for g in unidades))
         self.assertIs(bpy.context.object,grupo)
 
+    # Regressao (era BUG, corrigido na 385): puxador voltava ao conjunto inteiro.
+    def test_clique_no_puxador_da_gaveta_isolada_edita_so_ele(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        puxador=next(o for o in frentes[1].children if addon.chapas.MARCA_PUXADOR in o)
+        corpo=next(o for o in unidades[1].children if o.get(addon.gavetas.MARCA_PECA)=='FUNDO')
+        for obj in (frentes[1],corpo):
+            with self.subTest(peca=obj.name):
+                self.duplo(obj)
+                self.assertTrue(unidades[1].select_get());self.assertFalse(grupo.select_get())
+                self.clicar_pelo_keymap(puxador,'PRESS')
+                self.assertEqual(set(bpy.context.selected_objects),{puxador})
+                self.assertIs(bpy.context.object,puxador)
+                self.assertEqual(bpy.context.scene.cabinet_aba,'PUXADORES')
+                self.assertFalse(addon.selecao.OBJECT_OT_editar_grupo.poll(bpy.context))
+
+    def test_duplo_direto_no_puxador_independe_de_selecionar_gaveta_antes(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        puxador=next(o for o in frentes[2].children if addon.chapas.MARCA_PUXADOR in o)
+        self.duplo(puxador)
+        self.assertEqual(set(bpy.context.selected_objects),{puxador})
+        self.assertIs(bpy.context.object,puxador)
+        self.assertEqual(bpy.context.scene.cabinet_aba,'PUXADORES')
+
+    def test_clique_no_puxador_ja_isolado_conserva_somente_o_acessorio(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        puxador=next(o for o in frentes[0].children if addon.chapas.MARCA_PUXADOR in o)
+        self.duplo(puxador)
+        self.clicar_pelo_keymap(puxador,'PRESS')
+        self.assertEqual(set(bpy.context.selected_objects),{puxador})
+        self.assertIs(bpy.context.object,puxador)
+
+    def test_gaveta_isolada_na_parede_libera_clique_no_proprio_puxador(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        modulo=addon.gavetas.modulo_do_grupo(grupo)
+        puxador=next(o for o in frentes[1].children if addon.chapas.MARCA_PUXADOR in o)
+        with patch.object(addon.paredes_edicao,'modulo_da_peca',return_value=modulo):
+            self.duplo(frentes[1])
+            self.assertTrue(unidades[1].select_get());self.assertFalse(modulo.select_get())
+            self.clicar_pelo_keymap(puxador,'PRESS')
+            self.assertEqual(set(bpy.context.selected_objects),{puxador})
+            self.assertIs(bpy.context.object,puxador)
+
+    def test_gaveta_isolada_nao_libera_puxador_de_outra_gaveta(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        outro=next(o for o in frentes[2].children if addon.chapas.MARCA_PUXADOR in o)
+        self.duplo(frentes[0])
+        self.clicar_pelo_keymap(outro,'PRESS')
+        self.assertTrue(grupo.select_get())
+        self.assertIs(bpy.context.object,grupo)
+        self.assertFalse(outro.select_get())
+
+    def test_objeto_comum_e_parede_continuam_selecionados_em_um_clique(self):
+        grupo,unidades,frentes=self._gavetas_para_clique()
+        for nome in ('Objeto comum','Parede generica'):
+            with self.subTest(objeto=nome):
+                bpy.ops.mesh.primitive_cube_add(location=(3,0,0))
+                comum=bpy.context.object;comum.name=nome
+                self.duplo(frentes[0])
+                self.clicar_pelo_keymap(comum,'PRESS')
+                self.assertEqual(set(bpy.context.selected_objects),{comum})
+                self.assertIs(bpy.context.object,comum)
+                self.assertEqual(self.clicar_pelo_keymap(comum,'CLICK'),{'PASS_THROUGH'})
+
     def test_material_nativo_usa_chapa_mestre_sem_perder_modulos_selecionados(self):
         destino, outro = self.dois_modulos()
         origem = addon.modulos._chapas_do_conjunto(outro)[0]
