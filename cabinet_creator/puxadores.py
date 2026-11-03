@@ -1482,6 +1482,25 @@ def _desenhar_ancoras_puxador(context):
         gpu.state.blend_set('NONE')
 
 
+def _destino_ocupado(pux, chapa, borda, face, fracao):
+    # O lugar efetivo ja' limita a alca nas pontas; fracoes diferentes podem coincidir.
+    matriz, comprimento = _lugar_do_puxador(chapa, pux['puxador_tipo'], borda, face,
+        fracao, pux.get('puxador_comprimento_mm'), 0.0)
+    for outro in chapa.children:
+        if (outro == pux or not _eh_puxador_parametrico(outro)
+                or int(outro.get('puxador_face', 1)) != face):
+            continue
+        outra_borda, outra_fracao = _borda_e_fracao(chapa,
+            outro.get('puxador_borda', 'Y+'), float(outro.get('puxador_fracao', .5)))
+        lugar, tamanho = _lugar_do_puxador(chapa, outro['puxador_tipo'], outra_borda,
+            face, outra_fracao, outro.get('puxador_comprimento_mm'), 0.0)
+        distancia = (matriz.translation - lugar.translation).length
+        if (distancia < .0001 or borda == outra_borda
+                and distancia < (comprimento + tamanho) / 2000.0 - .000001):
+            return True
+    return False
+
+
 class OBJECT_OT_arrastar_puxador(Operator):
     """Arraste a ancora do puxador (Alt) ate' outra borda do mesmo grupo: ele gruda na linha e vira com ela"""
     bl_idname = 'object.cabinet_arrastar_puxador'
@@ -1535,17 +1554,21 @@ class OBJECT_OT_arrastar_puxador(Operator):
         estado['escolhida'] = melhor[1] if melhor else None
         return melhor[2:] if melhor else None
 
-    def _aplicar(self, context, nome, borda, face, fracao):
+    def _aplicar(self, context, nome, borda, face, fracao, validar=True):
         pux = bpy.data.objects.get(self.puxador)
         chapa = bpy.data.objects.get(nome)
         if pux is None or chapa is None:
-            return
+            return False
+        borda, fracao = _borda_e_fracao(chapa, borda, fracao)
+        fracao = max(0.0, min(1.0, float(fracao)))
+        if validar and _destino_ocupado(pux, chapa, borda, face, fracao):
+            return False
         antiga = pux.parent
         mesma_linha = (antiga == chapa and pux.get('puxador_borda') == borda
                        and int(pux.get('puxador_face', 1)) == face)
         if mesma_linha and abs(float(pux.get('puxador_fracao', 0.5))
                                - fracao) < 1e-4:
-            return
+            return True
         if antiga != chapa:
             pux.parent = chapa
         pux['puxador_borda'] = borda
@@ -1562,13 +1585,15 @@ class OBJECT_OT_arrastar_puxador(Operator):
         else:
             posicionar_puxador(pux)
         context.view_layer.update()
+        return True
 
     def _encerrar(self):
         _arraste_puxador[0] = None
+        self._area.header_text_set(None)
         self._area.tag_redraw()
 
     def cancel(self, context):
-        self._aplicar(context, *self._antes)
+        self._aplicar(context, *self._antes, validar=False)
         self._encerrar()
 
     def modal(self, context, event):
@@ -1583,21 +1608,11 @@ class OBJECT_OT_arrastar_puxador(Operator):
             achado = self._linha_sob_mouse(
                 context, Vector((event.mouse_region_x, event.mouse_region_y)))
             if achado is not None:
-                self._aplicar(context, *achado)
+                aplicado = self._aplicar(context, *achado)
+                self._area.header_text_set(None if aplicado else 'Esta posicao ja esta ocupada por outro puxador')
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            pux = bpy.data.objects.get(self.puxador)
-            if (pux is not None and pux['puxador_tipo'] == 'PERFIL'
-                    and pux.parent is not None):
-                # um perfil por borda, como no criar: o que ja' estava sai
-                for velho in [f for f in pux.parent.children if f != pux
-                              and _eh_puxador_parametrico(f)
-                              and f['puxador_tipo'] == 'PERFIL'
-                              and f.get('puxador_borda')
-                              == pux.get('puxador_borda')]:
-                    _gavetas._remover(velho)
-                _atualizar_madeira(pux.parent)
             self._encerrar()
             return {'FINISHED'}
         return {'RUNNING_MODAL'}

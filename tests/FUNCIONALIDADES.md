@@ -1,5 +1,27 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Reposicionar puxadores sem sobreposicao (389): Alt recusa destino ocupado
+antes de mudar pai/props ou refazer puxador/madeira. Usa `_lugar_do_puxador`,
+a mesma referencia numerica da montagem: compara ancora efetiva (tolerancia
+0.1 mm) e intervalos de comprimento na mesma borda/face. Considera o limite
+das pontas, inclusive quando duas fracoes diferentes resultam no mesmo lugar.
+Mais de um puxador na chapa permitido em posicoes separadas ou face oposta;
+outro objeto nao bloqueia. Ocultar o vizinho nao libera sua posicao. Nao
+apaga o perfil existente ao confirmar. Esc devolve origem mesmo quando uma
+cena legada ja' tinha duplicatas. Mensagem no cabecalho nativo, sem pop-up;
+destino recusado conserva o ultimo lugar valido. Sem nova varredura de malhas.
+Reproducao em cena temporaria: duas ALCA, Y+ e X+, arrastar primeira a X+
+produzia distancia 0.0 (dist/puxador389-antes.log). Oito cenarios novos na
+suite puxadores (piso 32 -> 40): coincidencia, proximidade, ponta limitada,
+mesma borda separada, face oposta/outra chapa, chapa girada, proprio puxador,
+oculto, ALCA/BORDA, perfil conservado e cancelamento com legado. Falhas antes
+da correcao em dist/puxador389-regressoes-antes.log; dirigidas 640 testes /
+8 execucoes, tudo OK em 4.2/5.2 (dist/puxador389-alvos.log).
+Reproducao original passa depois (dist/puxador389-depois.log). Entrega:
+3096 testes / 66 execucoes, tudo OK em 4.2/5.2 (dist/puxador389-entrega.log).
+ZIP 389 conferido contra as 40 fontes Python e guias espelhados; biblioteca
+preservada. Sem gestos com janela nem alteracao no projeto aberto.
+
 Faixa contextual de visibilidade (388): referencia visual com rotulo simples
 Visibilidade de objetos a esquerda e dois botoes so' icones (olho/lapis),
 36 x 30 px, alinhados a direita; texto curto em coluna estreita. Continua

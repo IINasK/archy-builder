@@ -318,6 +318,14 @@ angulos com rotulos ("Quina reta", "Fim da curva") saiu na v309.
 Posicionar puxador (`OBJECT_OT_posicionar_puxador`): 1o a linha (borda da
 face sob o mouse), depois o ponto; scroll = n snaps (k/(n+1)); botao
 direito volta a linha. Linhas grossas em triangulos (`_quad_2d`).
+Reposicionar com Alt (389): recusar ancora ocupada e intervalos sobrepostos
+na mesma borda/face da chapa; considerar a posicao efetiva ja' limitada nas
+pontas, nao so' a fracao digitada. Usar a referencia numerica compartilhada,
+sem extrair malhas no arraste. Outros puxadores, mesmo ocultos, conservados;
+nao substituir/remover perfil do destino ao soltar. Destino ocupado mantem
+o ultimo lugar valido e avisa no cabecalho nativo. Mais de um puxador na
+mesma chapa continua permitido em posicoes separadas ou na face oposta.
+Esc devolve a origem inclusive em cenas legadas com sobreposicao inicial.
 Puxador PERFIL = o modelo de aluminio do usuario (arquivo dele, extraido
 por `extrair_puxador.py`: malha, material e texturas como sao), na borda
 inteira, SEM deformar chanfro nem arredondado (pedido do usuario): na

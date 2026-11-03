@@ -734,6 +734,96 @@ class TestPuxadores(unittest.TestCase):
         self.assertEqual(malha_na_chapa(f0)[1][1], round(inteira, 3))
         self.assertEqual(malha_na_chapa(f1)[1][1], round(inteira - corte, 3))
 
+    def test_arraste_recusa_destino_ocupado_sem_mover_ou_remover_os_puxadores(self):
+        # Regressao 389: duas alcas terminavam com a mesma matriz (distancia 0).
+        p=addon.puxadores;c=self.chapa()
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        outro=p.criar_puxador(bpy.context,c,'ALCA','X+',1)
+        antes=movel.matrix_basis.copy();outro_antes=outro.matrix_basis.copy()
+        self.assertFalse(p.OBJECT_OT_arrastar_puxador._aplicar(SimpleNamespace(puxador=movel.name),
+            bpy.context,c.name,'X+',1,.5))
+        self.assertEqual(movel['puxador_borda'],'Y+')
+        self.assertEqual(movel.matrix_basis,antes)
+        self.assertEqual(outro.matrix_basis,outro_antes)
+        self.assertEqual(len([o for o in c.children if 'eh_puxador' in o]),2)
+
+    def test_arraste_permite_duas_alcas_separadas_na_mesma_borda(self):
+        p=addon.puxadores;c=self.chapa()
+        primeiro=p.criar_puxador(bpy.context,c,'ALCA','X+',1,0)
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        self.assertTrue(p.OBJECT_OT_arrastar_puxador._aplicar(SimpleNamespace(puxador=movel.name),
+            bpy.context,c.name,'X+',1,1))
+        self.assertEqual(movel['puxador_borda'],'X+')
+        self.assertGreater((movel.matrix_basis.translation-primeiro.matrix_basis.translation).length,.148)
+
+    def test_arraste_recusa_sobreposicao_proxima_e_fracoes_limitadas_na_mesma_ponta(self):
+        p=addon.puxadores;c=self.chapa()
+        outro=p.criar_puxador(bpy.context,c,'ALCA','X+',1,0)
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        op=SimpleNamespace(puxador=movel.name)
+        for fracao in (0,.1,.3):
+            with self.subTest(fracao=fracao):
+                self.assertFalse(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'X+',1,fracao))
+                self.assertEqual(movel['puxador_borda'],'Y+')
+        outro.hide_set(True)
+        self.assertFalse(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'X+',1,.1))
+
+    def test_arraste_permite_face_oposta_e_nao_confunde_outro_objeto(self):
+        p=addon.puxadores;c=self.chapa()
+        p.criar_puxador(bpy.context,c,'ALCA','X+',1)
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        op=SimpleNamespace(puxador=movel.name)
+        self.assertTrue(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'X+',-1,.5))
+        outra=self.chapa()
+        self.assertTrue(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,outra.name,'X+',1,.5))
+        self.assertIs(movel.parent,outra)
+
+    def test_arraste_bloqueado_nao_reconstroi_madeira_ou_consulta_vertices(self):
+        p=addon.puxadores;c=self.chapa()
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        p.criar_puxador(bpy.context,c,'BORDA','X+',1)
+        with patch.object(p,'posicionar_puxador',side_effect=AssertionError('Refaz puxador bloqueado')), \
+             patch.object(p,'_atualizar_madeira',side_effect=AssertionError('Refaz chapa bloqueada')):
+            self.assertFalse(p.OBJECT_OT_arrastar_puxador._aplicar(SimpleNamespace(puxador=movel.name),
+                bpy.context,c.name,'X+',1,.5))
+
+    def test_arraste_de_perfil_nao_apaga_perfil_que_ocupa_o_destino(self):
+        p=addon.puxadores;c=self.chapa()
+        movel=p.criar_puxador(bpy.context,c,'PERFIL','Y+',1)
+        outro=p.criar_puxador(bpy.context,c,'PERFIL','X+',1)
+        nomes=(movel.name,outro.name);madeira=malha_na_chapa(c)
+        op=SimpleNamespace(puxador=movel.name,_encerrar=lambda:p._arraste_puxador.__setitem__(0,None))
+        p._arraste_puxador[0]={'puxador':movel.name}
+        self.addCleanup(p._arraste_puxador.__setitem__,0,None)
+        p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'X+',1,.5)
+        self.assertEqual(p.OBJECT_OT_arrastar_puxador.modal(op,bpy.context,
+            SimpleNamespace(type='LEFTMOUSE',value='RELEASE')),{'FINISHED'})
+        self.assertTrue(all(bpy.data.objects.get(n) is not None for n in nomes))
+        self.assertEqual(movel['puxador_borda'],'Y+')
+        self.assertEqual(malha_na_chapa(c),madeira)
+
+    def test_cancelar_arraste_restaura_inclusive_sobreposicao_legada(self):
+        p=addon.puxadores;c=self.chapa()
+        movel=p.criar_puxador(bpy.context,c,'ALCA','X+',1)
+        p.criar_puxador(bpy.context,c,'ALCA','X+',1)
+        antes=movel.matrix_basis.copy()
+        op=SimpleNamespace(puxador=movel.name,_antes=(c.name,'X+',1,.5),_encerrar=lambda:None)
+        op._aplicar=lambda *a,**kw:p.OBJECT_OT_arrastar_puxador._aplicar(op,*a,**kw)
+        op._aplicar(bpy.context,c.name,'Y+',1,.5)
+        p.OBJECT_OT_arrastar_puxador.cancel(op,bpy.context)
+        self.assertEqual(movel.matrix_basis,antes)
+        self.assertEqual(movel['puxador_borda'],'X+')
+
+    def test_arraste_considera_ocupacao_na_chapa_girada_e_ignora_o_proprio_puxador(self):
+        p=addon.puxadores;c=self.chapa()
+        c.rotation_euler=(.4,.7,1.1);c.location=(2,3,4)
+        bpy.context.view_layer.update()
+        movel=p.criar_puxador(bpy.context,c,'ALCA','Y+',1)
+        p.criar_puxador(bpy.context,c,'ALCA','X+',1)
+        op=SimpleNamespace(puxador=movel.name)
+        self.assertTrue(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'Y+',1,.5))
+        self.assertFalse(p.OBJECT_OT_arrastar_puxador._aplicar(op,bpy.context,c.name,'X+',1,.5))
+
 
 def barra(nome, tamanho_mm, matriz):
     """Malha de fora (caixa) no lugar de `matriz` (mundo)."""

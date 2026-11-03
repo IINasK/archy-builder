@@ -100,7 +100,7 @@ Adocao/importacao: [integracao](../../planejamento/setores/integracao/AGENTS.md)
   ordem da pilha: Clipping nao pode prender metade da dobradica no arraste.
 - Puxador (374): folha unica selecionada fixa alvo pelo ray_cast nativo, sem acertar a vizinha sobreposta; sem alvo, usa raio visivel da HUD. Oculta/bloqueada nao recebe. GIRO <-> CORRER adapta bordas X parametrizadas, conserva dono/fracao, usa pose fechada; correr usa lateral externa. Demais bordas/trocas nao mudam. Selecao 385: duplo direto isola o puxador; gaveta ja' isolada tambem libera clique simples no proprio puxador, sem afetar objetos comuns;
   trilhos das gavetas ficam com elas. Alt move ancora para borda SO' do
-  proprio grupo, com snap de linha. `posicionar_puxador` refaz por PROPS da
+  proprio grupo, com snap de linha. 389: `_destino_ocupado` recusa sobreposicao pela ancora/comprimento efetivos, antes de mover/refazer; conserva vizinhos (inclusive perfil), permite separados/face oposta, Esc restaura legado. `posicionar_puxador` refaz por PROPS da
   chapa, nunca delta. PERFIL e' padrao, SEMPRE horizontal salvo guarda-roupa
   (`importacao.posicao_do_perfil`); pontas/costas ANDAM. BORDA (322) e' o
   slim do usuario (`_deformar_borda`): metades e aba andam; furos nao escalam.
