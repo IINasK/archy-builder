@@ -247,8 +247,13 @@ modelados conservam seus editores. O vao cadastrado nao e' redistribuido
 automaticamente por sobrepor outro sistema; os controles permitem corrigi-lo.
 seta sai da quina mais perto (`lado`), que fica PARADA; arrastar estica,
 clicar digita (Enter/Esc). Caixa de digitar (HUD e gaveta, um nucleo so':
-`_tecla_no_texto`): abre com tudo selecionado, mas um OPERADOR continua
-a conta ("600" e '+' -> "600 + "); clicar DENTRO da caixa so' move o
+`_tecla_no_texto`): abre com cursor no fim, SEM selecionar tudo (392).
+Backspace apaga o caractere anterior; Ctrl+A seleciona tudo com realce
+visivel; Shift+setas/Home/End seleciona trechos. Clique/Shift+clique na
+caixa do menu/HUD posiciona/estende a selecao. Ctrl+Z desfaz a escrita,
+Ctrl+Shift+Z ou Ctrl+Y refaz, em historico LOCAL de ate' 80 edicoes por
+campo; nunca desfaz a cena enquanto digita. Editar apos undo limpa redo.
+Um OPERADOR continua a conta ("600" e '+' -> "600 + "); clicar DENTRO so' move o
 cursor (`_cursor_no_x`), fora confirma; "500 + cm" = 500 cm e "51cm00"
 = 5100 cm (`_arrumar_texto_medida`). Na E a face da quina fica e a chapa engrossa
 para o outro lado (`_redimensionar_chapa_ancorada`, eixo 2).
@@ -257,6 +262,8 @@ MM/CM/M e sem zeros decimais artificiais. Aceitar ponto ou virgula decimal
 no texto original; separar apresentacao e buffer, com mapa para o cursor.
 Ex.: .1 -> 0,1 mm; 12345.67 -> 12.345,67 mm. Conta continua editavel e
 mostra previa: 0,2 + 0,5 = 0,7 mm; confirmar usa o parser nativo existente.
+Numero sem unidade usa SEMPRE a padrao: "100 + 50cm" = 600 mm com MM,
+150 cm com CM ou 100,5 m com M. Fatores de multiplicacao continuam puros.
 Previa em cache por texto/unidade (128 entradas), sem repetir calculo no redraw;
 erros/incompletas nao imprimem excecoes enquanto se digita. Contadores,
 nomes, angulos e pixels conservam seu tipo. Caixa preta conserva cor e

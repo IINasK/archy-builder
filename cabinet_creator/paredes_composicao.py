@@ -242,12 +242,14 @@ def caixa_editavel(x, y, texto, edicao, tamanho, escala):
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     gpu.state.blend_set('ALPHA')
     shader.bind()
-    if edicao.get('selecionado') and digitado:
-        fim = x + blf.dimensions(0, digitado)[0]
+    inicio, fim = _gaveta_desenho._selecao_no_texto(edicao)
+    if inicio != fim:
+        comeco = x + blf.dimensions(0, digitado[:mapa[inicio]])[0]
+        fim = x + blf.dimensions(0, digitado[:mapa[fim]])[0]
         shader.uniform_float('color', (*_hud._cor_realce_hud()[:3], .45))
         batch_for_shader(shader, 'TRIS', {'pos': [
-            (x - 1, y - 2), (fim + 1, y - 2), (fim + 1, y + altura + 2),
-            (x - 1, y - 2), (fim + 1, y + altura + 2), (x - 1, y + altura + 2)]}).draw(shader)
+            (comeco - 1, y - 2), (fim + 1, y - 2), (fim + 1, y + altura + 2),
+            (comeco - 1, y - 2), (fim + 1, y + altura + 2), (comeco - 1, y + altura + 2)]}).draw(shader)
     if cursor_aceso():
         cx = x + blf.dimensions(0, digitado[:mapa[min(edicao['cursor'],len(edicao['texto']))]])[0]
         gpu.state.line_width_set(max(1.0, 1.5 * escala))
@@ -1451,7 +1453,7 @@ class OBJECT_OT_editar_cota_parede(Operator):
                      if self.propriedade == 'esquerda' else item[self.propriedade])
         texto = _opcoes._numero_na_unidade(valor * 1000)
         _edicao[0] = dict(objeto=self.objeto, propriedade=self.propriedade, texto=texto,
-                          cursor=len(texto), selecionado=True)
+                          cursor=len(texto), selecionado=False)
         # Tique so' para o cursor piscar com o mouse parado; sai no cancel.
         self._tique = context.window_manager.event_timer_add(PISCA_CURSOR_S / 2, window=context.window)
         context.window_manager.modal_handler_add(self)
@@ -1506,7 +1508,8 @@ class OBJECT_OT_editar_cota_parede(Operator):
                 return {'RUNNING_MODAL'}
             self.cancel(context)
             return {'FINISHED'}
-        entrada = context.window_manager.clipboard if event.ctrl and event.type == 'V' else event.unicode or ''
-        _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl)
+        entrada = (context.window_manager.clipboard if event.ctrl and event.type == 'V'
+                   else '' if event.ctrl else event.unicode or '')
+        _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl, getattr(event, 'shift', False))
         _paredes_edicao._redesenhar()
         return {'RUNNING_MODAL'}

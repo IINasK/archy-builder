@@ -744,7 +744,8 @@ def desenhar_guias(context):
             largura, altura = blf.dimensions(0, texto)[0], blf.dimensions(0, '0')[1]
             meio = (a + b) / 2.0
             x, y = meio.x - largura / 2.0, meio.y - altura / 2.0
-            _hud._caixa_texto_hud(x, y, texto, tamanho, escala)
+            _hud._caixa_texto_hud(x, y, texto, tamanho, escala,
+                edicao=_edicao_guia[0] if _edicao_guia[0] and _edicao_guia[0]['lado'] == lado else None)
             shader.bind()
             folga = 4 * escala
             mm_por_px = ((b3 - a3).length * 1000.0 / linha.length
@@ -1154,7 +1155,7 @@ class OBJECT_OT_guia_parede(Operator):
         entrada = (context.window_manager.clipboard
                    if event.ctrl and event.type == 'V'
                    else '' if event.ctrl else event.unicode or '')
-        if _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl):
+        if _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl, getattr(event, 'shift', False)):
             self._area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -1171,7 +1172,7 @@ class OBJECT_OT_guia_parede(Operator):
             # clique sem arrastar: digita a distancia (Enter confirma)
             texto = _opcoes._numero_na_unidade(self._valor)
             _edicao_guia[0] = {'lado': self._lado, 'texto': texto,
-                               'cursor': len(texto), 'selecionado': True}
+                               'cursor': len(texto), 'selecionado': False}
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE':

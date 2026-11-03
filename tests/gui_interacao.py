@@ -533,6 +533,7 @@ def test_clicar_na_seta_e_digitar_a_medida(janela, m):
     yield
     m.clicar()
     yield
+    m.clicar('A', ctrl=True)
     m.digitar('800')
     m.tecla('RET')
     yield
@@ -544,7 +545,7 @@ def test_clicar_na_seta_e_digitar_a_medida(janela, m):
 
 def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     # O mesmo da HUD no campo da gaveta: clicar nele em edicao nao
-    # confirma, leva o cursor; '+' com tudo selecionado continua a conta
+    # confirma, leva o cursor; Backspace/undo e selecao so' por comando.
     chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
                              (0, 0, 0), bpy.context)
     selecionar(janela, chapa, individual=True)
@@ -557,6 +558,18 @@ def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     yield
     estado = addon.gaveta._edicao_gaveta[0]
     assert estado is not None, 'o campo nao abriu'
+    assert not estado['selecionado'], estado
+    m.tecla('BACK_SPACE')
+    yield
+    assert estado['texto'] == '60', estado['texto']
+    m.clicar('Z', ctrl=True)
+    yield
+    assert estado['texto'] == '600', estado['texto']
+    m.clicar('A', ctrl=True)
+    yield
+    assert estado['selecionado'], estado
+    m.tecla('RIGHT_ARROW')
+    yield
     m.digitar('+50')
     yield
     assert estado['texto'].replace(' ', '').endswith('+50'), estado['texto']
@@ -966,6 +979,7 @@ def test_wizard_basculante_com_pistoes(janela, m):
     yield
     m.clicar()
     yield
+    m.clicar('A', ctrl=True)
     m.digitar('80')
     m.tecla('RET')
     yield
@@ -1540,6 +1554,7 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     yield
     assert addon.hud._edicao_hud[0].get('texto') is not None, \
         'orientados os dois, devia digitar'
+    m.clicar('A', ctrl=True)
     m.digitar('900')
     m.tecla('RET')
     yield
@@ -2089,6 +2104,7 @@ def test_digitar_no_campo_da_gaveta(janela, m):
     yield
     m.clicar()
     yield
+    m.clicar('A', ctrl=True)
     m.digitar('750')
     m.tecla('RET')
     yield
@@ -2411,6 +2427,7 @@ def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
     m.clicar()
     yield
     assert P._edicao_guia[0] is not None, 'o clique nao abriu a digitacao'
+    m.clicar('A', ctrl=True)
     m.digitar('1200')
     m.tecla('RET')
     yield
@@ -2835,6 +2852,7 @@ def test_altura_de_uma_gaveta_com_previa_esc_e_digitacao(janela,m):
     yield
     m.soltar()
     yield
+    m.clicar('A', ctrl=True)
     m.digitar('%dmm' % round(altura+20));m.tecla('RET')
     yield
     assert abs(addon.gavetas.valor(grupo,('A',1))-round(altura+20))<.1
@@ -2919,6 +2937,7 @@ def test_gavetas_arraste_esc_e_digitacao_na_hud(janela, m):
     m.soltar()
     yield
     assert (addon.hud._edicao_hud[0] or {}).get('texto') is not None, addon.hud._edicao_hud[0]
+    m.clicar('A', ctrl=True)
     m.digitar('350mm')
     m.tecla('RET')
     yield
@@ -3124,6 +3143,7 @@ def test_criar_divisorias_e_prateleiras_no_mesmo_volume(janela, m):
             m.mover(*widget(janela, lambda v: v[5][:3] == ('medida', 'area_criacao', chave)))
             m.clicar()
             yield
+            m.clicar('A', ctrl=True)
             m.digitar(str(mm)); m.tecla('RET')
             yield
             assert A.objeto() is not None, 'Enter do campo aplicou a area'

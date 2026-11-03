@@ -2,6 +2,7 @@
 import os,sys,tempfile,unittest
 from unittest.mock import patch
 import bpy
+from types import SimpleNamespace
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
 G=addon.gaveta_desenho
@@ -12,6 +13,128 @@ class TestMedidas(unittest.TestCase):
         G._apresentacao_medida.cache_clear()
         self.p=patch.object(addon.opcoes,'_opcao',return_value='MM');self.p.start()
         self.addCleanup(self.p.stop)
+
+    def test_ctrl_z_e_redo_restauram_texto_cursor_e_selecao_sem_undo_da_cena(self):
+        # Regressao 392: Ctrl+Z era ignorado ou inseria o unicode do atalho.
+        estado=dict(texto='100',cursor=3,selecionado=False)
+        G._tecla_no_texto(estado,'PLUS','+')
+        G._tecla_no_texto(estado,'V','50cm')
+        with patch.object(bpy.ops.ed,'undo') as undo:
+            self.assertTrue(G._tecla_no_texto(estado,'Z','z',ctrl=True))
+            self.assertEqual(estado['texto'],'100 + ')
+            G._tecla_no_texto(estado,'Z',ctrl=True)
+            self.assertEqual((estado['texto'],estado['cursor']),('100',3))
+            G._tecla_no_texto(estado,'Z',ctrl=True,shift=True)
+            G._tecla_no_texto(estado,'Y',ctrl=True)
+            self.assertEqual(estado['texto'],'100 + 50cm')
+            undo.assert_not_called()
+        G._tecla_no_texto(estado,'Z',ctrl=True)
+        G._tecla_no_texto(estado,'V','20cm')
+        G._tecla_no_texto(estado,'Y',ctrl=True)
+        self.assertEqual(estado['texto'],'100 + 20cm')
+        vazio=dict(texto='7',cursor=1,selecionado=False)
+        self.assertTrue(G._tecla_no_texto(vazio,'Z',ctrl=True))
+        self.assertEqual(vazio['texto'],'7')
+
+    def test_entrada_do_menu_nao_seleciona_tudo_e_backspace_apaga_so_um(self):
+        # Regressao 392: entrar no campo e Backspace limpava o valor todo.
+        classe=addon.gaveta_eventos.OBJECT_OT_editar_medida_gaveta
+        area=SimpleNamespace(as_pointer=lambda:123,tag_redraw=lambda:None)
+        ctx=SimpleNamespace(area=area,window_manager=SimpleNamespace(modal_handler_add=lambda _:None))
+        op=SimpleNamespace(valor=1.234,dono='livre',propriedade='dimensions_2')
+        with patch.object(addon.gaveta,'_edicao_gaveta',[None]):
+            self.assertEqual(classe.invoke(op,ctx,None),{'RUNNING_MODAL'})
+            G._tecla_no_texto(op._estado,'BACK_SPACE')
+            self.assertEqual(op._estado['texto'],'123')
+            self.assertFalse(op._estado['selecionado'])
+
+    def test_valor_sem_unidade_na_soma_usa_padrao_e_nao_unidade_vizinha(self):
+        for unidade,metros,final in (('MM',.6,'600 mm'),('CM',1.5,'150 cm'),('M',100.5,'100,5 m')):
+            with patch.object(addon.opcoes,'_opcao',return_value=unidade):
+                self.assertEqual(G._ler_medida_digitada('100 + 50CM'),metros)
+                self.assertTrue(G._com_cursor('100 + 50CM',10,medida=True).endswith(' = '+final))
+
+    def test_shift_seleciona_trecho_ctrl_a_tudo_e_undo_recupera_o_trecho(self):
+        estado=dict(texto='12345',cursor=5,selecionado=False)
+        for _ in range(2):G._tecla_no_texto(estado,'LEFT_ARROW',shift=True)
+        self.assertEqual(G._selecao_no_texto(estado),(3,5))
+        G._tecla_no_texto(estado,'V','67')
+        self.assertEqual(estado['texto'],'12367')
+        G._tecla_no_texto(estado,'Z',ctrl=True)
+        self.assertEqual(G._selecao_no_texto(estado),(3,5))
+        G._tecla_no_texto(estado,'BACK_SPACE')
+        self.assertEqual(estado['texto'],'123')
+        G._tecla_no_texto(estado,'A',ctrl=True)
+        self.assertEqual(G._selecao_no_texto(estado),(0,3))
+        G._tecla_no_texto(estado,'DEL')
+        self.assertEqual(estado['texto'],'')
+
+    def test_realce_mapeia_milhar_sem_selecionar_unidade_ou_resultado(self):
+        estado=dict(texto='1234 + 5',cursor=4,selecionado=True,ancora=0)
+        with patch.object(G._gaveta,'_retangulo_gaveta') as retangulo:
+            G._realcar_selecao_texto(10,20,estado,14,medida=True)
+        G.blf.size(0,14)
+        args=retangulo.call_args.args
+        self.assertAlmostEqual(args[0],10)
+        self.assertAlmostEqual(args[2],G.blf.dimensions(0,'1.234')[0])
+        cor=bpy.context.preferences.themes[0].user_interface.wcol_regular.inner_sel
+        self.assertEqual(args[-1],(*cor[:3],1))
+        estado['selecionado']=False
+        with patch.object(G._gaveta,'_retangulo_gaveta') as retangulo:
+            G._realcar_selecao_texto(10,20,estado,14,medida=True)
+        retangulo.assert_not_called()
+
+    def test_modais_do_menu_hud_e_parede_encaminham_undo_e_shift_sem_aplicar_medida(self):
+        def evento(tipo,entrada='',ctrl=False,shift=False):
+            return SimpleNamespace(type=tipo,value='PRESS',unicode=entrada,ctrl=ctrl,shift=shift)
+        area=SimpleNamespace(tag_redraw=lambda:None)
+        ctx=SimpleNamespace(window_manager=SimpleNamespace(clipboard=''),area=area)
+        rotas=(('menu',addon.gaveta_eventos.OBJECT_OT_editar_medida_gaveta.modal),
+               ('hud',addon.hud.OBJECT_OT_arrastar_hud._digitar),
+               ('guia',addon.paredes.OBJECT_OT_guia_parede._digitar),
+               ('parede',addon.paredes_composicao.OBJECT_OT_editar_cota_parede._modal))
+        for nome,modal in rotas:
+            with self.subTest(nome=nome):
+                estado=dict(texto='100',cursor=3,selecionado=False)
+                op=SimpleNamespace(_estado=estado,_area=area)
+                with patch.object(addon.gaveta,'_edicao_gaveta',[estado]), \
+                     patch.object(addon.hud,'_edicao_hud',[estado]), \
+                     patch.object(addon.paredes,'_edicao_guia',[estado]), \
+                     patch.object(addon.paredes_composicao,'_edicao',[estado]), \
+                     patch.object(addon.paredes_edicao,'ativa',return_value=True), \
+                     patch.object(addon.paredes_edicao,'_redesenhar'), \
+                     patch.object(addon.gaveta_eventos,'aplicar_medida') as aplicar:
+                    modal(op,ctx,evento('TEXTINPUT','5'))
+                    self.assertEqual(estado['texto'],'1005')
+                    modal(op,ctx,evento('Z','z',ctrl=True))
+                    self.assertEqual(estado['texto'],'100')
+                    modal(op,ctx,evento('Z','Z',ctrl=True,shift=True))
+                    self.assertEqual(estado['texto'],'1005')
+                    modal(op,ctx,evento('LEFT_ARROW',shift=True))
+                    self.assertEqual(G._selecao_no_texto(estado),(3,4))
+                    aplicar.assert_not_called()
+
+    def test_hud_entra_com_cursor_no_fim_sem_selecao_automatica(self):
+        estado=dict(itens=[{}])
+        op=SimpleNamespace(_area=SimpleNamespace(tag_redraw=lambda:None))
+        with patch.object(addon.hud,'_edicao_hud',[estado]), \
+             patch.object(addon.hud,'_valor_hud',return_value=1234):
+            addon.hud.OBJECT_OT_arrastar_hud._comecar_digitacao(op)
+            G._tecla_no_texto(estado,'BACK_SPACE')
+        self.assertEqual(estado['texto'],'123')
+
+    def test_selecao_por_shift_clique_e_seta_colapsa_para_borda(self):
+        estado=dict(texto='12345',cursor=5,selecionado=False)
+        G._posicionar_cursor_texto(estado,2,shift=True)
+        self.assertEqual(G._selecao_no_texto(estado),(2,5))
+        G._tecla_no_texto(estado,'LEFT_ARROW')
+        self.assertEqual((estado['cursor'],estado['selecionado']),(2,False))
+        G._posicionar_cursor_texto(estado,5,shift=True)
+        G._tecla_no_texto(estado,'RIGHT_ARROW')
+        self.assertEqual((estado['cursor'],estado['selecionado']),(5,False))
+        G._tecla_no_texto(estado,'HOME',shift=True)
+        G._tecla_no_texto(estado,'V','8')
+        self.assertEqual(estado['texto'],'8')
 
     def test_exemplos_de_digitacao_formatam_unidade_e_separadores(self):
         for entrada,esperado in (('1','1| mm'),('.1','0,1| mm'),('1234','1.234| mm'),

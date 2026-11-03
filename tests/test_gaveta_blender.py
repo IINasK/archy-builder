@@ -409,16 +409,18 @@ class TestGaveta(unittest.TestCase):
         area = SimpleNamespace(as_pointer=lambda: 123, tag_redraw=lambda: None)
         ctx = SimpleNamespace(area=area, scene=self.cena,
             window_manager=SimpleNamespace(modal_handler_add=lambda _: None))
-        evento = lambda tipo, texto='': SimpleNamespace(
-            type=tipo, value='PRESS', ctrl=False, unicode=texto)
+        evento = lambda tipo, texto='', ctrl=False: SimpleNamespace(
+            type=tipo, value='PRESS', ctrl=ctrl, unicode=texto)
         for texto, esperado in (('1250', 1.25), ('80 cm', 0.8), ('1,5 m', 1.5)):
             self.assertEqual(classe.invoke(op, ctx, None), {'RUNNING_MODAL'})
+            classe.modal(op, ctx, evento('A', ctrl=True))
             classe.modal(op, ctx, evento('TEXTINPUT', texto))
             self.assertEqual(classe.modal(op, ctx, evento('RET')), {'FINISHED'})
             bpy.context.view_layer.update()
             self.assertAlmostEqual(objeto.dimensions.z, esperado, places=6)
             self.assertIsNone(addon.gaveta._edicao_gaveta[0])
         classe.invoke(op, ctx, None)
+        classe.modal(op, ctx, evento('A', ctrl=True))
         classe.modal(op, ctx, evento('TEXTINPUT', '900'))
         self.assertEqual(classe.modal(op, ctx, evento('ESC')), {'CANCELLED'})
         self.assertAlmostEqual(objeto.dimensions.z, 1.5)

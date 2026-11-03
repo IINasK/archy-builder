@@ -1,5 +1,35 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Edicao previsivel dos campos (392): entrada sem selecao automatica, cursor
+no fim; Backspace apaga um caractere. Ctrl+A e Shift+setas/Home/End
+selecionam texto, com realce sobre os caracteres editaveis, sem unidade
+automatica nem resultado. Clique/Shift+clique nas caixas do menu/HUD
+posiciona/estende; seta simples colapsa selecao para a borda. Ctrl+Z e
+Ctrl+Shift+Z/Ctrl+Y usam historico local de ate' 80 edicoes, com cursor e
+selecao restaurados; nova escrita apos undo descarta redo. Nenhuma escrita
+aplica geometria antes de confirmar. Cota de parede nao insere unicode de
+atalho. Trocar distancia por quantidade via scroll descarta historico antigo.
+Suite medidas sobe 13 -> 21: regressao do Ctrl+Z (antes inseria z ou era
+ignorado), entrada/Backspace do menu/HUD, trecho/teclado/undo, realce com
+milhar excluindo unidade/resultado, rotas reais de modal do menu/HUD e
+duas cotas de parede. Falhas antes: dist/medidas392-antes.log. Cenario de
+unidades preserva parser nativo: 100 + 50CM = 600 mm / 150 cm / 100,5 m
+conforme opcao MM/CM/M; sem unidade usa padrao, nao unidade do vizinho.
+Teste inline antigo agora faz Ctrl+A explicitamente antes de substituir.
+Dirigidas 4.2/5.2: 830 testes / 10 execucoes OK (dist/medidas392-alvos2.log).
+Auditoria visual GPU: dist/medidas392-campos.png, funcoes reais extraidas
+do fonte em namespace isolado. Confere menu e HUD: Backspace, Ctrl+A,
+trecho por Shift, conta mista e Ctrl+Z. O teste revelou que wcol_text do
+tema era quase preto; usa inner_sel de wcol_regular (botoes nativos), com
+contraste sobre caixa preta/cinza. Sem recarregar o add-on em uso, abrir
+janela ou alterar cena/biblioteca. Gestos na interface ao vivo nao executados.
+GUI preparada: substituicoes digitadas fazem Ctrl+A explicito; cenario do
+campo exercita Backspace de 600 para 60, Ctrl+Z para 600, Ctrl+A e seta
+para desfazer selecao antes da conta. Sintaxe conferida; janela nao rodada.
+Validacao final apos contraste: Blender 4.2/5.2, 3148 testes em 68 execucoes,
+tudo OK (dist/medidas392-final.log). Pacote 392 com os 40 fontes Python
+identicos ao projeto; espelhos/limites dos guias conferidos. Snapshot intacto.
+
 Medidas durante digitacao e caixas arredondadas (391): apresentacao em
 portugues (milhar ponto, decimal virgula), unidade MM/CM/M da configuracao,
 zero antes da fracao e sem zeros artificiais. Mantem buffer original para

@@ -108,7 +108,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
                  else _opcoes._numero_na_unidade(self.valor * 1000.0))
         self._estado = {'area': context.area.as_pointer(),
                         'propriedade': self.propriedade, 'texto': texto,
-                        'cursor': len(texto), 'selecionado': True,
+                        'cursor': len(texto), 'selecionado': False,
                         'medida':self.dono not in {'opcao','contador'}}
         _gaveta._edicao_gaveta[0] = self._estado
         context.window_manager.modal_handler_add(self)
@@ -150,7 +150,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         entrada = (context.window_manager.clipboard
                    if event.ctrl and event.type == 'V'
                    else '' if event.ctrl else event.unicode or '')
-        if _gaveta_desenho._tecla_no_texto(self._estado, event.type, entrada, event.ctrl):
+        if _gaveta_desenho._tecla_no_texto(self._estado, event.type, entrada, event.ctrl, getattr(event, 'shift', False)):
             self._area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -180,8 +180,8 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
             largura = _gaveta_desenho._medidor_blf(tamanho)
             x_texto = (x + 7 if campo
                        else x + (w - min(largura(mostrado), disponivel)) / 2)
-            estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x_texto, mx, largura,medida=estado.get('medida',False))
-            estado['selecionado'] = False
+            pos = _gaveta_desenho._cursor_no_x(texto, cursor, x_texto, mx, largura,medida=estado.get('medida',False))
+            _gaveta_desenho._posicionar_cursor_texto(estado, pos, getattr(event, 'shift', False))
             return True
         return False
 

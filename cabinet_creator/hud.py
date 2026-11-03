@@ -1346,7 +1346,8 @@ def _desenhar_hud_texto():
                         edicao['texto'], edicao.get('cursor', len(edicao['texto'])),
                         medida=not edicao.get('subdivisao_vao') and not _eh_angulo(edicao['alvo'])) +
                         (' prateleiras no vao' if edicao.get('subdivisao_vao') else ''),
-                        tamanho, escala)
+                        tamanho, escala, edicao=edicao,
+                        medida=not edicao.get('subdivisao_vao') and not _eh_angulo(edicao['alvo']))
             if alvo and alvo.get('lado') and not parede:
                 _desenhar_seta_hud(context, alvo, geometria)
             if nesta and edicao.get('nativo') and alvo and not parede:
@@ -1464,7 +1465,7 @@ def _letra_do_alvo(alvo):
     return 'E' if alvo['tipo'] == 'espessura' else alvo.get('letra', '')
 
 
-def _caixa_texto_hud(x, y, texto, tamanho, escala):
+def _caixa_texto_hud(x, y, texto, tamanho, escala, edicao=None, medida=True):
     """Texto branco numa caixa preta: legivel contra qualquer fundo."""
     blf.size(0, tamanho)
     largura = blf.dimensions(0, texto)[0]
@@ -1474,6 +1475,8 @@ def _caixa_texto_hud(x, y, texto, tamanho, escala):
     x1, y1 = x + largura + folga, y + altura + folga
     gpu.state.blend_set('ALPHA')
     _gaveta._retangulo_arredondado_gaveta(x0,y0,x1-x0,y1-y0,4*escala,(0.0,0.0,0.0,.88))
+    if edicao is not None:
+        _gaveta_desenho._realcar_selecao_texto(x, y, edicao, tamanho, medida=medida)
     blf.position(0, x, y, 0)
     blf.color(0, 1.0, 1.0, 1.0, 1.0)
     blf.draw(0, texto)
@@ -2126,7 +2129,7 @@ class OBJECT_OT_arrastar_hud(Operator):
         estado['hover'] = None
         estado['texto'] = _opcoes._numero_na_unidade(_valor_hud(estado['itens'][0]))
         estado['cursor'] = len(estado['texto'])
-        estado['selecionado'] = True
+        estado['selecionado'] = False
         self._area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -2210,7 +2213,7 @@ class OBJECT_OT_arrastar_hud(Operator):
         entrada = (context.window_manager.clipboard
                    if event.ctrl and event.type == 'V'
                    else '' if event.ctrl else event.unicode or '')
-        if _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl):
+        if _gaveta_desenho._tecla_no_texto(estado, event.type, entrada, event.ctrl, getattr(event, 'shift', False)):
             self._area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -2229,8 +2232,8 @@ class OBJECT_OT_arrastar_hud(Operator):
             folga = 4 * escala
             if (x - folga <= mx <= x + largura(_gaveta_desenho._com_cursor(texto, cursor,medida=medida)) + folga
                     and y - folga <= my <= y + altura + folga):
-                estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x, mx, largura,medida=medida)
-                estado['selecionado'] = False
+                pos = _gaveta_desenho._cursor_no_x(texto, cursor, x, mx, largura,medida=medida)
+                _gaveta_desenho._posicionar_cursor_texto(estado, pos, getattr(event, 'shift', False))
                 return True
         return False
 
@@ -2258,7 +2261,7 @@ class OBJECT_OT_arrastar_hud(Operator):
                          if _eh_angulo(self._alvo)
                          else _opcoes._numero_na_unidade(self._valor))
                 _edicao_hud[0].update(texto=texto, cursor=len(texto),
-                                      selecionado=True)
+                                      selecionado=False)
                 self._area.tag_redraw()
                 return {'RUNNING_MODAL'}
             self._encerrar()
@@ -2297,7 +2300,9 @@ class OBJECT_OT_arrastar_hud(Operator):
             n = max(0, estado['quantidade'] + (1 if event.type == 'WHEELUPMOUSE' else -1))
             _prateleiras.subdividir_vao(context, self._alvo['objeto'], estado, n)
             self._subdivisao_vao = estado
-            _edicao_hud[0].update(texto=str(n), cursor=len(str(n)), selecionado=True, subdivisao_vao=True)
+            _edicao_hud[0].update(texto=str(n), cursor=len(str(n)), selecionado=False,
+                                  subdivisao_vao=True, desfazer=[], refazer=[])
+            _edicao_hud[0].pop('ancora', None)
             self._arrastou = True
         except (ValueError, TypeError, ReferenceError) as erro:
             self.report({'WARNING'}, str(erro))

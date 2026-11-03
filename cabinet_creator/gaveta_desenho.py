@@ -183,14 +183,17 @@ def _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo):
                 x + 1, y + 1, max(6, (w - 2) * fracao), h - 2, 3,
                 (*cores.inner_sel[:3], 1))
         edicao = _gaveta._edicao_gaveta[0]
-        if (edicao is not None and edicao['propriedade'] == acao[1]
-                and edicao['area'] == context.area.as_pointer()):
+        editando = (edicao is not None and edicao['propriedade'] == acao[1]
+                    and edicao['area'] == context.area.as_pointer())
+        if editando:
             texto, cursor = edicao['texto'], edicao['cursor']
             rotulo = _com_cursor(texto,cursor,medida=edicao.get('medida',False))
         blf.size(0, 12)
         largura = min(blf.dimensions(0, rotulo)[0], w - 12)
-        _gaveta._texto_cabivel_gaveta(x + (w - largura) / 2, y + (h - 12) / 2,
-                              rotulo, w - 12)
+        if editando:
+            _texto_editavel_gaveta(x + (w - largura) / 2, y + (h - 12) / 2, edicao, w - 12)
+        else:
+            _gaveta._texto_cabivel_gaveta(x + (w - largura) / 2, y + (h - 12) / 2, rotulo, w - 12)
         return
     parte = acao[2]
     if parte == 'amostra':
@@ -584,10 +587,9 @@ def _desenhar_gaveta(tela=False):
                                    cor=alerta)
             valor = rotulo if campo_contador else _opcoes._texto_medida(acao[4])
             if editando:
-                texto, cursor = edicao['texto'], edicao['cursor']
-                valor = _com_cursor(texto,cursor,medida=edicao.get('medida',not campo_contador))
-            _gaveta._texto_cabivel_gaveta(x + 7, y + 6,
-                                   valor, w - 14, 12, cor=alerta)
+                _texto_editavel_gaveta(x + 7, y + 6, edicao, w - 14, cor=alerta)
+            else:
+                _gaveta._texto_cabivel_gaveta(x + 7, y + 6, valor, w - 14, 12, cor=alerta)
         elif acao and (acao[0] in _gaveta.BOTOES_CRIAR or destaque):
             # "Criar Portas"/"Criar Puxador": largo, texto CENTRALIZADO
             blf.size(0, 12)
@@ -700,38 +702,79 @@ OPERADORES_MEDIDA = '+-*/'
 LIMITE_TEXTO_MEDIDA = 80
 
 
-def _tecla_no_texto(estado, tipo, entrada='', ctrl=False):
-    """Uma tecla na caixa de digitar medida (HUD e gaveta). `estado` tem
-    texto, cursor e selecionado (o texto inteiro, como a caixa abre).
+def _selecao_no_texto(estado):
+    cursor = min(estado.get('cursor', len(estado['texto'])), len(estado['texto']))
+    if not estado.get('selecionado'):
+        return cursor, cursor
+    return tuple(sorted((estado.get('ancora', 0), cursor)))
 
-    Pedido do usuario: um OPERADOR com o texto selecionado CONTINUA a
-    conta em vez de apagar ("600" e '+' -> "600 + "). Devolve False se a
-    tecla nao e' de edicao.
-    """
+
+def _posicionar_cursor_texto(estado, cursor, shift=False):
+    cursor = max(0, min(len(estado['texto']), cursor))
+    if shift:
+        estado.setdefault('ancora', estado['cursor'])
+        estado['selecionado'] = estado['ancora'] != cursor
+    else:
+        estado.pop('ancora', None)
+        estado['selecionado'] = False
+    estado['cursor'] = cursor
+
+
+def _tecla_no_texto(estado, tipo, entrada='', ctrl=False, shift=False):
+    """Undo local da escrita; nunca chama undo da cena durante digitacao."""
+    chaves = ('texto', 'cursor', 'selecionado', 'ancora')
+    antes = tuple(estado.get(k) for k in chaves)
+    if ctrl and tipo in {'Z', 'Y'}:
+        refazer = tipo == 'Y' or shift
+        origem, destino = ('refazer', 'desfazer') if refazer else ('desfazer', 'refazer')
+        pilha = estado.get(origem)
+        if pilha:
+            estado.setdefault(destino, []).append(antes)
+            for k, valor in zip(chaves, pilha.pop()):
+                if valor is None: estado.pop(k, None)
+                else: estado[k] = valor
+        return True
+    tratado = _editar_texto(estado, tipo, entrada, ctrl, shift)
+    if estado['texto'] != antes[0]:
+        pilha = estado.setdefault('desfazer', [])
+        pilha.append(antes)
+        del pilha[:-LIMITE_TEXTO_MEDIDA]
+        estado['refazer'] = []
+    return tratado
+
+
+def _editar_texto(estado, tipo, entrada, ctrl, shift):
     texto = estado['texto']
     cursor = min(estado.get('cursor', len(texto)), len(texto))
     if ctrl and tipo == 'A':
-        estado['selecionado'] = True
+        estado.update(selecionado=True, ancora=0, cursor=len(texto))
         return True
     if tipo in {'LEFT_ARROW', 'RIGHT_ARROW', 'HOME', 'END'}:
         if tipo == 'HOME':
             cursor = 0
         elif tipo == 'END':
             cursor = len(texto)
+        elif estado.get('selecionado') and not shift:
+            cursor = _selecao_no_texto(estado)[0 if tipo == 'LEFT_ARROW' else 1]
         else:
             cursor += -1 if tipo == 'LEFT_ARROW' else 1
-        estado.update(cursor=max(0, min(len(texto), cursor)), selecionado=False)
+        _posicionar_cursor_texto(estado, cursor, shift)
         return True
+    if ctrl and tipo != 'V':
+        return False
     entrada = ''.join(c for c in entrada if c.isprintable())[:LIMITE_TEXTO_MEDIDA]
     if not entrada and tipo not in {'BACK_SPACE', 'DEL'}:
         return False
     if estado.get('selecionado'):
+        inicio, fim = _selecao_no_texto(estado)
         operador = entrada.strip()
-        if len(operador) == 1 and operador in OPERADORES_MEDIDA and texto.strip():
+        if (inicio == 0 and fim == len(texto) and len(operador) == 1
+                and operador in OPERADORES_MEDIDA and texto.strip()):
             texto = (texto.rstrip() + ' ' + operador + ' ')[:LIMITE_TEXTO_MEDIDA]
             estado.update(texto=texto, cursor=len(texto), selecionado=False)
+            estado.pop('ancora', None)
             return True
-        texto, cursor = '', 0
+        texto, cursor = texto[:inicio] + texto[fim:], inicio
     elif entrada:
         pass
     elif tipo == 'BACK_SPACE' and cursor:
@@ -751,7 +794,40 @@ def _tecla_no_texto(estado, tipo, entrada='', ctrl=False):
     texto = texto[:LIMITE_TEXTO_MEDIDA]
     estado.update(texto=texto, cursor=min(cursor, len(texto)),
                   selecionado=False)
+    estado.pop('ancora', None)
     return True
+
+
+def _realcar_selecao_texto(x, y, estado, tamanho, medida=False, barra=True, largura=None):
+    """Realca apenas o buffer selecionado; unidade automatica/resultado ficam fora."""
+    inicio, fim = _selecao_no_texto(estado)
+    if inicio == fim:
+        return
+    texto = estado['texto']
+    mapa = tuple(range(len(texto) + 1))
+    if medida:
+        texto, mapa = _apresentacao_medida(texto, _opcoes._opcao('unidade_padrao'))
+    cursor = estado['cursor']
+    def prefixo(i):
+        pos, c = mapa[i], mapa[cursor]
+        return texto[:pos] if not barra or i <= cursor else texto[:c] + '|' + texto[c:pos]
+    blf.size(0, tamanho)
+    a, b = (blf.dimensions(0, prefixo(i))[0] for i in (inicio, fim))
+    if largura is not None:
+        a, b = min(a, largura), min(b, largura)
+    if b > a:
+        # O fundo selecionado de wcol_text e' quase preto, invisivel na HUD preta.
+        cor = bpy.context.preferences.themes[0].user_interface.wcol_regular.inner_sel
+        _gaveta._retangulo_gaveta(x + a, y - 2, b - a, blf.dimensions(0, '0')[1] + 4, (*cor[:3], 1))
+
+
+def _texto_editavel_gaveta(x, y, estado, largura, tamanho=12, cor=None):
+    medida = estado.get('medida', False)
+    texto = _com_cursor(estado['texto'], estado['cursor'], medida=medida)
+    fonte = next((t for t in range(tamanho, 8, -1)
+                  if _medidor_blf(t)(texto) <= largura), 9)
+    _realcar_selecao_texto(x, y, estado, fonte, medida=medida, largura=largura)
+    _gaveta._texto_cabivel_gaveta(x, y, texto, largura, tamanho, cor=cor)
 
 
 def _cursor_no_x(texto, cursor, x_texto, mouse_x, largura, medida=False):
