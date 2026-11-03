@@ -738,7 +738,12 @@ futuros de aberturas, sem implementar portas/janelas nesta entrega.
 G confirmado conserva folga normal da parede ou elevacao do piso, com
 cota Afast. quando >0; editar zero devolve ao apoio. R conserva orientacao
 do apoio. Piso acompanha translacao/giro, modulo continua em pe.
-Editar ambientes entra no Edit Mode nativo da Alvenaria. Selecionar faces,
+394: Definir Alvenaria permanece em linha inteira. Depois de definir,
+Editar parede e Remover Alvenaria ocupam duas colunas iguais na mesma
+linha. Automatico preve a regiao plana conectada; Por pontos delimita a
+area manualmente. Editar ambientes fica DENTRO de Editar parede e entra
+no Edit Mode nativo da Alvenaria. Voltar a edicao da parede restaura o
+mesmo recorte; sair por Tab tambem conserva o caminho de volta. Selecionar faces,
 escolher preset na lista e Definir como Cozinha/Quarto/etc grava atributo
 INT FACE, sem trocar materiais/topologia. Lista: quadrado de cor 24 px a
 esquerda, nome a direita; clicar no quadrado abre paleta nativa no SOLTAR.
@@ -747,6 +752,10 @@ so' enquanto define locais (Edit Mode), nunca na apresentacao normal ou
 render. Nome em cada regiao coplanar: retangulo inteiro deve caber na face,
 inclusive concavidades; sem espaco, omitir. Cache dissolve COPIA BMesh,
 nunca a malha original; desenho so' le triangulos/numeros preparados.
+Realce coplanar tem prioridade numerica somente na profundidade da matriz
+de projecao GPU nativa, evitando listras sem mover a malha. A pilha restaura
+a projecao antes dos textos, inclusive se o desenho falhar; objetos a'
+frente continuam ocultando a superficie.
 Associar a face da cozinha leva a Collection do modulo a' pasta Cozinha
 existente do Orcamento. G entre faces redefine pelo raycast nativo. UID
 conserva vinculo apos renomear pasta; salvar/undo/redo conservam metadados.

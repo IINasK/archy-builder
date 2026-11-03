@@ -1288,7 +1288,7 @@ COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 # Entrar/sair da edicao da parede no MESMO padrao (pedido do usuario):
 # laranja para entrar, o laranja forte da etapa em andamento para sair.
 # Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
-OPERADORES_DESTAQUE = ('object.cabinet_definir_alvenaria', 'object.cabinet_editar_parede', 'object.cabinet_sair_parede',
+OPERADORES_DESTAQUE = ('object.cabinet_definir_alvenaria', 'object.cabinet_editar_parede', 'object.cabinet_editar_ambientes', 'object.cabinet_sair_parede',
                       'object.cabinet_aplicar_area', 'object.cabinet_definir_area', 'object.cabinet_internos',
                       'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao',
                       'object.cabinet_portas_internos')

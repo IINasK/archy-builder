@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (393, 0, 0),
+    "version": (394, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -213,6 +213,7 @@ CLASSES = (
     _paredes.VIEW3D_GGT_guias_parede,
     _paredes.OBJECT_OT_definir_alvenaria,
     _ambientes.OBJECT_OT_definir_ambiente,
+    _ambientes.OBJECT_OT_editar_ambientes,
     _ambientes.OBJECT_OT_cor_ambiente,
     _paredes.OBJECT_OT_arrastar_na_parede,
     _paredes.OBJECT_OT_guia_parede,

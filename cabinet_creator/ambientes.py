@@ -15,6 +15,7 @@ ALVO = '@ambiente_alvenaria'
 _sujo = [True]
 _cache = [{}]
 _handler = [None]
+_retorno = [None]
 
 
 def _mapa(obj):
@@ -74,6 +75,47 @@ class OBJECT_OT_definir_ambiente(Operator):
         try: definir(context,context.edit_object,context.scene.get(CHAVE_NOME,'Cozinha'))
         except ValueError as erro:
             self.report({'WARNING'},str(erro));return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class OBJECT_OT_editar_ambientes(Operator):
+    bl_idname='object.cabinet_editar_ambientes'
+    bl_label='Editar ambientes da parede'
+
+    @classmethod
+    def poll(cls,context):
+        return _paredes_edicao.ativa(context) or bool(_retorno[0] and _retorno[0]['cena']==context.scene.name)
+
+    def execute(self,context):
+        s=_paredes_edicao._sessao[0]
+        if s is not None:
+            obj=context.view_layer.objects.get(s['parede'])
+            if obj is None: return {'CANCELLED'}
+            retorno=dict(cena=context.scene.name,objeto=obj.name,ponto=tuple(s['ponto']),
+                         normal=tuple(s['normal']),regiao=dict(s['regiao']),recortar=s['recorte_explicito'])
+            _paredes_edicao.encerrar()
+            for o in context.selected_objects:o.select_set(False)
+            obj.select_set(True);context.view_layer.objects.active=obj
+            try: bpy.ops.object.mode_set(mode='EDIT')
+            except RuntimeError as erro:
+                _paredes_edicao.iniciar(context,obj,
+                    face=(Vector(retorno['ponto']),Vector(retorno['normal']),retorno['regiao']),
+                    recortar=retorno['recortar'])
+                self.report({'WARNING'},str(erro));return {'CANCELLED'}
+            _retorno[0]=retorno
+            return {'FINISHED'}
+        retorno=_retorno[0]
+        if retorno is None or retorno['cena']!=context.scene.name: return {'CANCELLED'}
+        obj=context.view_layer.objects.get(retorno['objeto'])
+        if obj is None:
+            _retorno[0]=None;return {'CANCELLED'}
+        if context.mode=='EDIT_MESH':bpy.ops.object.mode_set(mode='OBJECT')
+        _retorno[0]=None
+        erro=_paredes_edicao.iniciar(context,obj,
+            face=(Vector(retorno['ponto']),Vector(retorno['normal']),retorno['regiao']),
+            recortar=retorno['recortar'])
+        if erro:
+            self.report({'WARNING'},erro);return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -150,6 +192,7 @@ def widgets(context,itens,obj,x,y,w):
 
 def invalidar(cena,depsgraph):
     if _eventos._desfazendo[0]: return
+    if _retorno[0] and _retorno[0]['cena']!=cena.name:_retorno[0]=None
     malhas={v['malha'] for v in _cache[0].values()}
     for u in depsgraph.updates:
         if not u.is_updated_geometry: continue
@@ -224,7 +267,11 @@ def desenhar():
     try:
         gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(False)
         shader=gpu.shader.from_builtin('UNIFORM_COLOR');mapa=obj.get(CHAVE_MAPA,{})
-        with gpu.matrix.push_pop():
+        with gpu.matrix.push_pop_projection(),gpu.matrix.push_pop():
+            # A cor coplanar precisa de prioridade no depth, sem mover a malha.
+            projecao=gpu.matrix.get_projection_matrix()
+            projecao[2]=projecao[2]-projecao[3]*1e-6
+            gpu.matrix.load_projection_matrix(projecao)
             gpu.matrix.multiply_matrix(obj.matrix_world)
             for i,ps in _cache[0][obj.name]['grupos']:
                 if str(i) not in mapa: continue
@@ -237,4 +284,4 @@ def desenhar():
 
 
 def esquecer():
-    _cache[0]={};_sujo[0]=True
+    _cache[0]={};_sujo[0]=True;_retorno[0]=None

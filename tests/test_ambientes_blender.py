@@ -1,17 +1,66 @@
 """Alvenaria, faces por ambiente, cores editoriais e filiacao nativa."""
 import os,sys,math,tempfile,unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 from types import SimpleNamespace
 import bpy,bmesh
-from mathutils import Vector
+from mathutils import Vector,Matrix
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cabinet_creator as addon
 A=addon.ambientes;P=addon.paredes
 
 
 class TestAmbientes(unittest.TestCase):
+    def test_realce_coplanar_corrige_so_profundidade_e_restaura_projecao(self):
+        # Regressao 394: a cor disputava o mesmo depth da face nativa (listras).
+        self.marcar([0]);self.selecionar([0]);A.atualizar()
+        contexto=SimpleNamespace(mode='EDIT_MESH',edit_object=self.obj)
+        for original in (Matrix.Identity(4),Matrix(((2,0,0,0),(0,2,0,0),(0,0,-1,-.2),(0,0,-1,0)))):
+            class Pilha:
+                p=original.copy()
+                @contextmanager
+                def push_pop_projection(self):
+                    anterior=self.p.copy()
+                    try: yield
+                    finally:self.p=anterior
+                def get_projection_matrix(self):return self.p.copy()
+                def load_projection_matrix(self,p):self.p=p.copy()
+            pilha=Pilha();durante=[]
+            with patch.object(A,'bpy',SimpleNamespace(context=contexto)),patch.object(A,'gpu') as gpu, \
+                 patch.object(A,'_rotulo'),patch.object(A,'batch_for_shader') as batch:
+                gpu.matrix.push_pop_projection=pilha.push_pop_projection
+                gpu.matrix.get_projection_matrix=pilha.get_projection_matrix
+                gpu.matrix.load_projection_matrix=pilha.load_projection_matrix
+                batch.return_value.draw.side_effect=lambda *_:durante.append(pilha.p.copy())
+                A.desenhar()
+            self.assertTrue(durante)
+            for p in durante:
+                self.assertEqual(p[0],original[0]);self.assertEqual(p[1],original[1]);self.assertEqual(p[3],original[3])
+                self.assertGreater((original[2]-p[2]).length,0)
+            self.assertEqual(pilha.p,original)
+            with patch.object(A,'bpy',SimpleNamespace(context=contexto)),patch.object(A,'gpu') as gpu, \
+                 patch.object(A,'batch_for_shader',side_effect=RuntimeError('Falha simulada')):
+                gpu.matrix.push_pop_projection=pilha.push_pop_projection
+                gpu.matrix.get_projection_matrix=pilha.get_projection_matrix
+                gpu.matrix.load_projection_matrix=pilha.load_projection_matrix
+                with self.assertRaises(RuntimeError):A.desenhar()
+            self.assertEqual(pilha.p,original)
+
+    def test_cubo_com_dois_ambientes_conserva_oito_vertices_seis_faces_e_sem_triangulo_duplicado(self):
+        bpy.ops.object.select_all(action='DESELECT');bpy.ops.mesh.primitive_cube_add(size=2)
+        self.obj=bpy.context.object;self.obj[P.CHAVE_ALVENARIA]=True
+        dados=self.obj.data.as_pointer()
+        self.marcar([0,1,2],'Copa');self.marcar([3,4,5],'Cozinha');A.atualizar()
+        self.assertEqual((len(self.obj.data.vertices),len(self.obj.data.polygons)),(8,6))
+        self.assertEqual(self.obj.data.as_pointer(),dados)
+        triangulos=[]
+        for _i,ps in A._cache[0][self.obj.name]['grupos']:
+            for k in range(0,len(ps),3):triangulos.append(tuple(sorted(tuple(map(float,p)) for p in ps[k:k+3])))
+        self.assertEqual(len(triangulos),12);self.assertEqual(len(set(triangulos)),12)
+
     def setUp(self):
         addon.eventos._fim_do_desfazer()
+        addon.paredes_edicao.encerrar()
         if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
         for o in list(bpy.data.objects):bpy.data.objects.remove(o,do_unlink=True)
         for c in list(bpy.data.collections):bpy.data.collections.remove(c)
@@ -29,6 +78,7 @@ class TestAmbientes(unittest.TestCase):
 
     def tearDown(self):
         if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+        addon.paredes_edicao.encerrar()
 
     def selecionar(self,indices):
         if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
@@ -115,6 +165,75 @@ class TestAmbientes(unittest.TestCase):
         self.assertEqual([i[4] for i in nomes],addon.orcamento._comodos_da_lista(bpy.context.scene))
         self.assertEqual(len(quadrados),len(nomes))
         for q,n in zip(quadrados,nomes):self.assertLess(q[0]+q[2],n[0])
+
+    def test_editar_e_remover_lado_a_lado_definir_ocupa_linha_inteira(self):
+        E=addon.paredes_edicao
+        for largura in (166,296,540):
+            itens=[];E.widgets(bpy.context,itens,12,900,largura)
+            editar=next(v for v in itens if v[5]==('operador','object.cabinet_editar_parede'))
+            remover=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
+            self.assertEqual(editar[1],remover[1]);self.assertEqual(editar[2],remover[2])
+            self.assertEqual(editar[0]+editar[2]+6,remover[0])
+            self.assertAlmostEqual(remover[0]+remover[2],12+largura)
+            self.assertNotIn('Editar ambientes',[v[4] for v in itens])
+            del self.obj[P.CHAVE_ALVENARIA]
+            itens=[];E.widgets(bpy.context,itens,12,900,largura)
+            definir=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
+            self.assertEqual(definir[2],largura)
+            self.obj[P.CHAVE_ALVENARIA]=True
+
+    def test_editar_ambientes_e_submenu_da_parede_com_volta_ao_mesmo_recorte(self):
+        E=addon.paredes_edicao
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        p=Vector((-1,1,1));n=Vector((0,-1,0));r=P.regiao_da_parede(self.obj,p,n)
+        with bpy.context.temp_override(area=area,region=regiao):
+            self.assertIsNone(E.iniciar(bpy.context,self.obj,face=(p,n,r),recortar=True))
+            limites=E._sessao[0]['regiao']['retangulo']
+            itens=[];E.widgets(bpy.context,itens,12,900,296)
+            self.assertIn(('operador','object.cabinet_editar_ambientes'),[v[5] for v in itens])
+            self.assertTrue(A.OBJECT_OT_editar_ambientes.poll(bpy.context))
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+            self.assertEqual(bpy.context.mode,'EDIT_MESH');self.assertFalse(E.ativa())
+            self.assertIs(bpy.context.edit_object,self.obj)
+            itens=[];E.widgets(bpy.context,itens,12,900,296)
+            self.assertIn('Voltar a edicao da parede',[v[4] for v in itens])
+            self.assertIn('Definir como Cozinha',[v[4] for v in itens])
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+            self.assertTrue(E.ativa());self.assertEqual(bpy.context.mode,'OBJECT')
+            self.assertEqual(E._sessao[0]['regiao']['retangulo'],limites)
+            self.assertTrue(E._sessao[0]['recorte_explicito']);self.assertIsNone(A._retorno[0])
+
+    def test_tab_nativo_na_edicao_de_ambientes_nao_perde_botao_de_retorno(self):
+        E=addon.paredes_edicao
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        p=Vector((-1,1,1));n=Vector((0,-1,0))
+        with bpy.context.temp_override(area=area,region=regiao):
+            self.assertIsNone(E.iniciar(bpy.context,self.obj,face=(p,n,P.regiao_da_parede(self.obj,p,n))))
+            bpy.ops.object.cabinet_editar_ambientes()
+            bpy.ops.object.mode_set(mode='OBJECT')
+            itens=[];E.widgets(bpy.context,itens,12,900,296)
+            editar=next(v for v in itens if v[4]=='Editar parede')
+            self.assertEqual(editar[5],('operador','object.cabinet_editar_ambientes'))
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+            self.assertTrue(E.ativa())
+
+    def test_falha_ao_entrar_em_edit_mode_restaura_a_parede(self):
+        E=addon.paredes_edicao
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        p=Vector((-1,1,1));n=Vector((0,-1,0))
+        with bpy.context.temp_override(area=area,region=regiao):
+            self.assertIsNone(E.iniciar(bpy.context,self.obj,face=(p,n,P.regiao_da_parede(self.obj,p,n))))
+            op=SimpleNamespace(report=lambda *_:None)
+            def modo_indisponivel(**_):raise RuntimeError('Modo indisponivel')
+            class BpyProxy:
+                ops=SimpleNamespace(object=SimpleNamespace(mode_set=modo_indisponivel))
+                def __getattr__(self,nome):return getattr(bpy,nome)
+            with patch.object(A,'bpy',BpyProxy()):
+                self.assertEqual(A.OBJECT_OT_editar_ambientes.execute(op,bpy.context),{'CANCELLED'})
+            self.assertTrue(E.ativa());self.assertIsNone(A._retorno[0])
 
     def test_cor_do_quadrado_altera_so_o_ambiente_escolhido(self):
         self.marcar([0]);self.marcar([1],'Quarto');antes=A._mapa(self.obj)['2']['cor']

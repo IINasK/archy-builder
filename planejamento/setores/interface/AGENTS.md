@@ -28,7 +28,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
 | Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
 ## Decisoes de interacao
-- Alvenaria 393: objeto comum selecionado -> Definir Alvenaria; so' ele recebe snap. Editar ambientes = Edit Mode nativo; faces, preset, Definir como Cozinha/etc. Lista: quadrado 24 px e nome a direita; paleta nativa no SOLTAR. Cores/nomes so' na definicao, retangulo inteiro dentro da face (senao omite), cache sem extracao no redraw. Paredes/piso/teto por normal; armario em pe. Colocacao livre; G cria Afast. >0; zero encosta.
+- Alvenaria 394: Definir Alvenaria em linha inteira; Editar parede/Remover Alvenaria lado a lado. Editar ambientes DENTRO da parede usa Edit Mode nativo e volta ao mesmo recorte (Tab conserva retorno); operador no SOLTAR. Lista: quadrado 24 px/nome; paleta nativa. Cores/nomes so' na definicao, rotulo inteiro cabe ou omite. Realce usa bias no depth da projecao GPU nativa com pilha, sem mover malha/cache. So' alvenaria recebe snap; normal distingue parede/piso/teto. Armario em pe; colocacao livre; G conserva Afast., zero encosta.
 - Parede 371: alvo fixo ignora outros objetos; pontos usam snap VERTEX nativo so' nele. Parcial inativo cinza, sem avisos/cotas/edicao; elegibilidade fixa na entrada. Edit Mode usa vertices; Object Mode tem Automatico/Por pontos
   no grupo Paredes. Modal repassa eventos do menu/navegacao; esquerdo marca,
   Backspace volta, Enter confirma, direito/Esc cancela; menu oferece iguais

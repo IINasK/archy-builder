@@ -1,5 +1,27 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Realce e menu de ambientes (394): listras reproduzidas como disputa de
+profundidade entre a cor e a face nativa, nao como duplicacao da malha.
+Prioridade somente no depth pela matriz de projecao GPU nativa; pilha
+restaura a matriz inclusive em excecao. Sem deslocar vertices, materiais,
+X/Y da projecao ou gerar shaders proprios. Cubo conserva 8 vertices,
+6 faces e 12 triangulos unicos no cache. Antes: falha registrada em
+dist/ambientes394-antes.log; regressao automatizada cobre as duas projecoes.
+Editar parede e Remover Alvenaria ocupam colunas iguais; Definir Alvenaria
+continua linha inteira. Editar ambientes aparece dentro da edicao da
+parede, usa Edit Mode nativo e volta ao mesmo recorte. Tab nativo conserva
+o retorno; falha de entrada restaura a parede; estado numerico/nome e'
+limpo na invalidacao existente. Novo operador dispara no SOLTAR.
+Suite ambientes 17 -> 23: projecao/restauracao, topologia/cache, layout em
+larguras 190/320/564, ida/volta nativa com recorte, Tab e falha simulada.
+Auditoria GPU nativa isolada: defeito anterior reproduzido e cobertura de
+cor 100% em perspectiva e ortografica, com oclusor frontal preservado
+(dist/ambientes394-gpu.png e .json). Tuplas reais do menu renderizadas
+pelos helpers GPU em dist/ambientes394-menu.png nas tres larguras.
+Sem abrir janela, recarregar add-on ou modificar cena/biblioteca real;
+gestos na viewport ao vivo nao executados. Harness completo Blender
+4.2/5.2: 3230 testes em 70 execucoes OK (dist/ambientes394-entrega.log).
+
 Alvenaria, apoio e ambientes (393): marco explicito na malha pelo botao
 Definir Alvenaria. Raycast nativo ignora todos os objetos nao definidos;
 um unico bloco pode conter paredes/faces opostas, piso e teto. Tipo pela
