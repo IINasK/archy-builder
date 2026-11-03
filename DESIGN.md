@@ -743,9 +743,11 @@ Editar parede e Remover Alvenaria ocupam duas colunas iguais na mesma
 linha. Automatico preve a regiao plana conectada; Por pontos delimita a
 area manualmente. Editar ambientes fica DENTRO de Editar parede e entra
 no Edit Mode nativo da Alvenaria. Voltar a edicao da parede restaura o
-mesmo recorte; sair por Tab tambem conserva o caminho de volta. Selecionar faces,
-escolher preset na lista e Definir como Cozinha/Quarto/etc grava atributo
-INT FACE, sem trocar materiais/topologia. Lista: quadrado de cor 24 px a
+mesmo recorte; sair por Tab tambem conserva o caminho de volta.
+395: Sair/Voltar e Definir como ambiente ocupam duas colunas iguais,
+na mesma linha laranja, com intervalo de 6 px e altura de 28 px.
+Selecionar faces, escolher preset na lista e Definir como Cozinha/Quarto/etc
+grava atributo INT FACE, sem trocar materiais/topologia. Lista: quadrado de cor 24 px a
 esquerda, nome a direita; clicar no quadrado abre paleta nativa no SOLTAR.
 Cor por UID do ambiente, inclusive entre paredes separadas. Cores e nomes
 so' enquanto define locais (Edit Mode), nunca na apresentacao normal ou

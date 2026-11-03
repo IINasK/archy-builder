@@ -609,8 +609,6 @@ def widgets(context, itens, x, topo, w):
             botao('Definir Alvenaria','object.cabinet_definir_alvenaria',30)
             return topo-58
         if context.mode=='EDIT_MESH':
-            botao('Voltar a edicao da parede' if _ambientes._retorno[0] else 'Sair da edicao de ambientes',
-                  'object.cabinet_editar_ambientes' if _ambientes._retorno[0] else 'object.editmode_toggle')
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         escolha=_escolha_area[0]
         if escolha:

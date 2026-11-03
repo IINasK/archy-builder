@@ -1,5 +1,20 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Linha de acoes dos ambientes (395): Sair da edicao de ambientes (ou Voltar
+a edicao da parede) e Definir como Cozinha/etc lado a lado, laranja padrao
+do menu. Colunas iguais, 6 px de intervalo e 28 px de altura; lista de
+ambientes abaixo. Operadores existentes, sem mudar atribuicao ou retorno.
+Suite ambientes 23 -> 24: cenario com e sem retorno nas larguras de area
+190/320/564 px verifica limites, alinhamento, operacao e destaque laranja.
+Falha anterior capturada como expectedFailure em dist/ambientes395-antes.log.
+Dirigidas Blender 4.2/5.2: 392 testes em 6 execucoes OK.
+Auditoria visual GPU isolada em dist/ambientes395-menu.png: mesmas
+tuplas reais nas tres larguras, com e sem retorno; botoes laranja e
+lado a lado. Nenhuma janela aberta ou alteracao na cena em uso.
+Harness completo 4.2/5.2: 3232 testes em 70 execucoes OK
+(dist/ambientes395-completo.log). Pacote 395 com 41 fontes identicos;
+espelhos/limites conferidos. Gestos na interface ao vivo nao executados.
+
 Realce e menu de ambientes (394): listras reproduzidas como disputa de
 profundidade entre a cor e a face nativa, nao como duplicacao da malha.
 Prioridade somente no depth pela matriz de projecao GPU nativa; pilha

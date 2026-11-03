@@ -182,6 +182,21 @@ class TestAmbientes(unittest.TestCase):
             self.assertEqual(definir[2],largura)
             self.obj[P.CHAVE_ALVENARIA]=True
 
+    def test_sair_e_definir_ambiente_lado_a_lado_laranja(self):
+        # Regressao 395: sair/voltar e definir compartilham a linha laranja.
+        self.selecionar([0])
+        for retorno in (None,{'cena':bpy.context.scene.name}):
+            with patch.object(A,'_retorno',[retorno]):
+                for largura in (166,296,540):
+                    itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
+                    sair,definir=[v for v in itens if v[5] and v[5][0]=='operador'][:2]
+                    self.assertEqual(sair[1],definir[1]);self.assertEqual(sair[2],definir[2])
+                    self.assertEqual(sair[3],definir[3]);self.assertEqual(sair[0]+sair[2]+6,definir[0])
+                    self.assertAlmostEqual(definir[0]+definir[2],12+largura)
+                    self.assertEqual(definir[4],'Definir como Cozinha')
+                    self.assertEqual(sair[5][1],'object.cabinet_editar_ambientes' if retorno else 'object.editmode_toggle')
+                    for item in (sair,definir):self.assertIn(item[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+
     def test_editar_ambientes_e_submenu_da_parede_com_volta_ao_mesmo_recorte(self):
         E=addon.paredes_edicao
         area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')

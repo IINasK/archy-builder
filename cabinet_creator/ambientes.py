@@ -178,8 +178,11 @@ def atribuir(context,conj,parede=None,ponto=None,normal=None):
 
 def widgets(context,itens,obj,x,y,w):
     nome=context.scene.get(CHAVE_NOME,'Cozinha')
+    metade=(w-6)/2
     y-=30
-    itens.append((x,y,w,26,'Definir como '+nome,('operador','object.cabinet_definir_ambiente')))
+    itens.append((x,y,metade,28,'Voltar a edicao da parede' if _retorno[0] else 'Sair da edicao de ambientes',
+                  ('operador','object.cabinet_editar_ambientes' if _retorno[0] else 'object.editmode_toggle')))
+    itens.append((x+metade+6,y,metade,28,'Definir como '+nome,('operador','object.cabinet_definir_ambiente')))
     y-=32
     itens.append((x,y,w,23,'Ambientes',None));y-=29
     for n in _orcamento._comodos_da_lista(context.scene):
