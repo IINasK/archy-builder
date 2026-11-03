@@ -1,6 +1,7 @@
 """Selecao em camadas (clique = modulo, duplo = peca) e os keymaps."""
 
 import bpy
+_visibilidade = None
 from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
 from bpy.types import Operator, Menu
 
@@ -245,6 +246,8 @@ class OBJECT_OT_selecionar(Operator):
     @classmethod
     def poll(cls, context):
         p = _opcoes._prefs()
+        if _visibilidade._edicao[0]:
+            return False
         if p is not None and not p.selecao_por_grupo:
             return False
         return (context.mode == 'OBJECT' and context.area is not None

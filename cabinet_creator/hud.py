@@ -33,6 +33,7 @@ _divisorias = None
 _assistente = None
 _hud_volume = None
 _areas_criacao = None
+_visibilidade = None
 
 # ============================================= GRID DE MEDIDAS NA CENA
 # Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
@@ -85,7 +86,7 @@ GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
 def _contexto_hud(context):
     """Onde a HUD existe. Durante G/R/S ela some inteira -- linhas,
     letras, seta e hover -- e volta quando o gesto termina."""
-    if _solda._conexao_manual[0] is not None or _solda._arraste_ancora[0] is not None:
+    if _visibilidade._edicao[0] or _solda._conexao_manual[0] is not None or _solda._arraste_ancora[0] is not None:
         _hover_hud.clear()
         return False
     if _eventos._transformando() and not _hud_volume._estado[0]:
@@ -112,8 +113,8 @@ def _raio_cru(context, posicao):
             depsgraph, origem, direcao, distance=restante)
         if not acertou or obj is None:
             return None
-        if obj.original.visible_get(view_layer=context.view_layer,
-                                    viewport=context.space_data):
+        if (not _visibilidade.esmaecido(obj.original)
+                and obj.original.visible_get(view_layer=context.view_layer, viewport=context.space_data)):
             return obj.original, ponto, normal, face, matriz
         # O ray cast da cena inclui objetos fora da vista local. Seguir
         # pelo motor nativo evita selecionar a parede oculta diante do movel.

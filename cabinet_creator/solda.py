@@ -972,6 +972,7 @@ OP_CORRENTE_OBJETO = 'object.cabinet_corrente_objeto'
 # O "Gerar orcamento" (opcoes) abre o "Salvar como"; o "Usar como
 # puxador", o modal do clique na face.
 OPERADORES_NO_SOLTAR = {OP_CORRENTE_OBJETO,
+                        'object.cabinet_editar_grupo_visual',
                         'object.cabinet_criar_fundo',
                         'object.cabinet_conectar_vertices',
                         'object.cabinet_editar_parede',

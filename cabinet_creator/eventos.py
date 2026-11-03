@@ -13,6 +13,7 @@ _gavetas = None
 _paredes_edicao = _paredes_selecao = None
 _editor = None
 _areas_criacao = None
+_visibilidade = None
 
 # =========================== REDE DE SEGURANCA: verificacao por timer
 # O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
@@ -61,6 +62,7 @@ def verificar_periodicamente():
     if _desfazendo[0]:
         return INTERVALO_TIMER
     _areas_criacao.verificar()
+    _visibilidade.verificar()
     try:
         _paredes_edicao.verificar()
     except Exception as erro:
@@ -268,6 +270,7 @@ def _esquecer_referencias(*_args):
     """Antes de desfazer/refazer/abrir: o hover da HUD guarda OBJETOS, que
     essas acoes liberam (ver `_hud._alvo_vivo`). O proximo movimento do mouse
     acha o alvo de novo."""
+    _visibilidade.esquecer_edicao()
     _paredes_edicao.encerrar()
     _paredes_selecao.esquecer()
     _paredes_edicao._ultima_face[0] = None

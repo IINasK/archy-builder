@@ -3,6 +3,7 @@ dos campos e a caixa de digitar medida -- teclas, cursor e leitura do
 texto em metros --, que a HUD tambem usa."""
 
 import bpy, colorsys, math, re, gpu, blf
+_visibilidade = None
 from gpu_extras.batch import batch_for_shader
 from bpy.types import Gizmo
 
@@ -383,7 +384,8 @@ def _desenhar_gaveta(tela=False):
     # divisoria e do pe' fixo.
     cima, divisa, baixo = _gaveta._paineis_gaveta(conteudo)
     meio = round(divisa[1] + divisa[3] / 2) if divisa else _gaveta.ALTURA_RODAPE_GAVETA
-    recorte_cima = (0, meio + 1, largura, max(0, altura - 48 - meio - 1))
+    piso_cima = meio + _visibilidade.ALTURA + 1
+    recorte_cima = (0, piso_cima, largura, max(0, altura - 48 - piso_cima))
     recorte_baixo = (0, _gaveta.ALTURA_RODAPE_GAVETA, largura,
                      max(0, meio - _gaveta.ALTURA_RODAPE_GAVETA))
     recortes = ([recorte_cima] * len(cima) + [None] * bool(divisa)

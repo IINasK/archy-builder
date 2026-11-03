@@ -1123,6 +1123,8 @@ def _operador_apagado(acao):
 # O texto explica a acao; o gizmo so' desenha o icone a' esquerda.
 # O clique inteiro continua na gaveta para respeitar o soltar do mouse.
 ICONES_AO_LADO = {'object.cabinet_apanhar_vao': 'PIVOT_BOUNDBOX',
+                  'object.cabinet_alternar_partes': 'HIDE_OFF',
+                  'object.cabinet_editar_grupo_visual': 'GREASEPENCIL',
                   'object.cabinet_desassociar_fundo': 'UNPINNED',
                   'object.cabinet_definir_frente': 'AXIS_FRONT',
                   'object.cabinet_corrente_objeto': 'LINKED',
@@ -1142,6 +1144,8 @@ def _centro_icone(x, y, w, h, acao):
 def _icone_acao_gaveta(acao):
     if not acao:
         return None
+    if acao[:2] == ('operador', 'object.cabinet_alternar_partes'):
+        return 'HIDE_ON' if acao[2] else 'HIDE_OFF'
     if _icone_ao_lado(acao):
         return ICONES_AO_LADO[acao[1]]
     if acao[0] == 'escolha' and acao[1] == _portas.CONFIRMAR_ETAPA:

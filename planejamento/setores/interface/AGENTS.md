@@ -4,7 +4,7 @@ Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
 Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`,
-`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `biblioteca_faixa.py` e `materiais.py`.
+`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `biblioteca_faixa.py` e `materiais.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
 Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
@@ -15,7 +15,7 @@ no SOLTAR. UNPINNED desassocia na aba Fundos ou nos internos vinculados.
 Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Tarefa | Arquivo: funcao/classe | Suite |
 |---|---|---|
-| Contexto/layout | gaveta.py: `_widgets_gaveta`, `_widgets_interativos` | gaveta, estrutura, snapshot |
+| Contexto/layout/partes esmaecidas | gaveta.py: `_widgets_gaveta`, `_widgets_interativos`; visibilidade.py: `membros`, `verificar` | gaveta, visibilidade, estrutura, snapshot |
 | Editor persistente/ponte 3D | editor.py: `configurar`, `reparar`, `executar` | editor, biblioteca_faixa |
 | Desenho/identidade | gaveta_desenho.py: `_desenhar_gaveta`, `_chave_widget` | gaveta, estrutura, gui_interacao |
 | Clique/campo/texto | gaveta_eventos.py: `OBJECT_OT_interagir_gaveta`; gaveta_desenho.py: `_tecla_no_texto` | gaveta, hud, gui_interacao |
@@ -55,7 +55,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - A SELECAO decide o que edita; Shift soma e conserva a malha clicada como mestre (356: Ctrl+L nativo); a gaveta segue a aba do item.
   Caixa (laterais/tampo) seleciona modulo; duplo isola chapa. Quina arrasta
   modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa. Clique fora encerra o individual; novo clique simples = grupo (Shift conserva).
-- Porta 386: criar internos no modulo com portas visiveis pergunta Esconder portas? Sim/Nao antes do modal; olho de 30 px na linha Criar, inclusive volume livre. hide_set da View Layer sem estado paralelo/timer; H/Alt+H independentes. Esconder porta e agregados (378), Shift+G -> Grupo da porta -> H conservados. Clique inteira, duplo folha.
+- Visibilidade 387: faixa fixa acima da biblioteca (olho + lapis), fora da rolagem/captura. Segue aba: portas/gavetas com todos agregados, internos juntos, fundos, estrutura; nao ferragens isoladas. WIRE/cor branca/opacidade nativos mantem snap; H/Alt+H independentes. Lapis: selecao nativa, esquerdo inclui/direito retira, Enter aceita/Esc devolve; UIDs extras/exclusoes no modulo, sem reparentear. Sim na pergunta Esconder portas? ativa esse mesmo arame. Save/unregister devolvem aparencia; undo so' reconcilia no timer. Clique porta inteira, duplo folha.
   Sem linha Reposicionar/Frente/Espelhar na aba. Espelhar fica no contexto direito, grupo ou folha; inverter
   giro, cadeia zigzag inteira, curso de correr ou basculante com pistoes;
   puxador acompanha. Nao espelhar madeira.

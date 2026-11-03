@@ -18,6 +18,7 @@ _biblioteca_faixa = None
 _perguntas = None
 _ferragens = None
 _selecao = None
+_visibilidade = None
 _estado = [None]
 _entrega = [None]
 _internos = [None]
@@ -55,6 +56,7 @@ def portas_do_interno(context, modulo=None):
 
 def portas_visiveis(context, objetos):
     return any(o.type == 'MESH' and o.get('cabinet_peca') not in _ferragens.PECAS_OCULTAS_RIG
+               and not _visibilidade.esmaecido(o)
                and o.visible_get(view_layer=context.view_layer) for o in objetos)
 
 
@@ -70,15 +72,6 @@ def perguntar_portas(context, comando, destino='', modo='PONTOS'):
          for rotulo, esconder in (('Sim', True), ('Nao', False))], na_gaveta=na_gaveta)
     _perguntas._pergunta_atual[0]['portas_internos'] = True
     return True
-
-
-def botao_olho(context, itens, x, y, w):
-    objetos = portas_do_interno(context)
-    if not objetos:
-        return w
-    itens.append((x + w - 30, y, 30, 30, '',
-        ('operador', 'object.cabinet_portas_internos', portas_visiveis(context, objetos))))
-    return w - 30
 
 
 class OBJECT_OT_portas_internos(Operator):
@@ -101,16 +94,9 @@ class OBJECT_OT_portas_internos(Operator):
         permitidos.update(('object.cabinet_internos', 'object.cabinet_definir_area'))
         if self.comando and self.comando not in permitidos:
             return {'CANCELLED'}
-        objetos = portas_do_interno(context, alvo)
-        esconder = self.esconder if self.comando else portas_visiveis(context, objetos)
+        esconder = self.esconder if self.comando else not _visibilidade.ativo(alvo, 'PORTAS')
         if not self.comando or esconder:
-            for obj in objetos:
-                if not esconder and obj.get('cabinet_peca') in _ferragens.PECAS_OCULTAS_RIG:
-                    continue
-                obj.hide_set(esconder, view_layer=context.view_layer)
-        if esconder and context.view_layer.objects.active in objetos:
-            alvo.select_set(True)
-            context.view_layer.objects.active = alvo
+            _visibilidade.definir(context, alvo, 'PORTAS', esconder)
         _hud._hover_hud.clear()
         _eventos._redesenhar_viewports(context)
         if self.comando:
@@ -653,10 +639,6 @@ def receber_internos(assistente, d):
 
 
 def widgets(context, itens, x, y, w):
-    largura = botao_olho(context, itens, x, y, w)
-    if largura != w:
-        itens.append((x, y, largura, 30, 'Criar interno', None))
-        y -= 38
     obj = objeto()
     if obj is None:
         itens.append((x, y, w, 28, 'Clique na viewport para posicionar a area', None))

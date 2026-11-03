@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (386, 0, 0),
+    "version": (387, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -67,13 +67,14 @@ from . import frentes as _frentes
 from . import painel_legado as _painel_legado
 from . import editor as _editor
 from . import areas_criacao as _areas_criacao
+from . import visibilidade as _visibilidade
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
-            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao)
+            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao, _visibilidade)
 
 
 def _ligar_modulos():
@@ -99,6 +100,8 @@ CLASSES = (
     _areas_criacao.OBJECT_OT_cancelar_area,
     _areas_criacao.OBJECT_OT_internos,
     _areas_criacao.OBJECT_OT_portas_internos,
+    _visibilidade.OBJECT_OT_alternar_partes,
+    _visibilidade.OBJECT_OT_editar_grupo_visual,
     _editor.CABINET_NT_menu,
     _editor.CABINET_NT_biblioteca,
     _fundos.OBJECT_OT_criar_fundo,
@@ -520,7 +523,7 @@ def register():
         bpy.app.handlers.depsgraph_update_post.append(_paredes_composicao.invalidar_interiores)
     if _paredes_composicao.acompanhar_arraste not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_paredes_composicao.acompanhar_arraste)
-    for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
+    for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS + _visibilidade.HANDLERS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao not in lista:
             lista.append(funcao)
@@ -544,6 +547,7 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    _visibilidade.suspender()
     _areas_criacao.esquecer()
     _paredes_edicao.encerrar()
     _paredes_composicao.esquecer()
@@ -677,7 +681,7 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(_paredes_composicao.invalidar_interiores)
     if _paredes_composicao.acompanhar_arraste in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_paredes_composicao.acompanhar_arraste)
-    for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS:
+    for evento, funcao in _eventos.HANDLERS_CONTORNO + _eventos.HANDLERS_REFERENCIAS + _visibilidade.HANDLERS:
         lista = getattr(bpy.app.handlers, evento)
         if funcao in lista:
             lista.remove(funcao)

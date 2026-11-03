@@ -86,7 +86,8 @@ class TestAreasCriacao(unittest.TestCase):
             props=addon.perguntas._pergunta_atual[0]['opcoes'][0][3]
             self.assertEqual(bpy.ops.object.cabinet_portas_internos(**props),{'FINISHED'})
             executar.assert_called_once_with(bpy.context,'object.cabinet_criar_gavetas',portas_verificadas=True)
-        self.assertTrue(all(o.hide_get() for o in objetos))
+        self.assertTrue(all(addon.visibilidade.esmaecido(o) for o in objetos
+            if o.type == 'MESH' and o.get('cabinet_peca') not in addon.ferragens.PECAS_OCULTAS_RIG))
         self.assertTrue(any(o.visible_get() for o in portas_outro.children_recursive if o.type=='MESH'))
         self.assertTrue(all(not o.hide_get() for o in addon.modulos._chapas_do_conjunto(self.modulo)))
 
@@ -122,20 +123,21 @@ class TestAreasCriacao(unittest.TestCase):
         A.verificar()
         self.assertTrue(all(not o.hide_get() for o in objetos if o not in controles))
 
-    def test_olho_no_botao_criar_reserva_espaco_e_muda_icone(self):
+    def test_olho_fixo_reserva_linha_propria_e_muda_icone(self):
         self.portas()
         for aba in ('GAVETAS','PRATELEIRAS','DIVISORIAS'):
             for largura in (220,480):
                 with self.subTest(aba=aba,largura=largura):
                     bpy.context.scene.cabinet_aba=aba
-                    widgets=addon.gaveta._widgets_aba_gaveta(bpy.context,largura,900,0)
-                    olho=next(v for v in widgets if v[5] and v[5][:2]==('operador','object.cabinet_portas_internos'))
-                    criar=next(v for v in widgets if v[1]==olho[1] and v!=olho)
-                    self.assertEqual(criar[0]+criar[2],olho[0])
-                    self.assertEqual(olho[2:4],(30,30))
+                    widgets=addon.gaveta._widgets_gaveta(bpy.context,largura,900,0,0)
+                    olho=next(v for v in widgets if v[5] and v[5][:2]==('operador',addon.visibilidade.ALTERNAR))
+                    editar=next(v for v in widgets if v[5] and v[5][:2]==('operador',addon.visibilidade.EDITAR))
+                    self.assertEqual(editar[1],olho[1])
+                    self.assertEqual(olho[3],30)
                     self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(olho[5]),'HIDE_OFF')
         bpy.ops.object.cabinet_portas_internos()
-        itens=[];A.botao_olho(bpy.context,itens,12,300,300)
+        bpy.context.scene.cabinet_aba='PORTAS'
+        itens=addon.visibilidade.widgets(bpy.context,12,300,900)
         self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(itens[0][5]),'HIDE_ON')
 
     def test_area_livre_mantem_olho_no_modulo_original_apos_mudar_selecao(self):
@@ -147,11 +149,9 @@ class TestAreasCriacao(unittest.TestCase):
         self.assertFalse(obj.hide_get())
         self.assertIs(bpy.context.object,obj)
 
-    def test_sem_portas_pula_pergunta_e_nao_cria_olho(self):
+    def test_sem_portas_pula_pergunta_e_conserva_faixa_fixa(self):
         self.assertFalse(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
-        itens=[]
-        self.assertEqual(A.botao_olho(bpy.context,itens,12,300,300),300)
-        self.assertFalse(itens)
+        self.assertEqual(len(addon.visibilidade.widgets(bpy.context,12,300,900)),2)
 
     def test_limpar_criacao_descarta_pergunta_de_portas_sem_apagar_outras_perguntas(self):
         self.portas()
@@ -210,9 +210,9 @@ class TestAreasCriacao(unittest.TestCase):
         folha=next(o for o in A.portas_do_interno(bpy.context) if addon.chapas.MARCA_FOLHA in o)
         self.modulo.select_set(False);folha.select_set(True);bpy.context.view_layer.objects.active=folha
         bpy.ops.object.cabinet_portas_internos()
-        self.assertTrue(folha.hide_get())
-        self.assertIs(bpy.context.object,self.modulo)
-        self.assertTrue(self.modulo.select_get())
+        self.assertTrue(addon.visibilidade.esmaecido(folha))
+        self.assertFalse(folha.hide_get())
+        self.assertIs(A.modulo_das_portas(bpy.context),self.modulo)
 
     def test_h_e_alt_h_nativos_nao_sao_desfeitos_pelo_criador(self):
         self.portas()
@@ -237,9 +237,11 @@ class TestAreasCriacao(unittest.TestCase):
         bpy.ops.ed.undo_push(message='Portas escondidas')
         self.modulo=None
         bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
-        self.assertTrue(all(not bpy.data.objects[n].hide_get() for n in folhas))
+        addon.visibilidade.verificar()
+        self.assertTrue(all(not addon.visibilidade.esmaecido(bpy.data.objects[n]) for n in folhas))
         bpy.ops.ed.redo();addon.eventos._fim_do_desfazer()
-        self.assertTrue(all(bpy.data.objects[n].hide_get() for n in folhas))
+        addon.visibilidade.verificar()
+        self.assertTrue(all(addon.visibilidade.esmaecido(bpy.data.objects[n]) for n in folhas))
         self.modulo=bpy.data.objects[nome]
 
     # Regressao (era BUG, corrigido na 386): modal consumia H/Alt+H entre cliques.

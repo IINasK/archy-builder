@@ -297,6 +297,9 @@ class TestGridDeMedidas(unittest.TestCase):
         for largura in (190, 320, 564):
             for _x, _y, _w, _h, _r, acao in addon.gaveta._widgets_gaveta(
                     bpy.context, largura, 1200):
+                # A faixa 387 permanece sem selecao; botoes desabilitados nao acendem.
+                if addon.visibilidade.eh_acao(acao) and addon.gaveta_eventos._operador_apagado(acao):
+                    continue
                 if acao and addon.gaveta_desenho._chave_widget(acao) is None:
                     sem_chave.add(acao[0])
         self.assertEqual(sem_chave - {'wireframe', 'separador',

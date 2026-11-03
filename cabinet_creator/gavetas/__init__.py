@@ -13,6 +13,7 @@ usuario: o modelo de verdade nao esta' pronto).
 import math
 
 import bpy, bmesh, blf, gpu
+_visibilidade = None
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from mathutils.geometry import intersect_line_plane
@@ -1845,7 +1846,8 @@ def _acompanhar_snap_criacao():
 
 def fixar_modulo_criacao(estado, modulo):
     estado['modulo_alvo'] = modulo.name
-    estado['alvos_snap'] = tuple(o.name for o in [modulo, *modulo.children_recursive])
+    estado['alvos_snap'] = tuple(dict.fromkeys(
+        [o.name for o in [modulo, *modulo.children_recursive]] + sorted(_visibilidade.alvos_snap(bpy.context, modulo))))
 
 
 def evento_de_navegacao(context, event):
@@ -1880,7 +1882,7 @@ def raio_no_modulo(context, modulo, origem, direcao):
     nomes = {o.name for o in modulo.children_recursive}
     dep = context.evaluated_depsgraph_get(); melhor = None
     for obj in context.visible_objects:
-        if obj.name not in nomes or obj.type != 'MESH' or obj.hide_select:
+        if obj.name not in nomes or obj.type != 'MESH' or obj.hide_select or _visibilidade.esmaecido(obj):
             continue
         mundo = obj.matrix_world; inv = mundo.inverted_safe()
         hit, co, normal, face = obj.ray_cast(inv @ origem,

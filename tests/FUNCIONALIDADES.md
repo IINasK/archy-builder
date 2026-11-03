@@ -1,5 +1,41 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Grupos visuais por aba (387): substitui o olho da linha Criar da 386 por
+faixa fixa de 38 px junto a divisoria da biblioteca; Esconder/Mostrar partes
+e Editar grupo, icones nativos olho/lapis e texto. Biblioteca no topo usa
+a faixa acima do rodape. Sem selecao e depois de cancelar, a faixa permanece;
+em ferragens isoladas fica desabilitada. Campos e biblioteca rolam sem move-la.
+Portas inclui folhas/molduras/bases/trilhos/ferragens; Gavetas inclui caixa,
+frente, puxador e trilhos; Prateleiras/Divisorias juntas; Fundos; Modulos
+esmaece a estrutura. WIRE nativo branco/opacidade .22; malha, materiais,
+espessuras, parentesco e H/Alt+H preservados. Propriedades de arame/overlays
+da viewport sao temporarias, inclusive se estavam desligados; alteracao
+manual do usuario nao e' sobrescrita ao sair. Nao afeta render final.
+Lapis usa view3d.select nativo: esquerdo inclui peca/agregados, direito
+retira, Enter/lapis conclui, Esc devolve selecao/configuracao. UIDs guardados
+no modulo, sem Collection paralela/reparentear. Navegacao/menu liberados;
+erro/undo/load/unregister liberam o editor. Save pre/post suspende/retoma
+o visual, sem gravar aparencia temporaria no arquivo. Grupos sobrepostos
+restauram uma peca so' depois do ultimo desligar. Pergunta antes dos internos
+conservada: Sim esmaece PORTAS pelo mesmo controlador, Nao conserva a vista.
+Raio superficial atravessa o arame para acessar o interior; vertices reais
+e extras do grupo permanecem nos alvos do snap nativo, sem copias de malha.
+Suite visibilidade: 24 cenarios nos dois Blenders; inclui moldura de correr,
+gavetas com trilhos, internos, UID renomeado, extra com filhos, sobreposicao,
+H/Alt+H, guarda undo, exclusao, save/copia nativa, restauracao, raio nativo,
+cancelamento/erro/menu/navegacao do editor e faixa fixa mesmo sem selecao.
+Regressao do desaparecimento falhou na 386 (0 botoes, esperados 2):
+dist/visibilidade387-antes.log. Areas_criacao conserva piso 58 com contrato
+do arame/undo atualizado. Gaveta/estrutura conferem botoes fixos desabilitados,
+recorte/rolagem e prioridade do painel de opcoes. Barra curta conserva curso
+e clique no trilho. Snapshot revisado: faixa nova e coluna reservada a barra.
+Auditoria de layout exporta coordenadas reais em 220/320/480 px; diagrama
+dist/visibilidade387-layout.png, com icones ilustrativos. Sem captura/gestos
+na janela ou edicao da cena aberta; cenarios temporarios, biblioteca intacta.
+Entrega: 3076 testes / 66 execucoes nos Blenders 4.2 e 5.2, tudo OK
+(dist/visibilidade387-entrega.log). ZIP 387 conferido byte a byte contra
+as 40 fontes Python; espelhos identicos e limites de linhas conservados.
+
 Portas na criacao de internos (386): modulo alvo com portas visiveis recebe
 Esconder portas? Sim/Nao antes da captura de pontos ou volume livre.
 Sim esconde a montagem inteira (folhas, molduras, puxadores e ferragens);
