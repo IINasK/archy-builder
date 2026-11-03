@@ -190,7 +190,7 @@ def desenhar_guias(context):
                 continue
             prop = 'guia_%d' % i
             editando = edicao and edicao['objeto'] == '' and edicao['propriedade'] == prop
-            numero = edicao['texto'] if editando else _opcoes._texto_medida(guia['altura_mm'])
+            numero = _gaveta_desenho._apresentacao_medida(edicao['texto'],_opcoes._opcao('unidade_padrao'))[0] if editando else _opcoes._texto_medida(guia['altura_mm'])
             texto = '%s - %s' % (numero, guia['nome'])
             blf.size(0, tamanho)
             largura = blf.dimensions(0, texto)[0]
@@ -238,7 +238,7 @@ def caixa_editavel(x, y, texto, edicao, tamanho, escala):
         return
     blf.size(0, tamanho)
     altura = blf.dimensions(0, '0')[1]
-    digitado = edicao['texto']
+    digitado,mapa = _gaveta_desenho._apresentacao_medida(edicao['texto'],_opcoes._opcao('unidade_padrao'))
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     gpu.state.blend_set('ALPHA')
     shader.bind()
@@ -249,7 +249,7 @@ def caixa_editavel(x, y, texto, edicao, tamanho, escala):
             (x - 1, y - 2), (fim + 1, y - 2), (fim + 1, y + altura + 2),
             (x - 1, y - 2), (fim + 1, y + altura + 2), (x - 1, y + altura + 2)]}).draw(shader)
     if cursor_aceso():
-        cx = x + blf.dimensions(0, digitado[:min(edicao['cursor'], len(digitado))])[0]
+        cx = x + blf.dimensions(0, digitado[:mapa[min(edicao['cursor'],len(edicao['texto']))]])[0]
         gpu.state.line_width_set(max(1.0, 1.5 * escala))
         shader.uniform_float('color', (1.0, 1.0, 1.0, 1.0))
         batch_for_shader(shader, 'LINES', {'pos': [(cx, y - 3), (cx, y + altura + 3)]}).draw(shader)
@@ -1071,7 +1071,7 @@ def desenhar(context):
             edicao = None
         if edicao is None and item is ativo and prop == digitada[0]:
             edicao = digitada[1]
-        texto = edicao['texto'] if edicao else prefixo + _opcoes._texto_medida(valor * 1000)
+        texto = _gaveta_desenho._apresentacao_medida(edicao['texto'],_opcoes._opcao('unidade_padrao'))[0] if edicao else prefixo + _opcoes._texto_medida(valor * 1000)
         blf.size(0, tamanho)
         largura = blf.dimensions(0, texto)[0]
         x = (centro.x + 4 * escala if lado > 0 else

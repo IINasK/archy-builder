@@ -4,7 +4,7 @@ Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
 Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`,
-`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `biblioteca_faixa.py` e `materiais.py`.
+`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py` e `materiais.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
 Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
@@ -18,7 +18,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Contexto/layout/partes esmaecidas | gaveta.py: `_widgets_gaveta`, `_widgets_interativos`; visibilidade.py: `membros`, `verificar` | gaveta, visibilidade, estrutura, snapshot |
 | Editor persistente/ponte 3D | editor.py: `configurar`, `reparar`, `executar` | editor, biblioteca_faixa |
 | Desenho/identidade | gaveta_desenho.py: `_desenhar_gaveta`, `_chave_widget` | gaveta, estrutura, gui_interacao |
-| Clique/campo/texto | gaveta_eventos.py: `OBJECT_OT_interagir_gaveta`; gaveta_desenho.py: `_tecla_no_texto` | gaveta, hud, gui_interacao |
+| Clique/campo/texto/unidades | gaveta_eventos.py: `OBJECT_OT_interagir_gaveta`; gaveta_desenho.py: `_tecla_no_texto`, `_apresentacao_medida`; opcoes.py: `_texto_medida` | medidas, gaveta, hud, gui_interacao |
 | Selecao/aba/Tab | selecao.py: `OBJECT_OT_selecionar`, `_seguir_selecao_na_gaveta`, `OBJECT_OT_editar_grupo` | operadores, hud, gui_interacao |
 | Cotas/hover/arraste | hud.py: `campos_cotas`, `_acertar_hud`, `OBJECT_OT_arrastar_hud` | hud, gaveta, snapshot |
 | Face da caixa/snap B | hud_volume.py: `controles`, `iniciar`, `atualizar`, `terminar` | hud, gui_interacao |
@@ -101,7 +101,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Criando/reancorando solda (355), HUD de geometria e hover ficam bloqueados; corrente/regua/snap continuam. Criar/confirmar usa destaque laranja existente. Painel proprio, sem Orcamento; distancia, zero, voltar, aceitar/cancelar. Direito/Esc cancela; Backspace/Ctrl+Z volta; Alt reancora. Sem nome do item, Sincronizar ou Auto-regenerar. Montagem: Criar solda em
   linha inteira, Corrente e Resetar distancia com texto e icone, empilhados se estreito. Arrastar campo muda; clique digita.
 - editor.py guarda arvore vazia propria para gizmos nativos 4.2; subtipo salva o papel, marca de ponteiro e' consumida ao migrar legado. `executar` leva comandos a' viewport; texto/arraste ficam na origem.
-- Layout devolve `(x, y, w, h, rotulo, acao)`, desenho pinta, evento despacha. Rolagem (373): barra vertical so' com excesso, independente por painel; roda/touchpad/arraste, Esc restaura. Abas/rodape fixos; opcoes cobrem barras. Verbo `rolagem` separa trilho vertical do slider horizontal de tamanho.
+- Layout devolve `(x, y, w, h, rotulo, acao)`, desenho pinta, evento despacha. 391: medidas com milhar ponto/decimal virgula e unidade MM/CM/M; buffer original e mapa de cursor separados, conta editavel + previa nativa em cache por texto/unidade (128); nomes/contadores/px conservados. Caixa preta usa cantos arredondados do menu. Rolagem (373): independente por painel, abas/rodape fixos; opcoes cobrem barras. Verbo `rolagem` distingue trilho vertical do slider horizontal.
   Nao hashear acao com dict. Gizmos em pool: ocultar/reusar; nao remover ou
   religar no redraw. Button2D fixa simbolo no 1o draw: pool por icone/ocorrencia. Campos/corrente/regua conservam operador; atualizar props.
 - Biblioteca: FAIXA no topo (`cabinet_layout=2`: faixa/menu/cena) ou NO MENU

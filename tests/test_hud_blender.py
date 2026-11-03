@@ -4317,11 +4317,11 @@ class TestHUD(unittest.TestCase):
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('60 + 5mm'), 0.605)
             # o 2 multiplica, nao e' medida
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('2*30cm + 5'), 0.65)
-            self.assertEqual(addon.opcoes._texto_medida(600.0), '60.00 cm')
+            self.assertEqual(addon.opcoes._texto_medida(600.0), '60 cm')
             self.assertEqual(addon.opcoes._numero_na_unidade(600.0), '60')
         finally:
             addon.opcoes._definir_opcao('unidade_padrao', 'MM')
-        self.assertEqual(addon.opcoes._texto_medida(600.0), '600.0 mm')
+        self.assertEqual(addon.opcoes._texto_medida(600.0), '600 mm')
 
     def test_medida_digitada(self):
         for texto, metros in (('750', 0.75), ('75cm', 0.75), ('0,75 m', 0.75),

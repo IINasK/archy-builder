@@ -252,6 +252,15 @@ a conta ("600" e '+' -> "600 + "); clicar DENTRO da caixa so' move o
 cursor (`_cursor_no_x`), fora confirma; "500 + cm" = 500 cm e "51cm00"
 = 5100 cm (`_arrumar_texto_medida`). Na E a face da quina fica e a chapa engrossa
 para o outro lado (`_redimensionar_chapa_ancorada`, eixo 2).
+Medidas (391): milhares com ponto, decimais com virgula, unidade da opcao
+MM/CM/M e sem zeros decimais artificiais. Aceitar ponto ou virgula decimal
+no texto original; separar apresentacao e buffer, com mapa para o cursor.
+Ex.: .1 -> 0,1 mm; 12345.67 -> 12.345,67 mm. Conta continua editavel e
+mostra previa: 0,2 + 0,5 = 0,7 mm; confirmar usa o parser nativo existente.
+Previa em cache por texto/unidade (128 entradas), sem repetir calculo no redraw;
+erros/incompletas nao imprimem excecoes enquanto se digita. Contadores,
+nomes, angulos e pixels conservam seu tipo. Caixa preta conserva cor e
+tipografia, com raio 4 px escalado, pelo mesmo desenho arredondado do menu.
 Seta com teto fixo na tela (`COMPRIMENTO_SETA_HUD`), nunca maior que a aresta; letras somem se o
 item fica menor que `FATOR_ROTULO_HUD` x o rotulo (so' a acesa fica).
 Letra = aresta do eixo mais FORA na tela, empurrada para longe do centro

@@ -76,10 +76,18 @@ def _definir_opcao(nome, valor):
         _eventos.sincronizar_contornos()
 
 
-def _texto_medida(mm):
+def _numero_formatado(valor, casas=5):
+    texto = format(valor, ',.%df' % casas).rstrip('0').rstrip('.')
+    if texto == '-0':
+        texto = '0'
+    return texto.replace(',', '_').replace('.', ',').replace('_', '.')
+
+
+def _texto_medida(mm, unidade=None):
     """Medida em mm escrita na unidade padrao, com sufixo."""
-    fator, sufixo, casas = UNIDADES_MEDIDA[_opcao('unidade_padrao')]
-    return '%.*f %s' % (casas, mm / fator, sufixo)
+    unidade = unidade or _opcao('unidade_padrao')
+    fator, sufixo, _casas = UNIDADES_MEDIDA[unidade]
+    return '%s %s' % (_numero_formatado(mm / fator, {'MM': 2, 'CM': 3, 'M': 5}[unidade]), sufixo)
 
 
 def _numero_na_unidade(mm):

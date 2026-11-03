@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (390, 0, 0),
+    "version": (391, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -547,6 +547,7 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    _gaveta_desenho._apresentacao_medida.cache_clear()
     _visibilidade.suspender()
     _areas_criacao.esquecer()
     _paredes_edicao.encerrar()

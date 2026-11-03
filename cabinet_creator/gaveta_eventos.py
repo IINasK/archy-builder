@@ -108,7 +108,8 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
                  else _opcoes._numero_na_unidade(self.valor * 1000.0))
         self._estado = {'area': context.area.as_pointer(),
                         'propriedade': self.propriedade, 'texto': texto,
-                        'cursor': len(texto), 'selecionado': True}
+                        'cursor': len(texto), 'selecionado': True,
+                        'medida':self.dono not in {'opcao','contador'}}
         _gaveta._edicao_gaveta[0] = self._estado
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
@@ -172,14 +173,14 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
                     and acao[1] == estado['propriedade']):
                 continue
             texto, cursor = estado['texto'], estado['cursor']
-            mostrado = _gaveta_desenho._com_cursor(texto, cursor)
+            mostrado = _gaveta_desenho._com_cursor(texto, cursor,medida=estado.get('medida',False))
             disponivel = w - (14 if campo else 12)
             tamanho = next((t for t in range(12, 8, -1)
                             if _gaveta_desenho._medidor_blf(t)(mostrado) <= disponivel), 9)
             largura = _gaveta_desenho._medidor_blf(tamanho)
             x_texto = (x + 7 if campo
                        else x + (w - min(largura(mostrado), disponivel)) / 2)
-            estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x_texto, mx, largura)
+            estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x_texto, mx, largura,medida=estado.get('medida',False))
             estado['selecionado'] = False
             return True
         return False

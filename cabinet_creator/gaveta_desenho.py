@@ -3,6 +3,9 @@ dos campos e a caixa de digitar medida -- teclas, cursor e leitura do
 texto em metros --, que a HUD tambem usa."""
 
 import bpy, colorsys, math, re, gpu, blf
+from functools import lru_cache
+from contextlib import redirect_stderr
+from io import StringIO
 _visibilidade = None
 from gpu_extras.batch import batch_for_shader
 from bpy.types import Gizmo
@@ -183,7 +186,7 @@ def _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo):
         if (edicao is not None and edicao['propriedade'] == acao[1]
                 and edicao['area'] == context.area.as_pointer()):
             texto, cursor = edicao['texto'], edicao['cursor']
-            rotulo = texto[:cursor] + '|' + texto[cursor:]
+            rotulo = _com_cursor(texto,cursor,medida=edicao.get('medida',False))
         blf.size(0, 12)
         largura = min(blf.dimensions(0, rotulo)[0], w - 12)
         _gaveta._texto_cabivel_gaveta(x + (w - largura) / 2, y + (h - 12) / 2,
@@ -582,7 +585,7 @@ def _desenhar_gaveta(tela=False):
             valor = rotulo if campo_contador else _opcoes._texto_medida(acao[4])
             if editando:
                 texto, cursor = edicao['texto'], edicao['cursor']
-                valor = texto[:cursor] + '|' + texto[cursor:]
+                valor = _com_cursor(texto,cursor,medida=edicao.get('medida',not campo_contador))
             _gaveta._texto_cabivel_gaveta(x + 7, y + 6,
                                    valor, w - 14, 12, cor=alerta)
         elif acao and (acao[0] in _gaveta.BOTOES_CRIAR or destaque):
@@ -751,10 +754,15 @@ def _tecla_no_texto(estado, tipo, entrada='', ctrl=False):
     return True
 
 
-def _cursor_no_x(texto, cursor, x_texto, mouse_x, largura):
+def _cursor_no_x(texto, cursor, x_texto, mouse_x, largura, medida=False):
     """Posicao do texto mais perto de um clique em x. O texto aparece com
     a barra '|' no cursor: depois dela as posicoes andam a largura dela.
     `largura(texto)` mede em pixels (blf no Blender)."""
+    if medida:
+        mostrado, mapa = _apresentacao_medida(texto, _opcoes._opcao('unidade_padrao'))
+        pos = mapa[min(cursor,len(texto))]
+        return min(range(len(texto)+1),key=lambda i:abs(x_texto+largura(
+            mostrado[:mapa[i]] if mapa[i]<=pos else mostrado[:pos]+'|'+mostrado[pos:mapa[i]])-mouse_x))
     def x_de(i):
         mostrado = (texto[:i] if i <= cursor
                     else texto[:cursor] + '|' + texto[cursor:i])
@@ -769,8 +777,70 @@ def _medidor_blf(tamanho):
     return largura
 
 
-def _com_cursor(texto, cursor):
+_NUMEROS_MEDIDA = re.compile(r'\d[\d.,]*|[.,]\d*')
+
+
+def _numero_digitado(token):
+    decimal = token.rfind(',') if ',' in token else token.rfind('.')
+    if ',' not in token and token.count('.') > 1 and re.fullmatch(r'\d{1,3}(?:\.\d{3})+',token):
+        decimal = -1
+    inteiro = ''.join(c for c in token[:decimal] if c.isdigit()) if decimal>=0 else ''.join(c for c in token if c.isdigit())
+    fracao = ''.join(c for c in token[decimal+1:] if c.isdigit()) if decimal>=0 else ''
+    return inteiro or '0', fracao, decimal
+
+
+def _normalizar_numeros(texto):
+    def numero(m):
+        inteiro, fracao, decimal = _numero_digitado(m.group())
+        return inteiro + ('.'+fracao if decimal>=0 else '')
+    return _NUMEROS_MEDIDA.sub(numero,texto)
+
+
+@lru_cache(maxsize=128)
+def _apresentacao_medida(texto, unidade):
+    # O buffer continua sendo o digitado: pontos de milhar nao mudam a conta/cursor.
+    partes=[];mapa=[0]*(len(texto)+1);fim=0;tamanho=0
+    for m in _NUMEROS_MEDIDA.finditer(texto):
+        for i in range(fim,m.start()):
+            mapa[i]=tamanho;partes.append(texto[i]);tamanho+=1
+        token=m.group();inteiro,fracao,decimal=_numero_digitado(token)
+        grupos=[]
+        for i in range(len(inteiro),0,-3):grupos.insert(0,inteiro[max(0,i-3):i])
+        agrupado='.'.join(grupos)
+        mostrado=agrupado+(','+fracao if decimal>=0 else '')
+        for j in range(len(token)+1):
+            if decimal>=0 and j>decimal:
+                pos=len(agrupado)+1+sum(c.isdigit() for c in token[decimal+1:j])
+            else:
+                digitos=sum(c.isdigit() for c in token[:j])
+                pos=0 if not digitos else digitos+(max(0,digitos-1+(-len(inteiro))%3)//3)
+                if digitos==len(inteiro):pos=len(agrupado)
+            mapa[m.start()+j]=tamanho+pos
+        partes.append(mostrado);tamanho+=len(mostrado);fim=m.end()
+    for i in range(fim,len(texto)):
+        mapa[i]=tamanho;partes.append(texto[i]);tamanho+=1
+    mapa[-1]=tamanho
+    mostrado=''.join(partes)
+    conta=bool(re.search(r'[+*/()]|(?<=\S)\s*-',texto))
+    resultado=None
+    if conta and texto.count('(')==texto.count(')') and not re.search(r'[+*/(-]\s*$',texto):
+        try:
+            # Previa incompleta nao imprime erros nativos a cada tecla; Enter valida normalmente.
+            with redirect_stderr(StringIO()):
+                resultado=_ler_medida_digitada(texto,minimo=-math.inf)*1000
+        except (ValueError,TypeError,OverflowError,ZeroDivisionError):pass
+    if resultado is not None:
+        mostrado+=' = '+_opcoes._texto_medida(resultado,unidade)
+    elif not re.search(_UNIDADE_RE,texto,re.I):
+        mostrado+=' '+_opcoes.UNIDADES_MEDIDA[unidade][1]
+    return mostrado,tuple(mapa)
+
+
+def _com_cursor(texto, cursor, medida=False):
     cursor = min(cursor, len(texto))
+    if medida:
+        texto,mapa=_apresentacao_medida(texto,_opcoes._opcao('unidade_padrao'))
+        cursor=mapa[cursor]
     return texto[:cursor] + '|' + texto[cursor:]
 
 
@@ -783,7 +853,7 @@ def _ler_medida_digitada(texto, minimo=0.001):
     Blender devolve ruido de float (1100.0001): arredonda em 0,01 mm.
     ValueError abaixo de `minimo` (m): 1 mm, ou 0 nas folgas/afastamentos.
     """
-    texto = _arrumar_texto_medida(texto.strip().replace(',', '.'))
+    texto = _arrumar_texto_medida(_normalizar_numeros(texto.strip()))
     sufixo = _opcoes.UNIDADES_MEDIDA[_opcoes._opcao('unidade_padrao')][1]
     texto = _unidade_nos_numeros_soltos(texto, sufixo)
     valor = bpy.utils.units.to_value('METRIC', 'LENGTH', texto,

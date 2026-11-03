@@ -687,8 +687,8 @@ def _redesenhar():
 def _texto_do_valor(lado, valor):
     edicao = _edicao_guia[0]
     if edicao is not None and edicao['lado'] == lado:
-        return _gaveta_desenho._com_cursor(edicao['texto'], edicao['cursor'])
-    return _opcoes._numero_na_unidade(valor)
+        return _gaveta_desenho._com_cursor(edicao['texto'], edicao['cursor'],medida=True)
+    return _opcoes._texto_medida(valor)
 
 
 def desenhar_guias(context):

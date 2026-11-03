@@ -1060,7 +1060,7 @@ class TestComposicaoParedes(unittest.TestCase):
             with patch.object(C, 'cursor_aceso', return_value=False):
                 C.caixa_editavel(100, 50, '1500 - Base do aereo', edicao, 14, 1)
         C.blf.size(0, 14)
-        x = 100 + C.blf.dimensions(0, '15')[0]
+        x = 100 + C.blf.dimensions(0, '1.5')[0]
         self.assertEqual([d[0] for d in desenhos], ['LINES', 'TRIS'])
         self.assertAlmostEqual(desenhos[0][1][0][0], x)
         self.assertTrue(C.cursor_aceso(0.1))
@@ -1337,7 +1337,7 @@ class TestComposicaoParedes(unittest.TestCase):
                 C.desenhar(bpy.context)
         finally:
             addon.hud._edicao_hud[0] = None
-        self.assertIn(('750', estado), desenhados)
+        self.assertIn(('750 mm', estado), desenhados)
         self.assertEqual(len(desenhados), 3)        # A1/A2/A3, sem caixa extra da HUD
         altura = next(r for r in C._rotulos[0] if r[5] == 'altura')
         self.assertEqual(estado['caixas'], [(altura[0] + 5, altura[1] + 4,

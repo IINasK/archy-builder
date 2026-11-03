@@ -1343,7 +1343,8 @@ def _desenhar_hud_texto():
                     edicao.setdefault('caixas', []).append(
                         (x_texto, y, tamanho, escala))
                     _caixa_texto_hud(x_texto, y, _gaveta_desenho._com_cursor(
-                        edicao['texto'], edicao.get('cursor', len(edicao['texto']))) +
+                        edicao['texto'], edicao.get('cursor', len(edicao['texto'])),
+                        medida=not edicao.get('subdivisao_vao') and not _eh_angulo(edicao['alvo'])) +
                         (' prateleiras no vao' if edicao.get('subdivisao_vao') else ''),
                         tamanho, escala)
             if alvo and alvo.get('lado') and not parede:
@@ -1352,7 +1353,7 @@ def _desenhar_hud_texto():
                 ponto = _projetar_hud(context, alvo['pontos'][1])
                 if ponto is not None:
                     texto = '%s: %s' % (alvo.get('rotulo', alvo.get('letra', '')),
-                        _opcoes._numero_na_unidade(_valor_hud(alvo, context)))
+                        _opcoes._texto_medida(_valor_hud(alvo, context)))
                     if (_hud_volume._estado[0] or {}).get('erro'):
                         texto += ' (limite)'
                     _caixa_texto_hud(ponto.x + 12 * escala, ponto.y + 12 * escala,
@@ -1471,12 +1472,8 @@ def _caixa_texto_hud(x, y, texto, tamanho, escala):
     folga = 4 * escala
     x0, y0 = x - folga, y - folga
     x1, y1 = x + largura + folga, y + altura + folga
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     gpu.state.blend_set('ALPHA')
-    shader.bind()
-    shader.uniform_float('color', (0.0, 0.0, 0.0, 0.88))
-    batch_for_shader(shader, 'TRIS', {'pos': [
-        (x0, y0), (x1, y0), (x1, y1), (x0, y0), (x1, y1), (x0, y1)]}).draw(shader)
+    _gaveta._retangulo_arredondado_gaveta(x0,y0,x1-x0,y1-y0,4*escala,(0.0,0.0,0.0,.88))
     blf.position(0, x, y, 0)
     blf.color(0, 1.0, 1.0, 1.0, 1.0)
     blf.draw(0, texto)
@@ -2224,14 +2221,15 @@ class OBJECT_OT_arrastar_hud(Operator):
         mx, my = event.mouse_region_x, event.mouse_region_y
         texto = estado['texto']
         cursor = estado.get('cursor', len(texto))
+        medida = not estado.get('subdivisao_vao') and not _eh_angulo(estado['alvo'])
         for x, y, tamanho, escala in estado.get('caixas') or ():
             largura = _gaveta_desenho._medidor_blf(tamanho)
             blf.size(0, tamanho)
             altura = blf.dimensions(0, '0')[1]
             folga = 4 * escala
-            if (x - folga <= mx <= x + largura(_gaveta_desenho._com_cursor(texto, cursor)) + folga
+            if (x - folga <= mx <= x + largura(_gaveta_desenho._com_cursor(texto, cursor,medida=medida)) + folga
                     and y - folga <= my <= y + altura + folga):
-                estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x, mx, largura)
+                estado['cursor'] = _gaveta_desenho._cursor_no_x(texto, cursor, x, mx, largura,medida=medida)
                 estado['selecionado'] = False
                 return True
         return False

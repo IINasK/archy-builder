@@ -1,5 +1,36 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Medidas durante digitacao e caixas arredondadas (391): apresentacao em
+portugues (milhar ponto, decimal virgula), unidade MM/CM/M da configuracao,
+zero antes da fracao e sem zeros artificiais. Mantem buffer original para
+nao converter 1234 digitado em decimal 1.234 ao exibir o milhar. Mapa do
+cursor conserva cliques/setas/insercao/Backspace. Parser nativo conserva
+contas/unidades; aceita tambem texto colado com milhar e virgula. Ponto
+unico no buffer original continua decimal, por compatibilidade. Previa
+da conta editavel ao lado do texto; resultado/cursor cacheados por texto
+e unidade (128), limpos no unregister. Incompletas/erros da previa nao
+poluem console. Nomes, contadores, pixels e angulos nao recebem mm.
+Aplicado a menu, HUD, cotas/guias de paredes; caixa preta reutiliza raio
+4 escalado do menu. Snapshot: 28 rotulos mudaram, sem alterar geometria.
+Suite medidas (13): exemplos 1/.1/1234/12345/12345.67/comma, MM/CM/M,
+conta .2+.5, mistura m/cm, erro/incompleta, mapa do cursor, teclado/colar,
+cache (20 desenhos = 1 calculo), troca de unidade, tipos e cantos.
+Falhas antes em dist/medidas391-antes.log. Dirigidas: 814 testes / 10
+execucoes OK; preflight sem biblioteca: 2964 / 66 OK nos dois Blenders.
+Viabilidade da oclusao parcial: prova GPU isolada, sem objetos/cena ou
+viewport alterados (dist/provar_gpu391.py; dist/gpu391-parcial.png). BLF
+e profundidade nativos esmaecem so' parte de texto/linha encoberta.
+RTX 4070 SUPER/OpenGL: mediana de 5 amostras, 40 quadros/amostra, quatro
+cotas/quadro: atual 0.2294 ms, duas passagens 0.3853 ms (+0.1559 ms).
+Nao e' custo zero; efeito NAO habilitado, conforme a condicao do usuario.
+Medicao isolada nao garante mesmo custo em outras GPUs/cenas. Sem janela
+nova, gestos ou mudanca no projeto aberto; biblioteca preservada.
+Validacao final: Blender 4.2/5.2, harness completo 3132 testes em 68
+execucoes, tudo OK (dist/medidas391-entrega.log). Auditoria visual GPU
+das caixas reais isoladas: dist/medidas391-caixas.png, seis entradas
+conferidas, incluindo cursor, unidade, milhar, fracao e conta. Pacote
+391 conferido contra todos os fontes; guias espelhados e limites mantidos.
+
 Encaixe na parede pelo envelope completo do grupo (390):
 caixa_local_do_modulo usava portas._limites_locais_modulo, que mede apenas
 a carcaca para construir a porta. Agora consulta modulos.pecas_do_envelope

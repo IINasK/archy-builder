@@ -691,7 +691,7 @@ class TestGaveta(unittest.TestCase):
             for v in cobertos:
                 self.assertNotIn(v, interativos)
         addon.opcoes._definir_opcao('unidade_padrao', 'CM')
-        self.assertEqual(addon.opcoes._texto_medida(600), '60.00 cm')
+        self.assertEqual(addon.opcoes._texto_medida(600), '60 cm')
 
     def test_faixas_de_1_a_50_arrastam_e_digitam(self):
         self.abrir_opcoes()
