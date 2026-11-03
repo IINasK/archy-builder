@@ -616,7 +616,6 @@ def widgets(context, itens, x, topo, w):
             'object.cabinet_editar_ambientes' if _ambientes._retorno[0] else 'object.cabinet_editar_parede')))
         itens.append((x+metade+6,topo,metade,30,'Remover Alvenaria',('operador','object.cabinet_definir_alvenaria')))
         topo-=6
-        botao('Editar ambientes','object.cabinet_editar_ambientes')
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26

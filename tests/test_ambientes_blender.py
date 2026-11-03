@@ -176,7 +176,7 @@ class TestAmbientes(unittest.TestCase):
             self.assertEqual(editar[1],remover[1]);self.assertEqual(editar[2],remover[2])
             self.assertEqual(editar[0]+editar[2]+6,remover[0])
             self.assertAlmostEqual(remover[0]+remover[2],12+largura)
-            self.assertIn('Editar ambientes',[v[4] for v in itens])
+            self.assertNotIn('Editar ambientes',[v[4] for v in itens])
             del self.obj[P.CHAVE_ALVENARIA]
             itens=[];E.widgets(bpy.context,itens,12,900,largura)
             definir=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
@@ -208,11 +208,12 @@ class TestAmbientes(unittest.TestCase):
     def faces_marcadas(self):
         return {f.index for f in bmesh.from_edit_mesh(self.obj.data).faces if f.select}
 
-    def test_dois_caminhos_sem_seletor_de_metodo_nem_botoes_da_area(self):
+    def test_entrada_unica_editar_parede_sem_botao_duplicado_ou_seletor_de_metodo(self):
         for largura in (166,296,540):
             itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
             nomes=[v[4] for v in itens]
-            self.assertIn('Editar parede',nomes);self.assertIn('Editar ambientes',nomes)
+            self.assertEqual(nomes.count('Editar parede'),1);self.assertNotIn('Editar ambientes',nomes)
+            self.assertIn('Remover Alvenaria',nomes)
             for nome in ('Automatico','Por pontos','Confirmar area','Remover ultimo ponto','Cancelar selecao'):
                 self.assertNotIn(nome,nomes)
 

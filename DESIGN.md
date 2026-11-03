@@ -725,6 +725,10 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+397: menu inicial tem somente Editar parede ao lado de Remover Alvenaria.
+A entrada direta Editar ambientes foi retirada para evitar duplicacao;
+os controles de ambientes seguem no contexto de edicao existente.
+
 396: duas entradas na Alvenaria definida. Editar parede prepara a selecao
 na malha nativa e abre a vista 2D ao clicar na regiao automatica; Ctrl+clique
 soma/retira faces individuais e Enter confirma essa selecao manual. Editar

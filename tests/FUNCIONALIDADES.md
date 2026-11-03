@@ -1,5 +1,19 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Entrada unica da Alvenaria (397): retirado Editar ambientes do menu
+inicial. Editar parede e Remover Alvenaria continuam lado a lado; contexto
+interno de ambientes preservado. Cenarios existentes atualizados ao pedido:
+larguras 190/320/564 px, uma unica entrada Editar parede, nenhuma entrada
+Editar ambientes e nenhum seletor de metodos/pontos. Suite ambientes
+conserva 38 casos; navegacao e selecao nao mudaram.
+Dirigidas Blender 4.2/5.2: 420 testes em 6 execucoes OK
+(dist/ambientes397-alvos.log). Auditoria visual com tuplas reais e helpers
+GPU: dist/ambientes397-menu.png, tres larguras sem a linha redundante.
+Sem abrir janela nem alterar a cena em uso; gestos ao vivo nao executados.
+Harness completo 4.2/5.2: 3260 testes / 70 execucoes OK
+(dist/ambientes397-completo.log). Pacote 397: 41 fontes identicos;
+espelhos/limites conferidos.
+
 Selecao unificada da Alvenaria (396): Editar parede conserva vista 2D;
 Editar ambientes abre diretamente a lista de comodos no Edit Mode, sem
 alinhar camera. Ambos abrem selecao nativa de faces; hover automatico
