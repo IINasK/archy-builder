@@ -3056,66 +3056,43 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
 
 
-def test_pontos_da_parede_usam_snap_nativo_e_menu_permanece_disponivel(janela, m):
-    # Regressao 371: o snap consulta so' a parede, mesmo atras de outro objeto.
+def test_faces_da_parede_usam_ctrl_e_menu_permanece_disponivel(janela, m):
+    # 396: Ctrl escolhe faces reais, automatico nao precisa do seletor de pontos.
     import bmesh
-    E = addon.paredes_edicao
-    area, regiao, rv = viewport(janela)
-    pontos = [(-1, 1, .5), (1, 1, .5), (1, 1, 2.5), (-1, 1, 2.5)]
-    bm = bmesh.new()
-    bm.faces.new([bm.verts.new(p) for p in pontos])
-    dados = bpy.data.meshes.new('Parede para snap por pontos')
-    bm.to_mesh(dados); bm.free()
-    parede = bpy.data.objects.new(dados.name, dados)
-    bpy.context.scene.collection.objects.link(parede)
+    A=addon.ambientes;E=addon.paredes_edicao
+    area,regiao,rv=viewport(janela)
+    dados=bpy.data.meshes.new('Parede para selecao de faces')
+    dados.from_pydata([(-1,1,.5),(0,1,.5),(1,1,.5),(-1,1,2.5),(0,1,2.5),(1,1,2.5)],[],[(0,1,4,3),(1,2,5,4)])
+    parede=bpy.data.objects.new(dados.name,dados);bpy.context.scene.collection.objects.link(parede)
     parede[addon.paredes.CHAVE_ALVENARIA]=True
-    teto = parede.copy(); teto.data = dados.copy()
-    bpy.context.scene.collection.objects.link(teto)
-    teto.location.y = -2
-    for obj in bpy.context.selected_objects:
-        obj.select_set(False)
-    parede.select_set(True); bpy.context.view_layer.objects.active = parede
-    rv.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
-    rv.view_perspective = 'ORTHO'
-    rv.view_location = (0, 1, 1.5); rv.view_distance = 5
-    bpy.context.view_layer.update()
-    yield
-    m.mover(*na_tela(regiao, rv, Vector((0, 1, 1.5))))
-    yield
-    bpy.context.scene['parede_metodo_selecao'] = 'PONTOS'
-    cursor = tuple(bpy.context.scene.cursor.location)
-    ts = bpy.context.scene.tool_settings
-    snap_anterior = (ts.use_snap, set(ts.snap_elements), ts.snap_target)
-    with bpy.context.temp_override(window=janela, area=area, region=regiao):
-        bpy.ops.object.cabinet_editar_parede('INVOKE_DEFAULT')
+    teto=parede.copy();teto.data=dados.copy();bpy.context.scene.collection.objects.link(teto);teto.location.y=-2
+    for obj in bpy.context.selected_objects:obj.select_set(False)
+    parede.select_set(True);bpy.context.view_layer.objects.active=parede
+    rv.view_rotation=Euler((math.pi/2,0,0)).to_quaternion();rv.view_perspective='ORTHO'
+    rv.view_location=(0,1,1.5);rv.view_distance=5;bpy.context.view_layer.update()
+    with contexto(janela,area,regiao):bpy.ops.object.cabinet_editar_parede('INVOKE_DEFAULT')
     yield
     try:
-        for indice, ponto in enumerate(pontos[:3]):
-            x, y = na_tela(regiao, rv, Vector(ponto))
-            dx, dy = (4 if ponto[0] < 0 else -4), (4 if ponto[2] < 1 else -4)
-            m.mover(x + dx, y + dy)
-            yield
-            m.apertar('LEFTMOUSE')
-            yield
-            assert E._snap_area[0] is not None, 'nao iniciou o translate nativo'
-            assert teto.hide_select and not parede.hide_select
-            m.mover(x + dx / 2, y + dy / 2)
-            yield
-            m.soltar('LEFTMOUSE')
-            yield
-            e = E._escolha_area[0]
-            assert len(e['pontos']) == indice + 1
-            assert (Vector(e['pontos'][-1]) - Vector(ponto)).length < 1e-5
-            assert not teto.hide_select and E._snap_area[0] is None
-            assert tuple(bpy.context.scene.cursor.location) == cursor
-            assert (ts.use_snap, set(ts.snap_elements), ts.snap_target) == snap_anterior
-        # Confirmar pelo menu usa a mesma acao; o modal continua atendendo-a.
-        with bpy.context.temp_override(window=janela, area=area, region=regiao):
-            bpy.ops.object.cabinet_area_parede_confirmar()
+        assert bpy.context.mode=='EDIT_MESH' and A._edicao_faces[0] is not None
+        m.apertar('LEFT_CTRL')
         yield
-        assert E.ativa() and E._escolha_area[0] is None
+        for x in (-.5,.5):
+            m.mover(*na_tela(regiao,rv,Vector((x,1,1.5))))
+            yield
+            m.clicar('LEFTMOUSE',ctrl=True)
+            yield
+        m.soltar('LEFT_CTRL')
+        yield
+        assert len([f for f in bmesh.from_edit_mesh(parede.data).faces if f.select])==2
+        itens=[]
+        with contexto(janela,area,regiao):E.widgets(bpy.context,itens,12,900,400)
+        assert 'Definir como Cozinha' in [v[4] for v in itens]
+        assert not any(v[4] in ('Automatico','Por pontos','Confirmar area') for v in itens)
+        m.tecla('RET')
+        yield
+        assert E.ativa() and A._edicao_faces[0] is None
     finally:
-        E.encerrar()
+        A.encerrar_selecao();E.encerrar()
 
 
 def test_criar_divisorias_e_prateleiras_no_mesmo_volume(janela, m):

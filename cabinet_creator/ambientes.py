@@ -1,11 +1,13 @@
 """Ambientes por faces nativas da Alvenaria; cores so' durante a definicao."""
-import bpy, bmesh, colorsys, uuid
+import bpy, bmesh, colorsys, uuid, math
 import numpy as np
 import gpu, blf
 from bpy.types import Operator
 from bpy.props import StringProperty, FloatVectorProperty
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
+from mathutils.bvhtree import BVHTree
+from bpy_extras import view3d_utils
 
 _paredes = _paredes_edicao = _orcamento = _eventos = _gaveta = None
 ATR_FACE = 'cabinet_ambiente'
@@ -16,6 +18,174 @@ _sujo = [True]
 _cache = [{}]
 _handler = [None]
 _retorno = [None]
+_edicao_faces = [None]
+
+
+def encerrar_selecao():
+    s=_edicao_faces[0]
+    _edicao_faces[0]=None
+    if s is None:return
+    bpy.types.SpaceView3D.draw_handler_remove(s['handler'],'WINDOW')
+    try:bpy.context.window_manager.event_timer_remove(s['timer'])
+    except (ReferenceError,RuntimeError):pass
+    cena=bpy.data.scenes.get(s['cena']) if not _eventos._desfazendo[0] else None
+    if cena is not None:cena.tool_settings.mesh_select_mode=s['modo_anterior']
+    for janela in bpy.context.window_manager.windows:
+        if janela.as_pointer()==s['janela']:
+            area=next((a for a in janela.screen.areas if a.as_pointer()==s['area']),None)
+            if area is not None:area.header_text_set(None)
+    _paredes._redesenhar()
+
+
+def preparar_selecao(context,obj,parede_2d=False):
+    if not _paredes.alvenaria_definida(obj):raise ValueError('Selecione a Alvenaria')
+    encerrar_selecao()
+    area=_paredes_edicao.viewport(context)
+    if area is None:raise ValueError('Sem viewport 3D para editar a Alvenaria')
+    regiao=next(r for r in area.regions if r.type=='WINDOW')
+    anterior=tuple(context.scene.tool_settings.mesh_select_mode)
+    with context.temp_override(area=area,region=regiao):
+        if context.mode=='OBJECT':
+            for o in context.selected_objects:o.select_set(False)
+            obj.select_set(True);context.view_layer.objects.active=obj
+            bpy.ops.object.mode_set(mode='EDIT')
+        if context.edit_object!=obj or len(context.objects_in_mode_unique_data)!=1:
+            raise ValueError('Edite uma unica Alvenaria')
+        context.scene.tool_settings.mesh_select_mode=(False,False,True)
+        bpy.ops.mesh.select_all(action='DESELECT')
+    s=dict(objeto=obj.name,cena=context.scene.name,area=area.as_pointer(),regiao=regiao.as_pointer(),
+           janela=context.window.as_pointer(),parede_2d=parede_2d,modo_anterior=anterior,
+           cache=None,sujo=True,hover=None,xy=None,manual=False)
+    s['handler']=bpy.types.SpaceView3D.draw_handler_add(desenhar_selecao,(),'WINDOW','POST_VIEW')
+    try:s['timer']=context.window_manager.event_timer_add(.1,window=context.window)
+    except Exception:
+        bpy.types.SpaceView3D.draw_handler_remove(s['handler'],'WINDOW');raise
+    _edicao_faces[0]=s
+    _paredes_edicao._aviso[0]=''
+    try:atualizar_selecao(obj)
+    except Exception:
+        encerrar_selecao();raise
+    area.header_text_set('Clique na area | Ctrl+clique seleciona faces | Enter abre a vista 2D | Esc sai'
+                        if parede_2d else 'Clique na area | Ctrl+clique seleciona faces | Defina o ambiente no menu | Esc sai')
+    return id(s)
+
+
+def atualizar_selecao(obj):
+    s=_edicao_faces[0]
+    if s is None or not s['sujo']:return
+    bm=bmesh.from_edit_mesh(obj.data).copy()
+    try:
+        bm.faces.index_update();original=bm.faces.layers.int.new('origem_selecao')
+        for f in bm.faces:f[original]=f.index
+        bmesh.ops.delete(bm,geom=[f for f in bm.faces if f.hide],context='FACES')
+        bm.faces.index_update()
+        ids=[f[original] for f in bm.faces]
+        caches=[]
+        for automatico in (False,True):
+            if automatico:
+                # Dissolve apenas a copia; o Blender continua dono da malha e da selecao.
+                bmesh.ops.dissolve_limit(bm,angle_limit=math.radians(1),verts=[],edges=list(bm.edges))
+                bm.faces.index_update()
+            trios={}
+            for tri in bm.calc_loop_triangles():trios.setdefault(tri[0].face.index,[]).extend(tuple(l.vert.co) for l in tri)
+            if automatico:
+                # O dissolve conserva faces ao redor de furos; a previa inclui a regiao inteira.
+                vistas=set()
+                for face in bm.faces:
+                    if face in vistas:continue
+                    regiao={face};pendentes=[face];vistas.add(face)
+                    while pendentes:
+                        atual=pendentes.pop()
+                        for e in atual.edges:
+                            for vizinha in e.link_faces:
+                                if vizinha not in vistas and face.normal.dot(vizinha.normal)>=math.cos(math.radians(1)):
+                                    vistas.add(vizinha);regiao.add(vizinha);pendentes.append(vizinha)
+                    pontos=[p for f in regiao for p in trios.get(f.index,[])]
+                    for f in regiao:trios[f.index]=pontos
+            caches.append((BVHTree.FromBMesh(bm),trios))
+        s.update(cache=caches,ids=ids,sujo=False,hover=None)
+    finally:bm.free()
+
+
+def acerto_selecao(obj,inicio,direcao,manual=False):
+    s=_edicao_faces[0]
+    if s is None or s['sujo'] or s['cache'] is None:return None
+    inversa=obj.matrix_world.inverted_safe()
+    return s['cache'][0 if manual else 1][0].ray_cast(inversa@inicio,
+        (inversa.to_3x3()@direcao).normalized())[2]
+
+
+def selecionar_face(context,obj,indice,manual=False):
+    s=_edicao_faces[0];bm=bmesh.from_edit_mesh(obj.data);bm.faces.ensure_lookup_table()
+    if not manual:bpy.ops.mesh.select_all(action='DESELECT')
+    face=bm.faces[s['ids'][indice]]
+    face.select_set(not face.select if manual else True);bm.faces.active=face
+    bm.select_flush_mode()
+    bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
+    if not manual:bpy.ops.mesh.faces_select_linked_flat(sharpness=math.radians(1))
+
+
+def evento_selecao(context,event,token):
+    s=_edicao_faces[0]
+    if s is None or id(s)!=token:return {'CANCELLED'}
+    obj=bpy.data.objects.get(s['objeto'])
+    area=next((a for a in context.window.screen.areas if a.as_pointer()==s['area']),None)
+    if (_eventos._desfazendo[0] or context.scene.name!=s['cena'] or context.mode!='EDIT_MESH'
+            or context.window.as_pointer()!=s['janela']
+            or obj is None or area is None or context.edit_object!=obj):
+        encerrar_selecao();return {'CANCELLED'}
+    regiao=next(r for r in area.regions if r.type=='WINDOW')
+    if event.type=='TIMER':
+        if not _eventos._transformando():atualizar_selecao(obj)
+        return {'PASS_THROUGH'}
+    if event.type=='ESC' and event.value=='PRESS':
+        encerrar_selecao();bpy.ops.object.mode_set(mode='OBJECT');return {'CANCELLED'}
+    xy=(event.mouse_x-regiao.x,event.mouse_y-regiao.y)
+    dentro=0<=xy[0]<regiao.width and 0<=xy[1]<regiao.height
+    confirmar=s['parede_2d'] and event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS'
+    if dentro and (event.type in {'MOUSEMOVE','LEFT_CTRL','RIGHT_CTRL','LEFTMOUSE'}):
+        rv=area.spaces.active.region_3d
+        inicio=view3d_utils.region_2d_to_origin_3d(regiao,rv,xy)
+        direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv,xy)
+        indice=acerto_selecao(obj,inicio,direcao,event.ctrl)
+        s.update(hover=indice,manual=event.ctrl,xy=xy);area.tag_redraw()
+        if event.type=='LEFTMOUSE' and event.value=='PRESS' and indice is not None:
+            with context.temp_override(area=area,region=regiao):
+                original=acerto_selecao(obj,inicio,direcao,True)
+                if original is not None:selecionar_face(context,obj,original,event.ctrl)
+            confirmar=s['parede_2d'] and not event.ctrl
+            if not confirmar:return {'RUNNING_MODAL'}
+        if event.type=='LEFTMOUSE' and event.value=='PRESS' and not confirmar:return {'RUNNING_MODAL'}
+    elif not dentro:
+        s['hover']=None;area.tag_redraw()
+    if confirmar:
+        with context.temp_override(area=area,region=regiao):
+            erro=_paredes_edicao.entrar_por_vertices(context,obj,somente_faces=True)
+        _paredes_edicao._aviso[0]=erro or ''
+        if erro:return {'RUNNING_MODAL'}
+        encerrar_selecao();return {'FINISHED'}
+    if dentro and event.type=='LEFTMOUSE':return {'RUNNING_MODAL'}
+    return {'PASS_THROUGH'}
+
+
+def desenhar_selecao():
+    s=_edicao_faces[0];context=bpy.context
+    if (s is None or s['hover'] is None or s['sujo'] or context.mode!='EDIT_MESH'
+            or _eventos._desfazendo[0] or _eventos._transformando()
+            or context.region.as_pointer()!=s['regiao']):return
+    obj=bpy.data.objects.get(s['objeto'])
+    if obj is None:return
+    ps=s['cache'][0 if s['manual'] else 1][1].get(s['hover'],[])
+    anterior=(gpu.state.blend_get(),gpu.state.depth_test_get(),gpu.state.depth_mask_get())
+    try:
+        gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(False)
+        with gpu.matrix.push_pop_projection(),gpu.matrix.push_pop():
+            projecao=gpu.matrix.get_projection_matrix();projecao[2]=projecao[2]-projecao[3]*1e-6
+            gpu.matrix.load_projection_matrix(projecao);gpu.matrix.multiply_matrix(obj.matrix_world)
+            shader=gpu.shader.from_builtin('UNIFORM_COLOR');shader.bind();shader.uniform_float('color',(1,.45,.05,.35))
+            batch_for_shader(shader,'TRIS',{'pos':ps}).draw(shader)
+    finally:
+        gpu.state.blend_set(anterior[0]);gpu.state.depth_test_set(anterior[1]);gpu.state.depth_mask_set(anterior[2])
 
 
 def _mapa(obj):
@@ -84,7 +254,26 @@ class OBJECT_OT_editar_ambientes(Operator):
 
     @classmethod
     def poll(cls,context):
-        return _paredes_edicao.ativa(context) or bool(_retorno[0] and _retorno[0]['cena']==context.scene.name)
+        return (_paredes_edicao.ativa(context) or _paredes.alvenaria_definida(context.object)
+                or bool(_retorno[0] and _retorno[0]['cena']==context.scene.name))
+
+    def invoke(self,context,event):
+        resultado=self.execute(context)
+        if resultado=={'FINISHED'} and context.mode=='EDIT_MESH':
+            try:self.token=preparar_selecao(context,context.edit_object)
+            except ValueError as erro:
+                self.report({'WARNING'},str(erro));return {'CANCELLED'}
+            context.window_manager.modal_handler_add(self)
+            return {'RUNNING_MODAL'}
+        return resultado
+
+    def modal(self,context,event):
+        try:return evento_selecao(context,event,self.token)
+        except Exception:
+            encerrar_selecao();raise
+
+    def cancel(self,context):
+        if _edicao_faces[0] and id(_edicao_faces[0])==self.token:encerrar_selecao()
 
     def execute(self,context):
         s=_paredes_edicao._sessao[0]
@@ -105,7 +294,14 @@ class OBJECT_OT_editar_ambientes(Operator):
             _retorno[0]=retorno
             return {'FINISHED'}
         retorno=_retorno[0]
-        if retorno is None or retorno['cena']!=context.scene.name: return {'CANCELLED'}
+        if retorno is None:
+            if not _paredes.alvenaria_definida(context.object):return {'CANCELLED'}
+            if context.mode=='OBJECT':
+                for o in context.selected_objects:
+                    if o!=context.object:o.select_set(False)
+                bpy.ops.object.mode_set(mode='EDIT')
+            return {'FINISHED'}
+        if retorno['cena']!=context.scene.name: return {'CANCELLED'}
         obj=context.view_layer.objects.get(retorno['objeto'])
         if obj is None:
             _retorno[0]=None;return {'CANCELLED'}
@@ -178,6 +374,8 @@ def atribuir(context,conj,parede=None,ponto=None,normal=None):
 
 def widgets(context,itens,obj,x,y,w):
     nome=context.scene.get(CHAVE_NOME,'Cozinha')
+    if _edicao_faces[0] and _edicao_faces[0]['parede_2d'] and _paredes_edicao._aviso[0]:
+        y-=24;itens.append((x,y,w,22,_paredes_edicao._aviso[0],None))
     metade=(w-6)/2
     y-=30
     itens.append((x,y,metade,28,'Voltar a edicao da parede' if _retorno[0] else 'Sair da edicao de ambientes',
@@ -199,6 +397,10 @@ def invalidar(cena,depsgraph):
     malhas={v['malha'] for v in _cache[0].values()}
     for u in depsgraph.updates:
         if not u.is_updated_geometry: continue
+        s=_edicao_faces[0]
+        if s and ((isinstance(u.id,bpy.types.Object) and u.id.name==s['objeto'])
+                  or (isinstance(u.id,bpy.types.Mesh) and bpy.context.edit_object is not None
+                      and u.id.name==bpy.context.edit_object.data.name)):s['sujo']=True
         if ((isinstance(u.id,bpy.types.Object) and u.id.name in _cache[0])
                 or (isinstance(u.id,bpy.types.Mesh) and u.id.name in malhas)):
             _sujo[0]=True
@@ -287,4 +489,5 @@ def desenhar():
 
 
 def esquecer():
+    encerrar_selecao()
     _cache[0]={};_sujo[0]=True;_retorno[0]=None

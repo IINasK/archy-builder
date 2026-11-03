@@ -28,11 +28,11 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
 | Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
 ## Decisoes de interacao
-- Alvenaria 395: Definir Alvenaria em linha inteira; Editar parede/Remover Alvenaria lado a lado. Sair/Voltar e Definir ambiente lado a lado em laranja. Editar ambientes DENTRO da parede usa Edit Mode nativo e volta ao mesmo recorte (Tab conserva retorno); operador no SOLTAR. Lista: quadrado 24 px/nome; paleta nativa. Cores/nomes so' na definicao, rotulo inteiro cabe ou omite. Realce usa bias no depth da projecao GPU nativa com pilha, sem mover malha/cache. So' alvenaria recebe snap; normal distingue parede/piso/teto. Armario em pe; colocacao livre; G conserva Afast., zero encosta.
-- Parede 371: alvo fixo ignora outros objetos; pontos usam snap VERTEX nativo so' nele. Parcial inativo cinza, sem avisos/cotas/edicao; elegibilidade fixa na entrada. Edit Mode usa vertices; Object Mode tem Automatico/Por pontos
-  no grupo Paredes. Modal repassa eventos do menu/navegacao; esquerdo marca,
-  Backspace volta, Enter confirma, direito/Esc cancela; menu oferece iguais
-  acoes. Hover reutiliza o desenho do atach, sem inferencia no redraw.
+- Alvenaria 396: Definir Alvenaria em linha inteira; Editar parede/Remover Alvenaria lado a lado. Sair/Voltar e Definir ambiente lado a lado em laranja. Dois caminhos: Editar parede = vista 2D, Editar ambientes = Edit Mode direto sem alinhar camera; dentro da vista conserva retorno ao recorte. Operador no SOLTAR. Lista: quadrado 24 px/nome; paleta nativa. Cores/nomes so' na definicao, rotulo inteiro cabe ou omite. Realce usa bias no depth da projecao GPU nativa com pilha, sem mover malha/cache. So' alvenaria recebe snap; normal distingue parede/piso/teto. Armario em pe; colocacao livre; G conserva Afast., zero encosta.
+- Parede 396: alvo fixo ignora outros objetos. Hover automatico preve area plana; Ctrl preve face individual. Clique confirma area; Ctrl+clique soma/retira faces nativas.
+  No caminho 2D, clique automatico entra; Enter confirma manual. Menu sem
+  seletor de metodos ou botoes de pontos. Previa nao muda selecao; menus e
+  navegacao passam. BVHs/copia BMesh no timer, nunca reconstruidos no hover.
 - Parede (299): menu nao exibe nem edita medidas da parede identificada.
   Na edicao 2D, cotas sao dos modulos/vaos; clique digita, Esc cancela.
   Parede e modulos solidos/OBJECT/FLAT com contornos pretos nativos. Estado

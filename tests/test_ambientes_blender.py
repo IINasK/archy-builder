@@ -77,6 +77,7 @@ class TestAmbientes(unittest.TestCase):
         bpy.context.scene[A.CHAVE_NOME]='Cozinha'
 
     def tearDown(self):
+        A.encerrar_selecao()
         if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
         addon.paredes_edicao.encerrar()
 
@@ -175,7 +176,7 @@ class TestAmbientes(unittest.TestCase):
             self.assertEqual(editar[1],remover[1]);self.assertEqual(editar[2],remover[2])
             self.assertEqual(editar[0]+editar[2]+6,remover[0])
             self.assertAlmostEqual(remover[0]+remover[2],12+largura)
-            self.assertNotIn('Editar ambientes',[v[4] for v in itens])
+            self.assertIn('Editar ambientes',[v[4] for v in itens])
             del self.obj[P.CHAVE_ALVENARIA]
             itens=[];E.widgets(bpy.context,itens,12,900,largura)
             definir=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
@@ -196,6 +197,172 @@ class TestAmbientes(unittest.TestCase):
                     self.assertEqual(definir[4],'Definir como Cozinha')
                     self.assertEqual(sair[5][1],'object.cabinet_editar_ambientes' if retorno else 'object.editmode_toggle')
                     for item in (sair,definir):self.assertIn(item[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+
+    def preparar_faces(self,parede_2d=False):
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        with bpy.context.temp_override(area=area,region=regiao):
+            token=A.preparar_selecao(bpy.context,self.obj,parede_2d)
+        return area,regiao,token
+
+    def faces_marcadas(self):
+        return {f.index for f in bmesh.from_edit_mesh(self.obj.data).faces if f.select}
+
+    def test_dois_caminhos_sem_seletor_de_metodo_nem_botoes_da_area(self):
+        for largura in (166,296,540):
+            itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
+            nomes=[v[4] for v in itens]
+            self.assertIn('Editar parede',nomes);self.assertIn('Editar ambientes',nomes)
+            for nome in ('Automatico','Por pontos','Confirmar area','Remover ultimo ponto','Cancelar selecao'):
+                self.assertNotIn(nome,nomes)
+
+    def test_entrada_ambientes_executa_edit_mode_sem_alinhar_camera(self):
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        anterior=area.spaces.active.region_3d.view_rotation.copy()
+        self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+        self.assertEqual(bpy.context.mode,'EDIT_MESH');self.assertFalse(addon.paredes_edicao.ativa())
+        self.assertEqual(anterior,area.spaces.active.region_3d.view_rotation)
+
+    def test_previa_automatica_une_faces_e_ctrl_identifica_so_uma_sem_alterar_malha(self):
+        self.preparar_faces();s=A._edicao_faces[0]
+        inicio=Vector((-1,-2,1));direcao=Vector((0,1,0))
+        auto=A.acerto_selecao(self.obj,inicio,direcao)
+        manual=A.acerto_selecao(self.obj,inicio,direcao,True)
+        ps=s['cache'][1][1][auto];pontos=s['cache'][0][1][manual]
+        self.assertEqual((min(p[0] for p in ps),max(p[0] for p in ps)),(-2,2))
+        self.assertEqual((min(p[0] for p in pontos),max(p[0] for p in pontos)),(-2,0))
+        self.assertEqual(len(bmesh.from_edit_mesh(self.obj.data).faces),4)
+        self.assertEqual(self.faces_marcadas(),set())
+        with patch.object(A,'atualizar_selecao',side_effect=AssertionError('Reconstrucao no hover')):
+            for _ in range(20):self.assertIsNotNone(A.acerto_selecao(self.obj,inicio,direcao))
+
+    def test_clique_automatico_seleciona_regiao_ctrl_soma_e_retira_faces_nativas(self):
+        area,regiao,_=self.preparar_faces();i=A.acerto_selecao(self.obj,Vector((-1,-2,1)),Vector((0,1,0)),True)
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,i)
+            self.assertEqual(self.faces_marcadas(),{0,1})
+            A.selecionar_face(bpy.context,self.obj,i,True);self.assertEqual(self.faces_marcadas(),{1})
+            A.selecionar_face(bpy.context,self.obj,i,True);self.assertEqual(self.faces_marcadas(),{0,1})
+
+    def test_alvo_fixo_ignora_teto_e_objetos_externos_inclusive_faces_ocultas(self):
+        bpy.ops.mesh.primitive_cube_add(size=20);oclusor=bpy.context.object
+        oclusor.select_set(False);self.obj.select_set(True);bpy.context.view_layer.objects.active=self.obj
+        self.preparar_faces()
+        self.assertIsNotNone(A.acerto_selecao(self.obj,Vector((-1,-2,1)),Vector((0,1,0)),True))
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table();bm.faces[0].hide_set(True)
+        A._edicao_faces[0]['sujo']=True;A.atualizar_selecao(self.obj)
+        self.assertIsNone(A.acerto_selecao(self.obj,Vector((-1,-2,1)),Vector((0,1,0)),True))
+
+    def test_hover_nao_troca_selecao_manual_e_navegacao_menu_passam(self):
+        area,regiao,token=self.preparar_faces()
+        evento=SimpleNamespace(type='MOUSEMOVE',value='NOTHING',mouse_x=regiao.x+regiao.width//2,
+                               mouse_y=regiao.y+regiao.height//2,ctrl=False)
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0,True);antes=self.faces_marcadas()
+            A.evento_selecao(bpy.context,evento,token)
+            self.assertEqual(self.faces_marcadas(),antes)
+            for tipo in ('MIDDLEMOUSE','WHEELUPMOUSE','NDOF_MOTION','TAB'):
+                evento.type=tipo;self.assertEqual(A.evento_selecao(bpy.context,evento,token),{'PASS_THROUGH'})
+            evento.type='LEFTMOUSE';evento.value='PRESS';evento.mouse_x=regiao.x-10
+            self.assertEqual(A.evento_selecao(bpy.context,evento,token),{'PASS_THROUGH'})
+
+    def test_tab_e_undo_limpam_cache_timer_handler_sem_trocar_malha(self):
+        anterior=tuple(bpy.context.scene.tool_settings.mesh_select_mode)
+        area,regiao,token=self.preparar_faces();dados=self.obj.data.as_pointer()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        evento=SimpleNamespace(type='TIMER')
+        self.assertEqual(A.evento_selecao(bpy.context,evento,token),{'CANCELLED'})
+        self.assertIsNone(A._edicao_faces[0]);self.assertEqual(self.obj.data.as_pointer(),dados)
+        self.assertEqual(tuple(bpy.context.scene.tool_settings.mesh_select_mode),anterior)
+        self.preparar_faces();A.esquecer();self.assertIsNone(A._edicao_faces[0])
+
+    def test_enter_no_caminho_2d_usa_faces_nativas_e_isolamento_existente(self):
+        area,regiao,token=self.preparar_faces(True)
+        evento=SimpleNamespace(type='RET',value='PRESS',mouse_x=regiao.x-10,mouse_y=regiao.y,ctrl=True)
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0)
+            self.assertEqual(A.evento_selecao(bpy.context,evento,token),{'FINISHED'})
+        self.assertTrue(addon.paredes_edicao.ativa());self.assertIsNone(A._edicao_faces[0])
+
+    def test_invocar_as_duas_entradas_abre_edit_mode_sem_etapa_de_pontos(self):
+        real=bpy.context;adicionados=[]
+        class Gerenciador:
+            def modal_handler_add(self,op):adicionados.append(op)
+            def __getattr__(self,nome):return getattr(real.window_manager,nome)
+        class Contexto:
+            window_manager=Gerenciador()
+            def __getattr__(self,nome):return getattr(real,nome)
+        for classe in (addon.paredes_edicao.OBJECT_OT_editar_parede,A.OBJECT_OT_editar_ambientes):
+            op=SimpleNamespace(objeto='',report=lambda *_:None)
+            op.execute=lambda c:classe.execute(op,c)
+            self.assertEqual(classe.invoke(op,Contexto(),None),{'RUNNING_MODAL'})
+            self.assertEqual(bpy.context.mode,'EDIT_MESH')
+            self.assertIsNone(addon.paredes_edicao._escolha_area[0])
+            self.assertEqual(A._edicao_faces[0]['parede_2d'],classe!=A.OBJECT_OT_editar_ambientes)
+            A.encerrar_selecao();bpy.ops.object.mode_set(mode='OBJECT')
+        self.assertEqual(len(adicionados),2)
+
+    def test_clique_automatico_2d_e_clique_ctrl_tem_destinos_distintos(self):
+        for ctrl in (True,False):
+            area,regiao,token=self.preparar_faces(True)
+            ev=SimpleNamespace(type='LEFTMOUSE',value='PRESS',mouse_x=regiao.x+regiao.width//2,
+                               mouse_y=regiao.y+regiao.height//2,ctrl=ctrl)
+            with bpy.context.temp_override(area=area,region=regiao), \
+                 patch.object(A.view3d_utils,'region_2d_to_origin_3d',return_value=Vector((-1,-2,1))), \
+                 patch.object(A.view3d_utils,'region_2d_to_vector_3d',return_value=Vector((0,1,0))):
+                self.assertEqual(A.evento_selecao(bpy.context,ev,token),{'RUNNING_MODAL'} if ctrl else {'FINISHED'})
+            self.assertEqual(addon.paredes_edicao.ativa(),not ctrl)
+            A.encerrar_selecao()
+            if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+            addon.paredes_edicao.encerrar()
+
+    def test_cache_refaz_apos_tab_g_e_fica_limpo_ao_trocar_cena(self):
+        self.preparar_faces();s=A._edicao_faces[0];cache=s['cache']
+        bm=bmesh.from_edit_mesh(self.obj.data)
+        for v in bm.verts:v.co.x+=3
+        bmesh.update_edit_mesh(self.obj.data)
+        A.invalidar(bpy.context.scene,SimpleNamespace(updates=[SimpleNamespace(id=self.obj.data,is_updated_geometry=True)]))
+        self.assertTrue(s['sujo']);A.atualizar_selecao(self.obj);self.assertIsNot(s['cache'],cache)
+        self.assertIsNotNone(A.acerto_selecao(self.obj,Vector((2,-2,1)),Vector((0,1,0))))
+        origem=bpy.context.scene;outra=bpy.data.scenes.new('Outra cena de teste')
+        try:
+            bpy.context.window.scene=outra
+            self.assertEqual(A.evento_selecao(bpy.context,SimpleNamespace(type='TIMER'),id(s)),{'CANCELLED'})
+            self.assertIsNone(A._edicao_faces[0])
+        finally:bpy.context.window.scene=origem;bpy.data.scenes.remove(outra)
+
+    def test_undo_nativo_durante_selecao_descarta_todas_referencias_do_editor(self):
+        bpy.context.preferences.edit.use_global_undo=True
+        bpy.ops.ed.undo_push(message='Antes da selecao de ambientes')
+        area,regiao,_=self.preparar_faces()
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0);A.definir(bpy.context,self.obj,'Cozinha')
+            bpy.ops.ed.undo_push(message='Ambiente no editor');self.obj=None
+            bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+        self.assertIsNone(A._edicao_faces[0]);self.obj=bpy.data.objects['Casa']
+
+    def test_ctrl_nao_infere_uma_face_intermediaria_pelos_vertices_de_outras(self):
+        self.preparar_faces()
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table()
+        bm.faces[0].select_set(True);bm.faces[1].select_set(True)
+        bm.faces[1].select=False
+        # Vertices da face vizinha podem estar selecionados sem a face estar.
+        for v in bm.faces[1].verts:v.select=True
+        bmesh.update_edit_mesh(self.obj.data,loop_triangles=False,destructive=False)
+        with self.assertRaisesRegex(ValueError,'vertices soltos'):
+            addon.paredes_selecao.dos_vertices(bpy.context,self.obj,somente_faces=True)
+
+    def test_previa_da_regiao_conectada_preserva_abertura_real_sem_perder_metade_da_area(self):
+        # Regressao 396: faces conservadas pelo dissolve nao cortam a previa.
+        self.obj.data.clear_geometry()
+        vertices=[(x,0,z) for z in range(4) for x in range(4)]
+        faces=[(z*4+x,z*4+x+1,(z+1)*4+x+1,(z+1)*4+x) for z in range(3) for x in range(3) if (x,z)!=(1,1)]
+        self.obj.data.from_pydata(vertices,[],faces);self.preparar_faces()
+        i=A.acerto_selecao(self.obj,Vector((.5,-2,.5)),Vector((0,1,0)))
+        ps=A._edicao_faces[0]['cache'][1][1][i]
+        area=sum((Vector(ps[k+1])-Vector(ps[k])).cross(Vector(ps[k+2])-Vector(ps[k])).length/2 for k in range(0,len(ps),3))
+        self.assertAlmostEqual(area,8)
+        self.assertIsNone(A.acerto_selecao(self.obj,Vector((1.5,-2,1.5)),Vector((0,1,0))))
 
     def test_editar_ambientes_e_submenu_da_parede_com_volta_ao_mesmo_recorte(self):
         E=addon.paredes_edicao

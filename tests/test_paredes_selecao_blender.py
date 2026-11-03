@@ -251,7 +251,8 @@ class TestSelecaoParedes(unittest.TestCase):
         for largura in (190,320,564):
             itens=[];E.widgets(bpy.context,itens,12,900,min(540,largura-24))
             self.assertFalse([v for v in itens if v[0]+v[2]>largura-12+.01])
-            self.assertIn('Cancelar selecao',[v[4] for v in itens])
+            # 396: API de pontos legada permanece, os controles sairam da UI.
+            self.assertNotIn('Cancelar selecao',[v[4] for v in itens])
 
     def test_desfazer_adia_limpeza_de_objetos_e_timer_remove_orfaos(self):
         nome=self.iniciar().name

@@ -725,6 +725,21 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+396: duas entradas na Alvenaria definida. Editar parede prepara a selecao
+na malha nativa e abre a vista 2D ao clicar na regiao automatica; Ctrl+clique
+soma/retira faces individuais e Enter confirma essa selecao manual. Editar
+ambientes entra diretamente no Edit Mode, com lista de comodos, sem alinhar
+a camera. Na vista 2D, Editar ambientes tambem conserva o retorno ao recorte.
+Sem botoes Automatico/Por pontos, Confirmar area, Remover ultimo ponto ou
+Cancelar selecao. Hover sem Ctrl preve regiao plana conectada, com Ctrl
+preve uma face; clicar confirma, nao movimentar o mouse. A previa nao muda
+a selecao ja' feita. Menu/biblioteca e navegacao continuam nativos; Tab sai,
+Esc encerra. Instrucao de Ctrl/Enter fica no cabecalho nativo da viewport.
+Selecao usa faces BMesh e expansao plana nativa. BVHs nativas/previsoes
+preparadas em COPIA, sem consultar outras malhas ou varrer vertices no
+hover/clique; alteracoes de geometria invalidam para reconstruir no timer.
+Cor atribuida, materiais e modelagem nao sao alterados pelo hover.
+
 393: a entrada e' Definir Alvenaria no menu esquerdo, com uma malha comum
 selecionada. Somente objetos explicitamente definidos recebem o snap;
 o raio nativo ignora malhas nao definidas, inclusive na frente do alvo.
@@ -741,7 +756,7 @@ do apoio. Piso acompanha translacao/giro, modulo continua em pe.
 394: Definir Alvenaria permanece em linha inteira. Depois de definir,
 Editar parede e Remover Alvenaria ocupam duas colunas iguais na mesma
 linha. Automatico preve a regiao plana conectada; Por pontos delimita a
-area manualmente. Editar ambientes fica DENTRO de Editar parede e entra
+area manualmente (controles substituidos na 396). Editar ambientes fica DENTRO de Editar parede e entra
 no Edit Mode nativo da Alvenaria. Voltar a edicao da parede restaura o
 mesmo recorte; sair por Tab tambem conserva o caminho de volta.
 395: Sair/Voltar e Definir como ambiente ocupam duas colunas iguais,

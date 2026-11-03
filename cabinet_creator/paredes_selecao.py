@@ -53,7 +53,7 @@ def automatica(context,obj,ponto,normal,face):
     return Vector(regiao['plano']),Vector(regiao['normal']),regiao
 
 
-def dos_vertices(context,obj):
+def dos_vertices(context,obj,somente_faces=False):
     if context.mode!='EDIT_MESH' or obj is None or obj.type!='MESH':
         raise ValueError('Selecione vertices de uma parede em Edit Mode')
     editados=[o for o in context.objects_in_mode_unique_data if o.type=='MESH']
@@ -76,7 +76,8 @@ def dos_vertices(context,obj):
                 fronteira.append(outro)
     if visitados!=vertices:
         raise ValueError('Os vertices selecionados devem estar conectados entre si')
-    faces=[f for f in bm.faces if not f.hide and all(v in vertices for v in f.verts)]
+    faces=[f for f in bm.faces if not f.hide and (not somente_faces or f.select)
+           and all(v in vertices for v in f.verts)]
     if not faces or set(v for f in faces for v in f.verts)!=vertices:
         raise ValueError('A selecao deve delimitar faces, sem vertices soltos')
     rot=obj.matrix_world.to_3x3().inverted_safe().transposed()

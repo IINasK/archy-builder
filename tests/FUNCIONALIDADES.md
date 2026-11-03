@@ -1,5 +1,41 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Selecao unificada da Alvenaria (396): Editar parede conserva vista 2D;
+Editar ambientes abre diretamente a lista de comodos no Edit Mode, sem
+alinhar camera. Ambos abrem selecao nativa de faces; hover automatico
+mostra regiao plana conectada, Ctrl mostra uma face. Clique automatico
+escolhe a regiao; Ctrl+clique soma/retira faces individualmente. No caminho
+2D, automatico abre a vista e Enter confirma o manual. Nenhum controle
+Automatico/Por pontos/Confirmar area/Remover ultimo ponto/Cancelar selecao
+no menu. API antiga dos pontos preservada para compatibilidade, sem UI.
+Previa e selecao sao independentes; mover ao menu nao perde selecao manual.
+BVH e dissolve nativos em copia BMesh, preparados na entrada e no timer
+apos invalidacao; hover/clique nao refazem BVH. Selecao vinculada somente
+a Alvenaria, ignorando teto/objetos externos. Ctrl respeita faces reais,
+sem inferir face vizinha so' por vertices selecionados. Timer/handler/cache
+sem referencias RNA, limpos em Tab, Esc, cena, undo e unregister.
+Suite ambientes 24 -> 38: layout nas tres larguras, duas invocacoes,
+camera, planos conectados, Ctrl soma/retira, origem fixa/ocultacao, hover
+sem mutacao/reconstrucao, navegacao/menu, Enter e clique 2D, Tab/undo nativo,
+invalidacao apos mover vertices e troca de cena. Teste GUI de pontos foi
+atualizado ao novo gesto Ctrl/Enter; sintaxe verificada, janela nao rodada.
+Auditoria GPU isolada: dist/ambientes396-menu.png (tuplas reais nas tres
+larguras) e dist/ambientes396-previa.png (callback real, regiao de duas
+faces vs uma face com Ctrl; 64800/32400 pixels). Sem alterar cena em uso,
+abrir janela ou recarregar add-on. Dirigidas: 626 testes / 14 execucoes OK
+antes dos casos finais; 74 / 2 depois, Blender 4.2 e 5.2.
+Regressao adicional: dissolve nativo conserva varias faces para manter um
+furo. A previa agrupava so' uma delas e omitia parte da regiao. Teste
+reproduzido antes da correcao (dist/ambientes396-furo-antes.log); agora
+8 m2 da regiao aparecem, com abertura real de 1 m2 vazia. Agrupamento so'
+na preparacao do cache. Auditoria GPU dist/ambientes396-furo.png mostra
+54000 pixels no automatico e 6750 na face manual, sem cobrir o furo.
+Dirigidas finais: 166 testes / 4 execucoes OK.
+Harness final completo: 3260 testes / 70 execucoes, Blender 4.2 e 5.2,
+tudo OK (dist/ambientes396-final.log). Antes da regressao do furo, 3258
+tambem passaram (dist/ambientes396-completo.log). Pacote 396: 41 fontes
+identicos; espelhos/limites conferidos. Gestos ao vivo nao executados.
+
 Linha de acoes dos ambientes (395): Sair da edicao de ambientes (ou Voltar
 a edicao da parede) e Definir como Cozinha/etc lado a lado, laranja padrao
 do menu. Colunas iguais, 6 px de intervalo e 28 px de altura; lista de

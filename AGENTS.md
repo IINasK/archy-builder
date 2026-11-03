@@ -43,7 +43,7 @@ cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 395).
+Cada entrega incrementa bl_info["version"] (atual 396).
 
 ## Preferencias globais
 

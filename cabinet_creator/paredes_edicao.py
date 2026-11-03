@@ -610,31 +610,13 @@ def widgets(context, itens, x, topo, w):
             return topo-58
         if context.mode=='EDIT_MESH':
             return _ambientes.widgets(context,itens,obj,x,topo,w)
-        escolha=_escolha_area[0]
-        if escolha:
-            metodo=escolha['metodo']
-            topo=_gaveta._linha_escolha_gaveta(itens,x,topo-25,w,'','metodo',METODOS_AREA,metodo,alvo=ALVO_AREA)+23
-            mensagem=('Aponte a parede e clique para confirmar' if metodo=='AUTO' else
-                      '%d pontas | Enter confirma | Backspace remove' % len(escolha['pontos']))
-            itens.append((x,topo-22,w,22,mensagem,None))
-            topo-=32
-            for rotulo,acao in (('Confirmar area','CONFIRMAR'),('Remover ultimo ponto','VOLTAR'),('Cancelar selecao','CANCELAR')):
-                botao(rotulo,'object.cabinet_area_parede_'+acao.lower())
-            if escolha.get('erro'):
-                itens.append((x,topo-22,w,22,escolha['erro'],None))
-            return topo-58
-        if context.mode=='EDIT_MESH':
-            itens.append((x,topo-22,w,22,'Usar vertices selecionados e conectados',None))
-            topo-=30
-        elif context.scene.cabinet_aba=='MODULOS':
-            topo=_gaveta._linha_escolha_gaveta(itens,x,topo-25,w,'','metodo',METODOS_AREA,
-                context.scene.get('parede_metodo_selecao','AUTO'),alvo=ALVO_AREA)+23
         topo-=30
         metade=(w-6)/2
         itens.append((x,topo,metade,30,'Editar parede',('operador',
             'object.cabinet_editar_ambientes' if _ambientes._retorno[0] else 'object.cabinet_editar_parede')))
         itens.append((x+metade+6,topo,metade,30,'Remover Alvenaria',('operador','object.cabinet_definir_alvenaria')))
         topo-=6
+        botao('Editar ambientes','object.cabinet_editar_ambientes')
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26
@@ -1669,9 +1651,9 @@ def _desenhar_escolha():
             gpu.state.point_size_set(1);gpu.state.line_width_set(1);gpu.state.blend_set('NONE')
 
 
-def entrar_por_vertices(context,obj):
+def entrar_por_vertices(context,obj,somente_faces=False):
     try:
-        face=_paredes_selecao.dos_vertices(context,obj)
+        face=_paredes_selecao.dos_vertices(context,obj,somente_faces=somente_faces)
     except ValueError as erro:
         return str(erro)
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -1693,14 +1675,18 @@ class OBJECT_OT_editar_parede(Operator):
             _aviso[0]=erro or ''
             if erro:self.report({'WARNING'},erro)
             return {'CANCELLED'} if erro else {'FINISHED'}
-        erro=preparar_escolha(context,obj)
-        if erro:
-            _aviso[0]=erro;self.report({'WARNING'},erro)
+        try:self.editor_faces=_ambientes.preparar_selecao(context,obj,parede_2d=True)
+        except ValueError as erro:
+            _aviso[0]=str(erro);self.report({'WARNING'},str(erro))
             return {'CANCELLED'}
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     def modal(self,context,event):
+        if getattr(self,'editor_faces',None):
+            try:return _ambientes.evento_selecao(context,event,self.editor_faces)
+            except Exception:
+                _ambientes.encerrar_selecao();raise
         try:
             e=_escolha_area[0]
             janela,area,regiao=_janela_da_escolha()
@@ -1738,6 +1724,7 @@ class OBJECT_OT_editar_parede(Operator):
             raise
 
     def cancel(self,context):
+        if getattr(self,'editor_faces',None):_ambientes.encerrar_selecao()
         encerrar_escolha()
 
     def execute(self, context):
