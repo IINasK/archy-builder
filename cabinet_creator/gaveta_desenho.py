@@ -563,6 +563,8 @@ def _desenhar_gaveta(tela=False):
                         and acao[1] in _gaveta.OPERADORES_DESTAQUE)
         if acao and acao[0] in _gaveta.BOTOES_CRIAR and not apagado:
             cor = _gaveta.COR_CRIAR_PORTAS_ATIVO if acao[2] else _gaveta.COR_CRIAR_PORTAS
+        elif acao and acao[:2]==('operador','object.cabinet_definir_alvenaria') and len(acao)>3 and acao[3]=='desagregar' and not apagado:
+            cor = _cor_alerta_gaveta()
         elif destaque and not apagado:
             cor = (_gaveta.COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO
                    else _gaveta.COR_CRIAR_PORTAS)

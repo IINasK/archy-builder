@@ -3086,7 +3086,7 @@ def test_faces_da_parede_usam_ctrl_e_menu_permanece_disponivel(janela, m):
         assert len([f for f in bmesh.from_edit_mesh(parede.data).faces if f.select])==2
         itens=[]
         with contexto(janela,area,regiao):E.widgets(bpy.context,itens,12,900,400)
-        assert 'Definir como Cozinha' in [v[4] for v in itens]
+        assert 'Cancelar selecao 2D' in [v[4] for v in itens]
         assert not any(v[4] in ('Automatico','Por pontos','Confirmar area') for v in itens)
         m.tecla('RET')
         yield

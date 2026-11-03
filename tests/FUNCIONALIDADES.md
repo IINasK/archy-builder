@@ -1,5 +1,37 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Categorias manuais e dois modos da Alvenaria (398): Editar em 2D/Editar
+categorias lado a lado, Desagregar Alvenaria vermelho abaixo em linha
+inteira; Definir Alvenaria permanece laranja. Nome do comodo aplica nas
+faces selecionadas ao SOLTAR, com operador UNDO e nome explicito; nao ha'
+Definir como. Quadrado so' edita cor; saida/retorno ocupa toda a linha.
+Selecao 2D nao mistura lista de categorias. Tab retorna pelo modo 2D;
+reabrir categorias nao confunde esse retorno com uma nova edicao.
+Faces existentes mantem categoria ao mover vertices/remover vizinhas.
+Novas faces nao herdam categoria por duplicacao (inclusive coincidente)
+ou subdivisao; face reaproveitada pelo Blender continua sendo existente.
+Captura transitoria de wrappers BMesh nativos e identidade Python, nunca
+IDs RNA ou inferencia por coordenadas. Liberada ao sair/undo/save/abrir/
+unregister. CustomData FACE novo realoca wrappers: a captura e' renovada
+apos criar a camada, antes da pintura. Caches sem mudanca nao releem malha.
+Regressao de heranca: teste observa a copia nativa com categoria 1 antes
+do update e verifica 0 apos o observador; clique manual muda para Quarto.
+Suite ambientes 38 -> 47: layouts 190/320/564, nome no soltar com operador
+real, cor vermelha apenas na desagregacao (ramo real do desenho), faces
+novas/vizinhas/movidas, liberacao, subdivisao/undo/redo e dois contextos.
+Dirigidas 4.2/5.2: 564 testes / 12 execucoes OK (ambientes398-alvos.log).
+Regressao adicional: apoio/arraste passa contexto parcial sem mode; sensor
+de faces consulta contexto nativo, preservando a API antiga do cache.
+Dirigidas finais: 790 testes / 16 execucoes OK (ambientes398-alvos2.log).
+Auditorias GPU isoladas: dist/ambientes398-menu.png, com tuplas e ramo de
+cor reais; dist/ambientes398-faces.png, callback real confirma cores das
+faces existentes intactas e nova face cinza ate' a acao manual. Dados da
+cena temporaria passam de [1,2,0] para [1,2,2]. Sem abrir janela/recarregar
+o add-on em uso ou alterar a cena real. Gestos ao vivo nao executados.
+Harness final 4.2/5.2: 3278 testes / 70 execucoes OK
+(dist/ambientes398-final.log). Pacote 398: 41 fontes identicos;
+espelhos/limites conferidos.
+
 Entrada unica da Alvenaria (397): retirado Editar ambientes do menu
 inicial. Editar parede e Remover Alvenaria continuam lado a lado; contexto
 interno de ambientes preservado. Cenarios existentes atualizados ao pedido:

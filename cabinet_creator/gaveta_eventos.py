@@ -600,6 +600,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         self._props_no_soltar={'nome':acao[2]}
                         context.window_manager.modal_handler_add(self)
                         return {'RUNNING_MODAL'}
+                    if acao[1]=='ambiente_nome':
+                        self._no_soltar='object.cabinet_definir_ambiente'
+                        self._props_no_soltar={'nome':acao[2]}
+                        context.window_manager.modal_handler_add(self)
+                        return {'RUNNING_MODAL'}
                 elif len(acao)>5 and acao[5]==_paredes_edicao.ALVO_AREA:
                     _paredes_edicao.definir_metodo(context,acao[2])
                 elif len(acao)>5 and acao[5] == _fundos.ALVO_MENU:

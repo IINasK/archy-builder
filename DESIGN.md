@@ -725,6 +725,23 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+398: Editar em 2D e Editar categorias em duas colunas iguais, 30 px de
+altura e intervalo de 6 px. Abaixo, Desagregar Alvenaria em linha inteira,
+vermelho de alerta do tema; Definir Alvenaria permanece laranja e inteiro.
+Selecao 2D nao mostra lista de categorias. Editar categorias entra no
+Edit Mode sem alinhar a camera; o nome de cada comodo aplica a categoria
+nas faces selecionadas, no SOLTAR, pelo operador UNDO existente. Nao ha'
+botao Definir como. Quadrado de cor abre somente a paleta. Sair/Voltar
+ocupa linha inteira. Tab conserva o retorno pelo botao Editar em 2D;
+reabrir Editar categorias inicia categorias, nao retoma a vista 2D.
+Faces nativas ja' existentes conservam a categoria ao mover vertices ou
+remover vizinhas. Faces realmente criadas comecam sem categoria, inclusive
+copias no mesmo lugar e faces novas de subdivisao. A classificacao das
+existentes nao e' recalculada; so' o clique no nome aplica uma categoria.
+Captura transitoria de identidades BMesh no Edit Mode, sem comparar
+coordenadas/recriar vertices. Liberar ao sair, antes de undo/abrir e no
+unregister; caches visuais continuam acompanhando a malha nativa.
+
 397: menu inicial tem somente Editar parede ao lado de Remover Alvenaria.
 A entrada direta Editar ambientes foi retirada para evitar duplicacao;
 os controles de ambientes seguem no contexto de edicao existente.

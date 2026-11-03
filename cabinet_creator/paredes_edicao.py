@@ -612,9 +612,11 @@ def widgets(context, itens, x, topo, w):
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         topo-=30
         metade=(w-6)/2
-        itens.append((x,topo,metade,30,'Editar parede',('operador',
-            'object.cabinet_editar_ambientes' if _ambientes._retorno[0] else 'object.cabinet_editar_parede')))
-        itens.append((x+metade+6,topo,metade,30,'Remover Alvenaria',('operador','object.cabinet_definir_alvenaria')))
+        itens.append((x,topo,metade,30,'Editar em 2D',('operador','object.cabinet_editar_parede')))
+        itens.append((x+metade+6,topo,metade,30,'Editar categorias',('operador','object.cabinet_editar_ambientes')))
+        topo-=6
+        topo-=30
+        itens.append((x,topo,w,30,'Desagregar Alvenaria',('operador','object.cabinet_definir_alvenaria',False,'desagregar')))
         topo-=6
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
@@ -622,7 +624,7 @@ def widgets(context, itens, x, topo, w):
         return topo - 58
     s = _sessao[0]
     botao('Sair da edicao da parede', 'object.cabinet_sair_parede', 30)
-    botao('Editar ambientes','object.cabinet_editar_ambientes')
+    botao('Editar categorias','object.cabinet_editar_ambientes')
     topo = _paredes_composicao.widgets(context, itens, x, topo - 12, w)
     topo = _paredes_composicao.widgets_guias(context, itens, x, topo, w)
     itens.append((x, topo - 37, w, 37, 'Ajuste maximo: %s' % _opcoes._texto_medida(s['ajuste_maximo']),
@@ -1669,6 +1671,10 @@ class OBJECT_OT_editar_parede(Operator):
         if not _paredes.alvenaria_definida(obj):
             self.report({'WARNING'},'Selecione a malha e use Definir Alvenaria')
             return {'CANCELLED'}
+        if _ambientes._retorno[0] and _ambientes._retorno[0]['objeto']==obj.name:
+            erro=_ambientes.retomar_parede(context)
+            if erro:self.report({'WARNING'},erro)
+            return {'CANCELLED'} if erro else {'FINISHED'}
         if context.mode=='EDIT_MESH':
             erro=entrar_por_vertices(context,obj)
             _aviso[0]=erro or ''
@@ -1728,7 +1734,9 @@ class OBJECT_OT_editar_parede(Operator):
 
     def execute(self, context):
         obj = bpy.data.objects.get(self.objeto) if self.objeto else context.object
-        erro = entrar_por_vertices(context,obj) if context.mode=='EDIT_MESH' else iniciar(context, obj)
+        erro = (_ambientes.retomar_parede(context) if _ambientes._retorno[0] and obj is not None
+                and _ambientes._retorno[0]['objeto']==obj.name else
+                entrar_por_vertices(context,obj) if context.mode=='EDIT_MESH' else iniciar(context, obj))
         _aviso[0] = erro or ''
         if erro:
             self.report({'WARNING'}, erro)

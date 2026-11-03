@@ -167,36 +167,33 @@ class TestAmbientes(unittest.TestCase):
         self.assertEqual(len(quadrados),len(nomes))
         for q,n in zip(quadrados,nomes):self.assertLess(q[0]+q[2],n[0])
 
-    def test_editar_e_remover_lado_a_lado_definir_ocupa_linha_inteira(self):
+    def test_2d_e_categorias_lado_a_lado_desagregar_abaixo_definir_linha_inteira(self):
         E=addon.paredes_edicao
         for largura in (166,296,540):
             itens=[];E.widgets(bpy.context,itens,12,900,largura)
-            editar=next(v for v in itens if v[5]==('operador','object.cabinet_editar_parede'))
-            remover=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
-            self.assertEqual(editar[1],remover[1]);self.assertEqual(editar[2],remover[2])
-            self.assertEqual(editar[0]+editar[2]+6,remover[0])
-            self.assertAlmostEqual(remover[0]+remover[2],12+largura)
-            self.assertNotIn('Editar ambientes',[v[4] for v in itens])
+            editar=next(v for v in itens if v[4]=='Editar em 2D')
+            categorias=next(v for v in itens if v[4]=='Editar categorias')
+            remover=next(v for v in itens if v[4]=='Desagregar Alvenaria')
+            self.assertEqual(editar[1],categorias[1]);self.assertEqual(editar[2],categorias[2])
+            self.assertEqual(editar[0]+editar[2]+6,categorias[0])
+            self.assertEqual(remover[2],largura);self.assertLess(remover[1]+remover[3],editar[1])
+            self.assertEqual(remover[5][3],'desagregar')
             del self.obj[P.CHAVE_ALVENARIA]
             itens=[];E.widgets(bpy.context,itens,12,900,largura)
             definir=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
             self.assertEqual(definir[2],largura)
             self.obj[P.CHAVE_ALVENARIA]=True
 
-    def test_sair_e_definir_ambiente_lado_a_lado_laranja(self):
-        # Regressao 395: sair/voltar e definir compartilham a linha laranja.
+    def test_sair_ocupa_linha_inteira_e_definir_como_nao_existe(self):
         self.selecionar([0])
         for retorno in (None,{'cena':bpy.context.scene.name}):
             with patch.object(A,'_retorno',[retorno]):
                 for largura in (166,296,540):
                     itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
-                    sair,definir=[v for v in itens if v[5] and v[5][0]=='operador'][:2]
-                    self.assertEqual(sair[1],definir[1]);self.assertEqual(sair[2],definir[2])
-                    self.assertEqual(sair[3],definir[3]);self.assertEqual(sair[0]+sair[2]+6,definir[0])
-                    self.assertAlmostEqual(definir[0]+definir[2],12+largura)
-                    self.assertEqual(definir[4],'Definir como Cozinha')
-                    self.assertEqual(sair[5][1],'object.cabinet_editar_ambientes' if retorno else 'object.editmode_toggle')
-                    for item in (sair,definir):self.assertIn(item[5][1],addon.gaveta.OPERADORES_DESTAQUE)
+                    sair=[v for v in itens if v[5] and v[5][0]=='operador']
+                    self.assertEqual(len(sair),1);self.assertEqual(sair[0][2],largura)
+                    self.assertFalse(any(v[4].startswith('Definir como') for v in itens))
+                    self.assertIn('Categorias',[v[4] for v in itens])
 
     def preparar_faces(self,parede_2d=False):
         area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
@@ -212,8 +209,8 @@ class TestAmbientes(unittest.TestCase):
         for largura in (166,296,540):
             itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
             nomes=[v[4] for v in itens]
-            self.assertEqual(nomes.count('Editar parede'),1);self.assertNotIn('Editar ambientes',nomes)
-            self.assertIn('Remover Alvenaria',nomes)
+            self.assertEqual(nomes.count('Editar em 2D'),1);self.assertIn('Editar categorias',nomes)
+            self.assertIn('Desagregar Alvenaria',nomes)
             for nome in ('Automatico','Por pontos','Confirmar area','Remover ultimo ponto','Cancelar selecao'):
                 self.assertNotIn(nome,nomes)
 
@@ -381,8 +378,8 @@ class TestAmbientes(unittest.TestCase):
             self.assertIs(bpy.context.edit_object,self.obj)
             itens=[];E.widgets(bpy.context,itens,12,900,296)
             self.assertIn('Voltar a edicao da parede',[v[4] for v in itens])
-            self.assertIn('Definir como Cozinha',[v[4] for v in itens])
-            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+            self.assertIn('Cozinha',[v[4] for v in itens])
+            self.assertEqual(bpy.ops.object.cabinet_editar_parede(),{'FINISHED'})
             self.assertTrue(E.ativa());self.assertEqual(bpy.context.mode,'OBJECT')
             self.assertEqual(E._sessao[0]['regiao']['retangulo'],limites)
             self.assertTrue(E._sessao[0]['recorte_explicito']);self.assertIsNone(A._retorno[0])
@@ -397,9 +394,9 @@ class TestAmbientes(unittest.TestCase):
             bpy.ops.object.cabinet_editar_ambientes()
             bpy.ops.object.mode_set(mode='OBJECT')
             itens=[];E.widgets(bpy.context,itens,12,900,296)
-            editar=next(v for v in itens if v[4]=='Editar parede')
-            self.assertEqual(editar[5],('operador','object.cabinet_editar_ambientes'))
-            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+            editar=next(v for v in itens if v[4]=='Editar em 2D')
+            self.assertEqual(editar[5],('operador','object.cabinet_editar_parede'))
+            self.assertEqual(bpy.ops.object.cabinet_editar_parede(),{'FINISHED'})
             self.assertTrue(E.ativa())
 
     def test_falha_ao_entrar_em_edit_mode_restaura_a_parede(self):
@@ -442,6 +439,114 @@ class TestAmbientes(unittest.TestCase):
             e.value='RELEASE'
             self.assertEqual(classe.modal(op,ctx,e),{'FINISHED'})
             executar.assert_called_once_with(ctx,'object.cabinet_cor_ambiente',nome='Cozinha')
+
+    def test_clique_no_nome_pinta_as_faces_so_ao_soltar_com_undo_nativo(self):
+        self.marcar([0,1],'Cozinha');self.selecionar([0])
+        acao=('escolha','ambiente_nome','Quarto',False,True,A.ALVO)
+        ctx=SimpleNamespace(screen={},scene=bpy.context.scene,
+            area=SimpleNamespace(tag_redraw=lambda:None),
+            window_manager=SimpleNamespace(modal_handler_add=lambda _:None))
+        e=SimpleNamespace(type='LEFTMOUSE',value='PRESS',mouse_region_x=12,mouse_region_y=12)
+        op=SimpleNamespace();classe=addon.gaveta_eventos.OBJECT_OT_interagir_gaveta
+        with patch.object(addon.gaveta,'_widgets_interativos',return_value=[(0,0,140,24,'Quarto',acao)]), \
+             patch.object(addon.gaveta,'_fechar_suspenso'), \
+             patch.object(addon.editor,'executar',side_effect=lambda _c,idname,**p:getattr(bpy.ops.object,idname.split('.')[1])(**p)) as executar:
+            self.assertEqual(classe.invoke(op,ctx,e),{'RUNNING_MODAL'});executar.assert_not_called()
+            bm=bmesh.from_edit_mesh(self.obj.data);camada=bm.faces.layers.int[A.ATR_FACE]
+            self.assertEqual([f[camada] for f in bm.faces][:2],[1,1])
+            e.value='RELEASE';self.assertEqual(classe.modal(op,ctx,e),{'FINISHED'})
+            executar.assert_called_once_with(ctx,'object.cabinet_definir_ambiente',nome='Quarto')
+            self.assertEqual([f[camada] for f in bm.faces][:2],[2,1])
+        self.assertIn('UNDO',A.OBJECT_OT_definir_ambiente.bl_options)
+
+    def test_subdividir_nao_herda_categoria_e_nao_altera_face_vizinha_existente(self):
+        self.marcar([0,1]);self.selecionar([0]);bpy.context.view_layer.update()
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table();vizinha=bm.faces[1]
+        originais={id(f):f for f in bm.faces}
+        self.assertTrue(A._faces_nativas[0])
+        bpy.ops.mesh.subdivide(number_cuts=1);bpy.context.view_layer.update()
+        camada=bm.faces.layers.int[A.ATR_FACE]
+        self.assertEqual(vizinha[camada],1)
+        # O subdivide pode reaproveitar uma face; so' as criadas sao novas.
+        novas=[f for f in bm.faces if originais.get(id(f)) is not f]
+        self.assertGreater(len(novas),1);self.assertTrue(all(f[camada]==0 for f in novas))
+
+    def test_duplicar_face_no_mesmo_lugar_nao_copia_categoria(self):
+        self.marcar([0]);self.selecionar([0]);bpy.context.view_layer.update()
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table();original=bm.faces[0]
+        copia=bmesh.ops.duplicate(bm,geom=[original])
+        novas=[f for f in copia['geom'] if isinstance(f,bmesh.types.BMFace)]
+        # Regressao 398: a copia nativa herda 1 antes da guarda do add-on.
+        camada=bm.faces.layers.int[A.ATR_FACE];self.assertEqual(novas[0][camada],1)
+        bmesh.update_edit_mesh(self.obj.data);bpy.context.view_layer.update()
+        camada=bm.faces.layers.int[A.ATR_FACE]
+        self.assertEqual(original[camada],1);self.assertTrue(novas);self.assertEqual(novas[0][camada],0)
+        for f in bm.faces:f.select_set(f in novas)
+        A.definir(bpy.context,self.obj,'Quarto');self.assertEqual(novas[0][camada],2)
+
+    def test_mover_vertices_e_remover_face_mantem_categoria_das_faces_restantes(self):
+        self.marcar([0,1]);self.selecionar([0]);bpy.context.view_layer.update()
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table();a,b=bm.faces[0],bm.faces[1]
+        camada=bm.faces.layers.int[A.ATR_FACE]
+        for v in a.verts:v.co.z+=.3
+        bmesh.update_edit_mesh(self.obj.data);bpy.context.view_layer.update()
+        self.assertEqual(a[camada],1);self.assertEqual(b[camada],1)
+        bmesh.ops.delete(bm,geom=[a],context='FACES');bmesh.update_edit_mesh(self.obj.data)
+        bpy.context.view_layer.update();self.assertEqual(b[camada],1)
+
+    def test_memoria_das_faces_nativas_sai_ao_sair_do_edit_e_antes_do_undo(self):
+        self.marcar([0]);self.selecionar([0]);bpy.context.view_layer.update()
+        self.assertTrue(A._faces_nativas[0]);bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.context.view_layer.update();A.atualizar();self.assertFalse(A._faces_nativas[0])
+        self.selecionar([0]);bpy.context.view_layer.update();A.esquecer()
+        self.assertFalse(A._faces_nativas[0])
+
+    def test_undo_redo_da_subdivisao_mantem_novas_faces_sem_categoria(self):
+        bpy.context.preferences.edit.use_global_undo=True
+        self.marcar([0,1]);self.selecionar([0]);bpy.context.view_layer.update()
+        bpy.ops.ed.undo_push(message='Antes de subdividir Alvenaria')
+        bpy.ops.mesh.subdivide(number_cuts=1);bpy.context.view_layer.update()
+        bm=bmesh.from_edit_mesh(self.obj.data);camada=bm.faces.layers.int[A.ATR_FACE]
+        valores=sorted(f[camada] for f in bm.faces)
+        bpy.ops.ed.undo_push(message='Subdivisao da Alvenaria');bm=camada=None;self.obj=None
+        bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+        self.assertFalse(A._faces_nativas[0])
+        bpy.ops.ed.redo();addon.eventos._fim_do_desfazer();self.obj=bpy.data.objects['Casa']
+        bm=bmesh.from_edit_mesh(self.obj.data);camada=bm.faces.layers.int[A.ATR_FACE]
+        self.assertEqual(sorted(f[camada] for f in bm.faces),valores)
+
+    def test_2d_nao_mostra_categorias_e_reentrada_categorias_nao_abre_2d(self):
+        self.preparar_faces(True);itens=[]
+        addon.paredes_edicao.widgets(bpy.context,itens,12,900,400)
+        self.assertNotIn('Categorias',[v[4] for v in itens])
+        A.encerrar_selecao();bpy.ops.object.mode_set(mode='OBJECT')
+        A._retorno[0]=dict(cena=bpy.context.scene.name,objeto=self.obj.name)
+        self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+        self.assertEqual(bpy.context.mode,'EDIT_MESH');self.assertFalse(addon.paredes_edicao.ativa())
+        self.assertIsNone(A._retorno[0])
+
+    def test_so_desagregar_usa_vermelho_definir_e_editores_usam_laranja(self):
+        import ast,inspect
+        D=addon.gaveta_desenho;G=addon.gaveta
+        fonte=inspect.getsource(D._desenhar_gaveta);arvore=ast.parse(fonte)
+        bloco=next(n for n in ast.walk(arvore) if isinstance(n,ast.If)
+                   and ast.unparse(n.test).startswith('acao and acao[0] in _gaveta.BOTOES_CRIAR and'))
+        codigo=compile(ast.Module(body=[bloco],type_ignores=[]),'cor_real_do_menu','exec')
+        itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,400)
+        acoes=[v[5] for v in itens if v[5] and v[5][0]=='operador']
+        acoes.append(('operador','object.cabinet_definir_alvenaria'))
+        vermelho=D._cor_alerta_gaveta()
+        for acao in acoes:
+            ns=dict(acao=acao,apagado=False,destaque=True,aceitar=False,cor=None,
+                    _gaveta=G,_cor_alerta_gaveta=lambda:vermelho)
+            exec(codigo,ns)
+            self.assertEqual(ns['cor'],vermelho if len(acao)>3 else G.COR_CRIAR_PORTAS)
+
+    def test_cache_compativel_com_contexto_parcial_do_arraste_de_modulo(self):
+        # Regressao 398: apoio/arraste fornece scene, sem campo mode.
+        A._sujo[0]=False
+        A.atualizar(SimpleNamespace(scene=bpy.context.scene))
+        self.assertFalse(A._sujo[0])
 
     def test_rotulo_so_cabe_se_retangulo_inteiro_couber_inclusive_concavidade(self):
         quad=[(-1,-1),(1,-1),(1,1),(-1,-1),(1,1),(-1,1)]
