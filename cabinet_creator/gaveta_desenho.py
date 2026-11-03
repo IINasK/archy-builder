@@ -572,6 +572,9 @@ def _desenhar_gaveta(tela=False):
             _gaveta._botao_gaveta(x, y, w, h, ativo=ativo,
                           secao=acao is None or apagado, cor=cor)
         campo_contador = _eh_campo_contador(acao)
+        if acao and acao[:2]==('escolha','ambiente_cor'):
+            _gaveta._retangulo_arredondado_gaveta(x+3,y+3,w-6,h-6,2,(*acao[6],1))
+            continue
         if acao and (acao[0] == 'medida' or campo_contador):
             edicao = _gaveta._edicao_gaveta[0]
             editando = (edicao is not None and edicao['area'] == context.area.as_pointer()

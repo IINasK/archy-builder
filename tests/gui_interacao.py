@@ -2388,6 +2388,7 @@ def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
     parede = bpy.data.objects.new('Parede', malha)
     bpy.context.scene.collection.objects.link(parede)
     parede.location = (0.0, 1.075, 1.35)          # frente em y = 1 m
+    parede[addon.paredes.CHAVE_ALVENARIA]=True
     bpy.context.view_layer.update()
     yield
     _area, regiao, rv3d = viewport(janela)
@@ -3067,6 +3068,7 @@ def test_pontos_da_parede_usam_snap_nativo_e_menu_permanece_disponivel(janela, m
     bm.to_mesh(dados); bm.free()
     parede = bpy.data.objects.new(dados.name, dados)
     bpy.context.scene.collection.objects.link(parede)
+    parede[addon.paredes.CHAVE_ALVENARIA]=True
     teto = parede.copy(); teto.data = dados.copy()
     bpy.context.scene.collection.objects.link(teto)
     teto.location.y = -2

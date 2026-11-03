@@ -43,7 +43,7 @@ cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 392).
+Cada entrega incrementa bl_info["version"] (atual 393).
 
 ## Preferencias globais
 
@@ -63,6 +63,7 @@ Cada entrega incrementa bl_info["version"] (atual 392).
   `eh_moldura_porta`, `eh_fundo_modulo`, `fundo_recuo_mm`, `fundo_margens_mm`, `fundo_recuo_base_mm`, `eh_travessa_modulo`,
   `travessa_lado`, `cabinet_blocagem_uid`, `parede_*`, `cabinet_parede_uid`, `cabinet_canto`, `cabinet_forma_angulo`, `cabinet_material`, `eh_peca_curva`,
   `eh_grupo_gavetas`, `eh_gaveta`, `gaveta_*`, `gavetas_*`, `eh_grupo_prateleiras`, `eh_prateleira`,
+  `cabinet_alvenaria_definida`, `cabinet_ambiente`, `cabinet_ambientes`, `cabinet_ambiente_uid`, `cabinet_ambiente_nome`,
   `prateleira_*`, `prateleiras_*`, `forma_edicao`, `chapa_edicao`.
 3. Marcadores sao ID props (`MARCA_CHAPA in obj`); props de `bpy.props`
    sao RNA e NAO aparecem em `"x" in obj`. Nao troque um pelo outro.

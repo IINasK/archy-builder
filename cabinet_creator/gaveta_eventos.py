@@ -33,6 +33,7 @@ _editor = None
 _areas_criacao = None
 _paredes_composicao = None
 _paredes = None
+_ambientes = None
 
 def _gaveta_sob_evento(context, event):
     """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
@@ -592,6 +593,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
                          if len(acao) > 5 and acao[5] else None)
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif len(acao)>5 and acao[5]==_ambientes.ALVO:
+                    context.scene[_ambientes.CHAVE_NOME]=acao[2]
+                    if acao[1]=='ambiente_cor':
+                        self._no_soltar='object.cabinet_cor_ambiente'
+                        self._props_no_soltar={'nome':acao[2]}
+                        context.window_manager.modal_handler_add(self)
+                        return {'RUNNING_MODAL'}
                 elif len(acao)>5 and acao[5]==_paredes_edicao.ALVO_AREA:
                     _paredes_edicao.definir_metodo(context,acao[2])
                 elif len(acao)>5 and acao[5] == _fundos.ALVO_MENU:

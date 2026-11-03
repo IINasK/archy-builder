@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (392, 0, 0),
+    "version": (393, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -68,13 +68,14 @@ from . import painel_legado as _painel_legado
 from . import editor as _editor
 from . import areas_criacao as _areas_criacao
 from . import visibilidade as _visibilidade
+from . import ambientes as _ambientes
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
             _puxadores, _arame, _gaveta, _orcamento, _hud, _solda, _perguntas,
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
-            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao, _visibilidade)
+            _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao, _visibilidade, _ambientes)
 
 
 def _ligar_modulos():
@@ -210,6 +211,9 @@ CLASSES = (
     # guias da parede: o numero e' gizmo para ganhar da selecao (keymap)
     _paredes.VIEW3D_GT_guia_parede,
     _paredes.VIEW3D_GGT_guias_parede,
+    _paredes.OBJECT_OT_definir_alvenaria,
+    _ambientes.OBJECT_OT_definir_ambiente,
+    _ambientes.OBJECT_OT_cor_ambiente,
     _paredes.OBJECT_OT_arrastar_na_parede,
     _paredes.OBJECT_OT_guia_parede,
     _paredes.OBJECT_OT_desassociar_parede,
@@ -381,6 +385,8 @@ def register():
         _hud._desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW')
     _hud._handler_hud_texto[0] = bpy.types.SpaceView3D.draw_handler_add(
         _hud._desenhar_hud_texto, (), 'WINDOW', 'POST_PIXEL')
+    _ambientes._handler[0]=bpy.types.SpaceView3D.draw_handler_add(
+        _ambientes.desenhar,(), 'WINDOW','POST_VIEW')
     bpy.app.timers.register(_gaveta._reconectar_gavetas, first_interval=0.1)
     _selecao.registrar_keymaps()
     _editor.registrar()
@@ -547,6 +553,10 @@ def _registrar_bibliotecas_adiado():
 
 
 def unregister():
+    if _ambientes._handler[0] is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_ambientes._handler[0],'WINDOW')
+        _ambientes._handler[0]=None
+    _ambientes.esquecer()
     _gaveta_desenho._apresentacao_medida.cache_clear()
     _visibilidade.suspender()
     _areas_criacao.esquecer()

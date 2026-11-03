@@ -724,7 +724,36 @@ nativos; somente o material recebe alvos filtrados. A selecao completa
 permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
-**Paredes (como no Promob, pedido do usuario).** Botao DIREITO segurado
+**Alvenaria e paredes (como no Promob, pedido do usuario).**
+393: a entrada e' Definir Alvenaria no menu esquerdo, com uma malha comum
+selecionada. Somente objetos explicitamente definidos recebem o snap;
+o raio nativo ignora malhas nao definidas, inclusive na frente do alvo.
+Todas as faces do bloco participam: vertical = PAREDE; horizontal para
+cima = PISO; para baixo = TETO. Armario usa costas na parede, base no
+piso, sempre em pe; teto fica como referencia de acabamentos/iluminacao.
+Associacao nao limita dimensoes nem recusa por falta de vao/sobreposicao;
+nao redimensiona o modelo para caber. Previa da face em vermelho; sem
+piscada por tamanho. O sinal de tres pulsos fica reservado para avisos
+futuros de aberturas, sem implementar portas/janelas nesta entrega.
+G confirmado conserva folga normal da parede ou elevacao do piso, com
+cota Afast. quando >0; editar zero devolve ao apoio. R conserva orientacao
+do apoio. Piso acompanha translacao/giro, modulo continua em pe.
+Editar ambientes entra no Edit Mode nativo da Alvenaria. Selecionar faces,
+escolher preset na lista e Definir como Cozinha/Quarto/etc grava atributo
+INT FACE, sem trocar materiais/topologia. Lista: quadrado de cor 24 px a
+esquerda, nome a direita; clicar no quadrado abre paleta nativa no SOLTAR.
+Cor por UID do ambiente, inclusive entre paredes separadas. Cores e nomes
+so' enquanto define locais (Edit Mode), nunca na apresentacao normal ou
+render. Nome em cada regiao coplanar: retangulo inteiro deve caber na face,
+inclusive concavidades; sem espaco, omitir. Cache dissolve COPIA BMesh,
+nunca a malha original; desenho so' le triangulos/numeros preparados.
+Associar a face da cozinha leva a Collection do modulo a' pasta Cozinha
+existente do Orcamento. G entre faces redefine pelo raycast nativo. UID
+conserva vinculo apos renomear pasta; salvar/undo/redo conservam metadados.
+
+Contrato legado da vista/distribuicao 2D abaixo; na Alvenaria definida,
+a associacao livre acima prevalece sobre o encaixe limitado da face.
+Botao DIREITO segurado
 num modulo o arrasta; solto numa superficie VERTICAL que nao seja movel
 do add-on, as COSTAS (+Y do modulo) encostam nela e ele fica ASSOCIADO
 A' FACE, nao ao objeto (pedido do usuario: a sala inteira e' um objeto

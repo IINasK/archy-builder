@@ -1,6 +1,6 @@
 # Setor montagem e associacoes
 Consulta explicita para `cabinet_creator/solda.py`, `paredes.py`,
-`orcamento.py` e a filiacao em `modulos/`. Este guia nao e' herdado
+`ambientes.py`, `orcamento.py` e a filiacao em `modulos/`. Este guia nao e' herdado
 por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 ## Onde alterar
 | Tarefa | Entrada | Suite |
@@ -8,7 +8,7 @@ por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 | Juntar ou desvincular chapa | `solda.juntar_conexao`, `solda.desagregar` | hud |
 | Vinculo e pasta do modulo | `modulos.agrupar_chapas`, `_garantir_colecao_modulo` | operadores, hud |
 | Regua, corrente, reset e ancora | `solda.py` operadores `cabinet_*`; HUD em `hud.py` | hud |
-| Apoio em parede | `paredes.py` | paredes |
+| Alvenaria, apoio e ambientes | `paredes.py`: marco/piso/G; `ambientes.py`: faces/cor/Collection | paredes, ambientes |
 | Vista 2D/Local View, previa e distribuir modelos | `paredes_edicao.py` | paredes_edicao, gaveta |
 | Cotas de modulo, larguras fixas, redistribuir/trocar modelo | `paredes_composicao.py` | paredes_composicao, hud |
 | Comodo e arquivo vendido | `orcamento.py` | orcamento |
@@ -18,6 +18,7 @@ Paredes exigem tambem [integracao](../integracao/AGENTS.md): gesto DIREITO,
 associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
 
 ## Decisoes e armadilhas
+- Alvenaria 393 exige marco explicito; normal mundial distingue parede/piso/teto. Associacao livre nao limita tamanho/sobreposicao. G conserva folga; piso apoia base em pe. Ambientes: INT FACE e mapa UID por objeto, cache BMesh copiado, so' Edit Mode com cores/textos que couberem. Presets e paleta nativa no soltar; Orcamento filia Collections por UID. Pulsos reservados, sem portas/janelas nesta etapa.
 - Parede 371: escolha consulta SO' o objeto fixado, pulando teto/backfaces ocultas. Pontos usam cursor/translate nativo VERTEX/ONLY_SELECTABLE, com restauracao. Area visivel >=90% na entrada libera edicao pela sessao inteira; demais usam copia avaliada/Boolean EXACT cinza, bloqueada. Fontes intactas, estados/temporarios limpos na saida/undo/save.
 - Base 367: ao entrar, apoio continuo na faixa de contato da parede recorta a area enterrada. Proxy/cotas/guias/arraste partilham a regiao recortada; parciais/suspensos e modulos nao levantam a base. Cotas 366 aceitam zero; dimensoes validam no dono e ruido <=1 um nao libera colisoes.
 - Importacao 364: resize pode recriar componentes; `aplicar_ajuste_do_modelo` atualiza `novos` no finally pela hierarquia nativa. Registro/Local View usam a mesma geracao viva; rollback inclui recriados.
@@ -83,7 +84,6 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   Resize oculta distancias; HUD via `_geometria_na_parede`/`_hud_na_parede`
   (so' bolinhas das bordas, `so_faces`; quina do snap ganha); observador
   deixa o clique para o gizmo; digitado vai no numero da cota (`digitacao_hud`).
-
 - Solda manual usa translate/snap NATIVO compartilhado; cache KDTree ou consulta nativa da face, nunca varrer a malha no clique. Ancorar/Juntar registra afastamento 3D local ao destino (`adj_<ponta>_origens`). Legado: reset volta ao gap gravado. Criacao 352: reset zera pela ancora FINAL fixa, e esse zero vira a referencia futura; Alt reancora, sem trocar a referencia.
 - Criacao 353: controladores e distancia tambem na previa; corrente remove so par pendente, regua por indice zera pela ancora final. Marcador/distancia leem cursor nativo. Auditoria de um modulo e somente leitura: menor distancia primeiro; um vertice pode atender destinos distintos. Refinamento 359: UM registro e UM par de vertices por par nao ordenado de OBJETOS. Juntas distintas continuam independentes, mesmo usando o mesmo vertice. Biblioteca usa KDTree em mundo para menor gap real; nao move malhas.
 - Criacao: painel proprio sem Orcamento, distancia/zero/confirmar/cancelar/voltar. Direito/Esc cancela, Backspace/Ctrl+Z volta etapa; Alt escolhe outro vertice na mesma peca. Snap inicia no PRESS e confirma no RELEASE; entre gestos o modal recebe os atalhos. Previa numerica restaura antes de confirmar e no cancelar; so' `cabinet_juntar_modulo` grava undo da geometria final.

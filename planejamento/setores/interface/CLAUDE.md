@@ -3,8 +3,7 @@ Leitura EXPLICITA pela rota do indice/guia raiz para tarefas de interface.
 Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
-Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`,
-`hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py` e `materiais.py`.
+Escopo: `cabinet_creator/gaveta.py`, `gaveta_desenho.py`, `gaveta_eventos.py`, `hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py`, `materiais.py` e `ambientes.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
 Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
@@ -29,6 +28,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 | Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
 | Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
 ## Decisoes de interacao
+- Alvenaria 393: objeto comum selecionado -> Definir Alvenaria; so' ele recebe snap. Editar ambientes = Edit Mode nativo; faces, preset, Definir como Cozinha/etc. Lista: quadrado 24 px e nome a direita; paleta nativa no SOLTAR. Cores/nomes so' na definicao, retangulo inteiro dentro da face (senao omite), cache sem extracao no redraw. Paredes/piso/teto por normal; armario em pe. Colocacao livre; G cria Afast. >0; zero encosta.
 - Parede 371: alvo fixo ignora outros objetos; pontos usam snap VERTEX nativo so' nele. Parcial inativo cinza, sem avisos/cotas/edicao; elegibilidade fixa na entrada. Edit Mode usa vertices; Object Mode tem Automatico/Por pontos
   no grupo Paredes. Modal repassa eventos do menu/navegacao; esquerdo marca,
   Backspace volta, Enter confirma, direito/Esc cancela; menu oferece iguais

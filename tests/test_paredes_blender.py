@@ -12,6 +12,8 @@ import math
 import os
 import sys
 import unittest
+import tempfile
+from unittest.mock import patch
 from types import SimpleNamespace
 
 import bpy
@@ -43,6 +45,292 @@ def caixa(nome, dims, centro):
 
 
 class TestParedes(unittest.TestCase):
+    def test_definir_parede_no_menu_e_retirar_definicao_preservam_geometria(self):
+        conj=self.modulo();self.encostar(conj)
+        bpy.ops.object.select_all(action='DESELECT');self.parede.select_set(True)
+        bpy.context.view_layer.objects.active=self.parede
+        self.assertTrue(P.OBJECT_OT_definir_alvenaria.poll(bpy.context))
+        antes=conj.matrix_world.copy()
+        self.assertFalse(P.alvenaria_definida(self.parede))
+        self.assertEqual(bpy.ops.object.cabinet_definir_alvenaria(),{'FINISHED'})
+        self.assertTrue(P.alvenaria_definida(self.parede))
+        itens=[];addon.paredes_edicao.widgets(bpy.context,itens,0,500,300)
+        self.assertTrue(any(i[5] == ('operador','object.cabinet_editar_parede') for i in itens))
+        self.assertEqual(bpy.ops.object.cabinet_definir_alvenaria(),{'FINISHED'})
+        self.assertFalse(P.alvenaria_definida(self.parede))
+        self.assertNotIn(P.CHAVE_PAREDE,conj)
+        self.assertEqual(conj.matrix_world,antes)
+        itens=[];addon.paredes_edicao.widgets(bpy.context,itens,0,500,300)
+        self.assertTrue(any(i[5] == ('operador','object.cabinet_definir_alvenaria') for i in itens))
+        self.assertFalse(any(i[5] == ('operador','object.cabinet_editar_parede') for i in itens))
+
+    def test_snap_nativo_ignora_malhas_nao_definidas_mesmo_na_frente_da_parede(self):
+        caixa('Obstaculo nao definido',(3,.1,2.7),(0,0,1.35))
+        self.assertIsNone(P.raio_ate_parede(bpy.context,(0,-2,1),(0,1,0),set()))
+        self.parede[P.CHAVE_ALVENARIA]=True
+        acerto=P.raio_ate_parede(bpy.context,(0,-2,1),(0,1,0),set())
+        self.assertIs(acerto[0],self.parede)
+        self.assertAlmostEqual(acerto[1].y,1,places=5)
+        del self.parede[P.CHAVE_ALVENARIA]
+        self.assertIsNone(P.raio_ate_parede(bpy.context,(0,-2,1),(0,1,0),set()))
+
+    def test_um_bloco_definido_libera_suas_duas_faces_e_piso(self):
+        piso=caixa('Piso para unir',(4,4,.1),(0,0,-.05))
+        inv=self.parede.matrix_world.inverted_safe();vertices=[];faces=[]
+        for o in (self.parede,piso):
+            offset=len(vertices)
+            vertices.extend(tuple(inv@o.matrix_world@v.co) for v in o.data.vertices)
+            faces.extend(tuple(offset+i for i in f.vertices) for f in o.data.polygons)
+        m=bpy.data.meshes.new('Casa unica');m.from_pydata(vertices,[],faces)
+        self.parede.data=m;bpy.data.objects.remove(piso,do_unlink=True)
+        self.parede[P.CHAVE_ALVENARIA]=True;bpy.context.view_layer.update()
+        for origem,direcao in (((0,0,1),(0,1,0)),((0,2,1),(0,-1,0)),((0,0,2),(0,0,-1))):
+            acerto=P.raio_ate_parede(bpy.context,origem,direcao,set())
+            self.assertIs(acerto[0],self.parede)
+        self.assertTrue(P.eh_piso(acerto[2]))
+
+    def test_alvenaria_definida_na_biblioteca_tambem_nao_impoe_largura_da_face(self):
+        conj=self.modulo();pequena=caixa('Parede estreita',(.1,.1,1),(0,4,.5))
+        pequena[P.CHAVE_ALVENARIA]=True;p=Vector((0,3.95,.5));n=Vector((0,-1,0))
+        s=dict(parede=pequena.name,ponto=tuple(p),normal=tuple(n),u=(1,0,0),
+               regiao=P.regiao_da_parede(pequena,p,n))
+        antes=tuple((v.copy() for v in P.caixa_do_modulo(conj)))
+        alvo,erro=addon.paredes_edicao.encaixar_na_face(bpy.context,conj,p,s)
+        self.assertIsNone(erro);self.assertIsNotNone(alvo)
+        depois=P.caixa_do_modulo(conj)
+        self.assertVetor(antes[0],depois[0],6);self.assertVetor(antes[1],depois[1],6)
+
+    def arrastador(self,conj):
+        classe=P.OBJECT_OT_arrastar_na_parede
+        ctx=SimpleNamespace(scene=bpy.context.scene,view_layer=bpy.context.view_layer,
+            evaluated_depsgraph_get=bpy.context.evaluated_depsgraph_get,
+            window=SimpleNamespace(cursor_modal_restore=lambda:None),
+            workspace=SimpleNamespace(status_text_set=lambda _:None),
+            area=SimpleNamespace(tag_redraw=lambda:None))
+        regiao=SimpleNamespace(as_pointer=lambda:123)
+        op=SimpleNamespace(_modulo=conj.name,_ignorar=set(),_regiao=regiao,_rv3d=None,
+            _caixa=P.caixa_do_modulo(conj),_matriz=conj.matrix_world.copy(),_parede=None,
+            _arrastou=True,_limbo=False,_associacao={k:getattr(conj[k],'to_list',lambda:conj[k])()
+                for k in P.CHAVES_ASSOCIACAO if k in conj},report=lambda *_:None)
+        op._restaurar=lambda c:classe._restaurar(op,c)
+        op._encerrar=lambda c:classe._encerrar(op,c)
+        op._status=lambda *_:None
+        op._mover=lambda c,e:classe._mover(op,c,e)
+        evento=SimpleNamespace(type='RIGHTMOUSE',value='RELEASE',mouse_region_x=0,mouse_region_y=0)
+        return classe,op,ctx,evento
+
+    def test_arraste_em_parede_pequena_permite_sobrar_sem_piscar(self):
+        conj=self.modulo();self.encostar(conj)
+        pequena=caixa('Parede pequena',(.1,.1,.1),(0,4,.05))
+        pequena[P.CHAVE_ALVENARIA]=True
+        classe,op,ctx,evento=self.arrastador(conj)
+        matriz=conj.matrix_world.copy();props=dict(op._associacao)
+        with patch.object(P,'_raio_ignorando',return_value=(pequena,Vector((0,3.95,.05)),Vector((0,-1,0)),None)), \
+             patch.object(P,'_px_por_metro',return_value=100):
+            op._mover(ctx,evento)
+            self.assertTrue(P._arraste_parede[0]['valido'])
+            self.assertTrue(P._arraste_parede[0]['contorno'])
+            self.assertEqual(classe.modal(op,ctx,evento),{'FINISHED'})
+        self.assertIsNone(P.erro_visivel())
+        self.assertIs(P.parede_do_modulo(conj),pequena)
+
+    def test_soltar_revalida_definicao_removida_depois_da_previa(self):
+        conj=self.modulo();classe,op,ctx,evento=self.arrastador(conj)
+        self.parede[P.CHAVE_ALVENARIA]=True
+        acerto=(self.parede,Vector((0,1,1)),Vector((0,-1,0)),None)
+        with patch.object(P,'_raio_ignorando',return_value=acerto),patch.object(P,'_px_por_metro',return_value=100):
+            op._mover(ctx,evento)
+            self.assertTrue(P._arraste_parede[0]['valido'])
+            del self.parede[P.CHAVE_ALVENARIA]
+            self.assertEqual(classe.modal(op,ctx,evento),{'CANCELLED'})
+        self.assertNotIn(P.CHAVE_PAREDE,conj)
+
+    def test_piso_pequeno_permite_sobrar_teto_e_esc_nao_disparam_erro(self):
+        conj=self.modulo();pequeno=caixa('Piso pequeno',(.1,.1,.1),(0,0,-.05))
+        pequeno[P.CHAVE_ALVENARIA]=True
+        classe,op,ctx,e=self.arrastador(conj)
+        with patch.object(P,'_raio_ignorando',return_value=(pequeno,Vector((0,0,0)),Vector((0,0,1)),None)), \
+             patch.object(P,'_px_por_metro',return_value=100):
+            self.assertEqual(classe.modal(op,ctx,e),{'FINISHED'})
+        self.assertIs(P.parede_do_modulo(conj),pequeno)
+        self.assertIsNone(P.regiao_do_piso(pequeno,Vector((0,0,-.1)),Vector((0,0,-1))))
+        self.assertFalse(P.eh_piso(Vector((0,.02,1))))
+        classe,op,ctx,e=self.arrastador(conj);e.type='ESC';e.value='PRESS'
+        self.assertEqual(classe.modal(op,ctx,e),{'CANCELLED'})
+        self.assertIsNone(P._erro_apoio[0])
+
+    def test_piso_conserva_contorno_com_buraco_sem_impor_limites_ao_modulo(self):
+        conj=self.modulo()
+        malha=bpy.data.meshes.new('Piso vazado')
+        ps=[(x,y,0) for x,y in ((-1.5,-1.5),(1.5,-1.5),(1.5,1.5),(-1.5,1.5),
+                                (-.2,-.2),(.2,-.2),(.2,.2),(-.2,.2))]
+        malha.from_pydata(ps,[],[(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)])
+        piso=bpy.data.objects.new('Piso vazado',malha);bpy.context.scene.collection.objects.link(piso)
+        bpy.context.view_layer.update()
+        r=P.regiao_do_piso(piso,Vector((0,-1,0)),Vector((0,0,1)))
+        self.assertEqual(len(r['contorno']),8)
+        self.assertEqual(len(r['faces']),4)
+
+    def test_arraste_no_piso_confirma_sem_bloquear_por_outro_modulo(self):
+        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        piso[P.CHAVE_ALVENARIA]=True
+        # Um segundo modulo copia so' a carcaca atraves do operador existente.
+        outro=addon.modulos.criar_armario(bpy.context,'Vizinho',800,700,600)
+        outro.location=(0,0,0);bpy.context.view_layer.update()
+        classe,op,ctx,e=self.arrastador(conj)
+        with patch.object(P,'_raio_ignorando',return_value=(piso,Vector((0,0,0)),Vector((0,0,1)),None)), \
+             patch.object(P,'_px_por_metro',return_value=100):
+            self.assertEqual(classe.modal(op,ctx,e),{'FINISHED'})
+        bpy.context.view_layer.update()
+        a=self.cantos_do_envelope(conj)
+        b=[o.matrix_world@Vector(c) for o in addon.modulos.pecas_do_envelope(outro) for c in o.bound_box]
+        self.assertGreater(min(max(p.x for p in a),max(p.x for p in b))-max(min(p.x for p in a),min(p.x for p in b)),0)
+        self.assertGreater(min(max(p.y for p in a),max(p.y for p in b))-max(min(p.y for p in a),min(p.y for p in b)),0)
+        self.assertIs(P.parede_do_modulo(conj),piso)
+        self.assertIsNone(P._arraste_parede[0]);self.assertIsNone(P._erro_apoio[0])
+
+    def test_piso_afastamento_g_zero_guias_e_movimento_do_apoio(self):
+        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        P.associar(conj,piso,Vector((.3,.2,0)),Vector((0,0,1)))
+        P.colocar_na_parede(conj,piso,Vector((.3,.2,0)),Vector((0,0,1)))
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertNotIn('afastamento',P.calcular_guias(conj)['valores'])
+        conj.location.z+=.25;bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.afastamento(conj),.25,places=6)
+        self.assertAlmostEqual(P.calcular_guias(conj)['valores']['afastamento'],250,places=3)
+        piso.location.x+=1;piso.location.z+=.3;piso.rotation_euler.z=math.pi/2
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertVetor(P._ponto_da_base(conj),(.8,.3,.55),5)
+        self.assertVetor(conj.matrix_world.to_3x3().col[2],(0,0,1),5)
+        P.aplicar_guia(conj,'afastamento',0)
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(P._ponto_da_base(conj).z,.3,places=5)
+        self.assertNotIn('afastamento',P.calcular_guias(conj)['valores'])
+        P.desassociar(conj);self.assertNotIn(P.CHAVE_EIXO_PISO,conj)
+
+    def test_piso_cache_nao_rele_malha_parada_e_erro_limpa_no_timer(self):
+        piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        r=P.regiao_do_piso(piso,Vector((0,0,0)),Vector((0,0,1)))
+        with patch.object(P,'_calcular_regiao',side_effect=AssertionError('Releu malha')):
+            for _ in range(20):self.assertIs(P.regiao_do_piso(piso,Vector((.1,.1,0)),Vector((0,0,1))),r)
+        with patch.object(P.time,'monotonic',return_value=10):P.sinalizar_erro(r,123)
+        with patch.object(P.time,'monotonic',return_value=11):
+            self.assertIsNone(P._tique_erro_apoio())
+        self.assertIsNone(P._erro_apoio[0])
+
+    def test_roda_no_piso_gira_em_pe_e_esc_devolve_pose_e_associacao(self):
+        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        piso[P.CHAVE_ALVENARIA]=True
+        classe,op,ctx,e=self.arrastador(conj);antes=conj.matrix_world.copy()
+        with patch.object(P,'_raio_ignorando',return_value=(piso,Vector((0,0,0)),Vector((0,0,1)),None)), \
+             patch.object(P,'_px_por_metro',return_value=100):
+            op._mover(ctx,e)
+            u=conj.matrix_world.to_3x3().col[0].normalized()
+            e.type='WHEELUPMOUSE';e.value='PRESS'
+            self.assertEqual(classe.modal(op,ctx,e),{'RUNNING_MODAL'})
+            self.assertAlmostEqual(u.dot(conj.matrix_world.to_3x3().col[0].normalized()),0,places=5)
+            self.assertVetor(conj.matrix_world.to_3x3().col[2].normalized(),(0,0,1),5)
+            e.type='ESC'
+            self.assertEqual(classe.modal(op,ctx,e),{'CANCELLED'})
+        self.assertEqual(conj.matrix_world,antes)
+        self.assertNotIn(P.CHAVE_EIXO_PISO,conj)
+
+    def test_piso_e_gap_sobrevivem_salvar_reabrir_sem_reconstruir_geometria(self):
+        conj=self.modulo();nome=conj.name;piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        conj.rotation_euler.z=.4;bpy.context.view_layer.update()
+        P.associar(conj,piso,Vector((.2,.3,0)),Vector((0,0,1)))
+        P.definir_afastamento(conj,.12)
+        P.colocar_na_parede(conj,piso,Vector((.2,.3,0)),Vector((0,0,1)))
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        uid=conj[P.CHAVE_PAREDE];conj=None;piso=None
+        with tempfile.TemporaryDirectory(prefix='apoio_piso_') as pasta:
+            caminho=os.path.join(pasta,'apoio.blend')
+            bpy.ops.wm.save_as_mainfile(filepath=caminho)
+            bpy.ops.wm.open_mainfile(filepath=caminho)
+            addon.eventos._fim_do_desfazer();P.manter_nas_paredes()
+            rec=bpy.data.objects[nome]
+            self.assertEqual(rec[P.CHAVE_PAREDE],uid)
+            self.assertAlmostEqual(rec.rotation_euler.z,.4,places=5)
+            self.assertAlmostEqual(P.afastamento(rec),.12,places=5)
+            self.assertAlmostEqual(P._ponto_da_base(rec).z,.12,places=5)
+            self.assertIsNotNone(P.calcular_guias(rec))
+
+    def test_g_nativo_afasta_da_parede_e_publica_cota_sem_perder_vinculo(self):
+        # Regressao 393: o timer desfazia o afastamento confirmado pelo G.
+        conj=self.modulo();self.encostar(conj)
+        bpy.ops.object.select_all(action='DESELECT');conj.select_set(True)
+        bpy.context.view_layer.objects.active=conj
+        bpy.ops.transform.translate(value=(.1,-.25,.05))
+        bpy.context.view_layer.update()
+        antes=conj.matrix_world.copy()
+        P.manter_nas_paredes()
+        self.assertVetor(conj.matrix_world.translation,antes.translation,6)
+        self.assertAlmostEqual(P.afastamento(conj),.25,places=6)
+        self.assertAlmostEqual(P.calcular_guias(conj)['valores']['afastamento'],250,places=3)
+        self.assertIs(P.parede_do_modulo(conj),self.parede)
+
+    def test_afastamento_digitado_zero_e_negativo_nao_alteram_malha(self):
+        conj=self.modulo();self.encostar(conj)
+        malhas={o.name:(o.data.as_pointer(),[tuple(v.co) for v in o.data.vertices])
+                for o in addon.modulos.pecas_do_envelope(conj)}
+        conj.location.y-=.2;bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.afastamento(conj),.2,places=6)
+        P.aplicar_guia(conj,'afastamento',0);bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.ponto_das_costas(conj).y,1,places=6)
+        self.assertNotIn('afastamento',P.calcular_guias(conj)['linhas'])
+        conj.location.y+=.15;bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.ponto_das_costas(conj).y,1,places=6)
+        self.assertEqual({o.name:(o.data.as_pointer(),[tuple(v.co) for v in o.data.vertices])
+                for o in addon.modulos.pecas_do_envelope(conj)},malhas)
+
+    def test_afastamento_nativo_undo_redo_reconstroi_vinculo_fora_da_guarda(self):
+        conj=self.modulo();nome=conj.name;self.encostar(conj)
+        bpy.context.preferences.edit.use_global_undo=True
+        bpy.ops.object.select_all(action='DESELECT');conj.select_set(True)
+        bpy.context.view_layer.objects.active=conj
+        bpy.ops.ed.undo_push(message='Antes do afastamento')
+        bpy.ops.transform.translate(value=(0,-.2,0))
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        bpy.ops.ed.undo_push(message='Afastamento confirmado')
+        conj=None
+        bpy.ops.ed.undo();addon.eventos._fim_do_desfazer();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.afastamento(bpy.data.objects[nome]),0,places=6)
+        bpy.ops.ed.redo();addon.eventos._fim_do_desfazer();P.manter_nas_paredes()
+        self.assertAlmostEqual(P.afastamento(bpy.data.objects[nome]),.2,places=6)
+        self.assertIsNotNone(P.parede_do_modulo(bpy.data.objects[nome]))
+
+    def test_piso_encaixa_base_sem_deitar_e_conserva_giro(self):
+        conj=self.modulo();conj.rotation_euler.z=.63
+        piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        bpy.context.view_layer.update()
+        regiao=P.regiao_do_piso(piso,Vector((0,0,0)),Vector((0,0,1)))
+        ponto=Vector((0,0,0))
+        P.associar(conj,piso,ponto,Vector((0,0,1)),regiao['face'])
+        self.assertTrue(P.colocar_na_parede(conj,piso,ponto,Vector((0,0,1))))
+        bpy.context.view_layer.update();P.manter_nas_paredes()
+        self.assertAlmostEqual(min(p.z for p in self.cantos_do_envelope(conj)),0,places=6)
+        self.assertVetor(conj.matrix_world.to_3x3().col[2].normalized(),(0,0,1),6)
+        self.assertAlmostEqual(conj.rotation_euler.z,.63,places=5)
+        self.assertIs(P.parede_do_modulo(conj),piso)
+
+    def test_erro_de_encaixe_guarda_face_para_tres_piscadas_sem_guardar_objeto(self):
+        import numpy as np
+        visual=dict(contorno=[(Vector((0,0,0)),Vector((1,0,0)))],triangulos=np.zeros((3,3)))
+        with patch.object(P.time,'monotonic',return_value=10):
+            P.sinalizar_erro(visual,123)
+        for i in range(6):
+            self.assertEqual(P.erro_visivel(10+(i+.25)*P.PISCA_ERRO_S) is not None,i%2==0)
+        self.assertIsNone(P.erro_visivel(10+6*P.PISCA_ERRO_S+.001))
+        P.esquecer()
+        self.assertIsNone(P._erro_apoio[0])
+        self.assertFalse(bpy.app.timers.is_registered(P._tique_erro_apoio))
+        ctx=SimpleNamespace(region=SimpleNamespace(as_pointer=lambda:123),region_data=None)
+        P._arraste_parede[0]=dict(visual,valido=False,modulo='fixture')
+        with patch.object(P,'_desenhar_face_alvo') as desenho:
+            P.desenhar_guias(ctx)
+        self.assertEqual(desenho.call_args.args[2],P.COR_ALVO_APOIO)
+        self.assertFalse(desenho.call_args.args[0]['valido'])
+
     def setUp(self):
         for obj in list(bpy.data.objects):
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -377,6 +665,7 @@ class TestParedes(unittest.TestCase):
         self.assertFalse(P.OBJECT_OT_guia_parede.poll(bpy.context))
 
     def test_raio_atravessa_o_modulo_encostado_e_acha_a_face_da_parede(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         # Regressao (relato do usuario, v202): com as costas NO plano da
         # parede, pular o modulo andando 0,1 mm atravessava a face dela e
         # o arraste pegava o outro lado da parede ou nada -- "nao e' parede"

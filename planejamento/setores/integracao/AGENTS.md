@@ -104,8 +104,10 @@ Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
   exige recuo MINIMO 15. Fundo parcial/ortogonal guarda margens por PLANO,
   nunca expande pela caixa inteira. Ilha: frente unica (+X/-Y da foto),
   oposta vira fundo; conservar cantos.
-- PAREDE: DIREITO segurado no modulo, solto em FACE vertical nao-movel
-  realcada = costas nela, ASSOCIADO A' FACE; acompanha parede e G/R desliza.
+- ALVENARIA (393): usuario define uma malha no menu; raycast nativo ignora
+  as nao definidas. DIREITO no modulo, solto em face vertical = costas;
+  horizontal para cima = base no piso, em pe. Sem limite de tamanho/vao;
+  folga pelo G, cota Afast. e zero. Teto e' referencia, nao apoio de armario.
   Guias editaveis; `OBJECT_OT_arrastar_na_parede` conserva esse gesto.
 
 Validacao: ler `tests/CLAUDE.md`; testes NUNCA escrevem na biblioteca real.

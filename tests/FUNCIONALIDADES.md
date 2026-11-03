@@ -1,5 +1,42 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Alvenaria, apoio e ambientes (393): marco explicito na malha pelo botao
+Definir Alvenaria. Raycast nativo ignora todos os objetos nao definidos;
+um unico bloco pode conter paredes/faces opostas, piso e teto. Tipo pela
+normal mundial; teto nao vira apoio de armario. RMB em parede/piso nao
+recusa por tamanho/ocupacao nem deforma o modelo. Biblioteca herda a
+mesma regra na face definida. Confirmar reler marco/face; Esc restaura.
+Piso conserva giro em Z, base apoiada, roda de 90 graus, segue apoio.
+G nativo registra afastamento; zero e movimento negativo respeitam plano,
+com cotas dinamicas e Mesh intacta. Undo/redo e salvar/reabrir cobertos.
+Sinal numerico de tres pulsos e limpeza do timer reservado a avisos
+futuros; nao disparado por tamanho e nao implementa aberturas.
+Suite paredes 21 -> 39: marcacao/desmarcacao, alvo nativo atraves de
+oclusores, bloco completo, sobra/sobreposicao permitidas, piso horizontal,
+G/cotas/zero, cache, roda/Esc, persistencia e pulsos isolados. Regressao
+do G que voltava ao plano reproduzida em dist/apoios393-antes.log.
+Suite ambientes (17): faces nativas INT/selecionadas sem trocar malha ou
+materiais; presets/UIDs/cores; copia compartilhada isolada; selecao vazia;
+parede/piso levam a Cozinha, G muda para Quarto, renomear pasta por UID;
+lista quadrado/nome; paleta so' no soltar; cor preserva outro ambiente e
+propaga a UID comum; retangulo cabe inteiro inclusive contorno concavo;
+cache nativo dissolve somente copia e ignora geometria externa; cores
+ocultas em Object Mode; salvar/reabrir/undo/redo. Orcamento e Collections
+nativos reaproveitados, sem nova hierarquia de modulos ou materiais.
+Testes anteriores de entrada agora explicitam marco da Alvenaria;
+contrato de recusa nos arrastes foi atualizado para colocacao livre.
+Dirigidas: 742 testes / 18 execucoes OK antes dos cenarios finais da paleta.
+Auditoria: cena descartavel exporta cache/tuplas reais; callback desenhar
+e rotulo executados com captura de primitivas em background. Cozinha e
+Quarto presentes; Lavanderia estreita omitida. Conferencia em
+dist/alvenaria393-primitivas.png (diagrama de primitivas, nao screenshot).
+GPU da instancia aberta indisponivel (conexao recusada); nao abriu janela
+nem alterou projeto/biblioteca real. Gestos GUI reais nao executados.
+Validacao final: 3218 testes em 70 execucoes, Blender 4.2/5.2, tudo OK
+(dist/alvenaria393-fechamento.log). Nova suite ambientes 17, paredes 39;
+travas de estrutura/organizacao preservadas, snapshots sem alteracao.
+Pacote 393 com 41 fontes Python conferidos; guias espelhados/limites OK.
+
 Edicao previsivel dos campos (392): entrada sem selecao automatica, cursor
 no fim; Backspace apaga um caractere. Ctrl+A e Shift+setas/Home/End
 selecionam texto, com realce sobre os caracteres editaveis, sem unidade

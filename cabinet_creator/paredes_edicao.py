@@ -21,6 +21,7 @@ from mathutils.bvhtree import BVHTree
 _paredes = _modulos = _biblioteca = _chapas = _hud = None
 _gaveta = _opcoes = _eventos = _biblioteca_faixa = None
 _paredes_composicao = _paredes_selecao = None
+_ambientes = None
 _gavetas = None
 
 _sessao = [None]
@@ -595,7 +596,7 @@ def widgets(context, itens, x, topo, w):
     obj = contexto_painel(context)
     if obj is None:
         return topo
-    topo = _gaveta._titulo_secao(itens, x, topo + 26, w, 'Paredes')
+    topo = _gaveta._titulo_secao(itens, x, topo + 26, w, 'Alvenaria')
     def botao(rotulo, operador, altura=28):
         nonlocal topo
         topo -= altura
@@ -604,6 +605,14 @@ def widgets(context, itens, x, topo, w):
     # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
     # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
+        if not _paredes.alvenaria_definida(obj):
+            botao('Definir Alvenaria','object.cabinet_definir_alvenaria',30)
+            return topo-58
+        if context.mode=='EDIT_MESH':
+            botao('Sair da edicao de ambientes','object.editmode_toggle')
+            return _ambientes.widgets(context,itens,obj,x,topo,w)
+        botao('Editar ambientes','object.editmode_toggle')
+        botao('Remover definicao de Alvenaria','object.cabinet_definir_alvenaria')
         escolha=_escolha_area[0]
         if escolha:
             metodo=escolha['metodo']
@@ -788,6 +797,7 @@ def registrar_posicionado(context, modulo, novos=()):
     """Inclui a instancia no isolamento e guarda apenas o nome do ultimo modulo."""
     if modulo is None or _paredes.parede_do_modulo(modulo) is None:
         return
+    _ambientes.atribuir(context,modulo)
     # A ordem persiste ao sair do 2D ou reabrir o arquivo, sem guardar IDs globais.
     modulo[CHAVE_ORDEM] = time.time()
     objetos = _objetos_vigentes_do_modelo(modulo, novos)
@@ -1098,6 +1108,9 @@ def encaixar_na_face(context, modulo, ponto, s, caixa=None, tolerancia=0):
     Recebe tambem uma face fora da edicao 2D: o arraste direito usa as
     mesmas restricoes, sem duplicar um posicionador ou redimensionar pecas.
     """
+    if _paredes.alvenaria_definida(bpy.data.objects.get(s['parede'])):
+        p=_paredes.ponto_livre_na_face(modulo,ponto,s,caixa,tolerancia)
+        return p, None if p is not None else 'O modelo precisa conter um modulo completo'
     caixa = caixa or _paredes.caixa_do_modulo(modulo)
     if caixa is None:
         return None, 'O modelo precisa conter um modulo completo'
@@ -1669,6 +1682,9 @@ class OBJECT_OT_editar_parede(Operator):
 
     def invoke(self,context,event):
         obj=bpy.data.objects.get(self.objeto) if self.objeto else context.object
+        if not _paredes.alvenaria_definida(obj):
+            self.report({'WARNING'},'Selecione a malha e use Definir Alvenaria')
+            return {'CANCELLED'}
         if context.mode=='EDIT_MESH':
             erro=entrar_por_vertices(context,obj)
             _aviso[0]=erro or ''

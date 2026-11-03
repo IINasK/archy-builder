@@ -185,10 +185,12 @@ class TestEdicaoParedes(unittest.TestCase):
     def test_painel_aparece_para_malha_generica(self):
         itens = []
         E.widgets(bpy.context, itens, 12, 700, 400)
-        self.assertIn('Paredes', [i[4] for i in itens])
-        self.assertIn('object.cabinet_editar_parede', str(itens))
+        self.assertIn('Alvenaria', [i[4] for i in itens])
+        self.assertIn('object.cabinet_definir_alvenaria', str(itens))
+        self.assertNotIn('object.cabinet_editar_parede', str(itens))
 
     def test_entrar_e_sair_da_parede_em_destaque_como_criar(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         # Pedido do usuario: o mesmo padrao do "Criar Prateleiras" (laranja,
         # 30 px, texto centrado); sair = laranja forte da etapa em andamento.
         import inspect
@@ -664,6 +666,7 @@ class TestEdicaoParedes(unittest.TestCase):
         return op
 
     def test_arraste_com_caixa_no_indice_so_carrega_ao_soltar(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         # Pedido do usuario (cena real travava): com a caixa gravada no
         # indice o arraste e' so' o wireframe; o .blend carrega ao soltar,
         # depois do aviso "Carregando...".
@@ -731,6 +734,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))
 
     def test_arraste_da_biblioteca_fora_da_edicao_encosta_as_costas_na_parede(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         # Relato do usuario: solto na parede, o armario ficava de pe' pela
         # base no ponto do raio e de lado. Fora da edicao 2D ele gira as
         # costas para a parede, centra no cursor e associa.
@@ -768,6 +772,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertAlmostEqual((min(p.z for p in pontos) + max(p.z for p in pontos)) / 2, 1.2, places=4)
 
     def test_roda_no_arraste_da_biblioteca_troca_a_face_da_parede(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         # Pedido do usuario: rodar o scroll muda a face de referencia.
         caminho = self.fixture()
         acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
@@ -1037,7 +1042,8 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertIn(restaurado.name, bpy.context.scene.objects)
         self.assertAlmostEqual(addon.modulos.medir_conjunto(restaurado)[1], 2600, places=2)
 
-    def test_ajuste_no_atach_fora_do_modo_2d_confirma_o_mesmo_envelope(self):
+    def test_atach_marcado_preserva_tamanho_original_sem_limitar_na_face(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         caminho = self.fixture(altura=2603)
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
         acerto = P.raio_ate_parede(bpy.context, (0, -3, 1.35), (0, 1, 0), set())
@@ -1053,9 +1059,9 @@ class TestEdicaoParedes(unittest.TestCase):
         modulo = bpy.context.object
         self.assertEqual(P.parede_do_modulo(modulo), self.parede)
         lo, hi = P.caixa_do_modulo(modulo)
-        self.assertAlmostEqual(hi.z - lo.z, 2.6, places=5)
-        self.assertAlmostEqual(min(p.z for p in prevista), .1, places=5)
-        self.assertAlmostEqual(P.ponto_das_costas(modulo).z, .1, places=5)
+        self.assertAlmostEqual(hi.z - lo.z, 2.603, places=5)
+        self.assertAlmostEqual(min(p.z for p in prevista), 1.35-2.603/2, places=5)
+        self.assertAlmostEqual(P.ponto_das_costas(modulo).z, 1.35-2.603/2, places=5)
 
     def recriar_controle(self, modulo):
         antigo = next(o for o in modulo.children_recursive if o.get('teste_regeneravel'))
@@ -1205,6 +1211,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertEqual(malhas, {nome: tuple(tuple(v.co) for v in bpy.data.objects[nome].data.vertices) for nome in malhas})
 
     def test_arraste_direito_no_modulo_preserva_tamanho_e_define_o_ultimo(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         from types import MethodType
         modulo = self.modulo()
         self.iniciar()
@@ -1332,7 +1339,8 @@ class TestEdicaoParedes(unittest.TestCase):
         with bpy.context.temp_override(area=self.area, region=self.regiao),              patch.object(P, '_raio_ignorando', return_value=None):
             self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
 
-    def test_arraste_direito_tambem_limita_quina_e_evitar_colisao(self):
+    def test_arraste_direito_marcado_permite_sobra_e_sobreposicao(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         caminho = self.fixture()
         self.iniciar()
         a = self.inserir_imediato(caminho)
@@ -1341,20 +1349,22 @@ class TestEdicaoParedes(unittest.TestCase):
         evento = SimpleNamespace(type='RIGHTMOUSE', value='RELEASE', mouse_region_x=300, mouse_region_y=300)
         acerto = (self.parede, Vector((1.499, 1, .001)), Vector((0,-1,0)), E._sessao[0]['face'])
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
-             patch.object(P, '_raio_ignorando', return_value=acerto):
+             patch.object(P, '_raio_ignorando', return_value=acerto), \
+             patch.object(P, '_px_por_metro', return_value=10000):
             self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
         f = addon.paredes_composicao.ficha(b, E._sessao[0])
-        self.assertAlmostEqual(f['fim'], 1.5, places=5)
-        self.assertAlmostEqual(f['base'], 0, places=5)
+        self.assertAlmostEqual((f['inicio']+f['fim'])/2,1.499,places=5)
+        self.assertAlmostEqual(f['base'],.001-f['altura']/2,places=5)
         op = self.arraste_direito(b)
         acerto = (self.parede, Vector((0,1,.2)), Vector((0,-1,0)), E._sessao[0]['face'])
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
              patch.object(P, '_raio_ignorando', return_value=acerto):
             self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
         fa, fb = (addon.paredes_composicao.ficha(o, E._sessao[0]) for o in (a,b))
-        self.assertTrue(fb['inicio'] >= fa['fim'] - .00005 or fb['fim'] <= fa['inicio'] + .00005)
+        self.assertLess(fb['inicio'],fa['fim']);self.assertGreater(fb['fim'],fa['inicio'])
 
-    def test_arraste_sem_vao_restaurar_associacao_e_geometria(self):
+    def test_arraste_marcado_sem_vao_nao_recusa_associacao(self):
+        self.parede[P.CHAVE_ALVENARIA]=True
         caminho = self.fixture()
         self.iniciar()
         for i in range(5):
@@ -1366,9 +1376,8 @@ class TestEdicaoParedes(unittest.TestCase):
         evento = SimpleNamespace(type='RIGHTMOUSE', value='RELEASE', mouse_region_x=300, mouse_region_y=300)
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
              patch.object(P, '_raio_ignorando', return_value=acerto):
-            self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
-        self.assertEqual(modulo.matrix_world, matriz)
-        self.assertIsNone(P.parede_do_modulo(modulo))
+            self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
+        self.assertEqual(P.parede_do_modulo(modulo),self.parede)
 
     def test_encaixe_considera_altura_e_ignora_face_oposta(self):
         caminho = self.fixture()

@@ -6,6 +6,7 @@ resize e cancelamento reutilizam os contratos do modulo e da HUD.
 import math
 import time
 import bpy
+_ambientes = None
 import bmesh
 import blf
 import gpu
@@ -264,7 +265,7 @@ def parede(obj):
         return False
     s = _paredes_edicao._sessao[0]
     ultima = _paredes_edicao._ultima_face[0]
-    return (_paredes.CHAVE_UID_PAREDE in obj or
+    return (_paredes.alvenaria_definida(obj) or _paredes.CHAVE_UID_PAREDE in obj or
             bool(s and obj.name == s['parede']) or
             bool(ultima and ultima[0] == obj.name))
 
@@ -581,6 +582,7 @@ def planejar_redistribuicao(context):
 
 @bpy.app.handlers.persistent
 def invalidar_interiores(cena, depsgraph):
+    _ambientes.invalidar(cena,depsgraph)
     if _eventos._desfazendo[0] or _paredes_edicao._sessao[0] is None:
         return
     # Apenas nomes; extrair geometria no depsgraph ou no redraw torna undo inseguro.

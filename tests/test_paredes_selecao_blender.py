@@ -242,6 +242,7 @@ class TestSelecaoParedes(unittest.TestCase):
         self.assertTrue(E.ativa())
 
     def test_mudar_metodo_limpa_pontos_e_conserva_duas_interfaces(self):
+        self.parede[addon.paredes.CHAVE_ALVENARIA]=True
         e=self.escolha()
         e['cursor']=(-1,1,.5);E.acao_escolha(bpy.context,'PONTO')
         E.definir_metodo(bpy.context,'AUTO')
@@ -266,6 +267,7 @@ class TestSelecaoParedes(unittest.TestCase):
         self.assertIn('_paredes._desenhar_face_alvo',inspect.getsource(E._desenhar_escolha))
 
     def test_raycast_no_recorte_ignora_parede_que_bloqueava_camera(self):
+        self.parede[addon.paredes.CHAVE_ALVENARIA]=True
         self.iniciar()
         with bpy.context.temp_override(area=self.area,region=self.regiao):
             acerto=P.raio_ate_parede(bpy.context,Vector((0,-3,1.5)),Vector((0,1,0)),set())
