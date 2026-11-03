@@ -151,7 +151,8 @@ class TestAreasCriacao(unittest.TestCase):
 
     def test_sem_portas_pula_pergunta_e_conserva_faixa_fixa(self):
         self.assertFalse(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
-        self.assertEqual(len(addon.visibilidade.widgets(bpy.context,12,300,900)),2)
+        itens=addon.visibilidade.widgets(bpy.context,12,300,900)
+        self.assertEqual(len([v for v in itens if addon.visibilidade.eh_acao(v[5])]),2)
 
     def test_limpar_criacao_descarta_pergunta_de_portas_sem_apagar_outras_perguntas(self):
         self.portas()

@@ -136,22 +136,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   100,
    455,
-   80.0,
+   36,
    30,
-   "Esconder",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   98.0,
+   142,
    455,
-   80.0,
+   36,
    30,
-   "Editar",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   82,
+   30,
+   "Visibilidade",
+   "rotulo",
+   null
   ],
   [
    170,
@@ -300,22 +309,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   230,
    455,
-   145.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   163.0,
+   272,
    455,
-   145.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   212,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/MODULOS/482": [
@@ -500,22 +518,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   392,
    455,
-   226.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   244.0,
+   434,
    455,
-   226.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   374,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/MODULOS/564": [
@@ -700,22 +727,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   474,
    455,
-   267.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   285.0,
+   516,
    455,
-   267.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   456,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/PORTAS/190": [
@@ -774,22 +810,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   100,
    455,
-   80.0,
+   36,
    30,
-   "Esconder",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   98.0,
+   142,
    455,
-   80.0,
+   36,
    30,
-   "Editar",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   82,
+   30,
+   "Visibilidade",
+   "rotulo",
+   null
   ]
  ],
  "chapa/PORTAS/320": [
@@ -848,22 +893,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   230,
    455,
-   145.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   163.0,
+   272,
    455,
-   145.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   212,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/PORTAS/482": [
@@ -967,22 +1021,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   392,
    455,
-   226.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   244.0,
+   434,
    455,
-   226.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   374,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/PORTAS/564": [
@@ -1086,22 +1149,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   474,
    455,
-   267.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   285.0,
+   516,
    455,
-   267.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   456,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "chapa/PUXADORES/190": [
@@ -1149,24 +1221,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   80.0,
-   30,
-   "Esconder",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   98.0,
-   455,
-   80.0,
-   30,
-   "Editar",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "chapa/PUXADORES/320": [
@@ -1214,24 +1268,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   145.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   163.0,
-   455,
-   145.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "chapa/PUXADORES/482": [
@@ -1324,24 +1360,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   226.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   244.0,
-   455,
-   226.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "chapa/PUXADORES/564": [
@@ -1434,24 +1452,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   267.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   285.0,
-   455,
-   267.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "modulo/MODULOS/190": [
@@ -1600,22 +1600,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   100,
    455,
-   80.0,
+   36,
    30,
-   "Esconder",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   98.0,
+   142,
    455,
-   80.0,
+   36,
    30,
-   "Editar",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   82,
+   30,
+   "Visibilidade",
+   "rotulo",
+   null
   ],
   [
    170,
@@ -1773,22 +1782,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   230,
    455,
-   145.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   163.0,
+   272,
    455,
-   145.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   212,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/MODULOS/482": [
@@ -1982,22 +2000,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   392,
    455,
-   226.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   244.0,
+   434,
    455,
-   226.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   374,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/MODULOS/564": [
@@ -2191,22 +2218,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   474,
    455,
-   267.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   285.0,
+   516,
    455,
-   267.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   456,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/PORTAS/190": [
@@ -2265,22 +2301,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   100,
    455,
-   80.0,
+   36,
    30,
-   "Esconder",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   98.0,
+   142,
    455,
-   80.0,
+   36,
    30,
-   "Editar",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   82,
+   30,
+   "Visibilidade",
+   "rotulo",
+   null
   ]
  ],
  "modulo/PORTAS/320": [
@@ -2339,22 +2384,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   230,
    455,
-   145.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   163.0,
+   272,
    455,
-   145.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   212,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/PORTAS/482": [
@@ -2458,22 +2512,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   392,
    455,
-   226.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   244.0,
+   434,
    455,
-   226.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   374,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/PORTAS/564": [
@@ -2577,22 +2640,31 @@
    "object.cabinet_lugar_biblioteca"
   ],
   [
-   12,
+   474,
    455,
-   267.0,
+   36,
    30,
-   "Esconder partes",
+   "",
    "operador",
    "object.cabinet_alternar_partes"
   ],
   [
-   285.0,
+   516,
    455,
-   267.0,
+   36,
    30,
-   "Editar grupo",
+   "",
    "operador",
    "object.cabinet_editar_grupo_visual"
+  ],
+  [
+   12,
+   455,
+   456,
+   30,
+   "Visibilidade de objetos",
+   "rotulo",
+   null
   ]
  ],
  "modulo/PUXADORES/190": [
@@ -2640,24 +2712,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   80.0,
-   30,
-   "Esconder",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   98.0,
-   455,
-   80.0,
-   30,
-   "Editar",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "modulo/PUXADORES/320": [
@@ -2705,24 +2759,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   145.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   163.0,
-   455,
-   145.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "modulo/PUXADORES/482": [
@@ -2815,24 +2851,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   226.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   244.0,
-   455,
-   226.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "modulo/PUXADORES/564": [
@@ -2925,24 +2943,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   267.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   285.0,
-   455,
-   267.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/MODULOS/190": [
@@ -2981,24 +2981,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   80.0,
-   30,
-   "Esconder",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   98.0,
-   455,
-   80.0,
-   30,
-   "Editar",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/MODULOS/320": [
@@ -3037,24 +3019,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   145.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   163.0,
-   455,
-   145.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/MODULOS/482": [
@@ -3138,24 +3102,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   226.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   244.0,
-   455,
-   226.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/MODULOS/564": [
@@ -3239,24 +3185,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   267.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   285.0,
-   455,
-   267.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PORTAS/190": [
@@ -3313,24 +3241,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   80.0,
-   30,
-   "Esconder",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   98.0,
-   455,
-   80.0,
-   30,
-   "Editar",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PORTAS/320": [
@@ -3387,24 +3297,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   145.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   163.0,
-   455,
-   145.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PORTAS/482": [
@@ -3506,24 +3398,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   226.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   244.0,
-   455,
-   226.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PORTAS/564": [
@@ -3625,24 +3499,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   267.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   285.0,
-   455,
-   267.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PUXADORES/190": [
@@ -3690,24 +3546,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   80.0,
-   30,
-   "Esconder",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   98.0,
-   455,
-   80.0,
-   30,
-   "Editar",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PUXADORES/320": [
@@ -3755,24 +3593,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   145.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   163.0,
-   455,
-   145.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PUXADORES/482": [
@@ -3865,24 +3685,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   226.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   244.0,
-   455,
-   226.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ],
  "nada/PUXADORES/564": [
@@ -3975,24 +3777,6 @@
    "",
    "operador",
    "object.cabinet_lugar_biblioteca"
-  ],
-  [
-   12,
-   455,
-   267.0,
-   30,
-   "Esconder partes",
-   "operador",
-   "object.cabinet_alternar_partes"
-  ],
-  [
-   285.0,
-   455,
-   267.0,
-   30,
-   "Editar grupo",
-   "operador",
-   "object.cabinet_editar_grupo_visual"
   ]
  ]
 }

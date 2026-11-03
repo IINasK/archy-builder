@@ -1138,7 +1138,9 @@ def _icone_ao_lado(acao):
 def _centro_icone(x, y, w, h, acao):
     """Onde o gizmo do icone fica: no meio do botao, ou na ponta
     esquerda do botao de texto com icone."""
-    return (x + h / 2 + 2 if _icone_ao_lado(acao) else x + w / 2), y + h / 2
+    compacto = acao and acao[0] == 'operador' and acao[1] in {
+        'object.cabinet_alternar_partes', 'object.cabinet_editar_grupo_visual'}
+    return (x + h / 2 + 2 if _icone_ao_lado(acao) and not compacto else x + w / 2), y + h / 2
 
 
 def _icone_acao_gaveta(acao):

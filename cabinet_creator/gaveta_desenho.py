@@ -38,7 +38,7 @@ def _chave_widget(acao):
     if _biblioteca_faixa.caixa_categoria(acao):
         return 'categoria:' + acao[2]
     verbo = acao[0]
-    if verbo in {'wireframe', 'separador', 'slider', 'fundo', 'pergunta'}:
+    if verbo in {'wireframe', 'separador', 'slider', 'fundo', 'pergunta', 'rotulo'}:
         return None
     if verbo == 'resposta':
         return 'resp:%d' % acao[1]
@@ -384,7 +384,7 @@ def _desenhar_gaveta(tela=False):
     # divisoria e do pe' fixo.
     cima, divisa, baixo = _gaveta._paineis_gaveta(conteudo)
     meio = round(divisa[1] + divisa[3] / 2) if divisa else _gaveta.ALTURA_RODAPE_GAVETA
-    piso_cima = meio + _visibilidade.ALTURA + 1
+    piso_cima = meio + _visibilidade.altura(context) + 1
     recorte_cima = (0, piso_cima, largura, max(0, altura - 48 - piso_cima))
     recorte_baixo = (0, _gaveta.ALTURA_RODAPE_GAVETA, largura,
                      max(0, meio - _gaveta.ALTURA_RODAPE_GAVETA))
@@ -425,6 +425,9 @@ def _desenhar_gaveta(tela=False):
                 _gaveta._retangulo_arredondado_gaveta(px, py, pw, ph, 5, fundo)
             continue
         if y + h < 0 or y > altura:
+            continue
+        if acao == ('rotulo',):
+            _gaveta._texto_cabivel_gaveta(x, y + (h - 12) / 2, rotulo, w, 12)
             continue
         if acao and acao[0] == 'separador':
             cor = _cor_contorno_categorias(cores) if acao == ('separador', 'biblioteca') else (*cores.outline[:3], 1)

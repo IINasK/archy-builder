@@ -573,7 +573,7 @@ class TestGaveta(unittest.TestCase):
             # com a biblioteca DENTRO do menu, o botao que a leva a' faixa.
             # O "Criar Portas" subiu para o topo da aba (Epico 2.3) e o
             # "Criar Puxador" foi atras, no mesmo padrao (pedido do usuario).
-            self.assertEqual([v[5] for v in rodape[1:] if not addon.visibilidade.eh_acao(v[5])],
+            self.assertEqual([v[5] for v in rodape[1:] if not addon.visibilidade.eh_acao(v[5]) and v[5]!=('rotulo',)],
                              [('operador', addon.biblioteca_faixa.OP_LUGAR)], aba)
             if aba in {'PORTAS', 'PUXADORES'}:
                 verbo = 'portas' if aba == 'PORTAS' else 'criar_puxador'
@@ -584,7 +584,7 @@ class TestGaveta(unittest.TestCase):
                 self.assertAlmostEqual(botao[2], min(540, 320 - 24))
             self.assertEqual(rodape[0][5], ('operador', addon.gaveta.OP_OPCOES))
             for v in rodape:
-                if addon.visibilidade.eh_acao(v[5]):
+                if addon.visibilidade.eh_acao(v[5]) or v[5]==('rotulo',):
                     self.assertEqual(v[3],30)
                     continue
                 self.assertLess(v[1] + v[3], addon.gaveta.ALTURA_RODAPE_GAVETA)
@@ -625,8 +625,6 @@ class TestGaveta(unittest.TestCase):
                               if v[5] and v[5][0] == 'operador'],
                              [addon.gaveta.OP_OPCOES,
                               addon.biblioteca_faixa.OP_LUGAR,
-                              addon.visibilidade.ALTERNAR,
-                              addon.visibilidade.EDITAR,
                               addon.orcamento.OP_EXPORTAR_ORCAMENTO])
             self.assertNotIn(addon.orcamento.OP_EXPORTAR_ORCAMENTO,
                              [v[5][1] for v in _conteudo
@@ -721,7 +719,7 @@ class TestGaveta(unittest.TestCase):
         tela[addon.gaveta._CHAVE_COR] = 'hud_rgb_linha'
         for largura in (190, 320, 564):
             # O painel aberto cobre a faixa fixa, como as listas suspensas.
-            caixas = [v[:4] for v in self.rodape(largura) if not addon.visibilidade.eh_acao(v[5])]
+            caixas = [v[:4] for v in self.rodape(largura) if not addon.visibilidade.eh_acao(v[5]) and v[5]!=('rotulo',)]
             for i, (ax, ay, aw, ah) in enumerate(caixas):
                 for bx, by, bw, bh in caixas[i + 1:]:
                     self.assertFalse(ax < bx + bw - 0.01 and bx < ax + aw - 0.01

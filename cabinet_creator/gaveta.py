@@ -1576,7 +1576,7 @@ def _limites_rolagem_gaveta(context, largura, altura):
     conteudo = _widgets_conteudo_gaveta(context, largura, altura, 0, 0)
     cima, divisa, baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])
     piso_bib = 18 + ALTURA_RODAPE_GAVETA
-    piso = ((divisa[1] + divisa[3] / 2 + 10) if divisa else piso_bib) + _visibilidade.ALTURA
+    piso = ((divisa[1] + divisa[3] / 2 + 10) if divisa else piso_bib) + _visibilidade.altura(context)
     limite = max(0, int(piso - min((v[1] for v in cima), default=piso)))
     limite_bib = max(0, int(piso_bib - min((v[1] for v in baixo),
                                            default=piso_bib)))
@@ -1603,7 +1603,7 @@ def _alca_rolagem(y, altura, limite, atual):
 def _barras_rolagem_gaveta(context, largura, altura, limites, deslocamentos):
     meio = (_divisa_gaveta(context, altura)
             if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2 else None)
-    faixas = (((meio + FOLGA_DIVISA_GAVETA if meio is not None else ALTURA_RODAPE_GAVETA) + _visibilidade.ALTURA,
+    faixas = (((meio + FOLGA_DIVISA_GAVETA if meio is not None else ALTURA_RODAPE_GAVETA) + _visibilidade.altura(context),
                altura - 48, _CHAVE_ROLAGEM),
               (ALTURA_RODAPE_GAVETA, meio - FOLGA_DIVISA_GAVETA if meio is not None else 0,
                _CHAVE_ROLAGEM_BIB))
@@ -1780,6 +1780,7 @@ def _widgets_interativos(context):
     cabecalho, conteudo, rodape = _partes_gaveta(
         _widgets_gaveta(context, context.region.width, altura))
     rodape, flutuante = _separar_flutuante(rodape)
+    rodape = [v for v in rodape if v[5] != ('rotulo',)]
     painel = _retangulo_painel_opcoes(rodape)
     if painel:
         px, py, pw, ph = painel
@@ -1802,7 +1803,7 @@ def _widgets_interativos(context):
     meio = (divisa[1] + divisa[3] / 2) if divisa else ALTURA_RODAPE_GAVETA
     folga = FOLGA_DIVISA_GAVETA if divisa else 0
     visiveis = ([divisa] if divisa and divisa[5][1] else [])
-    for lista, piso, teto in ((cima, meio + folga + _visibilidade.ALTURA, altura - 48),
+    for lista, piso, teto in ((cima, meio + folga + _visibilidade.altura(context), altura - 48),
                               (baixo, ALTURA_RODAPE_GAVETA, meio - folga)):
         for v in lista:
             recortado = _recortar_ao_painel(v, piso, teto)
@@ -1850,6 +1851,7 @@ def _retangulo_painel_opcoes(rodape):
     # a linha fixa do pe' (engrenagem, Criar Portas) nao e' do painel
     painel = [v for v in _separar_flutuante(rodape)[0]
               if v[1] >= ALTURA_RODAPE_GAVETA and not _visibilidade.eh_acao(v[5])
+              and v[5] != ('rotulo',)
               and not (v[5] and v[5][0] == 'rolagem')]
     if not painel:
         return None

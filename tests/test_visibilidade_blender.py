@@ -216,6 +216,7 @@ class TestVisibilidade(unittest.TestCase):
             self.assertNotIn(extra,V.membros(bpy.context,self.modulo,'PORTAS'))
 
     def test_faixa_desabilita_ferragens_e_nao_e_painel_opcoes(self):
+        bpy.context.scene.cabinet_aba='MODULOS'
         for largura in (220,320,540):
             itens=addon.gaveta._widgets_gaveta(bpy.context,largura,900,0,0)
             rodape=addon.gaveta._partes_gaveta(itens)[2]
@@ -223,6 +224,18 @@ class TestVisibilidade(unittest.TestCase):
             self.assertEqual(len([v for v in rodape if V.eh_acao(v[5])]),2)
         bpy.context.scene.cabinet_aba='PUXADORES'
         self.assertFalse(V.OBJECT_OT_editar_grupo_visual.poll(bpy.context))
+
+    def test_faixa_segue_referencia_com_rotulo_e_dois_icones_compactos_a_direita(self):
+        bpy.context.scene.cabinet_aba='MODULOS'
+        for largura in (196,296,456):
+            itens=V.widgets(bpy.context,12,largura,900)
+            botoes=[v for v in itens if V.eh_acao(v[5])]
+            rotulo=next(v for v in itens if v[5]==('rotulo',))
+            self.assertEqual(rotulo[4],'Visibilidade de objetos' if largura>=260 else 'Visibilidade')
+            self.assertLessEqual(rotulo[0]+rotulo[2]+6,botoes[0][0])
+            self.assertTrue(all(v[2:4]==(36,30) and not v[4] for v in botoes))
+            self.assertEqual(botoes[-1][0]+botoes[-1][2],12+largura)
+            self.assertTrue(all(addon.gaveta_eventos._centro_icone(*v[:4],v[5])==(v[0]+18,v[1]+15) for v in botoes))
 
     def test_moldura_com_bases_e_trilhos_da_porta_pesada_pertence_ao_grupo(self):
         grupo=addon.portas.porta_no_modulo(self.modulo,folhas=2,abertura='CORRER',
@@ -259,7 +272,8 @@ class TestVisibilidade(unittest.TestCase):
             acerto=addon.hud._raio_cru(bpy.context,(20,20))
             self.assertNotIn(addon.chapas.MARCA_FOLHA,acerto[0])
 
-    def test_faixa_permanece_com_biblioteca_em_cima_e_sem_selecao(self):
+    def test_faixa_com_biblioteca_em_cima_some_sem_selecao_e_volta_no_modulo(self):
+        bpy.context.scene.cabinet_aba='MODULOS'
         chave=addon.biblioteca_faixa.CHAVE_LAYOUT
         antes=bpy.context.screen.get(chave)
         self.addCleanup(lambda:bpy.context.screen.pop(chave,None) if antes is None else bpy.context.screen.__setitem__(chave,antes))
@@ -269,9 +283,11 @@ class TestVisibilidade(unittest.TestCase):
         for altura in (240,900):
             itens=addon.gaveta._widgets_gaveta(bpy.context,220,altura,0,0)
             faixa=[v for v in itens if V.eh_acao(v[5])]
-            self.assertEqual(len(faixa),2)
-            self.assertEqual(faixa[0][1],addon.gaveta.ALTURA_RODAPE_GAVETA+4)
+            self.assertFalse(faixa)
             self.assertFalse(V.OBJECT_OT_alternar_partes.poll(bpy.context))
+        self.selecionar(self.modulo)
+        faixa=V.widgets(bpy.context,12,196,900)
+        self.assertEqual(faixa[0][1],addon.gaveta.ALTURA_RODAPE_GAVETA+4)
 
     def test_editor_cancela_captura_e_visibilidade_sobrevive_ao_cancelamento(self):
         self.portas();V.definir(bpy.context,self.modulo,'PORTAS',True)
@@ -362,12 +378,31 @@ class TestVisibilidade(unittest.TestCase):
                 faixa = [v for v in itens if v[5] and v[5][:2] in (
                     ('operador', 'object.cabinet_alternar_partes'),
                     ('operador', 'object.cabinet_editar_grupo_visual'))]
+                if aba=='PUXADORES':
+                    self.assertFalse(faixa)
+                    continue
                 self.assertEqual(len(faixa), 2)
                 self.assertEqual(faixa[0][1], faixa[1][1])
                 self.assertLess(faixa[0][0] + faixa[0][2], faixa[1][0])
                 self.assertEqual(faixa[-1][0] + faixa[-1][2], 308)
                 posicoes.append(faixa[0][1])
         self.assertEqual(len(set(posicoes)), 1)
+
+    def test_faixa_nao_aparece_para_objeto_comum_ferragem_ou_sem_selecao(self):
+        bpy.context.scene.cabinet_aba='PORTAS'
+        comum=self.extra()
+        self.selecionar(comum)
+        self.assertFalse(V.widgets(bpy.context,12,296,900))
+        self.assertEqual(V.altura(bpy.context),0)
+        grupo=self.portas()
+        puxador=next(o for o in grupo.children_recursive if addon.chapas.MARCA_PUXADOR in o)
+        self.selecionar(puxador)
+        self.assertFalse(V.widgets(bpy.context,12,296,900))
+        folha=next(o for o in grupo.children_recursive if addon.chapas.MARCA_FOLHA in o)
+        self.selecionar(folha)
+        self.assertTrue(V.widgets(bpy.context,12,296,900))
+        folha.select_set(False)
+        self.assertFalse(V.widgets(bpy.context,12,296,900))
 
 
 with tempfile.TemporaryDirectory(prefix='visibilidade_') as pasta, \

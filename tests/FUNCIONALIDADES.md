@@ -1,5 +1,22 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Faixa contextual de visibilidade (388): referencia visual com rotulo simples
+Visibilidade de objetos a esquerda e dois botoes so' icones (olho/lapis),
+36 x 30 px, alinhados a direita; texto curto em coluna estreita. Continua
+fixa junto a biblioteca, sem rolar. Somente com modulo/peca compativel
+selecionado; objeto comum, sem selecao, aba Puxadores e ferragem isolada nao
+mostram nem reservam a faixa. Durante o editor, o alvo fixado conserva os
+comandos mesmo selecionando um extra. Reutiliza a classificacao de ferragens
+de materiais.protegida_no_grupo. Sem alteracao no arame, snap ou agrupamento.
+Suite visibilidade 26: layout em 220/320/480 px, centro nativo dos icones,
+selecao compativel/incompativel, reserva condicional e biblioteca no topo.
+Registro visual anterior recusado por test_faixa_segue_referencia...
+(dist/visibilidade388-antes.log). Snapshot atualizado para o novo contrato.
+Auditoria das coordenadas em dist/visibilidade388-layout.png (diagrama,
+icones ilustrativos; sem janela). Entrega: 3080 testes / 66 execucoes,
+tudo OK em 4.2/5.2 (dist/visibilidade388-entrega.log). ZIP conferido contra
+40 fontes; espelhos identicos, 36 snapshots revisados e biblioteca preservada.
+
 Grupos visuais por aba (387): substitui o olho da linha Criar da 386 por
 faixa fixa de 38 px junto a divisoria da biblioteca; Esconder/Mostrar partes
 e Editar grupo, icones nativos olho/lapis e texto. Biblioteca no topo usa

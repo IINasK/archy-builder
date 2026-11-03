@@ -7,6 +7,7 @@ _chapas = _modulos = _portas = _gavetas = _prateleiras = _divisorias = None
 _areas_criacao = _selecao = _gaveta = _hud = _eventos = _ferragens = None
 _biblioteca_faixa = None
 _fundos = None
+_materiais = None
 ATIVOS = 'cabinet_visual_ativos'
 GRUPOS = 'cabinet_visual_grupos'
 ORIGINAL = 'cabinet_visual_original'
@@ -41,6 +42,28 @@ def ativo(obj, tipo):
 
 def esmaecido(obj):
     return ORIGINAL in obj and obj.display_type == 'WIRE'
+
+
+def disponivel(context):
+    if context.mode != 'OBJECT' or not categoria(context):
+        return False
+    dono = modulo(context)
+    if dono is None:
+        return False
+    if _edicao[0]:
+        return True
+    obj = context.view_layer.objects.active
+    if obj is None or not obj.select_get():
+        return False
+    if dono.select_get():
+        return True
+    if _areas_criacao.MARCA in obj:
+        return True
+    return _modulos._conj_de(obj) == dono and not _materiais.protegida_no_grupo(obj)
+
+
+def altura(context):
+    return ALTURA if disponivel(context) else 0
 
 
 def _fisicas(objetos):
@@ -157,19 +180,17 @@ def eh_acao(acao):
 
 
 def widgets(context, x, w, altura):
+    if not disponivel(context):
+        return []
     tipo = categoria(context); dono = modulo(context)
     base = (_gaveta._divisa_gaveta(context, altura) + _gaveta.FOLGA_DIVISA_GAVETA
             if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
             else _gaveta.ALTURA_RODAPE_GAVETA)
     escondido = ativo(dono, tipo)
-    rotulo = 'Mostrar partes' if escondido else 'Esconder partes'
-    if w < 280:
-        rotulo = 'Mostrar' if escondido else 'Esconder'
-    editar = ('Concluir grupo' if _edicao[0] else 'Editar grupo') if w >= 280 else ('Concluir' if _edicao[0] else 'Editar')
-    metade = (w - 6) / 2
-    return [(x, base + 4, metade, 30, rotulo, ('operador', ALTERNAR, escondido)),
-            (x + metade + 6, base + 4, metade, 30, editar,
-             ('operador', EDITAR))]
+    rotulo = 'Visibilidade de objetos' if w >= 260 else 'Visibilidade'
+    return [(x + w - 78, base + 4, 36, 30, '', ('operador', ALTERNAR, escondido)),
+            (x + w - 36, base + 4, 36, 30, '', ('operador', EDITAR)),
+            (x, base + 4, max(0, w - 84), 30, rotulo, ('rotulo',))]
 
 
 class OBJECT_OT_alternar_partes(Operator):
@@ -179,7 +200,7 @@ class OBJECT_OT_alternar_partes(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'OBJECT' and bool(categoria(context)) and modulo(context) is not None
+        return disponivel(context)
 
     def execute(self, context):
         dono = modulo(context); tipo = categoria(context)

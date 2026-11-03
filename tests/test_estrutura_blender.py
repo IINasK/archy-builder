@@ -33,7 +33,7 @@ VERBOS = frozenset({
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
     'rolar_nivel', 'separador', 'slider', 'wireframe', 'escolha',
     'ler_portas', 'cadeado', 'suspenso', 'faixa', 'cor', 'fundo',
-    'divisa', 'pergunta', 'resposta', 'nivel', 'rolagem',
+    'divisa', 'pergunta', 'resposta', 'nivel', 'rolagem', 'rotulo',
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
@@ -303,7 +303,7 @@ class TestGridDeMedidas(unittest.TestCase):
                 if acao and addon.gaveta_desenho._chave_widget(acao) is None:
                     sem_chave.add(acao[0])
         self.assertEqual(sem_chave - {'wireframe', 'separador',
-                                      'nome_objeto', 'slider'}, set())
+                                        'nome_objeto', 'slider', 'rotulo'}, set())
 
     def test_chaves_de_realce_nao_colidem(self):
         # Duas chaves iguais acenderiam os dois widgets juntos.
