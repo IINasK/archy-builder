@@ -1,5 +1,27 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Encaixe na parede pelo envelope completo do grupo (390):
+caixa_local_do_modulo usava portas._limites_locais_modulo, que mede apenas
+a carcaca para construir a porta. Agora consulta modulos.pecas_do_envelope
+e os cantos nominais compartilhados com a HUD, incluindo molduras/apoios.
+Nao modifica o vao interno usado pelas portas. Referencial local evita
+inflar a caixa quando o grupo esta girado; giro das costas continua comum.
+Arraste, biblioteca, cotas, encaixe e obstaculos herdam a mesma referencia.
+Folhas abertas, puxadores e copias de chapas fora do modulo ficam fora.
+Regressao: CORRER com moldura 15, rodape 100 e testeira 80. Antes, apoio
+lateral atravessava 15 mm e a base 115 mm; teste falha com o codigo antigo
+(dist/parede390-antes.log). Suite paredes +5 (piso 16 -> 21): caixa vs
+bound_box nativo das pecas, vao estrutural conservado, modulo girado/quatro
+costas, exclusoes, limites da parede/cotas e contato entre duas molduras.
+Dirigidas: 878 testes / 10 execucoes em 4.2/5.2, tudo OK
+(dist/parede390-alvos2.log). Cenas temporarias, projeto aberto conservado.
+Cena aberta auditada SO' em leitura: addon carregado 389, seis apoios,
+estrutura 1300 x 2503 x 550 mm; envelope aprox. 1330 x 2571.921 x 649.073 mm.
+Confirma a divergencia real sem mover objetos/recarregar o add-on na sessao.
+Entrega: 3106 testes / 66 execucoes, tudo OK em 4.2/5.2
+(dist/parede390-entrega.log). ZIP 390 conferido contra 40 fontes, espelhos
+identicos e biblioteca preservada. Sem gestos/alteracoes na janela aberta.
+
 Reposicionar puxadores sem sobreposicao (389): Alt recusa destino ocupado
 antes de mudar pai/props ou refazer puxador/madeira. Usa `_lugar_do_puxador`,
 a mesma referencia numerica da montagem: compara ancora efetiva (tolerancia

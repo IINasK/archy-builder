@@ -82,6 +82,98 @@ class TestParedes(unittest.TestCase):
         for x, y in zip(a, b):
             self.assertAlmostEqual(x, y, places=casas)
 
+    def moldura_pesada(self, conj):
+        return addon.portas.porta_no_modulo(conj,folhas=2,abertura='CORRER',
+            moldura_mm=15,rodape_mm=100,testeira_mm=80)
+
+    def cantos_do_envelope(self, conj):
+        # Oraculo independente: caixas nativas das pecas, incluindo os apoios.
+        bpy.context.view_layer.update()
+        return [o.matrix_world@Vector(c) for o in addon.modulos.pecas_do_envelope(conj)
+                for c in o.bound_box]
+
+    def test_caixa_de_parede_inclui_apoios_da_porta_pesada_como_o_grupo(self):
+        # Regressao 390: a HUD incluia a moldura, o encaixe media so' a carcaca.
+        conj=self.modulo()
+        corpo=tuple(v.copy() for v in P.caixa_local_do_modulo(conj))
+        grupo=self.moldura_pesada(conj)
+        pontos=[conj.matrix_world.inverted()@p for p in self.cantos_do_envelope(conj)]
+        lo,hi=P.caixa_local_do_modulo(conj)
+        self.assertVetor(lo,tuple(min(p[i] for p in pontos) for i in range(3)),6)
+        self.assertVetor(hi,tuple(max(p[i] for p in pontos) for i in range(3)),6)
+        self.assertLess(lo.x,corpo[0].x)
+        self.assertGreater(hi.x,corpo[1].x)
+        self.assertLess(lo.z,corpo[0].z)
+        self.assertEqual(P.frente_do_modulo(conj),'NEG_Y')
+        # O vao das portas conserva a referencia estrutural, sem realimentar moldura.
+        interno=addon.portas._limites_locais_modulo(conj)
+        self.assertVetor(interno[0]/1000,corpo[0],6)
+        self.assertVetor(interno[1]/1000,corpo[1],6)
+
+    def test_encostar_costas_diferentes_usa_envelope_em_modulo_girado(self):
+        conj=self.modulo();self.moldura_pesada(conj)
+        conj.location=(2,3,.4);conj.rotation_euler.z=.73
+        bpy.context.view_layer.update()
+        n=Vector((0,-1,0));alvo=Vector((.1,1,.35))
+        for lado in P.LADOS_COSTAS:
+            with self.subTest(lado=lado):
+                conj[P.CHAVE_COSTAS]=lado
+                self.assertTrue(P.colocar_na_parede(conj,self.parede,alvo,n))
+                pontos=self.cantos_do_envelope(conj)
+                self.assertAlmostEqual(max(p.y for p in pontos),1,places=6)
+                self.assertAlmostEqual(min(p.z for p in pontos),.35,places=6)
+                self.assertAlmostEqual((min(p.x for p in pontos)+max(p.x for p in pontos))/2,.1,places=6)
+
+    def test_envelope_ignora_abertura_puxador_e_chapa_desvinculada(self):
+        conj=self.modulo();grupo=self.moldura_pesada(conj)
+        antes=[v.copy() for v in P.caixa_local_do_modulo(conj)]
+        folhas=addon.portas._folhas_portas(grupo)
+        folhas[0].location.x+=5
+        pux=addon.puxadores.criar_puxador(bpy.context,folhas[1],'ALCA','X+',1)
+        pux.location.x+=8
+        solta=addon.modulos._chapas_do_conjunto(conj)[0]
+        # Uma copia fora do grupo nao amplia a referencia de montagem.
+        copia=solta.copy();copia.data=solta.data.copy();copia.parent=None
+        bpy.context.scene.collection.objects.link(copia);copia.location.x=20
+        bpy.context.view_layer.update()
+        depois=P.caixa_local_do_modulo(conj)
+        self.assertVetor(depois[0],antes[0],6)
+        self.assertVetor(depois[1],antes[1],6)
+
+    def sessao_da_face(self):
+        ponto=Vector((0,1,1));normal=Vector((0,-1,0))
+        return dict(parede=self.parede.name,ponto=tuple(ponto),normal=tuple(normal),
+            u=(1,0,0),regiao=P.regiao_da_parede(self.parede,ponto,normal))
+
+    def test_snap_e_cotas_respeitam_os_apoios_nos_limites_da_parede(self):
+        conj=self.modulo();self.moldura_pesada(conj);s=self.sessao_da_face()
+        for alvo in ((-1.5,1,0),(1.5,1,2.7)):
+            with self.subTest(alvo=alvo):
+                costas,erro=addon.paredes_edicao.encaixar_na_face(bpy.context,conj,Vector(alvo),s)
+                self.assertIsNone(erro)
+                P.colocar_na_parede(conj,self.parede,costas,Vector(s['normal']))
+                pontos=self.cantos_do_envelope(conj)
+                xmin,xmax=min(p.x for p in pontos),max(p.x for p in pontos)
+                zmin,zmax=min(p.z for p in pontos),max(p.z for p in pontos)
+                self.assertGreaterEqual(xmin,-1.500001);self.assertLessEqual(xmax,1.500001)
+                self.assertGreaterEqual(zmin,-.000001);self.assertLessEqual(zmax,2.700001)
+                ficha=addon.paredes_composicao.ficha(conj,s)
+                self.assertAlmostEqual(ficha['inicio'],xmin,places=6)
+                self.assertAlmostEqual(ficha['base'],zmin,places=6)
+                self.assertAlmostEqual(ficha['largura'],xmax-xmin,places=6)
+
+    def test_snap_entre_modulos_nao_atravessa_a_moldura_do_vizinho(self):
+        primeiro=self.modulo();self.moldura_pesada(primeiro)
+        self.encostar(primeiro,base=0)
+        segundo=addon.modulos.criar_armario(bpy.context,'Vizinho',600,700,550)
+        self.moldura_pesada(segundo);s=self.sessao_da_face()
+        bpy.context.view_layer.update()
+        costas,erro=addon.paredes_edicao.encaixar_na_face(bpy.context,segundo,Vector((.31,1,.4)),s)
+        self.assertIsNone(erro)
+        P.colocar_na_parede(segundo,self.parede,costas,Vector(s['normal']))
+        pontos_a=self.cantos_do_envelope(primeiro);pontos_b=self.cantos_do_envelope(segundo)
+        self.assertAlmostEqual(min(p.x for p in pontos_b),max(p.x for p in pontos_a),places=6)
+
     def test_parede_e_superficie_vertical_que_nao_e_movel(self):
         n, u = P.eixos_da_parede(Vector((0.0, -1.0, 0.0)))
         self.assertVetor(n, (0, -1, 0))

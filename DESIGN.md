@@ -635,6 +635,12 @@ posiciona ("Posicionando o puxador... (Esc cancela)"). Saiu do pe' fixo.
 "Editar parede" / "Sair da edicao da parede" (v361): tres entradas -- vertices BMesh conectados em Edit Mode (1 grau/2 mm), Automatico por hover e Por pontos (3+ pontas) em Object Mode. Esquerdo marca, Backspace volta, Enter aceita, direito/Esc cancela; menu lateral oferece as mesmas acoes. Hover reaproveita o realce do atach. Local View usa exibicao temporaria SO' da area, mantendo moveis reais associados; a malha original nao muda e as outras partes da mesma planta deixam de bloquear a camera. Sair restaura isolamento/ocultacao; limpeza de undo no timer normal. Seletores de metodo ficam em Modulos ou durante a escolha, sem invadir outros assistentes. Entrar/sair continuam:
 o mesmo padrao, 30 px, laranja para entrar e laranja forte para sair
 (`OPERADORES_DESTAQUE`, tupla: a acao nunca e' hasheada).
+Encaixe na parede (390): a referencia e' o envelope do grupo, incluindo
+molduras e chapas de apoio de portas de trilho pesado. Usar a mesma lista
+de pecas e medidas nominais da HUD; nao o vao interno de montagem da porta.
+Vale para arraste, quinas, cotas, limites da parede e obstaculos entre
+modulos, nos quatro lados de costas. Folhas abertas/puxadores e chapas
+fora do grupo nao ampliam a referencia. Dimensoes e malhas nao sao alteradas.
 Posicionando, aparece o MODELO num carrossel de RETRATOS (pedido do
 usuario: a foto a 45 graus, como na biblioteca, no lugar dos nomes; setas
 quando nao cabem): os de fabrica e os do usuario (categoria Puxadores da

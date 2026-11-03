@@ -13,8 +13,7 @@ por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 | Cotas de modulo, larguras fixas, redistribuir/trocar modelo | `paredes_composicao.py` | paredes_composicao, hud |
 | Comodo e arquivo vendido | `orcamento.py` | orcamento |
 Leia tambem `cabinet_creator/modulos/AGENTS.md` para envelope, Collections
-compartilhadas e dependentes; `planejamento/setores/interface/AGENTS.md`
-para precedencia de clique e gizmos.
+compartilhadas e dependentes; `planejamento/setores/interface/AGENTS.md` para precedencia de clique e gizmos.
 Paredes exigem tambem [integracao](../integracao/AGENTS.md): gesto DIREITO,
 associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
 
@@ -77,7 +76,7 @@ associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.
   quina da frente/fundo) e `encaixar_na_face`. Arraste espera o limiar.
   Cena real (321): `regiao_da_parede` em numpy (atributos `.corner_*`) e
   cache por FACE da regiao; `faixas_da_face` em lote. Nada de laco por face.
-  Costas (324): `caixa_do_modulo` vem no referencial da PAREDE (giro de
+  Envelope 390: `caixa_local_do_modulo` usa `modulos.pecas_do_envelope` e cantos nominais, como a HUD; inclui apoios/molduras da porta pesada, exclui folhas abertas/puxadores. Nao usar o vao interno de portas para encaixar o grupo. Costas (324): `caixa_do_modulo` vem no referencial da PAREDE (giro de
   `parede_costas`, oposto a' porta); com ela use `referencial(conj)` e
   `escala_no_referencial`, nunca `matrix_world`. Medidas: `medidas_na_parede`.
   Cotas (368): A1/A2/A3 sempre no selecionado; A3 Prof. com chamada na quina.

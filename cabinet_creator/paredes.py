@@ -29,6 +29,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 _chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = _gavetas = None
 _gaveta_desenho = None
 _paredes_edicao = _paredes_selecao = None
+_modulos = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -301,12 +302,15 @@ def retangulo_da_parede(parede, ponto, normal, dep=None, face=None):
 
 
 def caixa_local_do_modulo(conj):
-    """(lo, hi) da caixa das chapas nos eixos do modulo, em m, ou None."""
-    limites = _portas._limites_locais_modulo(conj)
-    if limites is None:
+    """(lo, hi) do envelope do GRUPO nos eixos do modulo, em m, ou None."""
+    inversa = conj.matrix_world.inverted_safe()
+    # A mesma referencia nominal da HUD inclui apoios/molduras, sem contar portas abertas.
+    pontos = [inversa @ p for o in _modulos.pecas_do_envelope(conj)
+              for p in _chapas._cantos(o)]
+    if not pontos:
         return None
-    lo, hi = limites
-    return lo / 1000.0, hi / 1000.0
+    return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),
+            Vector(tuple(max(p[i] for p in pontos) for i in range(3))))
 
 
 def frente_do_modulo(conj, caixa_local=None):
