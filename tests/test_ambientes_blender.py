@@ -14,7 +14,7 @@ class TestAmbientes(unittest.TestCase):
     def test_realce_coplanar_corrige_so_profundidade_e_restaura_projecao(self):
         # Regressao 394: a cor disputava o mesmo depth da face nativa (listras).
         self.marcar([0]);self.selecionar([0]);A.atualizar()
-        contexto=SimpleNamespace(mode='EDIT_MESH',edit_object=self.obj)
+        contexto=SimpleNamespace(mode='EDIT_MESH',edit_object=self.obj,scene=bpy.context.scene)
         for original in (Matrix.Identity(4),Matrix(((2,0,0,0),(0,2,0,0),(0,0,-1,-.2),(0,0,-1,0)))):
             class Pilha:
                 p=original.copy()
@@ -60,6 +60,7 @@ class TestAmbientes(unittest.TestCase):
 
     def setUp(self):
         addon.eventos._fim_do_desfazer()
+        bpy.context.scene.pop(A.CHAVE_CORES,None)
         addon.paredes_edicao.encerrar()
         if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
         for o in list(bpy.data.objects):bpy.data.objects.remove(o,do_unlink=True)
@@ -163,9 +164,9 @@ class TestAmbientes(unittest.TestCase):
         A.widgets(bpy.context,itens,self.obj,10,900,300)
         quadrados=[i for i in itens if i[5] and i[5][:2]==('escolha','ambiente_cor')]
         nomes=[i for i in itens if i[5] and i[5][:2]==('escolha','ambiente_nome')]
-        self.assertEqual([i[4] for i in nomes],addon.orcamento._comodos_da_lista(bpy.context.scene))
-        self.assertEqual(len(quadrados),len(nomes))
-        for q,n in zip(quadrados,nomes):self.assertLess(q[0]+q[2],n[0])
+        self.assertEqual([i[4] for i in nomes],['Sem categoria']+addon.orcamento._comodos_da_lista(bpy.context.scene))
+        self.assertEqual(len(quadrados),len(nomes)-1)
+        for q,n in zip(quadrados,nomes[1:]):self.assertLess(q[0]+q[2],n[0])
 
     def test_2d_e_categorias_lado_a_lado_desagregar_abaixo_definir_linha_inteira(self):
         E=addon.paredes_edicao
@@ -191,7 +192,10 @@ class TestAmbientes(unittest.TestCase):
                 for largura in (166,296,540):
                     itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
                     sair=[v for v in itens if v[5] and v[5][0]=='operador']
-                    self.assertEqual(len(sair),1);self.assertEqual(sair[0][2],largura)
+                    self.assertEqual(len(sair),1);self.assertEqual(sair[0][2],largura-34)
+                    olho=next(v for v in itens if v[5] and v[5][:2]==('escolha','ambiente_visivel'))
+                    self.assertEqual(olho[0],sair[0][0]+sair[0][2]+6)
+                    self.assertEqual(olho[0]+olho[2],12+largura)
                     self.assertFalse(any(v[4].startswith('Definir como') for v in itens))
                     self.assertIn('Categorias',[v[4] for v in itens])
 
@@ -204,6 +208,178 @@ class TestAmbientes(unittest.TestCase):
 
     def faces_marcadas(self):
         return {f.index for f in bmesh.from_edit_mesh(self.obj.data).faces if f.select}
+
+    def grade(self,nx=3,nz=3):
+        if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+        self.obj.data.clear_geometry()
+        ps=[(x,0,z) for z in range(nz+1) for x in range(nx+1)]
+        faces=[(z*(nx+1)+x,z*(nx+1)+x+1,(z+1)*(nx+1)+x+1,(z+1)*(nx+1)+x)
+               for z in range(nz) for x in range(nx)]
+        self.obj.data.from_pydata(ps,[],faces);bpy.context.view_layer.update()
+
+    def categorias_2d(self,indices=None,poligono=None):
+        E=addon.paredes_edicao;S=addon.paredes_selecao
+        self.selecionar(range(len(self.obj.data.polygons)) if indices is None else indices)
+        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+        regiao=next(r for r in area.regions if r.type=='WINDOW')
+        with bpy.context.temp_override(area=area,region=regiao):
+            p,n,r=S.dos_vertices(bpy.context,self.obj,somente_faces=True,aceitar_ilhas=True)
+            if poligono:r=S.recortar(r,poligono,n)
+            bpy.ops.object.mode_set(mode='OBJECT')
+            self.assertIsNone(E.iniciar(bpy.context,self.obj,face=(p,n,r),recortar=True))
+            sessao=E._sessao[0]['id'];proxy=E._sessao[0]['exibicao']
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+        return area,regiao,sessao,proxy
+
+    def test_categoria_mista_aplica_e_so_remove_quando_todas_ja_possuem(self):
+        self.marcar([0,2]);self.marcar([1],'Quarto');self.selecionar([0,1])
+        bm=bmesh.from_edit_mesh(self.obj.data);c=bm.faces.layers.int[A.ATR_FACE]
+        self.assertEqual(bpy.ops.object.cabinet_definir_ambiente(nome='Cozinha'),{'FINISHED'})
+        self.assertEqual([f[c] for f in bm.faces][:3],[1,1,1])
+        self.assertEqual(bpy.ops.object.cabinet_definir_ambiente(nome='Cozinha'),{'FINISHED'})
+        self.assertEqual([f[c] for f in bm.faces][:3],[0,0,1])
+
+    def test_sem_categoria_limpa_idempotente_sem_cor_ou_registro_vazio(self):
+        self.marcar([0]);self.marcar([1],'Quarto');self.selecionar([0]);mapa=A._mapa(self.obj)
+        for _ in range(2):self.assertEqual(bpy.ops.object.cabinet_definir_ambiente(limpar=True),{'FINISHED'})
+        bm=bmesh.from_edit_mesh(self.obj.data);c=bm.faces.layers.int[A.ATR_FACE]
+        self.assertEqual([f[c] for f in bm.faces][:2],[0,2]);self.assertEqual(A._mapa(self.obj),mapa)
+        itens=[];A.widgets(bpy.context,itens,self.obj,12,900,400)
+        vazio=next(v for v in itens if v[4]=='Sem categoria')
+        self.assertEqual((vazio[0],vazio[2]),(12,400))
+        self.assertFalse(any(v[5] and v[5][:3]==('escolha','ambiente_cor','') for v in itens))
+
+    def test_olho_alterna_cores_sem_mudar_categoria_ou_nome_e_desliga_desenho(self):
+        self.marcar([0]);self.selecionar([0]);A.atualizar();mapa=A._mapa(self.obj)
+        ctx=SimpleNamespace(screen={},scene=bpy.context.scene,area=SimpleNamespace(tag_redraw=lambda:None))
+        evento=SimpleNamespace(type='LEFTMOUSE',value='PRESS',mouse_region_x=12,mouse_region_y=12)
+        classe=addon.gaveta_eventos.OBJECT_OT_interagir_gaveta
+        for visivel in (True,False):
+            acao=('escolha','ambiente_visivel',visivel,visivel,True,A.ALVO)
+            self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(acao),'HIDE_OFF' if visivel else 'HIDE_ON')
+            with patch.object(addon.gaveta,'_widgets_interativos',return_value=[(0,0,28,28,'',acao)]), \
+                 patch.object(addon.gaveta,'_fechar_suspenso'),patch.object(addon.eventos,'_redesenhar_viewports'):
+                self.assertEqual(classe.invoke(SimpleNamespace(),ctx,evento),{'FINISHED'})
+            self.assertEqual(ctx.scene[A.CHAVE_CORES],not visivel)
+            if visivel:
+                with patch.object(A,'gpu') as gpu:A.desenhar();self.assertFalse(gpu.mock_calls)
+        self.assertEqual(A._mapa(self.obj),mapa);self.assertEqual(ctx.scene[A.CHAVE_NOME],'Cozinha')
+
+    def test_automatico_prioriza_area_da_categoria_e_area_livre_nao_invade_outra(self):
+        self.grade();self.marcar([0,1,8]);area,regiao,_=self.preparar_faces()
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0)
+            self.assertEqual(self.faces_marcadas(),{0,1,8})
+            A.selecionar_face(bpy.context,self.obj,4)
+            self.assertEqual(self.faces_marcadas(),{2,3,4,5,6,7})
+
+    def test_shift_individual_ctrl_percurso_e_shift_ctrl_preenche_area_nativamente(self):
+        self.grade();area,regiao,_=self.preparar_faces()
+        with bpy.context.temp_override(area=area,region=regiao):
+            for preencher,quantidade in ((False,5),(True,9)):
+                bpy.ops.mesh.select_all(action='DESELECT')
+                A.selecionar_face(bpy.context,self.obj,0,manual=True)
+                A.selecionar_face(bpy.context,self.obj,8,manual=True,percurso=True,area=preencher)
+                self.assertEqual(len(self.faces_marcadas()),quantidade)
+                self.assertTrue({0,8}<=self.faces_marcadas())
+
+    def test_selecao_rapida_reutiliza_bvh_e_nao_invalida_geometria(self):
+        self.grade();area,regiao,_=self.preparar_faces();s=A._edicao_faces[0];cache=s['cache']
+        with bpy.context.temp_override(area=area,region=regiao),patch.object(A,'atualizar_selecao',side_effect=AssertionError('Refez BVH')):
+            A.selecionar_face(bpy.context,self.obj,0,manual=True)
+            A.selecionar_face(bpy.context,self.obj,8,manual=True,percurso=True)
+        self.assertFalse(s['sujo']);self.assertIs(s['cache'],cache)
+
+    def test_percurso_sem_conexao_conserva_selecao_e_ocultacao_nativas(self):
+        area,regiao,_=self.preparar_faces()
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0,manual=True)
+            A.selecionar_face(bpy.context,self.obj,2,manual=True,percurso=True)
+        self.assertIn(0,self.faces_marcadas())
+        self.assertTrue(all(not f.hide for f in bmesh.from_edit_mesh(self.obj.data).faces))
+        self.assertIsNotNone(A._edicao_faces[0])
+
+    def test_modificadores_encaminham_face_percurso_e_preenchimento(self):
+        self.grade();area,regiao,token=self.preparar_faces()
+        with bpy.context.temp_override(area=area,region=regiao),patch.object(A,'acerto_selecao',return_value=0), \
+                patch.object(A,'selecionar_face') as selecionar:
+            for shift,ctrl in ((True,False),(False,True),(True,True)):
+                evento=SimpleNamespace(type='LEFTMOUSE',value='PRESS',mouse_x=regiao.x+10,
+                                       mouse_y=regiao.y+10,shift=shift,ctrl=ctrl)
+                A.evento_selecao(bpy.context,evento,token)
+                selecionar.assert_called_with(bpy.context,self.obj,0,True,percurso=ctrl,area=ctrl and shift)
+
+    def test_2d_categoria_preserva_camera_isolamento_sessao_e_funciona_no_original_oculto(self):
+        self.grade();area,regiao,sessao,proxy=self.categorias_2d()
+        E=addon.paredes_edicao;rv=area.spaces.active.region_3d
+        vista=(tuple(rv.view_rotation),tuple(rv.view_location),rv.view_distance,rv.view_perspective)
+        self.assertEqual(self.faces_marcadas(),set())
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0,manual=True)
+            A.selecionar_face(bpy.context,self.obj,8,manual=True,percurso=True,area=True)
+            self.assertEqual(len(self.faces_marcadas()),9);E.verificar()
+            self.assertTrue(E.ativa());self.assertEqual(E._sessao[0]['id'],sessao)
+            self.assertFalse(E.esta_na_vista(self.obj,area.spaces.active,bpy.context))
+            self.assertIsNotNone(bpy.data.objects.get(proxy))
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
+        self.assertEqual(vista,(tuple(rv.view_rotation),tuple(rv.view_location),rv.view_distance,rv.view_perspective))
+        self.assertTrue(E.ativa());self.assertEqual(E._sessao[0]['id'],sessao)
+
+    def test_percurso_2d_nao_atravessa_face_fora_da_area_ativa_e_restaura_ocultacao(self):
+        self.grade();area,regiao,_,_=self.categorias_2d(indices=[0,1,2,3,5,6,7,8])
+        s=A._edicao_faces[0];self.assertNotIn(4,s['ids'])
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,s['ids'].index(3),manual=True)
+            A.selecionar_face(bpy.context,self.obj,s['ids'].index(5),manual=True,percurso=True)
+            self.assertNotIn(4,self.faces_marcadas());self.assertEqual(len(self.faces_marcadas()),5)
+        bm=bmesh.from_edit_mesh(self.obj.data);bm.faces.ensure_lookup_table();self.assertFalse(bm.faces[4].hide)
+
+    def test_2d_face_inteira_mas_previa_e_cores_limitadas_a_area_ativa(self):
+        self.grade(1,1)
+        for v in self.obj.data.vertices:v.co*=3
+        poligono=[(.5,0,.5),(2.5,0,.5),(2.5,0,2.5),(.5,0,2.5)]
+        area,regiao,_,_=self.categorias_2d(poligono=poligono)
+        self.assertIsNone(A.acerto_selecao(self.obj,Vector((.1,-2,.1)),Vector((0,1,0)),True))
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0,manual=True)
+            self.assertEqual(bpy.ops.object.cabinet_definir_ambiente(nome='Cozinha'),{'FINISHED'})
+        ps=A._cache[0][self.obj.name]['grupos'][0][1]
+        self.assertGreaterEqual(float(ps[:,0].min()),.5-1e-6);self.assertLessEqual(float(ps[:,0].max()),2.5+1e-6)
+        self.assertEqual(len(bmesh.from_edit_mesh(self.obj.data).faces),1)
+
+    def test_undo_em_categorias_2d_limpa_sessao_handlers_e_proxies(self):
+        bpy.context.preferences.edit.use_global_undo=True
+        self.grade();bpy.ops.ed.undo_push(message='Antes das categorias na vista 2D')
+        area,regiao,_,_=self.categorias_2d()
+        with bpy.context.temp_override(area=area,region=regiao):
+            A.selecionar_face(bpy.context,self.obj,0,manual=True)
+            bpy.ops.object.cabinet_definir_ambiente(nome='Cozinha')
+            bpy.ops.ed.undo_push(message='Categoria no recorte 2D');self.obj=None
+            bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+            addon.paredes_edicao.verificar()
+        self.obj=bpy.data.objects['Casa']
+        self.assertIsNone(A._edicao_faces[0]);self.assertFalse(addon.paredes_edicao.ativa())
+        self.assertFalse(any(addon.paredes_selecao.MARCA_EXIBICAO in o for o in bpy.data.objects))
+
+    def test_trocar_cena_em_categorias_2d_nao_muda_selecao_da_cena_nova(self):
+        self.grade();area,regiao,_,_=self.categorias_2d();origem=bpy.context.scene
+        outra=bpy.data.scenes.new('Outra cena categorias')
+        try:
+            bpy.context.window.scene=outra
+            bpy.ops.mesh.primitive_cube_add();cubo=bpy.context.object
+            with bpy.context.temp_override(area=area,region=regiao):addon.paredes_edicao.verificar()
+            self.assertIsNone(A._edicao_faces[0]);self.assertFalse(addon.paredes_edicao.ativa())
+            self.assertIs(bpy.context.object,cubo);self.assertTrue(cubo.select_get())
+        finally:
+            bpy.context.window.scene=origem;bpy.data.scenes.remove(outra)
+
+    def test_entrada_2d_automatica_de_categoria_do_cubo_escolhe_so_o_plano_clicado(self):
+        bpy.ops.object.select_all(action='DESELECT');bpy.ops.mesh.primitive_cube_add(size=2)
+        self.obj=bpy.context.object;self.obj[P.CHAVE_ALVENARIA]=True;self.marcar(range(6))
+        area,regiao,_=self.preparar_faces(True)
+        indice=A.acerto_selecao(self.obj,Vector((0,-4,0)),Vector((0,1,0)),True)
+        with bpy.context.temp_override(area=area,region=regiao):A.selecionar_face(bpy.context,self.obj,indice)
+        self.assertEqual(len(self.faces_marcadas()),1)
 
     def test_entrada_unica_editar_parede_sem_botao_duplicado_ou_seletor_de_metodo(self):
         for largura in (166,296,540):
@@ -374,30 +550,30 @@ class TestAmbientes(unittest.TestCase):
             self.assertIn(('operador','object.cabinet_editar_ambientes'),[v[5] for v in itens])
             self.assertTrue(A.OBJECT_OT_editar_ambientes.poll(bpy.context))
             self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
-            self.assertEqual(bpy.context.mode,'EDIT_MESH');self.assertFalse(E.ativa())
+            self.assertEqual(bpy.context.mode,'EDIT_MESH');self.assertTrue(E.ativa())
             self.assertIs(bpy.context.edit_object,self.obj)
             itens=[];E.widgets(bpy.context,itens,12,900,296)
-            self.assertIn('Voltar a edicao da parede',[v[4] for v in itens])
+            self.assertIn('Sair da edicao de categorias',[v[4] for v in itens])
             self.assertIn('Cozinha',[v[4] for v in itens])
-            self.assertEqual(bpy.ops.object.cabinet_editar_parede(),{'FINISHED'})
+            self.assertEqual(bpy.ops.object.cabinet_editar_ambientes(),{'FINISHED'})
             self.assertTrue(E.ativa());self.assertEqual(bpy.context.mode,'OBJECT')
             self.assertEqual(E._sessao[0]['regiao']['retangulo'],limites)
             self.assertTrue(E._sessao[0]['recorte_explicito']);self.assertIsNone(A._retorno[0])
 
-    def test_tab_nativo_na_edicao_de_ambientes_nao_perde_botao_de_retorno(self):
+    def test_tab_sai_das_categorias_e_mantem_sessao_2d(self):
         E=addon.paredes_edicao
         area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
         regiao=next(r for r in area.regions if r.type=='WINDOW')
         p=Vector((-1,1,1));n=Vector((0,-1,0))
         with bpy.context.temp_override(area=area,region=regiao):
             self.assertIsNone(E.iniciar(bpy.context,self.obj,face=(p,n,P.regiao_da_parede(self.obj,p,n))))
+            identificador=E._sessao[0]['id']
             bpy.ops.object.cabinet_editar_ambientes()
-            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.mode_set(mode='OBJECT');E.verificar()
+            self.assertTrue(E.ativa());self.assertEqual(E._sessao[0]['id'],identificador)
+            self.assertFalse(E._sessao[0]['categorias'])
             itens=[];E.widgets(bpy.context,itens,12,900,296)
-            editar=next(v for v in itens if v[4]=='Editar em 2D')
-            self.assertEqual(editar[5],('operador','object.cabinet_editar_parede'))
-            self.assertEqual(bpy.ops.object.cabinet_editar_parede(),{'FINISHED'})
-            self.assertTrue(E.ativa())
+            self.assertIn('Editar categorias',[v[4] for v in itens])
 
     def test_falha_ao_entrar_em_edit_mode_restaura_a_parede(self):
         E=addon.paredes_edicao

@@ -443,6 +443,11 @@ def encerrar(perspectiva=False):
     if s is None:
         return
     janela, area, regiao = _janela_da_sessao()
+    if s.get('categorias'):
+        if janela and area and regiao:
+            with bpy.context.temp_override(window=janela,area=area,region=regiao):
+                _ambientes.sair_categorias_2d(bpy.context)
+        else:_ambientes.encerrar_selecao()
     cena_atual = janela.scene if janela else None
     camada_atual = janela.view_layer.name if janela else ''
     try:
@@ -525,7 +530,8 @@ def verificar(atualizar_previa=True):
     if s.get('recorte_explicito'):
         fonte=bpy.data.objects.get(s['parede'])
         if (bpy.data.objects.get(s.get('exibicao','')) is None or
-                fonte is not None and (fonte.data.is_editmode or _paredes._assinatura(fonte.matrix_world)!=s['parede_matriz'])):
+                fonte is not None and (fonte.data.is_editmode and not s.get('categorias')
+                                       or _paredes._assinatura(fonte.matrix_world)!=s['parede_matriz'])):
             encerrar()
             return
         if fonte is not None and bpy.context.object!=fonte and any(o.select_get() for o in bpy.context.selected_objects):
@@ -533,6 +539,11 @@ def verificar(atualizar_previa=True):
     mudou = abs(rv.view_rotation.dot(Quaternion(s['rotacao']))) < 0.999999
     if mudou or rv.view_perspective != 'ORTHO' or area.spaces.active.local_view is None:
         encerrar(perspectiva=mudou)
+    elif s.get('categorias'):
+        fonte=bpy.data.objects.get(s['parede'])
+        if fonte is None or not fonte.data.is_editmode:
+            with bpy.context.temp_override(window=janela,area=area,region=regiao):
+                _ambientes.sair_categorias_2d(bpy.context)
     elif atualizar_previa:
         with bpy.context.temp_override(window=janela, area=area, region=regiao):
             if s.get('enquadrando') and not bpy.app.background:
@@ -623,6 +634,8 @@ def widgets(context, itens, x, topo, w):
             topo -= 26
         return topo - 58
     s = _sessao[0]
+    if s.get('categorias'):
+        return _ambientes.widgets(context,itens,obj,x,topo,w)
     botao('Sair da edicao da parede', 'object.cabinet_sair_parede', 30)
     botao('Editar categorias','object.cabinet_editar_ambientes')
     topo = _paredes_composicao.widgets(context, itens, x, topo - 12, w)
@@ -1652,9 +1665,9 @@ def _desenhar_escolha():
             gpu.state.point_size_set(1);gpu.state.line_width_set(1);gpu.state.blend_set('NONE')
 
 
-def entrar_por_vertices(context,obj,somente_faces=False):
+def entrar_por_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
     try:
-        face=_paredes_selecao.dos_vertices(context,obj,somente_faces=somente_faces)
+        face=_paredes_selecao.dos_vertices(context,obj,somente_faces=somente_faces,aceitar_ilhas=aceitar_ilhas)
     except ValueError as erro:
         return str(erro)
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -1862,6 +1875,8 @@ class OBJECT_OT_observar_parede(Operator):
                     encerrar(perspectiva=True)
                     return {'PASS_THROUGH'}
                 s = _sessao[0]
+                if s.get('categorias'):
+                    return {'PASS_THROUGH'}
                 if not s['escolhendo'] and event.type == 'LEFTMOUSE' and event.value == 'PRESS':
                     cota = _paredes_composicao.cota_sob(event.mouse_x - regiao.x, event.mouse_y - regiao.y)
                     if cota:

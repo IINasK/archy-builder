@@ -1,5 +1,38 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Categorias e selecao nativa na mesma vista 2D (399): nome aplica a todas
+as faces; so' remove quando todas ja' possuem a categoria. Selecao mista
+recebe a escolhida. Sem categoria limpa sem quadrado/registro vazio;
+repetir nao altera outras faces. Olho ao lado de Sair alterna cores e
+nomes sem alterar categorias/selecao. Automatico escolhe area cadastrada
+ou superficie plana livre; entrada 2D restringe ao plano clicado.
+Shift individual, Ctrl percurso e Shift+Ctrl preenchimento usam motor
+nativo. Grade 3x3: percurso 0->8 seleciona 5 faces; preenchimento, 9.
+Regressao da integracao nativa: indice apenas da face cancelava o comando
+(1 face selecionada); somar vertices+arestas produz 5/9. Capturada em
+dist/ambientes399-novos.log, corrigida em ambientes399-corrigido.log.
+Alvo original fora do Local View participa so' durante o operador, sem
+redraw; camera/isolar/proxy/sessao e ocultacao anterior sao preservados.
+Editar categorias no 2D abre lista completa sem sair do 2D. Acerto/previa/
+cores recortados na area ativa, inclusive face parcialmente sobreposta;
+classificacao continua na face nativa inteira, sem criar geometria.
+Furo no centro da grade: Ctrl contorna 5 faces, nao cruza a face excluida.
+Ctrl sem caminho nao derruba selecao; modificadores despacham corretamente.
+Cenarios extras: cliques rapidos conservam BVH; Tab fecha so' categorias;
+undo limpa handlers/proxy, trocar cena conserva a selecao da cena nova.
+Suite ambientes 47 -> 61; fixture GUI atualizada para Shift individual.
+Dirigidas 4.2/5.2: 908 testes / 18 execucoes OK
+(dist/ambientes399-setores.log). Auditoria GPU isolada com tuplas/helpers
+reais: dist/ambientes399-menu.png, larguras 190/320/564. Olho nativo
+validado pelos metadados HIDE_OFF/HIDE_ON; gizmo nao desenhado nessa prova.
+Callbacks reais em dist/ambientes399-faces.png verificam cores limitadas
+ao recorte e selecao ainda visivel com olho desligado. Sem abrir janela,
+recarregar add-on em uso ou modificar cena real/biblioteca. Gestos fisicos
+na GUI nao executados.
+Harness completo 4.2/5.2: 3306 testes / 70 execucoes OK
+(dist/ambientes399-completo.log). Pacote 399 com 41 fontes identicos;
+espelhos e limites conferidos.
+
 Categorias manuais e dois modos da Alvenaria (398): Editar em 2D/Editar
 categorias lado a lado, Desagregar Alvenaria vermelho abaixo em linha
 inteira; Definir Alvenaria permanece laranja. Nome do comodo aplica nas

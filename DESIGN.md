@@ -725,6 +725,25 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+399: clicar num nome aplica a categoria a todas as faces selecionadas;
+se TODAS ja' possuem essa categoria, limpa a selecao. Sem categoria e'
+uma linha sem quadrado de cor e sempre limpa, sem criar registro vazio.
+Sair da edicao de categorias e olho nativo HIDE_OFF/HIDE_ON lado a lado,
+28 px e intervalo 6 px; olho esconde/mostra cores e nomes, conservando
+selecao e categorias. Automatico seleciona a area da categoria clicada,
+ou a regiao plana conectada sem categoria. Shift alterna faces; Ctrl usa
+percurso nativo, Shift+Ctrl preenche area. Entrada 2D sempre respeita o
+mesmo plano, inclusive quando uma categoria cobre varios lados da casa.
+Editar categorias dentro do 2D conserva a mesma sessao, camera ortografica,
+isolamento e proxy. Menu abre toda a lista, sem retornar a' vista 3D. A
+selecao considera faces nativas inteiras que sobrepoem a area ativa;
+acerto, previa e cores ficam recortados nessa area, sem dividir a malha.
+Tab/Esc/Sair fecham so' categorias; orbita/undo/troca de cena encerram a
+sessao com as guardas existentes. Zoom/pan e menu permanecem disponiveis.
+Operadores nativos recebem temporariamente o original no Local View,
+sem redraw, devolvendo participacao/ocultacao. BVHs e recortes ficam no
+cache do timer; clicar nao reconstroi arvores.
+
 398: Editar em 2D e Editar categorias em duas colunas iguais, 30 px de
 altura e intervalo de 6 px. Abaixo, Desagregar Alvenaria em linha inteira,
 vermelho de alerta do tema; Definir Alvenaria permanece laranja e inteiro.

@@ -594,6 +594,10 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
                 elif len(acao)>5 and acao[5]==_ambientes.ALVO:
+                    if acao[1]=='ambiente_visivel':
+                        context.scene[_ambientes.CHAVE_CORES]=not acao[2]
+                        _eventos._redesenhar_viewports(context)
+                        context.area.tag_redraw();return {'FINISHED'}
                     context.scene[_ambientes.CHAVE_NOME]=acao[2]
                     if acao[1]=='ambiente_cor':
                         self._no_soltar='object.cabinet_cor_ambiente'
@@ -603,6 +607,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if acao[1]=='ambiente_nome':
                         self._no_soltar='object.cabinet_definir_ambiente'
                         self._props_no_soltar={'nome':acao[2]}
+                        if not acao[2]:self._props_no_soltar['limpar']=True
                         context.window_manager.modal_handler_add(self)
                         return {'RUNNING_MODAL'}
                 elif len(acao)>5 and acao[5]==_paredes_edicao.ALVO_AREA:
@@ -1160,6 +1165,8 @@ def _centro_icone(x, y, w, h, acao):
 def _icone_acao_gaveta(acao):
     if not acao:
         return None
+    if acao[:2]==('escolha','ambiente_visivel'):
+        return 'HIDE_OFF' if acao[2] else 'HIDE_ON'
     if acao[:2] == ('operador', 'object.cabinet_alternar_partes'):
         return 'HIDE_ON' if acao[2] else 'HIDE_OFF'
     if _icone_ao_lado(acao):

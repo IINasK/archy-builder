@@ -53,7 +53,7 @@ def automatica(context,obj,ponto,normal,face):
     return Vector(regiao['plano']),Vector(regiao['normal']),regiao
 
 
-def dos_vertices(context,obj,somente_faces=False):
+def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
     if context.mode!='EDIT_MESH' or obj is None or obj.type!='MESH':
         raise ValueError('Selecione vertices de uma parede em Edit Mode')
     editados=[o for o in context.objects_in_mode_unique_data if o.type=='MESH']
@@ -74,7 +74,7 @@ def dos_vertices(context,obj,somente_faces=False):
             if outro in vertices and outro not in visitados:
                 visitados.add(outro)
                 fronteira.append(outro)
-    if visitados!=vertices:
+    if visitados!=vertices and not aceitar_ilhas:
         raise ValueError('Os vertices selecionados devem estar conectados entre si')
     faces=[f for f in bm.faces if not f.hide and (not somente_faces or f.select)
            and all(v in vertices for v in f.verts)]
@@ -98,7 +98,7 @@ def dos_vertices(context,obj,somente_faces=False):
                 if vizinha.index in ids and vizinha not in ligadas:
                     ligadas.add(vizinha)
                     pendentes.append(vizinha)
-    if len(ligadas)!=len(faces):
+    if len(ligadas)!=len(faces) and not aceitar_ilhas:
         raise ValueError('As faces selecionadas devem compartilhar arestas')
     trios=[tuple(obj.matrix_world @ l.vert.co) for tri in bm.calc_loop_triangles() if tri[0].face.index in ids for l in tri]
     contorno=[(obj.matrix_world @ e.verts[0].co,obj.matrix_world @ e.verts[1].co)

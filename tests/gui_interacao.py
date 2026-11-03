@@ -3056,8 +3056,8 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
 
 
-def test_faces_da_parede_usam_ctrl_e_menu_permanece_disponivel(janela, m):
-    # 396: Ctrl escolhe faces reais, automatico nao precisa do seletor de pontos.
+def test_faces_da_parede_usam_shift_e_menu_permanece_disponivel(janela, m):
+    # 399: Shift soma faces nativas; Ctrl fica reservado ao percurso.
     import bmesh
     A=addon.ambientes;E=addon.paredes_edicao
     area,regiao,rv=viewport(janela)
@@ -3074,14 +3074,14 @@ def test_faces_da_parede_usam_ctrl_e_menu_permanece_disponivel(janela, m):
     yield
     try:
         assert bpy.context.mode=='EDIT_MESH' and A._edicao_faces[0] is not None
-        m.apertar('LEFT_CTRL')
+        m.apertar('LEFT_SHIFT')
         yield
         for x in (-.5,.5):
             m.mover(*na_tela(regiao,rv,Vector((x,1,1.5))))
             yield
-            m.clicar('LEFTMOUSE',ctrl=True)
+            m.clicar('LEFTMOUSE',shift=True)
             yield
-        m.soltar('LEFT_CTRL')
+        m.soltar('LEFT_SHIFT')
         yield
         assert len([f for f in bmesh.from_edit_mesh(parede.data).faces if f.select])==2
         itens=[]

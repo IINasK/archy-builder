@@ -1,18 +1,20 @@
 """Ambientes por faces nativas da Alvenaria; cores so' durante a definicao."""
 import bpy, bmesh, colorsys, uuid, math
+from contextlib import contextmanager
 import numpy as np
 import gpu, blf
 from bpy.types import Operator
-from bpy.props import StringProperty, FloatVectorProperty
+from bpy.props import StringProperty, FloatVectorProperty, BoolProperty
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 from bpy_extras import view3d_utils
 
-_paredes = _paredes_edicao = _orcamento = _eventos = _gaveta = None
+_paredes = _paredes_edicao = _paredes_selecao = _orcamento = _eventos = _gaveta = None
 ATR_FACE = 'cabinet_ambiente'
 CHAVE_MAPA = 'cabinet_ambientes'
 CHAVE_NOME = 'cabinet_ambiente_nome'
+CHAVE_CORES = 'cabinet_ambientes_visiveis'
 ALVO = '@ambiente_alvenaria'
 _sujo = [True]
 _cache = [{}]
@@ -27,6 +29,8 @@ def acompanhar_faces(context=None,verificar=True):
     if _eventos._desfazendo[0]:return
     context=context or bpy.context
     objetos=context.objects_in_mode_unique_data if context.mode=='EDIT_MESH' else ()
+    if not objetos and context.mode=='EDIT_MESH' and context.edit_object is not None:
+        objetos=(context.edit_object,)
     atuais={}
     for obj in objetos:
         if not _paredes.alvenaria_definida(obj):continue
@@ -66,6 +70,24 @@ def encerrar_selecao():
     _paredes._redesenhar()
 
 
+@contextmanager
+def alvo_nativo_visivel(context,obj):
+    """Operadores de malha ignoram objetos fora do Local View, mesmo ativos."""
+    espaco=context.space_data
+    local=bool(espaco and espaco.type=='VIEW_3D' and espaco.local_view)
+    incluir=local and not _paredes_edicao.esta_na_vista(obj,espaco,context)
+    oculto=obj.hide_get(view_layer=context.view_layer)
+    try:
+        if incluir:obj.local_view_set(espaco,True)
+        if oculto:obj.hide_set(False)
+        if incluir or oculto:context.view_layer.update()
+        yield
+    finally:
+        if incluir:obj.local_view_set(espaco,False)
+        if oculto:obj.hide_set(True)
+        if incluir or oculto:context.view_layer.update()
+
+
 def preparar_selecao(context,obj,parede_2d=False):
     if not _paredes.alvenaria_definida(obj):raise ValueError('Selecione a Alvenaria')
     encerrar_selecao()
@@ -73,18 +95,18 @@ def preparar_selecao(context,obj,parede_2d=False):
     if area is None:raise ValueError('Sem viewport 3D para editar a Alvenaria')
     regiao=next(r for r in area.regions if r.type=='WINDOW')
     anterior=tuple(context.scene.tool_settings.mesh_select_mode)
-    with context.temp_override(area=area,region=regiao):
+    with context.temp_override(area=area,region=regiao),alvo_nativo_visivel(context,obj):
         if context.mode=='OBJECT':
             for o in context.selected_objects:o.select_set(False)
             obj.select_set(True);context.view_layer.objects.active=obj
             bpy.ops.object.mode_set(mode='EDIT')
-        if context.edit_object!=obj or len(context.objects_in_mode_unique_data)!=1:
+        if context.edit_object!=obj or len(context.objects_in_mode_unique_data)>1:
             raise ValueError('Edite uma unica Alvenaria')
         context.scene.tool_settings.mesh_select_mode=(False,False,True)
         bpy.ops.mesh.select_all(action='DESELECT')
     s=dict(objeto=obj.name,cena=context.scene.name,area=area.as_pointer(),regiao=regiao.as_pointer(),
            janela=context.window.as_pointer(),parede_2d=parede_2d,modo_anterior=anterior,
-           cache=None,sujo=True,hover=None,xy=None,manual=False)
+           cache=None,sujo=True,hover=None,xy=None,manual=False,selecionadas=())
     s['handler']=bpy.types.SpaceView3D.draw_handler_add(desenhar_selecao,(),'WINDOW','POST_VIEW')
     try:s['timer']=context.window_manager.event_timer_add(.1,window=context.window)
     except Exception:
@@ -95,8 +117,8 @@ def preparar_selecao(context,obj,parede_2d=False):
     try:atualizar_selecao(obj)
     except Exception:
         encerrar_selecao();raise
-    area.header_text_set('Clique na area | Ctrl+clique seleciona faces | Enter abre a vista 2D | Esc sai'
-                        if parede_2d else 'Selecione faces | Clique no nome da categoria no menu | Ctrl: face individual | Esc sai')
+    area.header_text_set('Clique: area | Shift: face | Ctrl: percurso | Shift+Ctrl: area | Enter: vista 2D | Esc sai'
+                        if parede_2d else 'Shift: face | Ctrl: percurso | Shift+Ctrl: area | Clique no nome da categoria | Esc sai')
     return id(s)
 
 
@@ -105,54 +127,176 @@ def atualizar_selecao(obj):
     if s is None or not s['sujo']:return
     bm=bmesh.from_edit_mesh(obj.data).copy()
     try:
+        bm.normal_update()
         bm.faces.index_update();original=bm.faces.layers.int.new('origem_selecao')
         for f in bm.faces:f[original]=f.index
+        restritas=faces_da_area_2d(obj,bm)
+        if restritas is not None:
+            bmesh.ops.delete(bm,geom=[f for f in bm.faces if f.index not in restritas],context='FACES')
         bmesh.ops.delete(bm,geom=[f for f in bm.faces if f.hide],context='FACES')
         bm.faces.index_update()
         ids=[f[original] for f in bm.faces]
-        caches=[]
-        for automatico in (False,True):
-            if automatico:
-                # Dissolve apenas a copia; o Blender continua dono da malha e da selecao.
-                bmesh.ops.dissolve_limit(bm,angle_limit=math.radians(1),verts=[],edges=list(bm.edges))
-                bm.faces.index_update()
-            trios={}
-            for tri in bm.calc_loop_triangles():trios.setdefault(tri[0].face.index,[]).extend(tuple(l.vert.co) for l in tri)
-            if automatico:
-                # O dissolve conserva faces ao redor de furos; a previa inclui a regiao inteira.
-                vistas=set()
-                for face in bm.faces:
-                    if face in vistas:continue
-                    regiao={face};pendentes=[face];vistas.add(face)
-                    while pendentes:
-                        atual=pendentes.pop()
-                        for e in atual.edges:
-                            for vizinha in e.link_faces:
-                                if vizinha not in vistas and face.normal.dot(vizinha.normal)>=math.cos(math.radians(1)):
-                                    vistas.add(vizinha);regiao.add(vizinha);pendentes.append(vizinha)
-                    pontos=[p for f in regiao for p in trios.get(f.index,[])]
-                    for f in regiao:trios[f.index]=pontos
-            caches.append((BVHTree.FromBMesh(bm),trios))
-        s.update(cache=caches,ids=ids,sujo=False,hover=None)
+        trios={}
+        for tri in bm.calc_loop_triangles():trios.setdefault(tri[0].face.index,[]).extend(tuple(l.vert.co) for l in tri)
+        camada=bm.faces.layers.int.get(ATR_FACE)
+        s['arestas']={f.index:[tuple(v.co) for e in f.edges for v in e.verts] for f in bm.faces}
+        for i,original_id in enumerate(ids):
+            if original_id in s.get('recortes_2d',{}):
+                trios[i]=s['recortes_2d'][original_id]
+                s['arestas'][i]=s['bordas_2d'][original_id]
+        arvore=BVHTree.FromBMesh(bm);automaticas={};grupos={};categorias={};vistas=set()
+        mundo=obj.matrix_world;rot_normal=mundo.to_3x3().inverted_safe().transposed()
+        normais={f.index:(rot_normal@f.normal).normalized() for f in bm.faces}
+        registradas={}
+        for f in bm.faces:
+            categoria=f[camada] if camada is not None else 0
+            categorias[f.index]=categoria
+            if categoria:registradas.setdefault(categoria,set()).add(f)
+        for face in bm.faces:
+            if face in vistas:continue
+            categoria=categorias[face.index]
+            normal=normais[face.index];ponto=mundo@face.verts[0].co
+            if categoria:
+                regiao=registradas[categoria]-vistas
+                if s['parede_2d']:
+                    regiao={f for f in regiao if normais[f.index].dot(normal)>=math.cos(math.radians(1))
+                            and all(abs((mundo@v.co-ponto).dot(normal))<=.002 for v in f.verts)}
+                    regiao.add(face)
+                vistas.update(regiao)
+            else:
+                regiao={face};pendentes=[face];vistas.add(face)
+                while pendentes:
+                    atual=pendentes.pop()
+                    for e in atual.edges:
+                        for vizinha in e.link_faces:
+                            if (vizinha not in vistas and not categorias[vizinha.index]
+                                    and normais[vizinha.index].dot(normal)>=math.cos(math.radians(1))
+                                    and all(abs((mundo@v.co-ponto).dot(normal))<=.002 for v in vizinha.verts)):
+                                vistas.add(vizinha);regiao.add(vizinha);pendentes.append(vizinha)
+            ps=[p for f in regiao for p in trios.get(f.index,[])]
+            originais=tuple(ids[f.index] for f in regiao)
+            for f in regiao:automaticas[f.index]=ps;grupos[f.index]=originais
+        s.update(cache=[(arvore,trios),(arvore,automaticas)],ids=ids,grupos=grupos,
+                 categorias=categorias,sujo=False,hover=None)
+        guardar_selecao(obj)
     finally:bm.free()
 
 
 def acerto_selecao(obj,inicio,direcao,manual=False):
     s=_edicao_faces[0]
     if s is None or s['sujo'] or s['cache'] is None:return None
+    mascara=s.get('mascara_2d')
+    if mascara and mascara[2].ray_cast(inicio,direcao)[2] is None:return None
     inversa=obj.matrix_world.inverted_safe()
     return s['cache'][0 if manual else 1][0].ray_cast(inversa@inicio,
         (inversa.to_3x3()@direcao).normalized())[2]
 
 
-def selecionar_face(context,obj,indice,manual=False):
+def guardar_selecao(obj):
+    s=_edicao_faces[0]
+    if s is not None:
+        permitidas=set(s['ids']);bm=bmesh.from_edit_mesh(obj.data)
+        s['selecionadas']=tuple(i for i,f in enumerate(bm.faces) if f.select and i in permitidas)
+
+
+def faces_da_area_2d(obj,bm):
+    sessao=_paredes_edicao._sessao[0]
+    if not sessao or not sessao.get('categorias'):return None
+    if obj.name!=sessao['parede']:return set()
+    regiao=sessao['regiao'];n=Vector(sessao['normal']);u=Vector(sessao['u'])
+    plano=Vector(sessao['ponto']);s0,s1,z0,z1=regiao['retangulo']
+    selecao=_edicao_faces[0]
+    mascara=selecao.get('mascara_2d') if selecao is not None else None
+    if mascara is None or mascara[0]!=sessao['id']:
+        trios=np.asarray(regiao['triangulos'],dtype=np.float64).reshape(-1,3,3)
+        pontos=trios.reshape(-1,3)
+        arvore=BVHTree.FromPolygons(pontos.tolist(),np.arange(len(pontos)).reshape(-1,3).tolist(),all_triangles=True)
+        mascara=(sessao['id'],trios,arvore)
+        if selecao is not None:selecao['mascara_2d']=mascara
+    _,trios,arvore=mascara
+    matriz=obj.matrix_world;normais=matriz.to_3x3().inverted_safe().transposed()
+    permitidas=set();inversa=matriz.inverted_safe();recortes={};bordas={}
+    for i,f in enumerate(bm.faces):
+        normal=normais@f.normal
+        if not normal.length or normal.normalized().dot(n)<math.cos(math.radians(1)):continue
+        vs=[matriz@v.co for v in f.verts]
+        if (max(v.dot(u) for v in vs)<s0-1e-7 or min(v.dot(u) for v in vs)>s1+1e-7
+                or max(v.z for v in vs)<z0-1e-7 or min(v.z for v in vs)>z1+1e-7
+                or any(abs((v-plano).dot(n))>.002 for v in vs)):continue
+        centro=sum(vs,Vector())/len(vs);raio=max((v-centro).length for v in vs)+.002
+        indices={acerto[2] for acerto in arvore.find_nearest_range(centro,raio)}
+        if not indices:continue
+        try:
+            recorte=_paredes_selecao.recortar(
+                dict(regiao,triangulos=trios[list(indices)].reshape(-1,3)),vs,n)
+        except ValueError:continue
+        t=np.asarray(recorte['triangulos']).reshape(-1,3,3)
+        area=np.linalg.norm(np.cross(t[:,1]-t[:,0],t[:,2]-t[:,0]),axis=1).sum()/2
+        if area>1e-10:
+            permitidas.add(i)
+            recortes[i]=[tuple(inversa@Vector(p)) for p in recorte['triangulos']]
+            bordas[i]=[tuple(inversa@Vector(p)) for segmento in recorte['contorno'] for p in segmento]
+    if selecao is not None:selecao.update(recortes_2d=recortes,bordas_2d=bordas)
+    return permitidas
+
+
+def sair_categorias_2d(context):
+    s=_paredes_edicao._sessao[0]
+    if not s or not s.get('categorias'):return
+    encerrar_selecao();s['categorias']=False
+    anterior=s.pop('selecao_categorias',{})
+    if (_eventos._desfazendo[0] or context.scene.name!=s['cena']
+            or context.view_layer.name!=s['camada']):return
+    if context.mode=='EDIT_MESH':bpy.ops.object.mode_set(mode='OBJECT')
+    for o in context.selected_objects:o.select_set(False)
+    for nome in anterior.get('selecionados',()):
+        obj=context.view_layer.objects.get(nome)
+        if obj is not None:obj.select_set(True)
+    context.view_layer.objects.active=context.view_layer.objects.get(anterior.get('ativo',''))
+    _sujo[0]=True;_paredes._redesenhar()
+
+
+def selecionar_face(context,obj,indice,manual=False,percurso=False,area=False):
+    s=_edicao_faces[0];s['selecionando']=True
+    try:
+        with alvo_nativo_visivel(context,obj):
+            _selecionar_face_visivel(context,obj,indice,manual,percurso,area)
+        context.view_layer.update()
+    finally:s.pop('selecionando',None)
+
+
+def _selecionar_face_visivel(context,obj,indice,manual,percurso,area):
     s=_edicao_faces[0];bm=bmesh.from_edit_mesh(obj.data);bm.faces.ensure_lookup_table()
-    if not manual:bpy.ops.mesh.select_all(action='DESELECT')
     face=bm.faces[s['ids'][indice]]
-    face.select_set(not face.select if manual else True);bm.faces.active=face
-    bm.select_flush_mode()
+    ativa=bm.faces.active
+    ocultadas=[];permitidas=set(s['ids']) if manual else set(s['grupos'][indice])
+    try:
+        for i,f in enumerate(bm.faces):
+            if i not in permitidas and not f.hide:
+                ocultadas.append(f);f.hide_set(True)
+        if percurso and ativa is not None and ativa.select and ativa is not face:
+            bm.faces.index_update()
+            bm.select_history.add(ativa)
+            # O operador usa indice global BMesh: vertices, arestas e depois faces.
+            bpy.ops.mesh.shortest_path_pick(index=len(bm.verts)+len(bm.edges)+face.index,use_fill=area)
+        else:
+            if not manual:bpy.ops.mesh.select_all(action='DESELECT')
+            if not manual and s['categorias'].get(indice):
+                for i in permitidas:bm.faces[i].select_set(True)
+            else:
+                face.select_set(not face.select if manual else True)
+                if not manual:bpy.ops.mesh.faces_select_linked_flat(sharpness=math.radians(1))
+        if face.select:
+            bm.faces.active=face;bm.select_history.add(face)
+        else:
+            bm.select_history.validate()
+            anterior=bm.select_history.active
+            bm.faces.active=anterior if isinstance(anterior,bmesh.types.BMFace) else None
+        bm.select_flush_mode()
+    finally:
+        for f in ocultadas:f.hide_set(False)
     bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
-    if not manual:bpy.ops.mesh.faces_select_linked_flat(sharpness=math.radians(1))
+    guardar_selecao(obj)
 
 
 def evento_selecao(context,event,token):
@@ -163,34 +307,44 @@ def evento_selecao(context,event,token):
     if (_eventos._desfazendo[0] or context.scene.name!=s['cena'] or context.mode!='EDIT_MESH'
             or context.window.as_pointer()!=s['janela']
             or obj is None or area is None or context.edit_object!=obj):
-        encerrar_selecao();return {'CANCELLED'}
+        if _paredes_edicao.ativa(context) and _paredes_edicao._sessao[0].get('categorias'):
+            sair_categorias_2d(context)
+        else:encerrar_selecao()
+        return {'CANCELLED'}
     regiao=next(r for r in area.regions if r.type=='WINDOW')
     if event.type=='TIMER':
         if not _eventos._transformando():atualizar_selecao(obj)
         return {'PASS_THROUGH'}
+    if _eventos._transformando():return {'PASS_THROUGH'}
     if event.type=='ESC' and event.value=='PRESS':
-        encerrar_selecao();bpy.ops.object.mode_set(mode='OBJECT');return {'CANCELLED'}
+        if _paredes_edicao.ativa(context) and _paredes_edicao._sessao[0].get('categorias'):
+            sair_categorias_2d(context)
+        else:
+            encerrar_selecao();bpy.ops.object.mode_set(mode='OBJECT')
+        return {'CANCELLED'}
     xy=(event.mouse_x-regiao.x,event.mouse_y-regiao.y)
     dentro=0<=xy[0]<regiao.width and 0<=xy[1]<regiao.height
     confirmar=s['parede_2d'] and event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS'
-    if dentro and (event.type in {'MOUSEMOVE','LEFT_CTRL','RIGHT_CTRL','LEFTMOUSE'}):
+    if dentro and (event.type in {'MOUSEMOVE','LEFT_CTRL','RIGHT_CTRL','LEFT_SHIFT','RIGHT_SHIFT','LEFTMOUSE'}):
         rv=area.spaces.active.region_3d
         inicio=view3d_utils.region_2d_to_origin_3d(regiao,rv,xy)
         direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv,xy)
-        indice=acerto_selecao(obj,inicio,direcao,event.ctrl)
-        s.update(hover=indice,manual=event.ctrl,xy=xy);area.tag_redraw()
+        manual=bool(event.ctrl or getattr(event,'shift',False))
+        indice=acerto_selecao(obj,inicio,direcao,manual)
+        s.update(hover=indice,manual=manual,xy=xy);area.tag_redraw()
         if event.type=='LEFTMOUSE' and event.value=='PRESS' and indice is not None:
             with context.temp_override(area=area,region=regiao):
                 original=acerto_selecao(obj,inicio,direcao,True)
-                if original is not None:selecionar_face(context,obj,original,event.ctrl)
-            confirmar=s['parede_2d'] and not event.ctrl
+                if original is not None:selecionar_face(context,obj,original,manual,
+                    percurso=event.ctrl,area=event.ctrl and getattr(event,'shift',False))
+            confirmar=s['parede_2d'] and not manual
             if not confirmar:return {'RUNNING_MODAL'}
         if event.type=='LEFTMOUSE' and event.value=='PRESS' and not confirmar:return {'RUNNING_MODAL'}
     elif not dentro:
         s['hover']=None;area.tag_redraw()
     if confirmar:
         with context.temp_override(area=area,region=regiao):
-            erro=_paredes_edicao.entrar_por_vertices(context,obj,somente_faces=True)
+            erro=_paredes_edicao.entrar_por_vertices(context,obj,somente_faces=True,aceitar_ilhas=True)
         _paredes_edicao._aviso[0]=erro or ''
         if erro:return {'RUNNING_MODAL'}
         encerrar_selecao();return {'FINISHED'}
@@ -200,20 +354,33 @@ def evento_selecao(context,event,token):
 
 def desenhar_selecao():
     s=_edicao_faces[0];context=bpy.context
-    if (s is None or s['hover'] is None or s['sujo'] or context.mode!='EDIT_MESH'
+    if (s is None or s['sujo'] or context.mode!='EDIT_MESH'
             or _eventos._desfazendo[0] or _eventos._transformando()
             or context.region.as_pointer()!=s['regiao']):return
     obj=bpy.data.objects.get(s['objeto'])
     if obj is None:return
-    ps=s['cache'][0 if s['manual'] else 1][1].get(s['hover'],[])
+    primitivas=[]
+    sessao=_paredes_edicao._sessao[0]
+    if sessao and sessao.get('categorias'):
+        escolhidas=set(s['selecionadas'])
+        ids=[i for i,original in enumerate(s['ids']) if original in escolhidas]
+        trios=[p for i in ids for p in s['cache'][0][1].get(i,[])]
+        arestas=[p for i in ids for p in s['arestas'].get(i,[])]
+        primitivas.extend((('TRIS',trios,(1,.45,.05,.2)),('LINES',arestas,(1,.45,.05,1))))
+    if s['hover'] is not None:
+        primitivas.append(('TRIS',s['cache'][0 if s['manual'] else 1][1].get(s['hover'],[]),(1,.45,.05,.35)))
+    if not primitivas:return
     anterior=(gpu.state.blend_get(),gpu.state.depth_test_get(),gpu.state.depth_mask_get())
     try:
         gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(False)
         with gpu.matrix.push_pop_projection(),gpu.matrix.push_pop():
             projecao=gpu.matrix.get_projection_matrix();projecao[2]=projecao[2]-projecao[3]*1e-6
             gpu.matrix.load_projection_matrix(projecao);gpu.matrix.multiply_matrix(obj.matrix_world)
-            shader=gpu.shader.from_builtin('UNIFORM_COLOR');shader.bind();shader.uniform_float('color',(1,.45,.05,.35))
-            batch_for_shader(shader,'TRIS',{'pos':ps}).draw(shader)
+            shader=gpu.shader.from_builtin('UNIFORM_COLOR')
+            for tipo,ps,cor in primitivas:
+                if ps:
+                    shader.bind();shader.uniform_float('color',cor)
+                    batch_for_shader(shader,tipo,{'pos':ps}).draw(shader)
     finally:
         gpu.state.blend_set(anterior[0]);gpu.state.depth_test_set(anterior[1]);gpu.state.depth_mask_set(anterior[2])
 
@@ -242,27 +409,31 @@ def registro(obj,nome,criar=False):
     return indice,mapa.get(str(indice))
 
 
-def definir(context,obj,nome):
+def definir(context,obj,nome,alternar=False,limpar=False):
     if not _paredes.alvenaria_definida(obj) or obj.mode!='EDIT':
         raise ValueError('Selecione faces da Alvenaria no modo de edicao')
-    nome=_orcamento._limpar_nome_comodo(nome)
-    if not nome: raise ValueError('Informe o nome do ambiente')
+    nome=_orcamento._limpar_nome_comodo(nome) if not limpar else ''
+    if not nome and not limpar: raise ValueError('Informe o nome do ambiente')
     acompanhar_faces(context)
     bm=bmesh.from_edit_mesh(obj.data)
-    if not any(f.select for f in bm.faces): raise ValueError('Selecione as faces do ambiente')
+    permitidas=faces_da_area_2d(obj,bm)
+    selecionadas={i for i,f in enumerate(bm.faces) if f.select and (permitidas is None or i in permitidas)}
+    if not selecionadas: raise ValueError('Selecione faces dentro da area ativa')
     if obj.data.users>1:
         bm=None
         bpy.ops.object.mode_set(mode='OBJECT');obj.data=obj.data.copy();bpy.ops.object.mode_set(mode='EDIT')
         bm=bmesh.from_edit_mesh(obj.data)
-    indice,_=registro(obj,nome,criar=True)
+    indice=0 if limpar else registro(obj,nome,criar=True)[0]
     camada=bm.faces.layers.int.get(ATR_FACE)
+    if camada is None and limpar:return
     if camada is None:
         camada=bm.faces.layers.int.new(ATR_FACE)
         # Criar CustomData realoca as faces nativas, sem criar novas superficies.
         _faces_nativas[0].pop(obj.data.name,None)
         acompanhar_faces(context)
-    for f in bm.faces:
-        if f.select: f[camada]=indice
+    remover=alternar and all(f[camada]==indice for i,f in enumerate(bm.faces) if i in selecionadas)
+    for i,f in enumerate(bm.faces):
+        if i in selecionadas:f[camada]=0 if remover else indice
     bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
     _sujo[0]=True;_paredes._conferidos.clear()
     atualizar(context);_paredes._redesenhar()
@@ -273,13 +444,15 @@ class OBJECT_OT_definir_ambiente(Operator):
     bl_label='Definir ambiente nas faces'
     bl_options={'REGISTER','UNDO'}
     nome:StringProperty(options={'SKIP_SAVE'})
+    limpar:BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls,context):
         return context.mode=='EDIT_MESH' and _paredes.alvenaria_definida(context.edit_object)
 
     def execute(self,context):
-        try: definir(context,context.edit_object,self.nome or context.scene.get(CHAVE_NOME,'Cozinha'))
+        try: definir(context,context.edit_object,self.nome or context.scene.get(CHAVE_NOME,'Cozinha'),
+                     alternar=True,limpar=self.limpar)
         except ValueError as erro:
             self.report({'WARNING'},str(erro));return {'CANCELLED'}
         return {'FINISHED'}
@@ -309,7 +482,8 @@ class OBJECT_OT_editar_ambientes(Operator):
     def invoke(self,context,event):
         resultado=self.execute(context)
         if resultado=={'FINISHED'} and context.mode=='EDIT_MESH':
-            try:self.token=preparar_selecao(context,context.edit_object)
+            try:self.token=(id(_edicao_faces[0]) if _edicao_faces[0] is not None else
+                            preparar_selecao(context,context.edit_object))
             except ValueError as erro:
                 self.report({'WARNING'},str(erro));return {'CANCELLED'}
             context.window_manager.modal_handler_add(self)
@@ -327,20 +501,19 @@ class OBJECT_OT_editar_ambientes(Operator):
     def execute(self,context):
         s=_paredes_edicao._sessao[0]
         if s is not None:
+            if s.get('categorias'):
+                sair_categorias_2d(context);return {'FINISHED'}
             obj=context.view_layer.objects.get(s['parede'])
             if obj is None: return {'CANCELLED'}
-            retorno=dict(cena=context.scene.name,objeto=obj.name,ponto=tuple(s['ponto']),
-                         normal=tuple(s['normal']),regiao=dict(s['regiao']),recortar=s['recorte_explicito'])
-            _paredes_edicao.encerrar()
+            s['selecao_categorias']=dict(selecionados=[o.name for o in context.selected_objects],
+                ativo=context.view_layer.objects.active.name if context.view_layer.objects.active else '')
+            s['categorias']=True
             for o in context.selected_objects:o.select_set(False)
             obj.select_set(True);context.view_layer.objects.active=obj
-            try: bpy.ops.object.mode_set(mode='EDIT')
-            except RuntimeError as erro:
-                _paredes_edicao.iniciar(context,obj,
-                    face=(Vector(retorno['ponto']),Vector(retorno['normal']),retorno['regiao']),
-                    recortar=retorno['recortar'])
+            try:preparar_selecao(context,obj)
+            except (RuntimeError,ValueError) as erro:
+                sair_categorias_2d(context)
                 self.report({'WARNING'},str(erro));return {'CANCELLED'}
-            _retorno[0]=retorno
             return {'FINISHED'}
         retorno=_retorno[0]
         if retorno is None or context.mode=='OBJECT':
@@ -420,13 +593,18 @@ def widgets(context,itens,obj,x,y,w):
         y-=24;itens.append((x,y,w,22,_paredes_edicao._aviso[0],None))
     y-=30
     escolha_2d=bool(_edicao_faces[0] and _edicao_faces[0]['parede_2d'])
+    na_parede=bool(_paredes_edicao._sessao[0] and _paredes_edicao._sessao[0].get('categorias'))
     rotulo=('Cancelar selecao 2D' if escolha_2d else
             'Voltar a edicao da parede' if _retorno[0] else 'Sair da edicao de categorias')
-    itens.append((x,y,w,28,rotulo,
-                  ('operador','object.cabinet_editar_ambientes' if _retorno[0] else 'object.editmode_toggle')))
+    itens.append((x,y,w if escolha_2d else w-34,28,rotulo,
+                  ('operador','object.cabinet_editar_ambientes' if _retorno[0] or na_parede else 'object.editmode_toggle')))
     if escolha_2d:return y-12
+    visivel=bool(context.scene.get(CHAVE_CORES,True))
+    itens.append((x+w-28,y,28,28,'',('escolha','ambiente_visivel',visivel,visivel,True,ALVO)))
     y-=32
     itens.append((x,y,w,23,'Categorias',None));y-=29
+    itens.append((x,y,w,24,'Sem categoria',('escolha','ambiente_nome','',not nome,True,ALVO)))
+    y-=28
     for n in _orcamento._comodos_da_lista(context.scene):
         i,r=registro(obj,n);cor=r['cor'] if r else _cor_padrao(n)
         itens.append((x,y,24,24,'',('escolha','ambiente_cor',n,False,True,ALVO,tuple(cor))))
@@ -437,16 +615,18 @@ def widgets(context,itens,obj,x,y,w):
 
 def invalidar(cena,depsgraph):
     if _eventos._desfazendo[0]: return
+    s=_edicao_faces[0]
     acompanhar_faces(verificar=any(u.is_updated_geometry for u in depsgraph.updates)
-                     and not _eventos._transformando())
+                     and not _eventos._transformando() and not (s and s.get('selecionando')))
     if _retorno[0] and _retorno[0]['cena']!=cena.name:_retorno[0]=None
     malhas={v['malha'] for v in _cache[0].values()}
     for u in depsgraph.updates:
         if not u.is_updated_geometry: continue
-        s=_edicao_faces[0]
         if s and ((isinstance(u.id,bpy.types.Object) and u.id.name==s['objeto'])
                   or (isinstance(u.id,bpy.types.Mesh) and bpy.context.edit_object is not None
-                      and u.id.name==bpy.context.edit_object.data.name)):s['sujo']=True
+                      and u.id.name==bpy.context.edit_object.data.name)):
+            if s.get('selecionando'):continue
+            s['sujo']=True
         if ((isinstance(u.id,bpy.types.Object) and u.id.name in _cache[0])
                 or (isinstance(u.id,bpy.types.Mesh) and u.id.name in malhas)):
             _sujo[0]=True
@@ -466,6 +646,19 @@ def atualizar(context=None):
             if obj.mode!='EDIT': bm.from_object(obj,context.evaluated_depsgraph_get())
             camada=bm.faces.layers.int.get(ATR_FACE)
             if camada is None: continue
+            bm.faces.index_update()
+            restritas=faces_da_area_2d(obj,bm)
+            if restritas is not None:
+                grupos={};normais={}
+                for f in bm.faces:
+                    i=f[camada]
+                    if f.index in restritas and str(i) in obj[CHAVE_MAPA]:
+                        grupos.setdefault(i,[]).extend(_edicao_faces[0]['recortes_2d'][f.index])
+                        normais[i]=tuple(f.normal)
+                faces=[dict(indice=i,centro=tuple(np.asarray(ps).mean(axis=0)),normal=normais[i],triangulos=ps)
+                       for i,ps in grupos.items()]
+                cache[obj.name]=dict(malha=obj.data.name,grupos=[(i,np.asarray(ps,dtype=np.float32)) for i,ps in grupos.items()],faces=faces)
+                continue
             # Dissolve so' no cache: faces coplanares do mesmo ambiente viram uma legenda.
             arestas=[e for e in bm.edges if len(e.link_faces)==2
                      and e.link_faces[0][camada]==e.link_faces[1][camada]]
@@ -514,6 +707,7 @@ def _rotulo(context,obj,f,nome):
 
 def desenhar():
     context=bpy.context
+    if not context.scene.get(CHAVE_CORES,True):return
     if context.mode!='EDIT_MESH' or _eventos._desfazendo[0] or _eventos._transformando(): return
     obj=context.edit_object
     if obj is None or obj.name not in _cache[0]: return
