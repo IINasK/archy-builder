@@ -672,15 +672,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'criar_puxador':
                 if not acao[2]:         # ja' posicionando: Esc cancela
                     _editor.executar(context, 'object.cabinet_posicionar_puxador')
-            elif acao[0] == 'gavetas':
-                if not acao[2]:         # ja' marcando: Esc cancela
-                    _editor.executar(context, 'object.cabinet_criar_gavetas')
-            elif acao[0] == 'prateleiras':
+            elif acao[0] in {'gavetas', 'prateleiras', 'divisorias'}:
                 if not acao[2]:
-                    _editor.executar(context, 'object.cabinet_criar_prateleiras')
-            elif acao[0] == 'divisorias':
-                if not acao[2]:
-                    _editor.executar(context, 'object.cabinet_criar_divisorias')
+                    _perguntas._na_gaveta[0] = True
+                    try:
+                        _editor.executar(context, _areas_criacao.DESTINOS[acao[0].upper()])
+                    finally:
+                        _perguntas._na_gaveta[0] = False
             elif acao[0] == 'portas':
                 if acao[3]:
                     self.report({'WARNING'}, acao[3])
@@ -1151,6 +1149,8 @@ def _icone_acao_gaveta(acao):
         # saia serrilhado, pedido do usuario)
         return 'CHECKMARK'
     if acao[0] == 'operador':
+        if acao[1] == 'object.cabinet_portas_internos':
+            return 'HIDE_OFF' if acao[2] else 'HIDE_ON'
         return {'object.cabinet_agrupar': 'GROUP',
                 'object.cabinet_espelhar_porta': 'MOD_MIRROR',
                 'object.cabinet_detectar_adjacencia': 'SNAP_ON',

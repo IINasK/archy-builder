@@ -1289,7 +1289,8 @@ COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 # Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
 OPERADORES_DESTAQUE = ('object.cabinet_editar_parede', 'object.cabinet_sair_parede',
                       'object.cabinet_aplicar_area', 'object.cabinet_definir_area', 'object.cabinet_internos',
-                      'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao')
+                      'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao',
+                      'object.cabinet_portas_internos')
 OPERADOR_DESTAQUE_ATIVO = 'object.cabinet_sair_parede'
 
 
@@ -2067,7 +2068,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     if _areas_criacao._estado[0] is not None:
         return _areas_criacao.widgets(context, itens, x, y + 54, w)
     pergunta = _perguntas._pergunta_atual[0]
-    if pergunta and pergunta.get('internos') and pergunta['na_gaveta']:
+    if pergunta and (pergunta.get('internos') or pergunta.get('portas_internos')) and pergunta['na_gaveta']:
         _pergunta_na_gaveta(itens, x, y + 54, w, pergunta)
         return itens
     solda=_solda._conexao_manual[0]
@@ -2088,7 +2089,10 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
                         else _botao_criar_puxador())
         if s.cabinet_aba in {'PRATELEIRAS', 'DIVISORIAS'} and not (_prateleiras._criando() or _divisorias._criando()):
             rotulo, acao = 'Criar prateleiras ou divisorias', ('operador', 'object.cabinet_internos')
-        itens.append((x, altura - 48 - 8 - 30 + _rolagem, w, 30, rotulo, acao))
+        topo_criar = altura - 48 - 8 - 30 + _rolagem
+        largura_criar = (_areas_criacao.botao_olho(context, itens, x, topo_criar, w)
+                         if s.cabinet_aba in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'} else w)
+        itens.append((x, topo_criar, largura_criar, 30, rotulo, acao))
         y -= 38
         if _areas_criacao.oferecer(context):
             rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'

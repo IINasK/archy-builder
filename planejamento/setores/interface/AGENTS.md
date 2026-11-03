@@ -55,7 +55,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - A SELECAO decide o que edita; Shift soma e conserva a malha clicada como mestre (356: Ctrl+L nativo); a gaveta segue a aba do item.
   Caixa (laterais/tampo) seleciona modulo; duplo isola chapa. Quina arrasta
   modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa. Clique fora encerra o individual; novo clique simples = grupo (Shift conserva).
-- Porta 378: Esconder porta e agregados (28 px) no menu; Shift+G -> Grupo da porta -> H, com agrupamentos nativos preservados. Ocultacao por View Layer/undo, sem mudar geometria. Clique inteira, nunca modulo; duplo folha, sem contorno nativo.
+- Porta 386: criar internos no modulo com portas visiveis pergunta Esconder portas? Sim/Nao antes do modal; olho de 30 px na linha Criar, inclusive volume livre. hide_set da View Layer sem estado paralelo/timer; H/Alt+H independentes. Esconder porta e agregados (378), Shift+G -> Grupo da porta -> H conservados. Clique inteira, duplo folha.
   Sem linha Reposicionar/Frente/Espelhar na aba. Espelhar fica no contexto direito, grupo ou folha; inverter
   giro, cadeia zigzag inteira, curso de correr ou basculante com pistoes;
   puxador acompanha. Nao espelhar madeira.

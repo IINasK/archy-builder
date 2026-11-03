@@ -41,6 +41,225 @@ class TestAreasCriacao(unittest.TestCase):
             A.aplicar(bpy.context, obj, ('P',), 400)
         return obj
 
+    def portas(self):
+        grupo=addon.portas.porta_no_modulo(self.modulo,folhas=2)
+        addon.puxadores.perfis_na_porta(bpy.context,grupo,'CIMA')
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        self.modulo.select_set(True);bpy.context.view_layer.objects.active=self.modulo
+        self.addCleanup(lambda valor=bpy.context.scene.cabinet_aba:
+                        setattr(bpy.context.scene,'cabinet_aba',valor))
+        self.addCleanup(addon.perguntas._pergunta_atual.__setitem__,0,None)
+        return grupo
+
+    def test_criar_internos_pergunta_sim_nao_antes_da_captura(self):
+        grupo=self.portas()
+        comandos=('object.cabinet_criar_gavetas','object.cabinet_criar_prateleiras',
+                  'object.cabinet_criar_divisorias','object.cabinet_internos')
+        for comando in comandos:
+            with self.subTest(comando=comando):
+                if comando=='object.cabinet_internos':
+                    resultado=bpy.ops.object.cabinet_internos()
+                else:
+                    tipo=next(t for t,c in A.DESTINOS.items() if c==comando)
+                    resultado=addon.gavetas.AssistenteDoVao.invoke(SimpleNamespace(ABA=tipo),bpy.context,None)
+                    self.assertIn('portas_verificadas',getattr(bpy.ops.object,comando.split('.')[1]).get_rna_type().properties)
+                self.assertEqual(resultado,{'FINISHED'})
+                pergunta=addon.perguntas._pergunta_atual[0]
+                self.assertEqual(pergunta['texto'],'Esconder portas?')
+                self.assertEqual([o[0] for o in pergunta['opcoes']],['Sim','Nao'])
+                self.assertTrue(all(o[2]=='object.cabinet_portas_internos' for o in pergunta['opcoes']))
+                self.assertIsNone(addon.gavetas._assistente_gavetas[0])
+                self.assertIsNone(addon.prateleiras._assistente_prateleiras[0])
+                self.assertIsNone(addon.divisorias._assistente_divisorias[0])
+                self.assertTrue(A.portas_visiveis(bpy.context,A.portas_do_interno(bpy.context)))
+
+    def test_sim_oculta_so_portas_e_agregados_do_modulo_e_continua(self):
+        grupo=self.portas()
+        outro=addon.modulos.criar_armario(bpy.context,'Outro armario',600,700,550)
+        portas_outro=addon.portas.porta_no_modulo(outro)
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        self.modulo.select_set(True);bpy.context.view_layer.objects.active=self.modulo
+        objetos=A.portas_do_interno(bpy.context)
+        self.assertTrue(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
+        with patch.object(addon.editor,'executar',return_value={'RUNNING_MODAL'}) as executar:
+            # O respondedor existente chama a continuacao pelo editor.
+            props=addon.perguntas._pergunta_atual[0]['opcoes'][0][3]
+            self.assertEqual(bpy.ops.object.cabinet_portas_internos(**props),{'FINISHED'})
+            executar.assert_called_once_with(bpy.context,'object.cabinet_criar_gavetas',portas_verificadas=True)
+        self.assertTrue(all(o.hide_get() for o in objetos))
+        self.assertTrue(any(o.visible_get() for o in portas_outro.children_recursive if o.type=='MESH'))
+        self.assertTrue(all(not o.hide_get() for o in addon.modulos._chapas_do_conjunto(self.modulo)))
+
+    def test_nao_preserva_ocultacao_nativa_e_continua_sem_nova_pergunta(self):
+        self.portas()
+        objetos=A.portas_do_interno(bpy.context)
+        uma=next(o for o in objetos if addon.chapas.MARCA_FOLHA in o)
+        uma.hide_set(True)
+        antes={o.name:o.hide_get() for o in objetos}
+        self.assertTrue(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
+        props=addon.perguntas._pergunta_atual[0]['opcoes'][1][3]
+        with patch.object(addon.editor,'executar',return_value={'RUNNING_MODAL'}) as executar:
+            bpy.ops.object.cabinet_portas_internos(**props)
+            self.assertTrue(executar.call_args.kwargs['portas_verificadas'])
+        self.assertEqual({o.name:o.hide_get() for o in objetos},antes)
+
+    def test_olho_alterna_visibilidade_real_e_nao_mostra_controles_do_rig(self):
+        self.portas()
+        objetos=A.portas_do_interno(bpy.context)
+        controles=[o for o in objetos if o.get('cabinet_peca') in addon.ferragens.PECAS_OCULTAS_RIG]
+        self.assertTrue(controles)
+        bpy.ops.object.cabinet_portas_internos()
+        self.assertFalse(A.portas_visiveis(bpy.context,objetos))
+        bpy.ops.object.cabinet_portas_internos()
+        self.assertTrue(A.portas_visiveis(bpy.context,objetos))
+        self.assertTrue(all(o.hide_get() for o in controles))
+        folha=next(o for o in objetos if addon.chapas.MARCA_FOLHA in o)
+        folha.hide_set(True)
+        A.verificar()
+        self.assertTrue(folha.hide_get())
+        for obj in objetos:
+            if obj not in controles:obj.hide_set(False)
+        A.verificar()
+        self.assertTrue(all(not o.hide_get() for o in objetos if o not in controles))
+
+    def test_olho_no_botao_criar_reserva_espaco_e_muda_icone(self):
+        self.portas()
+        for aba in ('GAVETAS','PRATELEIRAS','DIVISORIAS'):
+            for largura in (220,480):
+                with self.subTest(aba=aba,largura=largura):
+                    bpy.context.scene.cabinet_aba=aba
+                    widgets=addon.gaveta._widgets_aba_gaveta(bpy.context,largura,900,0)
+                    olho=next(v for v in widgets if v[5] and v[5][:2]==('operador','object.cabinet_portas_internos'))
+                    criar=next(v for v in widgets if v[1]==olho[1] and v!=olho)
+                    self.assertEqual(criar[0]+criar[2],olho[0])
+                    self.assertEqual(olho[2:4],(30,30))
+                    self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(olho[5]),'HIDE_OFF')
+        bpy.ops.object.cabinet_portas_internos()
+        itens=[];A.botao_olho(bpy.context,itens,12,300,300)
+        self.assertEqual(addon.gaveta_eventos._icone_acao_gaveta(itens[0][5]),'HIDE_ON')
+
+    def test_area_livre_mantem_olho_no_modulo_original_apos_mudar_selecao(self):
+        self.portas()
+        obj=self.referencia()
+        self.assertIs(A.modulo_das_portas(bpy.context),self.modulo)
+        bpy.ops.object.cabinet_portas_internos()
+        self.assertFalse(A.portas_visiveis(bpy.context,A.portas_do_interno(bpy.context)))
+        self.assertFalse(obj.hide_get())
+        self.assertIs(bpy.context.object,obj)
+
+    def test_sem_portas_pula_pergunta_e_nao_cria_olho(self):
+        self.assertFalse(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
+        itens=[]
+        self.assertEqual(A.botao_olho(bpy.context,itens,12,300,300),300)
+        self.assertFalse(itens)
+
+    def test_limpar_criacao_descarta_pergunta_de_portas_sem_apagar_outras_perguntas(self):
+        self.portas()
+        A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas')
+        A.esquecer()
+        self.assertIsNone(addon.perguntas._pergunta_atual[0])
+        addon.perguntas._perguntar(bpy.context,'Outra pergunta',[])
+        pergunta=addon.perguntas._pergunta_atual[0]
+        A.esquecer()
+        self.assertIs(addon.perguntas._pergunta_atual[0],pergunta)
+
+    def test_resposta_antiga_nao_afeta_outra_cena_ou_outro_modulo(self):
+        self.portas()
+        A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas')
+        props=addon.perguntas._pergunta_atual[0]['opcoes'][0][3]
+        outro=addon.modulos.criar_armario(bpy.context,'Alvo diferente',600,700,550)
+        for obj in bpy.context.selected_objects:obj.select_set(False)
+        outro.select_set(True);bpy.context.view_layer.objects.active=outro
+        self.assertEqual(bpy.ops.object.cabinet_portas_internos(**props),{'CANCELLED'})
+        self.assertTrue(A.portas_visiveis(bpy.context,A.portas_do_interno(bpy.context,self.modulo)))
+
+    def test_volume_e_internos_perguntam_antes_de_criar_referencia(self):
+        self.portas()
+        for aba in ('GAVETAS','PRATELEIRAS'):
+            bpy.context.scene.cabinet_aba=aba
+            op=SimpleNamespace(destino='',portas_verificadas=False)
+            self.assertEqual(A.OBJECT_OT_definir_area.invoke(op,bpy.context,None),{'FINISHED'})
+            self.assertIsNone(A._estado[0])
+            pergunta=addon.perguntas._pergunta_atual[0]
+            self.assertEqual(pergunta['texto'],'Esconder portas?')
+            if aba=='PRATELEIRAS':self.assertEqual(pergunta['opcoes'][0][3]['metodo'],'VOLUME')
+
+    def test_pergunta_do_menu_fica_na_gaveta_com_as_duas_respostas(self):
+        self.portas()
+        addon.perguntas._na_gaveta[0]=True
+        try:A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas')
+        finally:addon.perguntas._na_gaveta[0]=False
+        bpy.context.scene.cabinet_aba='GAVETAS'
+        widgets=addon.gaveta._widgets_aba_gaveta(bpy.context,320,900,0)
+        self.assertEqual([v[4] for v in widgets if v[5] and v[5][0]=='resposta'],['Sim','Nao'])
+        self.assertIsNone(addon.gavetas._assistente_gavetas[0])
+
+    def test_responder_no_menu_preserva_pergunta_de_tipo_no_mesmo_menu(self):
+        self.portas()
+        addon.perguntas._na_gaveta[0]=True
+        try:A.iniciar_internos(bpy.context)
+        finally:addon.perguntas._na_gaveta[0]=False
+        self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=1),{'FINISHED'})
+        pergunta=addon.perguntas._pergunta_atual[0]
+        self.assertEqual(pergunta['texto'],'Criar prateleiras ou divisorias?')
+        self.assertTrue(pergunta['na_gaveta'])
+        self.assertFalse(addon.perguntas._na_gaveta[0])
+
+    def test_esconder_portas_com_folha_ativa_preserva_o_modulo_para_criar(self):
+        self.portas()
+        folha=next(o for o in A.portas_do_interno(bpy.context) if addon.chapas.MARCA_FOLHA in o)
+        self.modulo.select_set(False);folha.select_set(True);bpy.context.view_layer.objects.active=folha
+        bpy.ops.object.cabinet_portas_internos()
+        self.assertTrue(folha.hide_get())
+        self.assertIs(bpy.context.object,self.modulo)
+        self.assertTrue(self.modulo.select_get())
+
+    def test_h_e_alt_h_nativos_nao_sao_desfeitos_pelo_criador(self):
+        self.portas()
+        objetos=A.portas_do_interno(bpy.context)
+        folha=next(o for o in objetos if addon.chapas.MARCA_FOLHA in o)
+        self.modulo.select_set(False);folha.select_set(True);bpy.context.view_layer.objects.active=folha
+        with bpy.context.temp_override(area=self.area,region=self.regiao):
+            bpy.ops.object.hide_view_set(unselected=False)
+            A.verificar()
+            self.assertTrue(folha.hide_get())
+            bpy.ops.object.hide_view_clear(select=False)
+        addon.ferragens.ocultar_pecas_do_rig()
+        A.verificar()
+        self.assertFalse(folha.hide_get())
+
+    def test_olho_respeita_undo_redo_nativo_sem_referencias_globais(self):
+        self.portas()
+        nome=self.modulo.name
+        folhas=[o.name for o in A.portas_do_interno(bpy.context) if addon.chapas.MARCA_FOLHA in o]
+        bpy.ops.ed.undo_push(message='Portas visiveis')
+        bpy.ops.object.cabinet_portas_internos()
+        bpy.ops.ed.undo_push(message='Portas escondidas')
+        self.modulo=None
+        bpy.ops.ed.undo();addon.eventos._fim_do_desfazer()
+        self.assertTrue(all(not bpy.data.objects[n].hide_get() for n in folhas))
+        bpy.ops.ed.redo();addon.eventos._fim_do_desfazer()
+        self.assertTrue(all(bpy.data.objects[n].hide_get() for n in folhas))
+        self.modulo=bpy.data.objects[nome]
+
+    # Regressao (era BUG, corrigido na 386): modal consumia H/Alt+H entre cliques.
+    def test_captura_de_pontos_repassa_ocultacao_do_keymap_nativo(self):
+        g=addon.gavetas
+        self.assertFalse(g.evento_de_ocultacao(SimpleNamespace(),SimpleNamespace(type='TIMER')))
+        evento=SimpleNamespace(type='H',value='PRESS',mouse_x=self.regiao.x+20,mouse_y=self.regiao.y+20)
+        op=self.assistente_tres_pontos()
+        for identificador in ('object.hide_view_set','object.hide_view_clear'):
+            item=SimpleNamespace(idname=identificador)
+            mapa=SimpleNamespace(keymap_items=SimpleNamespace(match_event=lambda e:item))
+            contexto=SimpleNamespace(window_manager=SimpleNamespace(keyconfigs=SimpleNamespace(
+                user=SimpleNamespace(keymaps={'Object Mode':mapa}))))
+            self.assertTrue(g.evento_de_ocultacao(contexto,evento))
+            with patch.object(g,'evento_de_ocultacao',return_value=True), \
+                 patch.object(g,'evento_de_navegacao',return_value=False):
+                self.assertEqual(op._modal(bpy.context,evento),{'PASS_THROUGH'})
+            self.assertEqual(op._w['etapa'],'CANTO1')
+            self.assertEqual(op._w['pontos'],[])
+
     def pontos_livres(self):
         return [self.modulo.matrix_world @ Vector(p) for p in
                 ((-.25, -.2, .6), (.25, .05, .8), (.08, .15, .1))]
@@ -363,7 +582,7 @@ class TestAreasCriacao(unittest.TestCase):
         with patch.object(addon.editor,'executar',return_value={'RUNNING_MODAL'}) as executar:
             bpy.ops.object.cabinet_internos(acao='TIPO',valor='PRATELEIRAS')
         self.assertEqual(executar.call_args.args[1],'object.cabinet_definir_area')
-        self.assertEqual(executar.call_args.kwargs,{'destino':'PRATELEIRAS'})
+        self.assertEqual(executar.call_args.kwargs,{'destino':'PRATELEIRAS','portas_verificadas':True})
 
     def test_divisorias_depois_prateleiras_reutilizam_volume_sem_novos_cliques(self):
         op=self.assistente_internos('DIVISORIAS')
@@ -635,8 +854,9 @@ class TestAreasCriacao(unittest.TestCase):
 
     def test_ponte_para_assistente_consumida_uma_vez_sem_rna_global(self):
         obj = self.referencia()
-        def executar(contexto, idname):
+        def executar(contexto, idname, **props):
             self.assertEqual(idname, 'object.cabinet_criar_gavetas')
+            self.assertEqual(props,dict(portas_verificadas=True))
             self.assertIsNone(A.objeto())
             dados = A.consumir('GAVETAS')
             self.assertTrue(dados)

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (385, 0, 0),
+    "version": (386, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -98,6 +98,7 @@ CLASSES = (
     _areas_criacao.OBJECT_OT_aplicar_area,
     _areas_criacao.OBJECT_OT_cancelar_area,
     _areas_criacao.OBJECT_OT_internos,
+    _areas_criacao.OBJECT_OT_portas_internos,
     _editor.CABINET_NT_menu,
     _editor.CABINET_NT_biblioteca,
     _fundos.OBJECT_OT_criar_fundo,

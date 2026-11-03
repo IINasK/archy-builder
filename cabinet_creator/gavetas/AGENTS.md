@@ -34,6 +34,7 @@ Puxadores e referencia da frente: [portas](../portas/AGENTS.md), `../frentes.py`
   a frente e nunca fica coberto. Modulo selecionado absorve os filhos.
 - Selecao 384: depois de isolar unidade, Shift+clique soma outra do mesmo vao. Shift+duplo reduz so' o vao clicado, preservando selecoes externas. Clique sem Shift continua grupo; Tab edita somente as unidades escolhidas.
 - Puxador (385): gaveta isolada por duplo na frente/corpo libera clique simples so' no puxador dela; duplo direto no puxador tambem isola. Acessorio ja' ativo conserva selecao. Outra gaveta/grupo nao herda esse escopo; objetos comuns e paredes continuam nativos.
+- Internos (386): perguntar Esconder portas? Sim/Nao antes da captura, se o modulo alvo tem portas visiveis. Olho na linha Criar alterna portas/agregados, sem tocar corpo/fundo/base ou outros modulos. H/Alt+H independentes. Flag SKIP_SAVE portas_verificadas evita repetir pergunta nas continuacoes pontos/volume/tipo; snap somente depois da resposta.
 - Alt edita 3 pontos: duas quinas da frente + profundidade. Snap NATIVO pelo
   translate do cursor; Esc restaura cursor E alvos.
 - Redimensionar move pela face proxima sem crescer. Consumir a folga real

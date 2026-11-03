@@ -286,6 +286,8 @@ mais gavetas, grupo ou unidade selecionada): iguala as frentes do conjunto
 sem mudar o vao, espacamentos ou escolhas individuais. Arraste usa contorno de previa; confirmar refaz
 as pecas uma vez; Esc restaura parametros, materiais, abertura e selecao.
 
+Criacao de internos (386): no modulo alvo com portas visiveis, perguntar "Esconder portas?" com Sim/Nao antes dos pontos ou volume. Olho nativo no extremo direito da propria linha Criar (30 px, sem sobrepor o texto) alterna portas e agregados, inclusive durante a edicao da area. Sem portas visiveis, seguir direto. Usar hide_set da View Layer; H/Alt+H e selecao do Blender continuam independentes. Nao ha' reocultacao por timer ou restauracao automatica ao terminar; Mostrar e' comando explicito para as portas, conservando controles do rig ocultos. Corpo, fundo/base e outros modulos conservados.
+
 **Prateleiras (379).** Cota V em edicao + scroll cria previa de novas unidades so' naquele vao (Enter confirma, Esc cancela; apoios preservados). Mesma blocagem: moldura comum de leitura, cotas de todos os segmentos da orientacao selecionada; nao misturar prateleiras/divisorias. Portas podem ser ocultadas com agregados pelo menu (28 px) ou Shift+G -> Grupo da porta -> H; nao remonta, Alt+H/undo nativos. O assistente das
 gavetas com os mesmos tres pontos sem ordem e frente explicita (376). Scroll define quantas; o clique cria. A profundidade vem da caixa escolhida, sem trilho; folga
 da frente e' o Recuo da aba. Selecionadas (clique = todas do vao, duplo = uma): a HUD tem o

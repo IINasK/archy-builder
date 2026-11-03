@@ -3,7 +3,7 @@ import math
 import bpy
 import gpu
 from bpy.types import Operator
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
@@ -16,6 +16,8 @@ _opcoes = None
 _modulos = None
 _biblioteca_faixa = None
 _perguntas = None
+_ferragens = None
+_selecao = None
 _estado = [None]
 _entrega = [None]
 _internos = [None]
@@ -28,6 +30,103 @@ FACES = {'Z-': (0, 2, 3, 1), 'Z+': (4, 5, 7, 6),
          'Y-': (0, 1, 5, 4), 'Y+': (2, 6, 7, 3),
          'X-': (0, 4, 6, 2), 'X+': (1, 3, 7, 5)}
 RECADO_FRENTE = 'Clique na face que sera a frente | Backspace volta | Esc cancela'
+
+
+def modulo_das_portas(context):
+    # A selecao pode mudar para a area temporaria; o assistente conserva o dono.
+    estados = [_estado[0], _gavetas._assistente_gavetas[0],
+               _prateleiras._assistente_prateleiras[0], _divisorias._assistente_divisorias[0]]
+    for estado in estados:
+        if estado and estado.get('modulo'):
+            return context.scene.objects.get(estado['modulo'])
+    if _internos[0] and _internos[0].get('area'):
+        return context.scene.objects.get(_internos[0]['area']['modulo'])
+    ativo = context.view_layer.objects.active
+    return _modulos._conj_de(ativo) if ativo is not None and ativo.select_get() else None
+
+
+def portas_do_interno(context, modulo=None):
+    modulo = modulo if modulo is not None else modulo_das_portas(context)
+    if modulo is None:
+        return []
+    return _selecao.objetos_na_camada(context, dict.fromkeys(o
+        for grupo in _portas._portas_do_conjunto(modulo) for o in [grupo, *grupo.children_recursive]))
+
+
+def portas_visiveis(context, objetos):
+    return any(o.type == 'MESH' and o.get('cabinet_peca') not in _ferragens.PECAS_OCULTAS_RIG
+               and o.visible_get(view_layer=context.view_layer) for o in objetos)
+
+
+def perguntar_portas(context, comando, destino='', modo='PONTOS'):
+    modulo = modulo_das_portas(context)
+    if not portas_visiveis(context, portas_do_interno(context, modulo)):
+        return False
+    na_gaveta = bool(_perguntas._na_gaveta[0] or _gaveta._eh_area_gaveta(context))
+    props = dict(comando=comando, destino=destino, metodo=modo,
+                 modulo=modulo.name, cena=context.scene.name, na_gaveta=na_gaveta)
+    _perguntas._perguntar(context, 'Esconder portas?',
+        [(rotulo, 'NONE', 'object.cabinet_portas_internos', dict(props, esconder=esconder))
+         for rotulo, esconder in (('Sim', True), ('Nao', False))], na_gaveta=na_gaveta)
+    _perguntas._pergunta_atual[0]['portas_internos'] = True
+    return True
+
+
+def botao_olho(context, itens, x, y, w):
+    objetos = portas_do_interno(context)
+    if not objetos:
+        return w
+    itens.append((x + w - 30, y, 30, 30, '',
+        ('operador', 'object.cabinet_portas_internos', portas_visiveis(context, objetos))))
+    return w - 30
+
+
+class OBJECT_OT_portas_internos(Operator):
+    bl_idname = 'object.cabinet_portas_internos'
+    bl_label = 'Mostrar ou esconder portas e agregados'
+    bl_options = {'REGISTER', 'UNDO'}
+    comando: StringProperty(options={'SKIP_SAVE'})
+    destino: StringProperty(options={'SKIP_SAVE'})
+    metodo: StringProperty(default='PONTOS', options={'SKIP_SAVE'})
+    modulo: StringProperty(options={'SKIP_SAVE'})
+    cena: StringProperty(options={'SKIP_SAVE'})
+    esconder: BoolProperty(options={'SKIP_SAVE'})
+    na_gaveta: BoolProperty(options={'SKIP_SAVE'})
+
+    def execute(self, context):
+        alvo = modulo_das_portas(context)
+        if alvo is None or (self.comando and (self.cena != context.scene.name or self.modulo != alvo.name)):
+            return {'CANCELLED'}
+        permitidos = {DESTINOS[t] for t in ('GAVETAS', 'PRATELEIRAS', 'DIVISORIAS')}
+        permitidos.update(('object.cabinet_internos', 'object.cabinet_definir_area'))
+        if self.comando and self.comando not in permitidos:
+            return {'CANCELLED'}
+        objetos = portas_do_interno(context, alvo)
+        esconder = self.esconder if self.comando else portas_visiveis(context, objetos)
+        if not self.comando or esconder:
+            for obj in objetos:
+                if not esconder and obj.get('cabinet_peca') in _ferragens.PECAS_OCULTAS_RIG:
+                    continue
+                obj.hide_set(esconder, view_layer=context.view_layer)
+        if esconder and context.view_layer.objects.active in objetos:
+            alvo.select_set(True)
+            context.view_layer.objects.active = alvo
+        _hud._hover_hud.clear()
+        _eventos._redesenhar_viewports(context)
+        if self.comando:
+            props = dict(portas_verificadas=True)
+            if self.comando == 'object.cabinet_internos':
+                props['valor'] = self.metodo
+            elif self.comando == 'object.cabinet_definir_area':
+                props['destino'] = self.destino
+            anterior = _perguntas._na_gaveta[0]
+            try:
+                _perguntas._na_gaveta[0] = self.na_gaveta
+                resultado = _editor.executar(context, self.comando, **props)
+            finally:
+                _perguntas._na_gaveta[0] = anterior
+            return {'CANCELLED'} if 'CANCELLED' in resultado else {'FINISHED'}
+        return {'FINISHED'}
 
 
 def caixa_de_pontos(modulo, pontos, validar=True):
@@ -288,7 +387,7 @@ def esquecer():
 def cancelar_internos():
     _internos[0] = None
     pergunta = _perguntas._pergunta_atual[0]
-    if pergunta and pergunta.get('internos'):
+    if pergunta and (pergunta.get('internos') or pergunta.get('portas_internos')):
         _perguntas._pergunta_atual[0] = None
 
 
@@ -307,7 +406,9 @@ def _perguntar_internos(context, texto, escolhas):
     _gaveta._rolar_ate_o_fim(context)
 
 
-def iniciar_internos(context, modo='PONTOS'):
+def iniciar_internos(context, modo='PONTOS', portas_verificadas=False):
+    if not portas_verificadas and perguntar_portas(context, 'object.cabinet_internos', modo=modo):
+        return {'FINISHED'}
     cancelar_internos()
     _internos[0] = dict(etapa='TIPO', modo=modo, cena=context.scene.name,
         na_gaveta=bool(_perguntas._na_gaveta[0] or _gaveta._eh_area_gaveta(context)))
@@ -386,11 +487,12 @@ class OBJECT_OT_internos(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     acao: StringProperty(default='INICIAR', options={'SKIP_SAVE'})
     valor: StringProperty(options={'SKIP_SAVE'})
+    portas_verificadas: BoolProperty(options={'SKIP_SAVE'})
 
     def execute(self, context):
         try:
             if self.acao == 'INICIAR':
-                return iniciar_internos(context)
+                return iniciar_internos(context, self.valor or 'PONTOS', self.portas_verificadas)
             if self.acao == 'SAIR':
                 cancelar_internos(); return {'FINISHED'}
             s = _internos[0]
@@ -411,12 +513,12 @@ class OBJECT_OT_internos(Operator):
             s.update(tipo=self.valor, etapa='CRIANDO')
             context.scene.cabinet_aba = self.valor
             if self.acao == 'TIPO' and s['modo'] == 'VOLUME':
-                resultado = _editor.executar(context, 'object.cabinet_definir_area', destino=self.valor)
+                resultado = _editor.executar(context, 'object.cabinet_definir_area', destino=self.valor, portas_verificadas=True)
             else:
                 if self.acao == 'CONTINUAR':
                     _entrega[0] = dict(s['area'], destino=self.valor)
                 try:
-                    resultado = _editor.executar(context, DESTINOS[self.valor])
+                    resultado = _editor.executar(context, DESTINOS[self.valor], portas_verificadas=True)
                 finally:
                     _entrega[0] = None
             if 'CANCELLED' in resultado:
@@ -492,7 +594,8 @@ def entregar(context):
     encerrar(restaurar_selecao=False)
     _entrega[0] = d
     try:
-        resultado = _editor.executar(context, DESTINOS[d['destino']])
+        props = dict(portas_verificadas=True) if d['destino'] in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'} else {}
+        resultado = _editor.executar(context, DESTINOS[d['destino']], **props)
         return {'CANCELLED'} if 'CANCELLED' in resultado else {'FINISHED'}
     finally:
         _entrega[0] = None
@@ -550,6 +653,10 @@ def receber_internos(assistente, d):
 
 
 def widgets(context, itens, x, y, w):
+    largura = botao_olho(context, itens, x, y, w)
+    if largura != w:
+        itens.append((x, y, largura, 30, 'Criar interno', None))
+        y -= 38
     obj = objeto()
     if obj is None:
         itens.append((x, y, w, 28, 'Clique na viewport para posicionar a area', None))
@@ -600,6 +707,7 @@ class OBJECT_OT_definir_area(Operator):
     bl_label = 'Definir Area de Criacao'
     bl_options = {'INTERNAL'}
     destino: StringProperty(options={'SKIP_SAVE'})
+    portas_verificadas: BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -608,9 +716,13 @@ class OBJECT_OT_definir_area(Operator):
     def invoke(self, context, event):
         destino = self.destino or context.scene.cabinet_aba
         if not self.destino and destino in {'PRATELEIRAS', 'DIVISORIAS'}:
-            return iniciar_internos(context, 'VOLUME')
+            return iniciar_internos(context, 'VOLUME', getattr(self, 'portas_verificadas', False))
         if destino not in DESTINOS:
             return {'CANCELLED'}
+        if (destino in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'}
+                and not getattr(self, 'portas_verificadas', False)
+                and perguntar_portas(context, 'object.cabinet_definir_area', destino=self.destino)):
+            return {'FINISHED'}
         encerrar()
         area = _biblioteca_faixa.viewport(context.screen)
         if area is None:

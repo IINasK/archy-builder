@@ -1,5 +1,34 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Portas na criacao de internos (386): modulo alvo com portas visiveis recebe
+Esconder portas? Sim/Nao antes da captura de pontos ou volume livre.
+Sim esconde a montagem inteira (folhas, molduras, puxadores e ferragens);
+Nao conserva a visibilidade escolhida pelo usuario. Sem portas visiveis,
+seguir direto. O olho divide a linha Criar em texto e icone nativo de 30 px;
+fica acessivel durante o assistente e a referencia de volume. Alterna por
+hide_set da View Layer, sem manter estado paralelo ou reocultar por timer.
+Mostrar e' comando explicito para as portas; nao mostra controles/furos do
+rig nem altera hide_render, colecoes, fundo/base/corpo ou outro modulo.
+Alvo segue o modulo do assistente, mesmo com referencia temporaria ativa.
+Porta ativa oculta devolve o modulo como alvo; contexto antigo e' recusado.
+H/Alt+H continuam nativos; cancelamento/undo/load limpa pergunta pendente.
+Areas_criacao +16: perguntas antes dos tres dominios e volume, Sim/Nao,
+limite do modulo, outro armario preservado, olho/cotas no painel estreito,
+icone por visibilidade real, rig protegido, H/Alt+H, undo/redo, alvo da area,
+folha ativa, sem portas, pergunta na gaveta, contexto antigo e limpeza.
+Captura entre cliques repassa hide_view_set/hide_view_clear pelo matcher do
+keymap do usuario, inclusive remapeado. Regressao falhou com a guarda antiga
+(portas386-h-repro.log). Responder na gaveta conserva ali as proximas
+perguntas, com fluxo real do respondedor e restauracao da origem ao sair.
+Cobertura do operador novo e flags SKIP_SAVE.
+Auditoria dos retangulos reais em 220/480 px, sem sobreposicao: arquivo
+dist/portas386-layout.png (simbolo ilustrativo, nao captura da janela).
+Gestos com janela nao executados; cenas temporarias, biblioteca preservada.
+Validacao final: 3028 testes / 64 execucoes, tudo OK nos Blenders 4.2/5.2
+(dist/portas386-entrega.log). ZIP 386 conferido contra as 39 fontes Python.
+Uma execucao intermediaria falhou no undo de paredes 4.2; a rechecagem
+isolada e a final passaram sem alterar a suite ou o codigo de paredes.
+
 Hierarquia gaveta/puxador (385): clique no conjunto continua global; duplo
 na frente/corpo seleciona so' uma unidade. Esse escopo selecionado libera
 clique simples no proprio puxador. Duplo direto no puxador tambem isola;

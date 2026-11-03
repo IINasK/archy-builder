@@ -17,7 +17,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from mathutils.geometry import intersect_line_plane
 from bpy_extras import view3d_utils
-from bpy.props import FloatProperty, IntProperty, StringProperty
+from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
 # usados so' ao RODAR (import circular): o __init__ liga estes
@@ -1863,6 +1863,18 @@ def evento_de_navegacao(context, event):
         'view3d.view_all'} or item.idname.startswith('view3d.ndof_')))
 
 
+def evento_de_ocultacao(context, event):
+    if event.type in {'TIMER', 'MOUSEMOVE'}:
+        return False
+    config = context.window_manager.keyconfigs.user
+    for nome in ('Object Mode', '3D View'):
+        mapa = config.keymaps.get(nome) if config else None
+        item = mapa.keymap_items.match_event(event) if mapa else None
+        if item and item.idname in {'object.hide_view_set', 'object.hide_view_clear'}:
+            return True
+    return False
+
+
 def raio_no_modulo(context, modulo, origem, direcao):
     """Consulta apenas BVHs nativos das pecas do modulo, sem oclusores externos."""
     nomes = {o.name for o in modulo.children_recursive}
@@ -1955,6 +1967,7 @@ class AssistenteDoVao:
     ITEM = ('gaveta', 'gavetas')
     ABA = 'GAVETAS'
     FIM_QUANTIDADE = 'clique confirma'
+    portas_verificadas: BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -2160,6 +2173,10 @@ class AssistenteDoVao:
 
     # ---------------------------------------------- ciclo
     def invoke(self, context, event):
+        if (self.ABA in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'}
+                and not getattr(self, 'portas_verificadas', False)
+                and _areas_criacao.perguntar_portas(context, _areas_criacao.DESTINOS[self.ABA])):
+            return {'FINISHED'}
         self._area = context.area
         if _gaveta._eh_area_gaveta(context):
             self._area = next(
@@ -2362,7 +2379,8 @@ class AssistenteDoVao:
         if event.type in {'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS' and w['etapa'] == 'TRILHO':
             return self._criar(context, trilho='TELESCOPICO')
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS' or not dentro:
-            if w.get('volume_3d') and evento_de_navegacao(context, event):
+            if w.get('volume_3d') and (evento_de_navegacao(context, event)
+                                      or evento_de_ocultacao(context, event)):
                 return {'PASS_THROUGH'}
             return {'RUNNING_MODAL'} if dentro else {'PASS_THROUGH'}
         if w['etapa'] == 'FRENTE':
