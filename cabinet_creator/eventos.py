@@ -11,6 +11,7 @@ _frentes = _solda = _fundos = None
 _hud_volume = None
 _gavetas = None
 _paredes_edicao = _paredes_selecao = None
+_alvenaria = None
 _editor = None
 _areas_criacao = None
 _visibilidade = None
@@ -85,6 +86,7 @@ def verificar_periodicamente():
             _modulos._sincronizar_medidas_ativas()
             # modulo associado: segue a parede / volta ao plano dela
             _paredes.manter_nas_paredes()
+            _alvenaria.verificar()
             # controlador/furo do rig: so' o slider abre a porta
             _ferragens.ocultar_pecas_do_rig()
             _paredes.atualizar_guias()
@@ -279,6 +281,7 @@ def _esquecer_referencias(*_args):
     _hud_volume.terminar()
     _areas_criacao.esquecer()
     _paredes.esquecer()
+    _alvenaria.esquecer()
     _prateleiras.esquecer()
     _fundos.esquecer()
     _selecao._edicao_grupo[0] = None

@@ -11,6 +11,7 @@ from mathutils.bvhtree import BVHTree
 from bpy_extras import view3d_utils
 
 _paredes = _paredes_edicao = _paredes_selecao = _orcamento = _eventos = _gaveta = None
+_alvenaria = None
 ATR_FACE = 'cabinet_ambiente'
 CHAVE_MAPA = 'cabinet_ambientes'
 CHAVE_NOME = 'cabinet_ambiente_nome'
@@ -88,8 +89,8 @@ def alvo_nativo_visivel(context,obj):
         if incluir or oculto:context.view_layer.update()
 
 
-def preparar_selecao(context,obj,parede_2d=False):
-    if not _paredes.alvenaria_definida(obj):raise ValueError('Selecione a Alvenaria')
+def preparar_selecao(context,obj,parede_2d=False,classificar=None):
+    if not classificar and not _paredes.alvenaria_definida(obj):raise ValueError('Selecione a Alvenaria')
     encerrar_selecao()
     area=_paredes_edicao.viewport(context)
     if area is None:raise ValueError('Sem viewport 3D para editar a Alvenaria')
@@ -111,14 +112,16 @@ def preparar_selecao(context,obj,parede_2d=False):
     try:s['timer']=context.window_manager.event_timer_add(.1,window=context.window)
     except Exception:
         bpy.types.SpaceView3D.draw_handler_remove(s['handler'],'WINDOW');raise
+    s['classificar']=classificar
     _edicao_faces[0]=s
     acompanhar_faces(context)
     _paredes_edicao._aviso[0]=''
     try:atualizar_selecao(obj)
     except Exception:
         encerrar_selecao();raise
-    area.header_text_set('Clique: area | Shift: face | Ctrl: percurso | Shift+Ctrl: area | Enter: vista 2D | Esc sai'
-                        if parede_2d else 'Shift: face | Ctrl: percurso | Shift+Ctrl: area | Clique no nome da categoria | Esc sai')
+    instrucao = ('Enter: classificar' if classificar else 'Enter: vista 2D' if parede_2d
+                 else 'Clique no nome da categoria')
+    area.header_text_set('Clique: area | Shift: face | Ctrl: percurso | Shift+Ctrl: area | ' + instrucao + ' | Esc sai')
     return id(s)
 
 
@@ -312,6 +315,15 @@ def evento_selecao(context,event,token):
         else:encerrar_selecao()
         return {'CANCELLED'}
     regiao=next(r for r in area.regions if r.type=='WINDOW')
+    if s.get('classificar') and event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS':
+        if not s['selecionadas']:
+            area.header_text_set('Selecione pelo menos uma face | Enter confirma | Esc sai')
+            return {'RUNNING_MODAL'}
+        with context.temp_override(area=area,region=regiao):
+            _alvenaria.classificar(obj,s['classificar'])
+            encerrar_selecao()
+            bpy.ops.object.mode_set(mode='OBJECT')
+        return {'FINISHED'}
     if event.type=='TIMER':
         if not _eventos._transformando():atualizar_selecao(obj)
         return {'PASS_THROUGH'}
@@ -615,6 +627,7 @@ def widgets(context,itens,obj,x,y,w):
 
 def invalidar(cena,depsgraph):
     if _eventos._desfazendo[0]: return
+    _alvenaria.invalidar(depsgraph)
     s=_edicao_faces[0]
     acompanhar_faces(verificar=any(u.is_updated_geometry for u in depsgraph.updates)
                      and not _eventos._transformando() and not (s and s.get('selecionando')))

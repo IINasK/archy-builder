@@ -1,5 +1,10 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Alvenaria (400): Parede/Piso/Teto em faces da mesma malha, compatibilidade
+por normal, cotas editaveis e vinculo que acompanha o apoio. Suite
+alvenaria: classificacao sem recriar malha, normal legada, cota e
+translacao, perda de face e menu nas tres larguras.
+
 Categorias e selecao nativa na mesma vista 2D (399): nome aplica a todas
 as faces; so' remove quando todas ja' possuem a categoria. Selecao mista
 recebe a escolhida. Sem categoria limpa sem quadrado/registro vazio;

@@ -186,7 +186,7 @@ class TestEdicaoParedes(unittest.TestCase):
         itens = []
         E.widgets(bpy.context, itens, 12, 700, 400)
         self.assertIn('Alvenaria', [i[4] for i in itens])
-        self.assertIn('object.cabinet_definir_alvenaria', str(itens))
+        self.assertIn('Criar Alvenaria', [item[4] for item in itens])
         self.assertNotIn('object.cabinet_editar_parede', str(itens))
 
     def test_entrar_e_sair_da_parede_em_destaque_como_criar(self):

@@ -37,6 +37,7 @@ _eventos = None
 _editor = None
 _areas_criacao = None
 _visibilidade = None
+_alvenaria = None
 
 class OBJECT_OT_modo_medidas(Operator):
     """Alterna a edicao entre uma chapa e o conjunto"""
@@ -2110,7 +2111,10 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
             rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'
             itens.append((x, y + 26, w, 30, rotulo, ('operador', 'object.cabinet_definir_area')))
             y -= 36
-    y = _paredes_edicao.widgets(context, itens, x, y, w)
+    if _alvenaria.grupo_de(context.object) is not None:
+        return _alvenaria.widgets(context, itens, x, y, w)
+    if s.cabinet_aba == 'MODULOS' or _paredes.alvenaria_definida(context.object) or _paredes_edicao.ativa(context):
+        y = _paredes_edicao.widgets(context, itens, x, y, w)
     # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
     if s.cabinet_aba == 'PORTAS':

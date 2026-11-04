@@ -29,6 +29,7 @@ _chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = _gavetas = None
 _gaveta_desenho = None
 _paredes_edicao = _paredes_selecao = None
 _modulos = _ambientes = None
+_alvenaria = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -1168,9 +1169,12 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         regiao, motivo = None, "Arraste ate' uma parede"
         if acerto is not None:
             parede, ponto, normal, face = acerto
+            tipo = _alvenaria.superficie(parede, face, normal,
+                                         parede.evaluated_get(dep).data) if parede.type == 'MESH' else None
             if not alvenaria_definida(parede):
-                motivo = "Selecione a malha e use Definir Alvenaria"
-            elif eixos_da_parede(normal) is None and not eh_piso(normal):
+                motivo = "Selecione a malha e use Criar Alvenaria"
+            elif not (tipo == 'PAREDE' and eixos_da_parede(normal)
+                      or tipo == 'PISO' and eh_piso(normal)):
                 motivo = "Use uma parede vertical ou piso; teto nao e' apoio"
             elif parede.type != 'MESH':
                 motivo = "So' malha vira parede"

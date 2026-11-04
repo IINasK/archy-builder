@@ -181,7 +181,7 @@ class TestAmbientes(unittest.TestCase):
             self.assertEqual(remover[5][3],'desagregar')
             del self.obj[P.CHAVE_ALVENARIA]
             itens=[];E.widgets(bpy.context,itens,12,900,largura)
-            definir=next(v for v in itens if v[5]==('operador','object.cabinet_definir_alvenaria'))
+            definir=next(v for v in itens if v[4]=='Criar Alvenaria')
             self.assertEqual(definir[2],largura)
             self.obj[P.CHAVE_ALVENARIA]=True
 

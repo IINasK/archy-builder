@@ -8,6 +8,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 # usados so' ao RODAR (import circular): o __init__ liga estes
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = None
+_alvenaria = None
 _biblioteca = None
 _opcoes = None
 _eventos = None
@@ -203,6 +204,9 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
     if dono=='solda_criacao':return _solda.editar_criacao_solda(valor,indice=int(propriedade) if propriedade.isdigit() else None)
     if dono=='solda':return _solda.editar_distancia_solda(objeto,propriedade,valor)
+    if dono == 'instalacao':
+        grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
+        return _alvenaria.editar_cota(grupo, propriedade, valor) if grupo else 'Instalacao nao encontrada'
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
     if dono == 'parede_guia':
@@ -593,6 +597,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
                          if len(acao) > 5 and acao[5] else None)
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif len(acao)>5 and acao[5]==_alvenaria.ALVO_TIPO:
+                    if acao[1] == 'criar_alvenaria':
+                        context.screen[_alvenaria.CHAVE_ABRIR] = acao[2]
+                    else:
+                        context.screen[_alvenaria.CHAVE_ABRIR] = False
+                        self._no_soltar = 'object.cabinet_classificar_alvenaria'
+                        self._props_no_soltar = {'tipo': acao[2]}
+                        context.window_manager.modal_handler_add(self)
+                        return {'RUNNING_MODAL'}
                 elif len(acao)>5 and acao[5]==_ambientes.ALVO:
                     if acao[1]=='ambiente_visivel':
                         context.scene[_ambientes.CHAVE_CORES]=not acao[2]

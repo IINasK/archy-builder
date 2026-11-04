@@ -10,6 +10,7 @@ Antes de editar, leia explicitamente o guia indicado, inclusive para arquivos
 que continuam na raiz. Nao carregue todos os guias; instrucoes por pasta
 so' entram automaticamente quando o cliente percorre aquele diretorio.
 UI visivel exige tambem [DESIGN.md](DESIGN.md); frentes, [FRONTES.md](FRONTES.md).
+Mudanca visual usa [cabinet-design](planejamento/skills/cabinet-design/SKILL.md).
 Testes: [tests/AGENTS.md](tests/AGENTS.md). Assets: [biblioteca](cabinet_creator/biblioteca/AGENTS.md).
 
 ## Projeto e extensao
@@ -43,7 +44,7 @@ cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 399).
+Cada entrega incrementa bl_info["version"] (atual 400).
 
 ## Preferencias globais
 

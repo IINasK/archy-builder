@@ -2,6 +2,7 @@
 
 import bpy
 _visibilidade = None
+_alvenaria = None
 from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
 from bpy.types import Operator, Menu
 
@@ -289,6 +290,15 @@ class OBJECT_OT_selecionar(Operator):
         atingido = _hud._raio_hud(context, self.location)
         if not (self.toggle or self.extend):
             _encerrar_edicao_fora(context, atingido[0] if atingido is not None else None)
+        montagem = _alvenaria.grupo_de(atingido[0]) if atingido else None
+        if montagem is not None:
+            alvo = atingido[0] if self.modo == 'INDIVIDUAL' else montagem
+            if not (self.toggle or self.extend):
+                for anterior in context.selected_objects:
+                    anterior.select_set(False)
+            alvo.select_set(True)
+            context.view_layer.objects.active = alvo
+            return {'FINISHED'}
         puxador = _puxador_do_clique(atingido[0]) if atingido is not None else None
         if puxador is not None:
             gaveta = _gavetas.gaveta_de(puxador)

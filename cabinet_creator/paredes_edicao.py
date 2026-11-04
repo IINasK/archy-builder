@@ -22,6 +22,7 @@ _paredes = _modulos = _biblioteca = _chapas = _hud = None
 _gaveta = _opcoes = _eventos = _biblioteca_faixa = None
 _paredes_composicao = _paredes_selecao = None
 _ambientes = None
+_alvenaria = None
 _gavetas = None
 
 _sessao = [None]
@@ -49,7 +50,7 @@ def superficie(obj):
     return (obj is not None and obj.type == 'MESH'
             and not obj.get(_paredes_selecao.MARCA_EXIBICAO)
             and not obj.get(_paredes_selecao.MARCA_MODULO_RECORTADO)
-            and not _paredes.eh_movel(obj))
+            and not _paredes.eh_movel(obj) and _alvenaria.grupo_de(obj) is None)
 
 
 def lembrar_face(context, posicao, contexto=False):
@@ -86,7 +87,9 @@ def face_do_objeto(context, obj):
     candidatas = []
     for poly in avaliado.data.polygons:
         normal = (normal_mundo @ poly.normal).normalized()
-        if _paredes.eixos_da_parede(normal) and normal.dot(frente) > 0:
+        if (_paredes.eixos_da_parede(normal) and normal.dot(frente) > 0
+                and (not _paredes.alvenaria_definida(obj)
+                     or _alvenaria.superficie(obj, poly.index, normal, avaliado.data) == 'PAREDE')):
             # Area avaliada no mundo, inclusive para paredes com escala.
             escala_area = abs(obj.matrix_world.to_3x3().determinant()) * (
                 normal_mundo @ poly.normal).length
@@ -616,9 +619,12 @@ def widgets(context, itens, x, topo, w):
     # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
     # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
+        classificando = _ambientes._edicao_faces[0]
+        if classificando and classificando.get('classificar'):
+            itens.append((x, topo - 24, w, 24, 'Selecione as faces e pressione Enter', None))
+            return topo - 36
         if not _paredes.alvenaria_definida(obj):
-            botao('Definir Alvenaria','object.cabinet_definir_alvenaria',30)
-            return topo-58
+            return _alvenaria.widgets_classificar(context, itens, x, topo, w) - 58
         if context.mode=='EDIT_MESH':
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         topo-=30
@@ -629,6 +635,7 @@ def widgets(context, itens, x, topo, w):
         topo-=30
         itens.append((x,topo,w,30,'Desagregar Alvenaria',('operador','object.cabinet_definir_alvenaria',False,'desagregar')))
         topo-=6
+        topo = _alvenaria.widgets_classificar(context, itens, x, topo, w)
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26
