@@ -615,7 +615,7 @@ def contexto_painel(context):
     return obj if superficie(obj) and obj.select_get() else None
 
 
-def widgets(context, itens, x, topo, w):
+def widgets(context, itens, x, topo, w, compacto=False):
     obj = contexto_painel(context)
     if obj is None:
         return topo
@@ -635,6 +635,9 @@ def widgets(context, itens, x, topo, w):
         if not _paredes.alvenaria_definida(obj):
             return _alvenaria.widgets_classificar(context, itens, x, topo, w) - 58
         if context.mode=='EDIT_MESH':
+            if _ambientes._edicao_faces[0] is None:
+                topo = _alvenaria.widgets_classificar(context, itens, x, topo, w)
+                botao('Rebaixar faces do teto', 'object.cabinet_rebaixar_faces')
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         topo-=30
         metade=(w-6)/2
@@ -648,7 +651,7 @@ def widgets(context, itens, x, topo, w):
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26
-        return topo - 58
+        return topo - (12 if compacto else 58)
     s = _sessao[0]
     if s.get('categorias'):
         return _ambientes.widgets(context,itens,obj,x,topo,w)

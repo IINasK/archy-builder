@@ -473,7 +473,7 @@ def _desenhar_gaveta(tela=False):
             continue
         if acao and acao[:2] == ('escolha', 'modelo_instalacao'):
             _gaveta._botao_gaveta(x, y, w, h)
-            largura_icone = min(w-16, 50 if acao[2] == 'JANELA' else 34)
+            largura_icone = min(w-16, {'PORTA': 20, 'JANELA': 46, 'SACADA': 32}.get(acao[2], 34))
             altura_icone = 25 if acao[2] == 'JANELA' else 36
             ix, iy = x + (w-largura_icone)/2, y+23
             _gaveta._retangulo_gaveta(ix, iy, largura_icone, altura_icone, tuple(cores.outline))
@@ -621,6 +621,12 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_cabivel_gaveta(
                 x + (w - largura_texto) / 2, y + (h - 12) / 2, rotulo, w - 18,
                 cor=(*cores.text[:3], 0.4) if apagado else (1.0, 1.0, 1.0, 1.0))
+        elif acao and acao[0] == 'escolha' and acao[1] in {
+                'criar_alvenaria', 'tipo_alvenaria', 'tipo_instalacao'}:
+            blf.size(0, 12)
+            largura_texto = min(blf.dimensions(0, rotulo)[0], w-8)
+            _gaveta._texto_cabivel_gaveta(x+(w-largura_texto)/2, y+(h-12)/2,
+                                          rotulo, w-8, 12)
         elif acao and acao[0] == 'contador':
             # o valor no meio e as setas que dizem "arraste ou clique"
             blf.size(0, 13)

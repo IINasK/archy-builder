@@ -103,6 +103,16 @@ class TestEsquadrias(unittest.TestCase):
         self.assertIs(E.colisao(bpy.context, None, matriz, caixa), obj)
         for delta in ((0, 0, 2), (4, 0, 0), (0, -3, 0)):
             self.assertIsNone(E.colisao(bpy.context, None, Matrix.Translation(meio+Vector(delta)), caixa))
+        movel = bpy.data.objects.new('Armario de prova', None)
+        bpy.context.collection.objects.link(movel)
+        movel.matrix_world = matriz
+        with patch.object(P, 'caixa_do_modulo', return_value=caixa), \
+             patch.object(P, 'referencial', return_value=matriz), \
+             patch.object(P, 'sinalizar_erro', wraps=P.sinalizar_erro) as sinalizar:
+            self.assertTrue(E.avisar(bpy.context, movel))
+            self.assertEqual(sinalizar.call_count, 1)
+            self.assertEqual(movel.matrix_world, matriz)
+        P.esquecer()
 
     def test_cartoes_nao_se_sobrepoem_e_abrir_operador_tem_destino(self):
         self.parede()
@@ -110,7 +120,7 @@ class TestEsquadrias(unittest.TestCase):
             itens = []
             I.widgets_modelos(bpy.context, itens, 12, 500, largura-24, 'PAREDE')
             cartoes = [v for v in itens if v[5]]
-            self.assertEqual([v[5][2] for v in cartoes], list(E.MODELOS))
+            self.assertEqual([v[5][2] for v in cartoes[:3]], list(E.MODELOS))
             self.assertTrue(all(x+w <= largura-12+.001 for x,y,w,h,_,_ in cartoes))
         self.assertTrue(hasattr(bpy.ops.object, 'cabinet_instalar'))
 

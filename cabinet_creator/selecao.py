@@ -296,6 +296,10 @@ class OBJECT_OT_selecionar(Operator):
             if not (self.toggle or self.extend):
                 for anterior in context.selected_objects:
                     anterior.select_set(False)
+            familia = (alvo, *alvo.children) if alvo == montagem else (alvo,)
+            for peca in objetos_na_camada(context, familia):
+                if not peca.hide_select and peca.visible_get(view_layer=context.view_layer):
+                    peca.select_set(True)
             alvo.select_set(True)
             context.view_layer.objects.active = alvo
             return {'FINISHED'}

@@ -10,6 +10,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 _chapas = None
 _alvenaria = None
 _instalacoes = _esquadrias = None
+_iluminacao = None
 _biblioteca = None
 _opcoes = None
 _eventos = None
@@ -211,6 +212,9 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     if dono == 'instalacao_tamanho':
         grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
         return _instalacoes.editar_medida(grupo, int(propriedade), valor) if grupo else 'Instalacao nao encontrada'
+    if dono == 'forro':
+        grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
+        return _iluminacao.editar_forro(grupo, propriedade, valor) if grupo else 'Forro nao encontrado'
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
     if dono == 'parede_guia':
@@ -327,7 +331,8 @@ PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
 # medidas que podem chegar a zero (afastamentos, folgas); o resto
 # (largura, espessura...) para em 1 mm
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
-                      'prateleiras', 'divisorias', 'fundos', 'paredes', 'parede_modulo','solda_criacao','solda'}
+                      'prateleiras', 'divisorias', 'fundos', 'paredes', 'parede_modulo',
+                      'solda_criacao', 'solda', 'instalacao'}
 
 
 def _passo_do_arraste(event):
@@ -611,7 +616,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
                 elif len(acao) > 5 and acao[5] == _instalacoes.ALVO:
-                    if acao[1] == 'modelo_instalacao':
+                    if acao[1] == 'tipo_instalacao':
+                        context.screen[_instalacoes.CHAVE_TIPO_MENU] = acao[2]
+                    elif acao[1] == 'modelo_instalacao':
                         _editor.executar(context, 'object.cabinet_instalar', modelo=acao[2], arrastar=True)
                     elif acao[1] == 'acao_instalacao':
                         _editor.executar(context, 'object.cabinet_acao_instalacao', acao=acao[2])

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (401, 0, 0),
+    "version": (402, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -72,6 +72,7 @@ from . import ambientes as _ambientes
 from . import alvenaria as _alvenaria
 from . import instalacoes as _instalacoes
 from . import esquadrias as _esquadrias
+from . import iluminacao as _iluminacao
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
@@ -79,7 +80,7 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _portas_viewport, _gaveta_desenho, _paredes, _formas, _gavetas, _prateleiras, _promob,
             _geometria, _frentes, _biblioteca_faixa, _painel_legado, _divisorias, _hud_volume,
             _paredes_edicao, _paredes_composicao, _fundos, _paredes_selecao, _editor, _areas_criacao, _visibilidade, _ambientes, _alvenaria,
-            _instalacoes, _esquadrias)
+            _instalacoes, _esquadrias, _iluminacao)
 
 
 def _ligar_modulos():
@@ -219,6 +220,7 @@ CLASSES = (
     _alvenaria.OBJECT_OT_classificar_alvenaria,
     _instalacoes.OBJECT_OT_instalar,
     _instalacoes.OBJECT_OT_acao_instalacao,
+    _iluminacao.OBJECT_OT_rebaixar_faces,
     _ambientes.OBJECT_OT_definir_ambiente,
     _ambientes.OBJECT_OT_editar_ambientes,
     _ambientes.OBJECT_OT_cor_ambiente,

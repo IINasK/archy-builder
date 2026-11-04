@@ -191,7 +191,7 @@ class TestAmbientes(unittest.TestCase):
             with patch.object(A,'_retorno',[retorno]):
                 for largura in (166,296,540):
                     itens=[];addon.paredes_edicao.widgets(bpy.context,itens,12,900,largura)
-                    sair=[v for v in itens if v[5] and v[5][0]=='operador']
+                    sair=[v for v in itens if v[4] in ('Sair da edicao de categorias','Voltar a edicao da parede')]
                     self.assertEqual(len(sair),1);self.assertEqual(sair[0][2],largura-34)
                     olho=next(v for v in itens if v[5] and v[5][:2]==('escolha','ambiente_visivel'))
                     self.assertEqual(olho[0],sair[0][0]+sair[0][2]+6)

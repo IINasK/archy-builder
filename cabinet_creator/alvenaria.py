@@ -3,6 +3,8 @@ import bpy
 import bmesh
 import blf
 import gpu
+import numpy as np
+import math
 from bpy.props import StringProperty
 from bpy.types import Operator
 from gpu_extras.batch import batch_for_shader
@@ -173,8 +175,19 @@ def apoio_de(obj):
 def regiao(apoio, indice, matriz):
     lateral, cima, normal = (matriz.to_3x3().col[i] for i in range(3))
     ponto = apoio.matrix_world @ apoio.data.polygons[indice].center
+    camada = apoio.data.attributes.get(ATR_TIPO)
+    mascara = None
+    if camada is not None:
+        valores = np.empty(len(camada.data), dtype=np.int32)
+        camada.data.foreach_get('value', valores)
+        tipo = superficie(apoio, indice, normal)
+        if tipo in TIPOS:
+            mascara = valores == TIPOS.index(tipo)+1
+            if not apoio.get(CHAVE_TIPADA):
+                mascara |= valores == 0
     limites = _paredes._calcular_regiao(apoio.data, apoio.matrix_world, ponto, normal,
-                                        indice, lateral, conferir_vertices=True, v=cima)
+                                        indice, lateral, conferir_vertices=True, v=cima,
+                                        mascara=mascara)
     if limites:
         limites['triangulos'] = _paredes_selecao.triangulos_reais(
             apoio.data, limites['faces'], apoio.matrix_world)
@@ -334,11 +347,12 @@ def widgets(context, itens, x, y, w):
             itens.append((x, y - 20, w, 20, 'Selecione um novo apoio', None))
             return y - 32
         return y
-    metade = (w - 6) / 2
+    colunas = min(2, _gaveta._colunas_medidas(context, w+24, 2))
+    largura = (w - (colunas-1)*6) / colunas
     for i, (chave, mm) in enumerate((k, medidas[k] * 1000)
                                     for k in ('esquerda', 'direita', 'acima', 'abaixo')):
         rotulo = chave.capitalize()
-        itens.append((x + i % 2 * (metade + 6), y - 37 - i // 2 * 43,
-                      metade, 37, rotulo + ': ' + _opcoes._texto_medida(mm),
+        itens.append((x + i % colunas * (largura + 6), y - 37 - i // colunas * 43,
+                      largura, 37, rotulo + ': ' + _opcoes._texto_medida(mm),
                       ('medida', 'instalacao', chave, rotulo, mm)))
-    return y - 86
+    return y - math.ceil(4/colunas)*43

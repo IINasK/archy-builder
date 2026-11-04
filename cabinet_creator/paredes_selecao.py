@@ -106,13 +106,14 @@ def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
     return ponto,normal,regiao_dos_triangulos(trios,contorno,ponto,normal,min(ids),ids)
 
 
-def regiao_dos_triangulos(triangulos,contorno,ponto,normal,face,faces):
+def regiao_dos_triangulos(triangulos,contorno,ponto,normal,face,faces,eixos=None):
     t=np.asarray(triangulos,dtype=np.float64).reshape(-1,3)
     if len(t)<3:
         raise ValueError('A area escolhida nao cobre a parede')
-    u=np.array(_paredes.eixos_da_parede(normal)[1])
+    u,v = (np.array(e) for e in (eixos or (_paredes.eixos_da_parede(normal)[1], (0,0,1))))
+    x,y = t@u,t@v
     return dict(face=int(face),faces=frozenset(faces),plano=tuple(ponto),normal=tuple(normal),
-                retangulo=(float((t@u).min()),float((t@u).max()),float(t[:,2].min()),float(t[:,2].max())),
+                retangulo=(float(x.min()),float(x.max()),float(y.min()),float(y.max())),
                 triangulos=t,contorno=[(Vector(a),Vector(b)) for a,b in contorno],delimitada=True)
 
 
@@ -168,19 +169,24 @@ def _intervalos_segmento(a,b,triangulos):
     return unidos
 
 
-def recortar(regiao,pontos,normal):
+def recortar(regiao,pontos,normal,eixos=None):
     """Intersecciona a area marcada com a superficie REAL, incluindo buracos."""
     if len(pontos)<3:
         raise ValueError('Marque pelo menos tres pontas')
-    n,u=_paredes.eixos_da_parede(normal)
-    u=np.array(u);n=np.array(n);plano=np.array(regiao['plano'])
+    if eixos is None:
+        n,u=_paredes.eixos_da_parede(normal)
+        v=(0,0,1)
+    else:
+        n=normal
+        u,v=eixos
+    u,v,n,plano = (np.array(e) for e in (u,v,n,regiao['plano']))
     pontos=np.array(pontos,dtype=np.float64)
     if np.max(np.abs((pontos-plano)@n))>_paredes.TOLERANCIA_PLANO_M:
         raise ValueError('Marque a area no mesmo plano da parede')
-    poligono=np.stack((pontos@u,pontos[:,2]),axis=1)
+    poligono=np.stack((pontos@u,pontos@v),axis=1)
     recortes=_triangulos_do_poligono(poligono)
     origem=np.array(regiao['triangulos']).reshape(-1,3,3)
-    tris=np.stack((origem@u,origem[:,:,2]),axis=2)
+    tris=np.stack((origem@u,origem@v),axis=2)
     saida=[]
     for corte in recortes:
         if _cruz(corte[1]-corte[0],corte[2]-corte[0])<0:
@@ -210,12 +216,10 @@ def recortar(regiao,pontos,normal):
     if not saida:
         raise ValueError('A area marcada nao cobre a parede')
     def mundo(pt):
-        v=plano+u*(pt[0]-plano@u)
-        v[2]=pt[1]
-        return tuple(v)
+        return tuple(plano+u*(pt[0]-plano@u)+v*(pt[1]-plano@v))
     contorno=[]
     for a,b in regiao['contorno']:
-        pa,pb=np.array((Vector(a).dot(Vector(u)),a[2])),np.array((Vector(b).dot(Vector(u)),b[2]))
+        pa,pb=np.array((np.dot(a,u),np.dot(a,v))),np.array((np.dot(b,u),np.dot(b,v)))
         for x,y in _intervalos_segmento(pa,pb,recortes):
             contorno.append((mundo(pa+(pb-pa)*x),mundo(pa+(pb-pa)*y)))
     for pa,pb in zip(poligono,np.roll(poligono,-1,axis=0)):
@@ -225,7 +229,7 @@ def recortar(regiao,pontos,normal):
     # cruzamentos e transformar um vao valido em vazio nas cotas.
     linhas={}
     for a,b in contorno:
-        a=np.array((np.dot(a,u),a[2]));b=np.array((np.dot(b,u),b[2]))
+        a=np.array((np.dot(a,u),np.dot(a,v)));b=np.array((np.dot(b,u),np.dot(b,v)))
         d=b-a
         if np.linalg.norm(d)<1e-8:
             continue
@@ -242,7 +246,7 @@ def recortar(regiao,pontos,normal):
             else:unidos.append((a,b))
         contorno.extend((mundo(n2*offset+d*a),mundo(n2*offset+d*b)) for a,b in unidos)
     vertices=[mundo(pt) for tri in saida for pt in tri]
-    return regiao_dos_triangulos(vertices,contorno,regiao['plano'],normal,regiao['face'],regiao['faces'])
+    return regiao_dos_triangulos(vertices,contorno,regiao['plano'],normal,regiao['face'],regiao['faces'],(u,v))
 
 
 def ponto_na_regiao(regiao,ponto,u):

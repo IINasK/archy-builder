@@ -37,6 +37,7 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 PISO = {
     'alvenaria':5,
     'esquadrias':7,
+    'iluminacao':8,
     'ambientes':61,
     'medidas':21,
     'visibilidade': 26,

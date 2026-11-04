@@ -1,5 +1,19 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Eletrica e forro (402): tomadas/interruptores com espelho, spots embutidos
+ou sobrepostos e pendente vertical. Rebaixo pela regiao do teto ou por
+faces selecionadas, inclinado ou plano; tabica e luz linear por lado.
+Suite iluminacao: furo e direcao em piso/parede/teto, luzes seguindo
+rebaixo e retornando ao teto original, tabica parcial, salvar/reabrir,
+undo/redo e cartoes por superficie em 190/320/564 px.
+Auditoria GPU em Blender 5.2 background, temas Blender Dark e Light:
+dist/instalacoes402-*-modelos.png, *-porta.png e *-forro.png.
+Regressao visual: o titulo Instalacoes cobria parte do seletor do apoio.
+O teste do painel completo verifica que titulo e seletor nao se sobrepoem.
+Regressao: recorte precisa do referencial do apoio (a implementacao de
+parede pressupunha Z vertical). Remover forro transfere somente as luzes
+com vinculo, antes de excluir a malha ou os cortadores.
+
 Esquadrias (401): porta de giro, janela de correr e porta de sacada com
 cartoes arrastaveis, cotas e abertura. Suite esquadrias: corte em casca e
 volume, restauracao, vao existente, resize sobre degrau, escala nativa,

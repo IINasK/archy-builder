@@ -31,6 +31,7 @@ _paredes_edicao = _paredes_selecao = None
 _modulos = _ambientes = None
 _alvenaria = None
 _instalacoes = _esquadrias = None
+_iluminacao = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -199,7 +200,7 @@ def _faixas(inicios, totais):
     return np.repeat(inicios - (fins - totais), totais) + np.arange(fins[-1])
 
 
-def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, conferir_vertices=False, v=Z):
+def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, conferir_vertices=False, v=Z, mascara=None):
     """Regiao da face em lote (numpy): uma casa real tem centenas de milhares
     de faces, e o laco em Python por face travava o Blender a cada passo do
     mouse (relato do usuario, v321)."""
@@ -224,6 +225,8 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, 
     centros = np.add.reduceat(vertices[vertices_dos_lacos], inicios) / totais[:, None]
     n = np.array(normal, dtype=np.float64)
     coplanar = normais @ n >= (COPLANAR_MIN if orientacao_min is None else orientacao_min)
+    if mascara is not None:
+        coplanar &= mascara
     if conferir_vertices:
         perto=np.abs((vertices-np.array(ponto))@n)<=TOLERANCIA_PLANO_M
         coplanar &= np.logical_and.reduceat(perto[vertices_dos_lacos],inicios)
@@ -898,6 +901,7 @@ def desenhar_guias(context):
     realce = _hud._cor_realce_hud()
     _instalacoes.desenhar_previa(context, tela)
     _alvenaria.desenhar_guias(context, tela, realce)
+    _iluminacao.desenhar_lados(context, tela)
     arraste = _arraste_parede[0]
     if arraste is not None and arraste.get('contorno'):
         _desenhar_face_alvo(arraste, tela, COR_ALVO_APOIO, regiao, rv3d)
