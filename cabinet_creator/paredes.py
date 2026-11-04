@@ -30,6 +30,7 @@ _gaveta_desenho = None
 _paredes_edicao = _paredes_selecao = None
 _modulos = _ambientes = None
 _alvenaria = None
+_instalacoes = _esquadrias = None
 
 # ID props gravadas nos .blend (nao renomear: ver invariante 2)
 CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
@@ -895,6 +896,8 @@ def desenhar_guias(context):
     def tela(p):
         return view3d_utils.location_3d_to_region_2d(regiao, rv3d, p)
     realce = _hud._cor_realce_hud()
+    _instalacoes.desenhar_previa(context, tela)
+    _alvenaria.desenhar_guias(context, tela, realce)
     arraste = _arraste_parede[0]
     if arraste is not None and arraste.get('contorno'):
         _desenhar_face_alvo(arraste, tela, COR_ALVO_APOIO, regiao, rv3d)
@@ -1215,7 +1218,10 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         _arraste_parede[0]['valido']=True
         context.view_layer.update()
         _guias[0] = calcular_guias(conj, dep)
-        self._status(context, ("Solte para associar ao piso %s (face %d)" if piso else
+        if _esquadrias.colisao(context, conj, caixa=self._caixa):
+            self._status(context, _esquadrias.AVISO)
+        else:
+            self._status(context, ("Solte para associar ao piso %s (face %d)" if piso else
                      "Solte para associar a' parede %s (face %d)") % (parede.name, regiao['face']))
 
     def _status(self, context, texto):
@@ -1277,6 +1283,9 @@ class OBJECT_OT_arrastar_na_parede(Operator):
             # O ultimo modulo solto e' a referencia do proximo duplo clique.
             _paredes_edicao.registrar_posicionado(context, bpy.data.objects[self._modulo])
             self._encerrar(context)
+            if _esquadrias.avisar(context, bpy.data.objects[self._modulo]):
+                self.report({'WARNING'}, _esquadrias.AVISO)
+                return {'FINISHED'}
             piso=CHAVE_EIXO_PISO in bpy.data.objects[self._modulo]
             self.report({'INFO'}, ("Modulo associado ao piso %s" if piso else
                                    "Modulo associado a' parede %s") % self._parede)

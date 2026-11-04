@@ -1,5 +1,13 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Esquadrias (401): porta de giro, janela de correr e porta de sacada com
+cartoes arrastaveis, cotas e abertura. Suite esquadrias: corte em casca e
+volume, restauracao, vao existente, resize sobre degrau, escala nativa,
+inverter/espelhar, colisao no meio do giro, armario alto e layout.
+Regressao do corte de casca: o Boolean Exact pode devolver tampas marcadas
+do cortador em faces sem volume. Filtro de faces nativo deixa o vao aberto.
+Aviso usa a passagem e a varredura da folha sem bloquear o armario.
+
 Alvenaria (400): Parede/Piso/Teto em faces da mesma malha, compatibilidade
 por normal, cotas editaveis e vinculo que acompanha o apoio. Suite
 alvenaria: classificacao sem recriar malha, normal legada, cota e

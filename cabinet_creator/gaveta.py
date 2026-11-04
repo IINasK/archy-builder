@@ -38,6 +38,7 @@ _editor = None
 _areas_criacao = None
 _visibilidade = None
 _alvenaria = None
+_instalacoes = None
 
 class OBJECT_OT_modo_medidas(Operator):
     """Alterna a edicao entre uma chapa e o conjunto"""
@@ -2111,10 +2112,16 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
             rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'
             itens.append((x, y + 26, w, 30, rotulo, ('operador', 'object.cabinet_definir_area')))
             y -= 36
-    if _alvenaria.grupo_de(context.object) is not None:
-        return _alvenaria.widgets(context, itens, x, y, w)
+    instalacao = _alvenaria.grupo_de(context.object)
+    if instalacao is not None:
+        y = _alvenaria.widgets(context, itens, x, y, w)
+        return _instalacoes.widgets(context, itens, x, y, w, instalacao)
     if s.cabinet_aba == 'MODULOS' or _paredes.alvenaria_definida(context.object) or _paredes_edicao.ativa(context):
         y = _paredes_edicao.widgets(context, itens, x, y, w)
+    if s.cabinet_aba == 'MODULOS' and context.mode == 'OBJECT':
+        apoio = _paredes_edicao.contexto_painel(context)
+        if _paredes.alvenaria_definida(apoio):
+            return _instalacoes.widgets_modelos(context, itens, x, y, w, 'PAREDE')
     # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
     if s.cabinet_aba == 'PORTAS':
@@ -2600,7 +2607,7 @@ def _trilho_miniaturas_gaveta(x, y, w, h):
 def _trilho_slider_gaveta(acao, x, y, w, h):
     """(inicio, y, largura) do trilho de qualquer slider: o dos retratos
     (sem rotulo, o widget inteiro) ou o das miniaturas da biblioteca."""
-    if acao[1] == 'retratos':
+    if acao[1] in {'retratos', 'instalacao'}:
         return x + 10, y + h / 2, max(1, w - 20)
     return _trilho_miniaturas_gaveta(x, y, w, h)
 

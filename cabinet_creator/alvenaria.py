@@ -1,11 +1,16 @@
 """Classificacao por face e apoio local das instalacoes arquitetonicas."""
 import bpy
 import bmesh
+import blf
+import gpu
 from bpy.props import StringProperty
 from bpy.types import Operator
+from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
 _ambientes = _paredes = _paredes_edicao = _paredes_selecao = _opcoes = _gaveta = None
+_instalacoes = None
+_hud = None
 
 TIPOS = ('PAREDE', 'PISO', 'TETO')
 ATR_TIPO = 'cabinet_tipo_superficie'
@@ -14,9 +19,13 @@ CHAVE_TIPADA = 'cabinet_alvenaria_tipificada'
 CHAVE_ABRIR = 'cabinet_menu_criar_alvenaria'
 ALVO_TIPO = '@tipo_alvenaria'
 MARCA = 'cabinet_instalacao'
+MEDIDAS = 'cabinet_instalacao_medidas'
+PECA = 'cabinet_instalacao_peca'
 CHAVE_VINCULO = 'cabinet_apoio_instalacao'
 CHAVE_SEM_APOIO = 'cabinet_instalacao_sem_apoio'
 _regioes = [{}]
+_cotas_menu = [{}]
+_guias = [{}]
 
 
 def superficie(obj, indice, normal, malha=None):
@@ -207,20 +216,30 @@ def cotas(obj, resolvido=None):
                 abaixo=y - altura / 2 - abaixo, acima=acima - y - altura / 2)
 
 
-def editar_cota(obj, lado, valor):
+def destino_cota(obj, lado, valor):
     resolvido = resolver(obj)
     medidas = cotas(obj, resolvido) if resolvido else {}
     if lado not in medidas:
-        return 'A instalacao precisa de um apoio valido'
+        raise ValueError('A instalacao precisa de um apoio valido')
     apoio, matriz, indice, _ = resolvido
     eixo = 0 if lado in {'esquerda', 'direita'} else 1
     sinal = 1 if lado in {'esquerda', 'abaixo'} else -1
     matriz.translation += matriz.to_3x3().col[eixo] * sinal * (valor - medidas[lado])
+    return apoio, matriz, indice, resolvido[3]
+
+
+def editar_cota(obj, lado, valor):
+    try:
+        apoio, matriz, indice, _ = destino_cota(obj, lado, valor)
+    except ValueError as erro:
+        return str(erro)
     vincular(obj, apoio, indice, matriz, obj[CHAVE_VINCULO]['tipo'])
     return None
 
 
 def verificar():
+    cotas_menu = {}
+    guias = {}
     for obj in bpy.context.scene.objects:
         if MARCA not in obj or CHAVE_VINCULO not in obj:
             continue
@@ -230,20 +249,61 @@ def verificar():
                 obj[CHAVE_SEM_APOIO] = True
             continue
         obj.pop(CHAVE_SEM_APOIO, None)
+        if _instalacoes.absorver_transformacao(obj, resolvido):
+            resolvido = resolver(obj)
         matriz = resolvido[1]
         if _paredes._assinatura(obj.matrix_world) != _paredes._assinatura(matriz):
             obj.matrix_world = matriz
+        cotas_menu[obj.name] = cotas(obj, resolvido)
+        centro = matriz.translation
+        l, a = obj[MEDIDAS][:2]
+        u, v = (matriz.to_3x3().col[i] for i in (0, 1))
+        origens = dict(esquerda=(centro-u*l/2, -u), direita=(centro+u*l/2, u),
+                       acima=(centro+v*a/2, v), abaixo=(centro-v*a/2, -v))
+        guias[obj.name] = [(p, p + eixo*cotas_menu[obj.name][chave], cotas_menu[obj.name][chave])
+                           for chave, (p, eixo) in origens.items()]
+    _cotas_menu[0] = cotas_menu
+    _guias[0] = guias
 
 
 def invalidar(depsgraph):
     if any(u.is_updated_geometry and isinstance(u.id, bpy.types.Mesh)
            or isinstance(u.id, bpy.types.Object) and _paredes.alvenaria_definida(u.id)
            for u in depsgraph.updates):
-        esquecer()
+        _regioes[0].clear()
 
 
 def esquecer():
     _regioes[0].clear()
+    _cotas_menu[0].clear()
+    _guias[0].clear()
+
+
+def desenhar_guias(context, tela, cor):
+    grupo = grupo_de(getattr(context, 'object', None))
+    linhas = _guias[0].get(grupo.name) if grupo else None
+    if not linhas:
+        return
+    escala = context.preferences.system.ui_scale
+    tamanho = _opcoes._opcao('hud_tamanho_rotulo') * escala
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    anterior = gpu.state.blend_get()
+    try:
+        gpu.state.blend_set('ALPHA')
+        for p, q, valor in linhas:
+            a, b = tela(p), tela(q)
+            if a is None or b is None:
+                continue
+            shader.bind()
+            shader.uniform_float('color', cor)
+            batch_for_shader(shader, 'LINES', {'pos': (a, b)}).draw(shader)
+            texto = _opcoes._texto_medida(valor * 1000)
+            blf.size(0, tamanho)
+            largura, altura = blf.dimensions(0, texto)
+            meio = (a+b)/2
+            _hud._caixa_texto_hud(meio.x-largura/2, meio.y-altura/2, texto, tamanho, escala)
+    finally:
+        gpu.state.blend_set(anterior)
 
 
 def widgets_classificar(context, itens, x, y, w):
@@ -268,10 +328,12 @@ def widgets(context, itens, x, y, w):
     if obj is None:
         return y
     y = _gaveta._titulo_secao(itens, x, y + 26, w, obj.name)
-    medidas = cotas(obj)
+    medidas = _cotas_menu[0].get(obj.name, {})
     if not medidas:
-        itens.append((x, y - 20, w, 20, 'Selecione um novo apoio', None))
-        return y - 32
+        if obj.get(CHAVE_SEM_APOIO):
+            itens.append((x, y - 20, w, 20, 'Selecione um novo apoio', None))
+            return y - 32
+        return y
     metade = (w - 6) / 2
     for i, (chave, mm) in enumerate((k, medidas[k] * 1000)
                                     for k in ('esquerda', 'direita', 'acima', 'abaixo')):

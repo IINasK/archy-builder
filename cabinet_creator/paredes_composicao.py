@@ -7,6 +7,7 @@ import math
 import time
 import bpy
 _ambientes = None
+_esquadrias = None
 import bmesh
 import blf
 import gpu
@@ -1388,6 +1389,9 @@ class OBJECT_OT_mover_na_parede(Operator):
         if self._quina:
             quina = (inicio + self._quina[0] * f['largura'], base + self._quina[1] * f['altura'])
         _movendo[0] = dict(modulo=self.modulo, lado=self._lado, linhas=linhas, quina=quina)
+        contexto = getattr(context, 'workspace', None)
+        if contexto:
+            contexto.status_text_set(_esquadrias.AVISO if _esquadrias.colisao(context, obj, caixa=self._caixa) else None)
         _paredes_edicao._redesenhar()
 
     def modal(self, context, event):
@@ -1417,6 +1421,8 @@ class OBJECT_OT_mover_na_parede(Operator):
         if ((event.type == 'LEFTMOUSE' and event.value == confirma)
                 or (event.type in {'RET', 'NUMPAD_ENTER', 'SPACE'} and event.value == 'PRESS')):
             self._encerrar(context)
+            if _esquadrias.avisar(context, bpy.data.objects[self.modulo]):
+                self.report({'WARNING'}, _esquadrias.AVISO)
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             self._restaurar(context)

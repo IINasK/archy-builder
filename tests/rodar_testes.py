@@ -36,6 +36,7 @@ PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
 # saiu a pedido do usuario; ficam os testes de area e do snap da curva.
 PISO = {
     'alvenaria':5,
+    'esquadrias':7,
     'ambientes':61,
     'medidas':21,
     'visibilidade': 26,

@@ -399,6 +399,15 @@ def iniciar(context, obj, face=None, recortar=False):
                              instalacao=regiao['retangulo'][2] * 1000)
         with context.temp_override(area=area, region=reg):
             manter=_visiveis_da_face(context,obj,ponto,n)
+            for instalado in context.scene.objects:
+                if _alvenaria.MARCA not in instalado or _alvenaria.apoio_de(instalado) != obj:
+                    continue
+                resolvido = _alvenaria.resolver(instalado)
+                if resolvido and resolvido[1].to_3x3().col[2].dot(n) > .999:
+                    centro = resolvido[1].translation
+                    s0, s1, z0, z1 = regiao['retangulo']
+                    if s0 <= centro.dot(u) <= s1 and z0 <= centro.z <= z1:
+                        manter.update(o.name for o in (instalado, *instalado.children) if not o.hide_select)
             if recortar:
                 exibicao=_paredes_selecao.criar_exibicao(context,obj,regiao)
                 _sessao[0]['exibicao']=exibicao.name

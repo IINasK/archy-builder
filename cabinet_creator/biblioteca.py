@@ -20,6 +20,7 @@ _biblioteca_faixa = None
 _formas = None
 _paredes_edicao = None
 _paredes = None
+_esquadrias = None
 
 # ================================================== BIBLIOTECA / ASSETS
 # Salva chapas e modulos na biblioteca de assets do Blender, para
@@ -1491,7 +1492,9 @@ class OBJECT_OT_arrastar_preset(Operator):
             escala = _paredes.escala_no_referencial(modulo)
             self._aviso_ajuste = 'Ajustado: %.1f x %.1f mm | Solte para inserir' % (
                 abs((hi.x - lo.x) * escala.x) * 1000, altura * 1000)
-        self._status(context, self._erro_posicionamento or self._aviso_ajuste or 'Solte para inserir na parede')
+        interferencia = not erro and _esquadrias.colisao(context, modulo, caixa=(lo, hi))
+        self._status(context, self._erro_posicionamento or (_esquadrias.AVISO if interferencia else
+                     self._aviso_ajuste or 'Solte para inserir na parede'))
 
     def _mover_na_parede(self, context, event):
         self._valido = False
@@ -1607,7 +1610,10 @@ class OBJECT_OT_arrastar_preset(Operator):
             context.view_layer.update()
         except (ReferenceError, RuntimeError):
             pass
-        self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(self._novos))
+        if self._raizes and _esquadrias.avisar(context, self._raizes[0]):
+            self.report({'WARNING'}, _esquadrias.AVISO)
+        else:
+            self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(self._novos))
         return {'FINISHED'}
 
     def modal(self, context, event):

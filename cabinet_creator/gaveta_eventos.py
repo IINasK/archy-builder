@@ -9,6 +9,7 @@ from bpy.types import Gizmo, GizmoGroup, Operator
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = None
 _alvenaria = None
+_instalacoes = _esquadrias = None
 _biblioteca = None
 _opcoes = None
 _eventos = None
@@ -206,7 +207,10 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
     if dono=='solda':return _solda.editar_distancia_solda(objeto,propriedade,valor)
     if dono == 'instalacao':
         grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
-        return _alvenaria.editar_cota(grupo, propriedade, valor) if grupo else 'Instalacao nao encontrada'
+        return _instalacoes.editar_cota(grupo, propriedade, valor) if grupo else 'Instalacao nao encontrada'
+    if dono == 'instalacao_tamanho':
+        grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
+        return _instalacoes.editar_medida(grupo, int(propriedade), valor) if grupo else 'Instalacao nao encontrada'
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
     if dono == 'parede_guia':
@@ -448,6 +452,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     _biblioteca_faixa.rolar(context, event)
                 return {'FINISHED'}
             for wx, wy, w, h, _, acao in _gaveta._widgets_interativos(context):
+                if (acao and acao[:2] == ('slider', 'instalacao') and event.type != 'TRACKPADPAN'
+                        and wx <= event.mouse_region_x <= wx+w and wy <= event.mouse_region_y <= wy+h):
+                    obj = bpy.data.objects.get(acao[2])
+                    if obj:
+                        passo = .05 if event.type == 'WHEELUPMOUSE' else -.05
+                        _esquadrias.abrir(obj, acao[3], acao[4]+passo)
+                        bpy.ops.ed.undo_push(message='Abertura da esquadria')
+                        _eventos._redesenhar_viewports(context)
+                    return {'FINISHED'}
                 if (acao and acao[0] in {'navegar', 'rolar_nivel'}
                         and event.type != 'TRACKPADPAN'
                         and wx <= event.mouse_region_x <= wx + w
@@ -597,6 +610,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                          if len(acao) > 5 and acao[5] else None)
                 if acao[1]=='solda_acao':
                     bpy.ops.object.cabinet_acao_criacao_solda(acao=acao[2])
+                elif len(acao) > 5 and acao[5] == _instalacoes.ALVO:
+                    if acao[1] == 'modelo_instalacao':
+                        _editor.executar(context, 'object.cabinet_instalar', modelo=acao[2], arrastar=True)
+                    elif acao[1] == 'acao_instalacao':
+                        _editor.executar(context, 'object.cabinet_acao_instalacao', acao=acao[2])
                 elif len(acao)>5 and acao[5]==_alvenaria.ALVO_TIPO:
                     if acao[1] == 'criar_alvenaria':
                         context.screen[_alvenaria.CHAVE_ABRIR] = acao[2]
@@ -763,6 +781,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 self._inicio, _, self._largura = _gaveta._trilho_slider_gaveta(
                     acao, wx, wy, w, h)
                 self._slider = acao[1]
+                if acao[1] == 'instalacao':
+                    self._abertura = acao[2:5]
                 self._atualizar(context, x)
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
@@ -793,6 +813,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
 
     def _atualizar(self, context, x):
         fracao = min(1.0, max(0.0, (x - self._inicio) / self._largura))
+        if getattr(self, '_slider', None) == 'instalacao':
+            nome, folha, _ = self._abertura
+            obj = bpy.data.objects.get(nome)
+            if obj:
+                _esquadrias.abrir(obj, folha, fracao)
+                _eventos._redesenhar_viewports(context)
+            return
         if getattr(self, '_slider', None) == 'retratos':
             # tamanho de TODOS os retratos (puxador, abertura, dobradica)
             menor, maior = _gaveta.LARGURA_RETRATO_MIN, _gaveta.LARGURA_RETRATO_MAX
@@ -1088,8 +1115,16 @@ class OBJECT_OT_interagir_gaveta(Operator):
         if event.type == 'MOUSEMOVE':
             self._atualizar(context, event.mouse_region_x)
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            if getattr(self, '_slider', None) == 'instalacao':
+                bpy.ops.ed.undo_push(message='Abertura da esquadria')
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'}:
+            if getattr(self, '_slider', None) == 'instalacao':
+                nome, folha, anterior = self._abertura
+                obj = bpy.data.objects.get(nome)
+                if obj:
+                    _esquadrias.abrir(obj, folha, anterior)
+                    _eventos._redesenhar_viewports(context)
             return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 

@@ -471,6 +471,23 @@ def _desenhar_gaveta(tela=False):
         if acao and acao[0] == 'wireframe':
             _gaveta._desenhar_wireframe_gaveta(x, y, *acao[1:], escala=w / 160.0)
             continue
+        if acao and acao[:2] == ('escolha', 'modelo_instalacao'):
+            _gaveta._botao_gaveta(x, y, w, h)
+            largura_icone = min(w-16, 50 if acao[2] == 'JANELA' else 34)
+            altura_icone = 25 if acao[2] == 'JANELA' else 36
+            ix, iy = x + (w-largura_icone)/2, y+23
+            _gaveta._retangulo_gaveta(ix, iy, largura_icone, altura_icone, tuple(cores.outline))
+            _gaveta._retangulo_gaveta(ix+3, iy+3, largura_icone-6, altura_icone-6, tuple(cores.inner_sel))
+            if acao[2] in {'JANELA', 'SACADA'}:
+                _gaveta._retangulo_gaveta(ix+largura_icone/2-1, iy, 2, altura_icone, tuple(cores.outline))
+            _gaveta._texto_cabivel_gaveta(x+6, y+5, rotulo, w-12, 11)
+            continue
+        if acao and acao[:2] == ('slider', 'instalacao'):
+            tx, ty, tw = _gaveta._trilho_slider_gaveta(acao, x, y, w, h)
+            _gaveta._texto_cabivel_gaveta(x+10, y+h-10, rotulo, w-20, 10)
+            _gaveta._retangulo_gaveta(tx, ty-3, tw, 2, tuple(cores.inner))
+            _gaveta._retangulo_arredondado_gaveta(tx+tw*acao[4]-4, ty-6, 8, 8, 4, (*cores.text, 1))
+            continue
         if acao and acao[0] == 'slider' and acao[1] == 'retratos':
             # o pequeno, ao lado do titulo: a caixa dele (a do titulo),
             # trilho e bolinha
