@@ -1100,7 +1100,7 @@ class TestImportacao(unittest.TestCase):
         self.assertEqual(addon.portas._folhas_portas(grupo), [placa])
 
     # ------------------------------------------------------------ gaveta
-    def test_cabecalho_tem_seis_abas_com_prateleiras_e_divisorias_juntas(self):
+    def test_cabecalho_tem_sete_abas_com_alvenaria_e_internos_juntos(self):
         # As correntes entre as abas foram descontinuadas (pedido do
         # usuario): nenhum widget de operador no cabecalho. A aba Gavetas
         # e as Prateleiras/Divisorias vem antes de Puxadores.
@@ -1112,9 +1112,9 @@ class TestImportacao(unittest.TestCase):
                 self.assertEqual(cabecalho[0][5][:2], ('suspenso', addon.gaveta.CHAVE_ABAS))
                 self.assertEqual(cabecalho[0][5][4], tuple(a[0] for a in addon.gaveta.ABAS_GAVETA))
             else:
-                self.assertEqual([w[5][0] for w in cabecalho], ['aba'] * 6)
+                self.assertEqual([w[5][0] for w in cabecalho], ['aba'] * 7)
                 self.assertEqual([w[5][1] for w in cabecalho],
-                                 ['MODULOS', 'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'PUXADORES'])
+                                 ['MODULOS', 'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'PUXADORES', 'ALVENARIA'])
             self.assertFalse(any(w[5] and w[5][0] == 'operador'
                                  and w[1] > 1200 - 48 for w in widgets))
             fim = cabecalho[-1]

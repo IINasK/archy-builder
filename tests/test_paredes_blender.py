@@ -60,7 +60,7 @@ class TestParedes(unittest.TestCase):
         self.assertFalse(P.alvenaria_definida(self.parede))
         self.assertNotIn(P.CHAVE_PAREDE,conj)
         self.assertEqual(conj.matrix_world,antes)
-        itens=[];addon.paredes_edicao.widgets(bpy.context,itens,0,500,300)
+        itens=[];addon.alvenaria.widgets_classificar(bpy.context,itens,0,500,300)
         self.assertTrue(any(i[4] == 'Criar Alvenaria' for i in itens))
         self.assertFalse(any(i[5] == ('operador','object.cabinet_editar_parede') for i in itens))
 

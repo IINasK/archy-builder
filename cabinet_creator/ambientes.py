@@ -141,7 +141,7 @@ def atualizar_selecao(obj):
         ids=[f[original] for f in bm.faces]
         trios={}
         for tri in bm.calc_loop_triangles():trios.setdefault(tri[0].face.index,[]).extend(tuple(l.vert.co) for l in tri)
-        camada=bm.faces.layers.int.get(ATR_FACE)
+        camada=bm.faces.layers.int.get(ATR_FACE) if not s.get('classificar') else None
         s['arestas']={f.index:[tuple(v.co) for e in f.edges for v in e.verts] for f in bm.faces}
         for i,original_id in enumerate(ids):
             if original_id in s.get('recortes_2d',{}):
@@ -182,6 +182,9 @@ def atualizar_selecao(obj):
         s.update(cache=[(arvore,trios),(arvore,automaticas)],ids=ids,grupos=grupos,
                  categorias=categorias,sujo=False,hover=None)
         guardar_selecao(obj)
+        if s.get('classificar'):
+            s['visual_sujo'] = True
+            _alvenaria.atualizar_visual(obj)
     finally:bm.free()
 
 
@@ -199,7 +202,10 @@ def guardar_selecao(obj):
     s=_edicao_faces[0]
     if s is not None:
         permitidas=set(s['ids']);bm=bmesh.from_edit_mesh(obj.data)
-        s['selecionadas']=tuple(i for i,f in enumerate(bm.faces) if f.select and i in permitidas)
+        escolhidas=tuple(i for i,f in enumerate(bm.faces) if f.select and i in permitidas)
+        if escolhidas != s['selecionadas']:
+            s['visual_sujo'] = True
+        s['selecionadas']=escolhidas
 
 
 def faces_da_area_2d(obj,bm):
@@ -316,16 +322,19 @@ def evento_selecao(context,event,token):
         return {'CANCELLED'}
     regiao=next(r for r in area.regions if r.type=='WINDOW')
     if s.get('classificar') and event.type in {'RET','NUMPAD_ENTER'} and event.value=='PRESS':
-        if not s['selecionadas']:
-            area.header_text_set('Selecione pelo menos uma face | Enter confirma | Esc sai')
-            return {'RUNNING_MODAL'}
         with context.temp_override(area=area,region=regiao):
-            _alvenaria.classificar(obj,s['classificar'])
-            encerrar_selecao()
-            bpy.ops.object.mode_set(mode='OBJECT')
+            try:
+                _alvenaria.confirmar(context)
+            except ValueError as erro:
+                area.header_text_set(str(erro) + ' | Enter confirma | Esc sai')
+                return {'RUNNING_MODAL'}
         return {'FINISHED'}
     if event.type=='TIMER':
-        if not _eventos._transformando():atualizar_selecao(obj)
+        if not _eventos._transformando():
+            atualizar_selecao(obj)
+            if s.get('classificar'):
+                guardar_selecao(obj)
+                _alvenaria.atualizar_visual(obj)
         return {'PASS_THROUGH'}
     if _eventos._transformando():return {'PASS_THROUGH'}
     if event.type=='ESC' and event.value=='PRESS':
@@ -343,6 +352,8 @@ def evento_selecao(context,event,token):
         direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv,xy)
         manual=bool(event.ctrl or getattr(event,'shift',False))
         indice=acerto_selecao(obj,inicio,direcao,manual)
+        if s.get('classificar') and (s['hover'] != indice or s['manual'] != manual):
+            s['visual_sujo'] = True
         s.update(hover=indice,manual=manual,xy=xy);area.tag_redraw()
         if event.type=='LEFTMOUSE' and event.value=='PRESS' and indice is not None:
             with context.temp_override(area=area,region=regiao):
@@ -371,6 +382,8 @@ def desenhar_selecao():
             or context.region.as_pointer()!=s['regiao']):return
     obj=bpy.data.objects.get(s['objeto'])
     if obj is None:return
+    if s.get('classificar'):
+        _alvenaria.desenhar_visual(context,obj)
     primitivas=[]
     sessao=_paredes_edicao._sessao[0]
     if sessao and sessao.get('categorias'):
@@ -703,8 +716,11 @@ def rotulo_cabe(triangulos,largura,altura):
 def _rotulo(context,obj,f,nome):
     centro=obj.matrix_world@Vector(f['centro'])
     n=(obj.matrix_world.to_3x3().inverted_safe().transposed()@Vector(f['normal'])).normalized()
-    if _paredes.tipo_superficie(n)!='PAREDE': return
-    u=Vector((0,0,1)).cross(n).normalized();v=n.cross(u)
+    if f.get('eixos'):
+        u,v=f['eixos']
+    else:
+        if _paredes.tipo_superficie(n)!='PAREDE': return
+        u=Vector((0,0,1)).cross(n).normalized();v=n.cross(u)
     px=_paredes._px_por_metro(context.region,context.region_data,centro,u)
     py=_paredes._px_por_metro(context.region,context.region_data,centro,v)
     if not px or not py: return
@@ -720,6 +736,7 @@ def _rotulo(context,obj,f,nome):
 
 def desenhar():
     context=bpy.context
+    if _edicao_faces[0] and _edicao_faces[0].get('classificar'):return
     if not context.scene.get(CHAVE_CORES,True):return
     if context.mode!='EDIT_MESH' or _eventos._desfazendo[0] or _eventos._transformando(): return
     obj=context.edit_object

@@ -625,10 +625,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 elif len(acao)>5 and acao[5]==_alvenaria.ALVO_TIPO:
                     if acao[1] == 'criar_alvenaria':
                         context.screen[_alvenaria.CHAVE_ABRIR] = acao[2]
+                        if acao[2]:
+                            context.scene.cabinet_aba = 'ALVENARIA'
+                            context.screen[_gaveta._CHAVE_ROLAGEM] = 0
                     else:
                         context.screen[_alvenaria.CHAVE_ABRIR] = False
                         self._no_soltar = 'object.cabinet_classificar_alvenaria'
-                        self._props_no_soltar = {'tipo': acao[2]}
+                        self._props_no_soltar = {'tipo': acao[2], 'editar': acao[1] == 'editar_alvenaria'}
                         context.window_manager.modal_handler_add(self)
                         return {'RUNNING_MODAL'}
                 elif len(acao)>5 and acao[5]==_ambientes.ALVO:

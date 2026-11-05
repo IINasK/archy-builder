@@ -581,14 +581,20 @@ def _sugerir_sacada(context, ponto, normal, medidas):
     return (medidas[0], altura, medidas[2]) if altura >= .3 else medidas
 
 
-def widgets_tipos(context, itens, x, y, w):
+def widgets_seletor(context, itens, x, y, w):
     tipo = context.screen.get(CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
     coluna = (w-12)/3
     y -= 25
     for i, rotulo in enumerate(_alvenaria.TIPOS):
         itens.append((x+i*(coluna+6), y, coluna, 25, rotulo.capitalize(),
                       ('escolha', 'tipo_instalacao', rotulo, tipo == rotulo, True, ALVO)))
-    return widgets_modelos(context, itens, x, y-6, w, tipo)
+    return y-6
+
+
+def widgets_tipos(context, itens, x, y, w):
+    y = widgets_seletor(context, itens, x, y, w)
+    tipo = context.screen.get(CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
+    return widgets_modelos(context, itens, x, y, w, tipo)
 
 
 def widgets_modelos(context, itens, x, y, w, apoio, excluir=()):

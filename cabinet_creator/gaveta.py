@@ -1291,6 +1291,7 @@ COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
 # laranja para entrar, o laranja forte da etapa em andamento para sair.
 # Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
 OPERADORES_DESTAQUE = ('object.cabinet_definir_alvenaria', 'object.cabinet_editar_parede', 'object.cabinet_editar_ambientes', 'object.cabinet_sair_parede',
+                      'object.cabinet_confirmar_alvenaria',
                       'object.cabinet_definir_ambiente', 'object.editmode_toggle',
                       'object.cabinet_aplicar_area', 'object.cabinet_definir_area', 'object.cabinet_internos',
                       'object.cabinet_conectar_vertices', 'object.cabinet_confirmar_conexao',
@@ -1668,7 +1669,7 @@ OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
                ('Fundos', 'Fundo', 'FUNDOS'),
                ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras / Divisorias', 'Prat./Div.', 'PRATELEIRAS'),
-               ('Puxadores', 'Pux.', 'PUXADORES'))
+               ('Puxadores', 'Pux.', 'PUXADORES'), ('Alvenaria', 'Alv.', 'ALVENARIA'))
 # Os operadores das antigas correntes seguem no F3, fora do cabecalho.
 OPERADORES_CORRENTE = ()
 # Conta da linha expandida; o cabecalho estreito ocupa apenas um widget.
@@ -2090,23 +2091,19 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     solda=_solda._conexao_manual[0]
     if solda is not None and solda.get('moderna'):
         return _painel_criacao_solda(context,itens,x,y+54,w,solda)
-    instalacao = _alvenaria.grupo_de(context.object)
-    if instalacao is not None:
-        if instalacao.get(_alvenaria.MARCA) == 'REBAIXO':
-            y = _titulo_secao(itens, x, y+26, w, instalacao.name)
-        else:
-            y = _alvenaria.widgets(context, itens, x, y, w)
-        _instalacoes.widgets(context, itens, x, y, w, instalacao)
-        return itens
-    if context.mode == 'OBJECT' and not _paredes.eh_movel(context.object):
-        apoio = _paredes_edicao.contexto_painel(context)
-        if _paredes.alvenaria_definida(apoio):
-            y = _paredes_edicao.widgets(context, itens, x, y, w, compacto=True)
-            if _paredes_edicao.ativa(context):
-                _instalacoes.widgets_modelos(context, itens, x, y, w, 'PAREDE')
+    if s.cabinet_aba == 'ALVENARIA':
+        instalacao = _alvenaria.grupo_de(context.object)
+        if instalacao is not None:
+            if instalacao.get(_alvenaria.MARCA) == 'REBAIXO':
+                y = _titulo_secao(itens, x, y+26, w, instalacao.name)
             else:
-                _instalacoes.widgets_tipos(context, itens, x, y, w)
-            return itens
+                y = _alvenaria.widgets(context, itens, x, y, w)
+            _instalacoes.widgets(context, itens, x, y, w, instalacao)
+        else:
+            _alvenaria.painel(context, itens, x, y, w)
+        return itens
+    if s.cabinet_aba == 'MODULOS' and _alvenaria.candidatos(context):
+        y = _alvenaria.widgets_classificar(context, itens, x, y+30, w)-58
     if s.cabinet_aba in {'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
         # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
         # inteira e texto centralizado (backlog do usuario, Epico 2.3);
@@ -2129,7 +2126,7 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
             rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'
             itens.append((x, y + 26, w, 30, rotulo, ('operador', 'object.cabinet_definir_area')))
             y -= 36
-    if s.cabinet_aba == 'MODULOS' or _paredes.alvenaria_definida(context.object) or _paredes_edicao.ativa(context):
+    if s.cabinet_aba == 'MODULOS':
         y = _paredes_edicao.widgets(context, itens, x, y, w)
     # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
     # o bloco de medidas e' da aba dona do item, nao fixo nas tres.

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (402, 0, 0),
+    "version": (403, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -218,6 +218,7 @@ CLASSES = (
     _paredes.VIEW3D_GGT_guias_parede,
     _paredes.OBJECT_OT_definir_alvenaria,
     _alvenaria.OBJECT_OT_classificar_alvenaria,
+    _alvenaria.OBJECT_OT_confirmar_alvenaria,
     _instalacoes.OBJECT_OT_instalar,
     _instalacoes.OBJECT_OT_acao_instalacao,
     _iluminacao.OBJECT_OT_rebaixar_faces,
@@ -481,7 +482,8 @@ def register():
                ('GAVETAS', "Gavetas", "Criacao e configuracao de gavetas"),
                ('PRATELEIRAS', "Prateleiras", "Prateleiras internas: quantidade, espessura e vaos"),
                ('DIVISORIAS', "Divisorias", "Divisorias verticais que segmentam os sistemas internos"),
-               ('PUXADORES', "Puxadores", "Puxadores ligados as portas")])
+               ('PUXADORES', "Puxadores", "Puxadores ligados as portas"),
+               ('ALVENARIA', "Alvenaria", "Paredes, piso, teto e instalacoes")])
     # modelo que a ferramenta de posicionar vai criar
     # padrao = PERFIL (pedido do usuario)
     S.cabinet_puxador_modelo = EnumProperty(

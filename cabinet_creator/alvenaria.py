@@ -5,7 +5,7 @@ import blf
 import gpu
 import numpy as np
 import math
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
@@ -13,8 +13,11 @@ from mathutils import Matrix, Vector
 _ambientes = _paredes = _paredes_edicao = _paredes_selecao = _opcoes = _gaveta = None
 _instalacoes = None
 _hud = None
+_eventos = None
 
 TIPOS = ('PAREDE', 'PISO', 'TETO')
+ROTULOS = {'PAREDE': 'Paredes', 'PISO': 'Piso', 'TETO': 'Teto'}
+CORES = {'PAREDE': (.20, .54, .94), 'PISO': (.24, .77, .39), 'TETO': (.96, .62, .16)}
 ATR_TIPO = 'cabinet_tipo_superficie'
 ATR_FACE = 'cabinet_face_apoio'
 CHAVE_TIPADA = 'cabinet_alvenaria_tipificada'
@@ -42,23 +45,36 @@ def superficie(obj, indice, normal, malha=None):
     return None if obj.get(CHAVE_TIPADA) else _paredes.tipo_superficie(normal)
 
 
-def classificar(obj, tipo):
+def classificar(obj, tipo, substituir=False):
     if tipo not in TIPOS or obj.mode != 'EDIT':
         raise ValueError('Selecione faces em modo de edicao')
     if obj.data.users > 1:
         raise ValueError('Torne a malha independente antes de classificar as faces')
     bm = bmesh.from_edit_mesh(obj.data)
-    if not any(f.select and not f.hide for f in bm.faces):
+    if not substituir and not any(f.select and not f.hide for f in bm.faces):
         raise ValueError('Selecione as faces da alvenaria')
     camada = bm.faces.layers.int.get(ATR_TIPO)
+    legado = _paredes.alvenaria_definida(obj) and not obj.get(CHAVE_TIPADA)
+    herdadas = {}
+    if legado:
+        for i, face in enumerate(bm.faces):
+            valor = face[camada] if camada is not None else 0
+            if not valor:
+                normal = _paredes._normal_no_mundo(obj, face.normal)
+                efetivo = _paredes.tipo_superficie(normal)
+                valor = TIPOS.index(efetivo)+1 if efetivo in TIPOS else 0
+            herdadas[i] = valor
     if camada is None:
         camada = bm.faces.layers.int.new(ATR_TIPO)
         _ambientes._faces_nativas[0].pop(obj.data.name, None)
-    for face in bm.faces:
+    for i, face in enumerate(bm.faces):
+        if legado:
+            face[camada] = herdadas[i]
         if face.select and not face.hide:
             face[camada] = TIPOS.index(tipo) + 1
-    if not _paredes.alvenaria_definida(obj):
-        obj[CHAVE_TIPADA] = True
+        elif substituir and not face.hide and face[camada] == TIPOS.index(tipo)+1:
+            face[camada] = 0
+    obj[CHAVE_TIPADA] = True
     obj[_paredes.CHAVE_ALVENARIA] = True
     bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
     _paredes._retangulos.clear()
@@ -70,11 +86,12 @@ class OBJECT_OT_classificar_alvenaria(Operator):
     bl_label = 'Classificar Alvenaria'
     bl_options = {'UNDO'}
     tipo: StringProperty(options={'SKIP_SAVE'})
+    editar: BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
-        return (context.mode in {'OBJECT', 'EDIT_MESH'} and
-                _paredes_edicao.superficie(context.object))
+        return context.mode in {'OBJECT', 'EDIT_MESH'} and bool(
+            candidatos(context) or _paredes.alvenaria_definida(context.object))
 
     def execute(self, context):
         try:
@@ -85,12 +102,8 @@ class OBJECT_OT_classificar_alvenaria(Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        if context.mode == 'EDIT_MESH' and any(
-                f.select and not f.hide for f in bmesh.from_edit_mesh(context.object.data).faces):
-            return self.execute(context)
         try:
-            self.token = _ambientes.preparar_selecao(context, context.object,
-                                                    classificar=self.tipo)
+            self.token = iniciar_edicao(context, self.tipo, self.editar)
         except ValueError as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
@@ -107,6 +120,167 @@ class OBJECT_OT_classificar_alvenaria(Operator):
     def cancel(self, context):
         if id(_ambientes._edicao_faces[0]) == self.token:
             _ambientes.encerrar_selecao()
+
+
+def candidatos(context):
+    selecionados = getattr(context, 'selected_objects', ())
+    return [obj for obj in selecionados if _paredes_edicao.superficie(obj)
+            and not _paredes.alvenaria_definida(obj)]
+
+
+def alvo_novo(context):
+    novos = candidatos(context)
+    return context.object if context.object in novos else next(iter(novos), None)
+
+
+def iniciar_edicao(context, tipo, editar=False):
+    if tipo not in TIPOS:
+        raise ValueError('Escolha Parede, Piso ou Teto')
+    obj = context.object if editar else alvo_novo(context)
+    if obj is None or (editar and not _paredes.alvenaria_definida(obj)):
+        raise ValueError('Selecione um objeto compativel com esta operacao')
+    if _paredes_edicao.ativa(context):
+        _paredes_edicao.encerrar()
+    if context.mode == 'EDIT_MESH' and context.edit_object != obj:
+        bpy.ops.object.mode_set(mode='OBJECT')
+    token = _ambientes.preparar_selecao(context, obj, classificar=tipo)
+    s = _ambientes._edicao_faces[0]
+    s['substituir_tipo'] = editar
+    context.scene.cabinet_aba = 'ALVENARIA'
+    if context.screen:
+        context.screen[_instalacoes.CHAVE_TIPO_MENU] = tipo
+    if editar:
+        bm = bmesh.from_edit_mesh(obj.data)
+        camada = bm.faces.layers.int.get(ATR_TIPO)
+        valor = TIPOS.index(tipo)+1
+        for face in bm.faces:
+            herdado = (not obj.get(CHAVE_TIPADA) and (camada is None or not face[camada]) and
+                       _paredes.tipo_superficie(_paredes._normal_no_mundo(obj, face.normal)) == tipo)
+            face.select_set(not face.hide and (herdado or (camada is not None and face[camada] == valor)))
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
+        _ambientes.guardar_selecao(obj)
+    s['visual_sujo'] = True
+    atualizar_visual(obj)
+    return token
+
+
+def confirmar(context):
+    s = _ambientes._edicao_faces[0]
+    if s is None or not s.get('classificar') or _eventos._desfazendo[0]:
+        raise ValueError('Nenhuma selecao de alvenaria ativa')
+    obj = context.edit_object
+    if obj is None or obj.name != s['objeto'] or context.scene.name != s['cena']:
+        raise ValueError('A selecao de alvenaria perdeu o objeto de origem')
+    # A selecao pelo teclado nativo pode terminar antes do proximo timer.
+    _ambientes.guardar_selecao(obj)
+    if not s['selecionadas'] and not s.get('substituir_tipo'):
+        raise ValueError('Selecione pelo menos uma face')
+    classificar(obj, s['classificar'], substituir=s.get('substituir_tipo', False))
+    _ambientes.encerrar_selecao()
+    bpy.ops.object.mode_set(mode='OBJECT')
+    context.scene.cabinet_aba = 'ALVENARIA'
+    _paredes._redesenhar()
+
+
+class OBJECT_OT_confirmar_alvenaria(Operator):
+    bl_idname = 'object.cabinet_confirmar_alvenaria'
+    bl_label = 'Confirmar selecao'
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        s = _ambientes._edicao_faces[0]
+        return bool(s and s.get('classificar') and context.mode == 'EDIT_MESH')
+
+    def execute(self, context):
+        try:
+            confirmar(context)
+        except ValueError as erro:
+            self.report({'WARNING'}, str(erro))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+def atualizar_visual(obj):
+    s = _ambientes._edicao_faces[0]
+    if not s or not s.get('classificar') or not s.get('visual_sujo', True):
+        return
+    bm = bmesh.from_edit_mesh(obj.data).copy()
+    try:
+        bm.normal_update()
+        bm.faces.index_update()
+        camada = bm.faces.layers.int.get(ATR_TIPO)
+        valores = {}
+        escolhidas = set(s['selecionadas'])
+        hover = s.get('hover')
+        if hover is not None:
+            escolhidas.update((s['ids'][hover],) if s['manual'] else s['grupos'][hover])
+        tipo_atual = TIPOS.index(s['classificar'])+1
+        for face in bm.faces:
+            valor = face[camada] if camada else 0
+            if not valor and _paredes.alvenaria_definida(obj) and not obj.get(CHAVE_TIPADA):
+                normal = _paredes._normal_no_mundo(obj, face.normal)
+                tipo = _paredes.tipo_superficie(normal)
+                valor = TIPOS.index(tipo)+1 if tipo in TIPOS else 0
+            if face.index in escolhidas:
+                valor = tipo_atual
+            elif s.get('substituir_tipo') and valor == tipo_atual and not face.hide:
+                valor = 0
+            valores[face.index] = valor
+        visual = bm.faces.layers.int.new('tipo_visual')
+        for face in bm.faces:
+            face[visual] = valores[face.index]
+        arestas = [e for e in bm.edges if len(e.link_faces) == 2
+                   and e.link_faces[0][visual] == e.link_faces[1][visual]]
+        bmesh.ops.dissolve_limit(bm, angle_limit=.001, verts=[], edges=arestas)
+        bm.faces.index_update()
+        grupos, faces = {}, {}
+        for tri in bm.calc_loop_triangles():
+            face = tri[0].face
+            valor = face[visual]
+            if not 1 <= valor <= len(TIPOS) or face.hide:
+                continue
+            ps = [tuple(l.vert.co) for l in tri]
+            grupos.setdefault(valor, []).extend(ps)
+            ficha = faces.setdefault(face.index, dict(centro=tuple(face.calc_center_median()),
+                normal=tuple(face.normal), triangulos=[], tipo=TIPOS[valor-1]))
+            ficha['triangulos'].extend(ps)
+        s['visual_tipos'] = dict(grupos=grupos, faces=list(faces.values()))
+        s['visual_sujo'] = False
+    finally:
+        bm.free()
+
+
+def desenhar_visual(context, obj):
+    s = _ambientes._edicao_faces[0]
+    if not s or not s.get('classificar') or not s.get('visual_tipos'):
+        return
+    visual = s['visual_tipos']
+    anterior = gpu.state.blend_get(), gpu.state.depth_test_get(), gpu.state.depth_mask_get()
+    try:
+        gpu.state.blend_set('ALPHA')
+        gpu.state.depth_test_set('LESS_EQUAL')
+        gpu.state.depth_mask_set(False)
+        with gpu.matrix.push_pop_projection(), gpu.matrix.push_pop():
+            projecao = gpu.matrix.get_projection_matrix()
+            projecao[2] = projecao[2]-projecao[3]*1e-6
+            gpu.matrix.load_projection_matrix(projecao)
+            gpu.matrix.multiply_matrix(obj.matrix_world)
+            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            for valor, ps in visual['grupos'].items():
+                shader.bind()
+                shader.uniform_float('color', (*CORES[TIPOS[valor-1]], .42))
+                batch_for_shader(shader, 'TRIS', {'pos': ps}).draw(shader)
+        for face in visual['faces']:
+            normal = _paredes._normal_no_mundo(obj, face['normal'])
+            matriz = referencial((0, 0, 0), normal)
+            ficha = dict(face, eixos=(matriz.to_3x3().col[0], matriz.to_3x3().col[1]))
+            _ambientes._rotulo(context, obj, ficha, ROTULOS[face['tipo']])
+    finally:
+        gpu.state.blend_set(anterior[0])
+        gpu.state.depth_test_set(anterior[1])
+        gpu.state.depth_mask_set(anterior[2])
 
 
 def grupo_de(obj):
@@ -320,6 +494,8 @@ def desenhar_guias(context, tela, cor):
 
 
 def widgets_classificar(context, itens, x, y, w):
+    if not candidatos(context):
+        return y
     tela = getattr(context, 'screen', None)
     aberto = bool(tela and tela.get(CHAVE_ABRIR))
     y -= 30
@@ -334,6 +510,41 @@ def widgets_classificar(context, itens, x, y, w):
                           ('escolha', 'tipo_alvenaria', tipo, False, True, ALVO_TIPO)))
         y -= 6
     return y
+
+
+def painel(context, itens, x, y, w):
+    s = _ambientes._edicao_faces[0]
+    if s and s.get('classificar') and s['cena'] == context.scene.name:
+        y = _gaveta._titulo_secao(itens, x, y+26, w, 'Editar ' + ROTULOS[s['classificar']])
+        y -= 30
+        itens.append((x, y, w, 30, 'Confirmar selecao',
+                      ('operador', 'object.cabinet_confirmar_alvenaria')))
+        y -= 26
+        itens.append((x, y, w, 20, 'Enter confirma | Esc cancela', None))
+        return y-12
+    y = widgets_classificar(context, itens, x, y+30, w)
+    if candidatos(context):
+        return y
+    obj = contexto(context)
+    if obj is None:
+        return y
+    y = _instalacoes.widgets_seletor(context, itens, x, y-8, w)
+    tipo = context.screen.get(_instalacoes.CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
+    y -= 30
+    itens.append((x, y, w, 30, 'Editar',
+                  ('escolha', 'editar_alvenaria', tipo, False, True, ALVO_TIPO)))
+    y -= 6
+    return _instalacoes.widgets_modelos(context, itens, x, y, w, tipo)
+
+
+def contexto(context):
+    s = _ambientes._edicao_faces[0]
+    if s and s.get('classificar') and s['cena'] == context.scene.name:
+        return context.scene.objects.get(s['objeto'])
+    if _paredes.alvenaria_definida(context.object):
+        return context.object
+    return next((obj for obj in getattr(context, 'selected_objects', ())
+                 if _paredes.alvenaria_definida(obj)), None)
 
 
 def widgets(context, itens, x, y, w):

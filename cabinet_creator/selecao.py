@@ -62,6 +62,8 @@ def _aba_da_selecao(obj):
     """Aba da gaveta que cuida de `obj`, ou None (objeto que nao e' nosso)."""
     if obj is None:
         return None
+    if _alvenaria.grupo_de(obj) is not None:
+        return 'ALVENARIA'
     if _chapas.MARCA_PUXADOR in obj:
         return 'PUXADORES'
     if _chapas.MARCA_FUNDO in obj:

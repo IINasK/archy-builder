@@ -121,7 +121,7 @@ class TestGaveta(unittest.TestCase):
             cima_a = g._paineis_gaveta(a[1])[0]
             cima_b = g._paineis_gaveta(b[1])[0]
             self.assertTrue(cima_a)
-            self.assertIsNone(cima_a[0][5])
+            self.assertEqual(cima_a[0][5][:2], ('escolha', 'criar_alvenaria'))
             self.assertEqual(len([v for v in cima_a if v[5] and v[5][0] == 'medida']), 3)
             self.assertEqual([v[5] for v in cima_a], [v[5] for v in cima_b])
             self.assertEqual([v[1] + 90 for v in cima_a], [v[1] for v in cima_b])

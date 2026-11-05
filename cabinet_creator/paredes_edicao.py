@@ -617,7 +617,10 @@ def contexto_painel(context):
 
 def widgets(context, itens, x, topo, w, compacto=False):
     obj = contexto_painel(context)
-    if obj is None:
+    if obj is None or not (_paredes.alvenaria_definida(obj) or ativa(context)):
+        return topo
+    s_faces = _ambientes._edicao_faces[0]
+    if s_faces and s_faces.get('classificar'):
         return topo
     topo = _gaveta._titulo_secao(itens, x, topo + 26, w, 'Alvenaria')
     def botao(rotulo, operador, altura=28):
@@ -628,16 +631,7 @@ def widgets(context, itens, x, topo, w, compacto=False):
     # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
     # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
-        classificando = _ambientes._edicao_faces[0]
-        if classificando and classificando.get('classificar'):
-            itens.append((x, topo - 24, w, 24, 'Selecione as faces e pressione Enter', None))
-            return topo - 36
-        if not _paredes.alvenaria_definida(obj):
-            return _alvenaria.widgets_classificar(context, itens, x, topo, w) - 58
         if context.mode=='EDIT_MESH':
-            if _ambientes._edicao_faces[0] is None:
-                topo = _alvenaria.widgets_classificar(context, itens, x, topo, w)
-                botao('Rebaixar faces do teto', 'object.cabinet_rebaixar_faces')
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         topo-=30
         metade=(w-6)/2
@@ -647,7 +641,6 @@ def widgets(context, itens, x, topo, w, compacto=False):
         topo-=30
         itens.append((x,topo,w,30,'Desagregar Alvenaria',('operador','object.cabinet_definir_alvenaria',False,'desagregar')))
         topo-=6
-        topo = _alvenaria.widgets_classificar(context, itens, x, topo, w)
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
             topo -= 26

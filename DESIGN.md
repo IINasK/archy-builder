@@ -725,6 +725,16 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+403: aba Alvenaria concentra Parede/Piso/Teto e instalacoes. Criar Alvenaria
+e' a primeira acao para malha nao cadastrada; selecao mista atua somente
+na nova malha. Escolher um tipo inicia selecao nativa das faces; cores
+distintas e nomes Paredes/Piso/Teto aparecem apenas nesse editor. Confirmar
+selecao (30 px, laranja) e Enter gravam; Esc cancela. Seletores dos tipos
+em uma linha; Editar e' a primeira acao abaixo e carrega as faces daquele
+tipo. Desmarcar remove somente esse tipo ao confirmar. Modulos conserva
+Editar em 2D/Editar categorias e Desagregar, sem cartoes de instalacoes.
+Nenhuma cor de tipo permanece na colocacao de itens ou nas categorias.
+
 399: clicar num nome aplica a categoria a todas as faces selecionadas;
 se TODAS ja' possuem essa categoria, limpa a selecao. Sem categoria e'
 uma linha sem quadrado de cor e sempre limpa, sem criar registro vazio.

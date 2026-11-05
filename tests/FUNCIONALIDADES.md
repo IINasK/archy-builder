@@ -1,5 +1,30 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Tipos de Alvenaria (403): aba propria, com Parede/Piso/Teto e instalacoes;
+Modulos conserva edicao 2D/categorias. Criar Alvenaria vem primeiro e
+somente para malha nao cadastrada. Selecao mista ignora o apoio existente,
+inclusive quando ele e' o ativo. Escolher tipo abre o seletor nativo;
+cores/nome por face somente durante essa edicao. Confirmar selecao e
+Enter gravam a mesma operacao; Esc nao cadastra nem altera os tipos.
+Editar preseleciona as faces; retirar uma preserva os outros tipos e a
+mesma malha. Legado materializa a classificacao por normal antes de
+editar. Categorias de ambiente nao agrupam lados diferentes no seletor
+de tipos. Dois cliques com Shift somam duas faces nativas sem repintar
+categorias. Suite alvenaria 5 -> 16; interfaces existentes atualizadas.
+Regressao: selecionar com A nativo e confirmar antes do proximo timer
+recusava a selecao. Confirmacao agora le diretamente a selecao nativa;
+teste falhou nas duas versoes antes e passou depois:
+dist/alvenaria403-confirmacao-antes.log e *-depois.log.
+Auditoria GPU background 5.2: menus em 190/320/564 px, temas Dark/Light,
+dist/alvenaria403-*-modelos.png, *-piso.png, *-teto.png, *-confirmar.png,
+*-modulos.png, *-porta.png e *-forro.png. Cubo com os tres tipos pelo
+callback real: dist/alvenaria403-faces-cima.png e *-baixo.png; escala de
+UI 1 na fixture (background retorna 0). Nomes e oclusao conferidos.
+Sem janela, gestos fisicos ou mudanca no projeto aberto/biblioteca.
+Harness completo Blender 4.2/5.2: 3368 testes em 76 execucoes OK
+(dist/alvenaria403-completo-final.log). Pacote 403: 45 fontes identicos
+ao repositorio; espelhos e limites dos guias conferidos.
+
 Eletrica e forro (402): tomadas/interruptores com espelho, spots embutidos
 ou sobrepostos e pendente vertical. Rebaixo pela regiao do teto ou por
 faces selecionadas, inclinado ou plano; tabica e luz linear por lado.

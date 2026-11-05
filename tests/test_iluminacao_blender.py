@@ -143,6 +143,7 @@ class TestIluminacao(unittest.TestCase):
 
     def test_menu_separa_modelos_por_superficie_e_preserva_colunas(self):
         apoio = self.plano('TETO', (math.pi, 0, 0), z=3)
+        bpy.context.scene.cabinet_aba = 'ALVENARIA'
         modelos = {'PAREDE': {'TOMADA', 'INTERRUPTOR', 'SPOT_EMBUTIDO', 'SPOT_SOBREPOSTO'},
                    'PISO': {'SPOT_EMBUTIDO', 'SPOT_SOBREPOSTO'},
                    'TETO': {'SPOT_EMBUTIDO', 'SPOT_SOBREPOSTO', 'PENDENTE', 'REBAIXO'}}

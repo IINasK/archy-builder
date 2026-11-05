@@ -878,7 +878,7 @@ class TestGavetas(unittest.TestCase):
     def test_aba_gavetas_e_campos_editaveis(self):
         cena = bpy.context.scene
         cena.cabinet_aba = 'GAVETAS'
-        widgets = addon.gaveta._widgets_gaveta(bpy.context, 480, 1400)
+        widgets = addon.gaveta._widgets_gaveta(bpy.context, 564, 1400)
         self.assertTrue(any(v[5] and v[5][0] == 'gavetas' for v in widgets))
         self.assertIn(('aba', 'GAVETAS'), [v[5] for v in widgets if v[5]])
         grupo = self.gavetas()

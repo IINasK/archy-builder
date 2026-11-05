@@ -183,9 +183,9 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertTrue(all(o.name in nomes for o in modulo.children_recursive))
 
     def test_painel_aparece_para_malha_generica(self):
-        itens = []
-        E.widgets(bpy.context, itens, 12, 700, 400)
-        self.assertIn('Alvenaria', [i[4] for i in itens])
+        bpy.context.scene.cabinet_aba = 'MODULOS'
+        itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 400, 700, 0)
+        self.assertEqual(itens[addon.gaveta._tamanho_cabecalho(itens)][4], 'Criar Alvenaria')
         self.assertIn('Criar Alvenaria', [item[4] for item in itens])
         self.assertNotIn('object.cabinet_editar_parede', str(itens))
 
