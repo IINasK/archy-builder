@@ -1,4 +1,4 @@
-"""Porta selecionada na viewport: cantos (Alt) e slider de abertura."""
+"""Door selected in the viewport: corners (Alt) and opening slider."""
 
 import bpy, gpu, blf
 from gpu_extras.batch import batch_for_shader
@@ -7,8 +7,8 @@ from bpy.props import (FloatProperty, BoolProperty, StringProperty,
 from mathutils import Matrix, Vector
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _eventos = None
 _portas = None
@@ -20,21 +20,19 @@ _perguntas = None
 _frentes = None
 _gavetas = None
 
-# ------------------------------------------ os 4 cantos da porta
-# Pedido do usuario: clique simples na porta mostra os fios do wizard
-# (laranja = cobertura, branco = vao) e, com Alt, as 4 bolinhas viram
-# alcas: arrastar um canto ate' outro vertice refaz a porta como se os
-# 4 cliques tivessem sido dados ali (cobertura e dobradica automaticas).
-# Os cantos nao sao gravados: saem da porta (vao + cobertura de cada
-# lado), entao acompanham o modulo quando ele muda.
-_arraste_canto_porta = [None]    # estado do arraste de um canto
+# ------------------------------------------ the four door corners
+# User request: a single click on the door shows the wizard lines (orange = overlay,
+# white = opening). With Alt, the four dots become handles: dragging a corner to another
+# vertex recreates the door as if the four clicks had been placed there (automatic
+# overlay and hinge). Corners are not stored: they are derived from the door (opening +
+# overlay on each side), so they follow cabinet changes.
+_arraste_canto_porta = [None]    # Corner drag state.
 
 
 def _porta_veio_do_modulo(grupo):
-    """A porta esta' selecionada so' porque o MODULO dela esta' (clique nas
-    chapas). Ai' nada da porta se desenha -- dobradicas, linhas do vao,
-    diagonal, cantos, sliders (pedido do usuario: visao mais limpa); a
-    HUD do modulo ja' mostra o contorno dela."""
+    """The door is selected only because its CABINET is selected (panel click). Draw
+    none of the door controls: hinges, opening lines, diagonal, corners or sliders
+    (user request for a cleaner view). The cabinet HUD already shows its outline."""
     modulo = grupo.parent
     while modulo is not None and _chapas.MARCA_CONJUNTO not in modulo:
         modulo = modulo.parent
@@ -42,8 +40,8 @@ def _porta_veio_do_modulo(grupo):
 
 
 def _portas_com_cantos(context):
-    """Portas selecionadas INTEIRAS (clique simples, nao a folha) por si
-    mesmas, nao junto com o modulo."""
+    """WHOLE doors selected independently (single click, not a leaf), rather than as
+    part of a cabinet selection."""
     return [o for o in getattr(context, 'selected_objects', ()) or ()
             if _chapas.MARCA_PORTAS in o and o.get('porta_parametros')
             and o.get('porta_vao_largura_mm') is not None
@@ -51,9 +49,9 @@ def _portas_com_cantos(context):
 
 
 def _folhas_com_contorno(context):
-    """Folhas selecionadas SEM a porta inteira (duplo clique): o contorno
-    nativo esta' desligado, entao sem o branco do add-on parecia que nada
-    tinha sido selecionado (pedido do usuario)."""
+    """Leaves selected WITHOUT the whole door (double click): native outlines are
+    disabled, so without the add-on's white outline nothing appeared selected (user
+    request)."""
     selecionados = getattr(context, 'selected_objects', ()) or ()
     saida = []
     for o in selecionados:
@@ -66,7 +64,7 @@ def _folhas_com_contorno(context):
 
 
 def _caixa_da_folha(folha):
-    """8 cantos (MUNDO) da folha, na ordem de `ARESTAS_CAIXA`."""
+    """Eight leaf corners (WORLD space), in `ARESTAS_CAIXA` order."""
     l, a, e, _centro = _ferragens._dados_da_folha(folha)
     meia = Vector((l, a, e)) / 2000.0
     return [folha.matrix_world @ Vector((meia.x * sx, meia.y * sy, meia.z * sz))
@@ -74,7 +72,7 @@ def _caixa_da_folha(folha):
 
 
 def _referencia_tem_perfil(ref):
-    """Caixa plana conserva o vao/coberturas do wizard, nao seus vertices."""
+    """A flat box preserves the wizard's opening/overlays, not its vertices."""
     if 'plana_retangular' in ref:
         return not ref['plana_retangular']
     for base, topo in (('frente', 'cima_frente'), ('tras', 'cima_tras')):
@@ -95,7 +93,7 @@ def _referencia_tem_perfil(ref):
 
 
 def _perfil_da_folha(folha, fechada=False, interno=False):
-    """Vertices ja' referenciados na montagem, sem buscar malha no redraw."""
+    """Vertices already referenced during assembly; no mesh searches during redraw."""
     ref = _frentes.referencia(folha) if _frentes is not None else None
     if ref is not None:
         return (_frentes.perfil(folha, fechada=fechada, interno=interno)
@@ -131,16 +129,16 @@ def _contorno_da_folha(folha):
     arestas += [(i+m,i+m+1) for i in range(m-1)]
     arestas += [(0,m),(m-1,2*m-1)]
     for i in range(1,m-1):
-        # Curva lisa nao ganha listras; a quina dobrada continua legivel.
+        # Smooth curves get no stripes; the folded corner remains legible.
         if (baixo[i]-baixo[i-1]).normalized().dot((baixo[i+1]-baixo[i]).normalized()) < .866:
             arestas.append((i,i+m))
     return baixo+cima, arestas
 
 
 def _cantos_da_porta(grupo):
-    """Os 4 pontos do wizard em MUNDO, na ordem dos cliques: canto da
-    porta e do vao em cima a esquerda, do vao e da porta embaixo a
-    direita (o desenho do usuario)."""
+    """The four wizard points in WORLD space, in click order: door corner and opening
+    corner at the upper left, then opening corner and door corner at the lower right
+    (the user's drawing)."""
     folhas = _portas._folhas_portas(grupo)
     if len(folhas) == 1:
         fora = _perfil_da_folha(folhas[0], fechada=True)
@@ -150,9 +148,8 @@ def _cantos_da_porta(grupo):
     p = grupo['porta_parametros']
     L = float(grupo['porta_vao_largura_mm'])
     A = float(grupo['porta_vao_altura_mm'])
-    # o ponto CLICADO (meio da espessura), nao a borda da folha: a meia
-    # chapa recua o respiro, e o canto arrastado com Alt tem de reconhecer
-    # a meia de novo
+    # The CLICKED point (mid-thickness), not the leaf edge: half-overlay panels set the
+    # clearance back, and an Alt-dragged corner must recognize half-overlay again.
     padrao = (0.0 if p.get('abertura') == 'CORRER' else
               {'RETA': 1.0, 'CURVA': 0.5}.get(p.get('dobradica'), 0.0))
     lateral = float(p['lateral_mm'])
@@ -163,8 +160,8 @@ def _cantos_da_porta(grupo):
         (-cob[0], A + cob[3]), (0.0, A), (L, 0.0), (L + cob[1], -cob[2]))]
 
 
-# O Alt arrasta so' os 2 cliques do wizard (pedido do usuario): os cantos
-# da porta em cima a' esquerda e embaixo a' direita. Os do vao so' desenham.
+# Alt drags only the wizard's TWO clicked door corners (user request): upper left and
+# lower right. The opening corners are only drawn.
 CANTOS_DO_GESTO = (0, 3)
 
 
@@ -174,7 +171,7 @@ def _coberturas_da_porta(grupo):
 
 
 def _canto_porta_sob_mouse(context, posicao):
-    """(grupo, indice) da bolinha de canto sob o mouse (so' com Alt)."""
+    """(group, index) of the corner dot under the mouse (only with Alt)."""
     if not _solda._correntes_visiveis():
         return None, None
     raio = _solda.RAIO_BOLINHA_PX * max(1.0, context.preferences.system.ui_scale)
@@ -192,14 +189,14 @@ def _canto_porta_sob_mouse(context, posicao):
     return (melhor[1], melhor[2]) if melhor else (None, None)
 
 
-COR_LINHAS_VAO = (1.0, 0.85, 0.1, 1.0)      # amarelo: o vao (pedido do usuario)
+COR_LINHAS_VAO = (1.0, 0.85, 0.1, 1.0)      # Yellow: the opening (user request).
 
 
 def _desenho_da_porta(grupo):
-    """O que a porta selecionada mostra, em MUNDO: a caixa de cada folha
-    e o retangulo do vao (faces internas das chapas). As ferragens nao:
-    so' aparecem criando ou SELECIONADAS (`_arame_ferragens`).
-    Refeito da porta a cada desenho: acompanha o modulo."""
+    """Selected door display in WORLD space: each leaf's box and the opening rectangle
+    (inner panel faces). Hardware is excluded: it appears only during creation or
+    when SELECTED (`_arame_ferragens`). Rebuilt from the door on every draw so it
+    follows the cabinet."""
     p = dict(grupo['porta_parametros'])
     L = float(grupo['porta_vao_largura_mm'])
     A = float(grupo['porta_vao_altura_mm'])
@@ -229,7 +226,7 @@ def _desenho_da_porta(grupo):
             desenho.setdefault('arestas_folhas', []).append(arestas)
             continue
         meia = Vector((l, alt, e)) / 2000.0
-        # folha que ainda nao existe: a caixa calculada
+        # Leaf not created yet: use the calculated box.
         matriz = m @ Matrix.Translation(Vector(centro) / 1000.0)
         desenho['folhas'].append([matriz @ Vector((meia.x * sx, meia.y * sy,
                                                    meia.z * sz))
@@ -240,10 +237,10 @@ def _desenho_da_porta(grupo):
 
 
 def _desenhar_cantos_porta(context):
-    """Porta selecionada (print do usuario): contorno branco das folhas,
-    linhas internas do vao em amarelo, a diagonal dos 2 cliques e, com Alt
-    (ou arrastando), as 2 bolinhas brancas. As dobradicas nao (pedido do
-    usuario): so' criando ou com elas selecionadas."""
+    """Selected door (user screenshot): white leaf outlines, yellow inner opening
+    lines, the diagonal between the two clicks and, with Alt (or during a drag), the
+    two white dots. No hinges (user request): show those only during creation or
+    when selected."""
     portas = _portas_com_cantos(context)
     folhas = _folhas_com_contorno(context)
     if not (portas or folhas):
@@ -256,7 +253,8 @@ def _desenhar_cantos_porta(context):
     try:
         shader.bind()
         for folha in folhas:
-            # so' a folha: sem vao, fios nem cantos (sao da porta inteira)
+            # Leaf only: no opening, guide lines or corners (those belong to the whole
+            # door).
             pontos, arestas = _contorno_da_folha(folha)
             tela = [_hud._projetar_hud(context, v) for v in pontos]
             if any(v is None for v in tela):
@@ -283,7 +281,7 @@ def _desenhar_cantos_porta(context):
                         tela[i], tela[j], 1.4 * escala)}).draw(shader)
             arrastando = estado is not None and estado['grupo'] == grupo.name
             if arrastando:
-                # o canto arrastado e' o cursor do snap nativo
+                # The dragged corner is the native snap cursor.
                 pontos = list(estado['antigos'])
                 pontos[estado['indice']] = estado['ponto']
             else:
@@ -292,7 +290,7 @@ def _desenhar_cantos_porta(context):
             if any(p is None for p in tela):
                 continue
             if not desenho.get('perfil'):
-                # a diagonal do wizard (atravessava a porta curva)
+                # The wizard diagonal (it used to pass through curved doors).
                 shader.uniform_float('color', _portas.COR_FIO_VAO)
                 batch_for_shader(shader, 'TRIS', {'pos': _puxadores._quad_2d(
                     tela[0], tela[1], 2.0 * escala)}).draw(shader)
@@ -317,9 +315,9 @@ def _dentro_da_porta(obj, grupo):
 
 
 def _mover_cantos_porta(context, grupo, pontos, objetos=(None, None)):
-    """Refaz a porta pelos 2 cliques (mundo) e as chapas deles, como o
-    wizard: a cobertura de cada lado sai de onde o ponto cai (quina de
-    fora = reta, meio da espessura = curva, quina de dentro = embutida)."""
+    """Rebuild the door from the two WORLD clicks and their panels, as in the wizard:
+    each side's overlay comes from where its point lands (outer corner = straight
+    hinge, mid-thickness = half-overlay hinge, inner corner = inset hinge)."""
     modulo = bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
     if modulo is not None and _chapas.MARCA_CONJUNTO not in modulo:
         modulo = None
@@ -338,8 +336,8 @@ def _mover_cantos_porta(context, grupo, pontos, objetos=(None, None)):
         pai_nome=pai.name if pai is not None else '',
         modulo_nome=modulo.name if modulo is not None else '',
         orientacao='AUTO', frente=grupo.get('porta_frente', 'NEG_Y'))
-    # quem cria deixa o MODULO ativo; aqui a porta continua selecionada
-    # para o usuario seguir ajustando
+    # Creation leaves the CABINET active; here the door stays selected so the user can
+    # continue adjusting it.
     folha = (_portas._folhas_portas(grupo) or [folha])[0]
     if folha is not None:
         _hud._selecionar_porta_hud(context, folha, 'PORTA')
@@ -348,32 +346,33 @@ def _mover_cantos_porta(context, grupo, pontos, objetos=(None, None)):
 
 def _aplicar_cantos_porta(context, grupo, pontos, objetos, antigos,
                          objetos_antigos=(None, None)):
-    """Arraste solto: refaz a porta e, se a cobertura sair do padrao,
-    pergunta (viewport: pop-up). "Nao" volta os 2 cliques de antes."""
+    """Drag released: rebuild the door and ask if the overlay is nonstandard (viewport
+    popup). Answering No restores the previous two clicks."""
     resultado = _mover_cantos_porta(context, grupo, pontos, objetos)
     if 'FINISHED' not in resultado:
         return resultado
     if _portas._lados_fora_do_padrao(_coberturas_da_porta(grupo)):
         planos = tuple(v for p in antigos for v in p)
         nomes = [o.name if o is not None else '' for o in objetos_antigos]
-        _perguntas._perguntar(context, 'As medidas estao corretas?', [
-            ('Sim', 'CHECKMARK', 'object.cabinet_cantos_porta',
+        _perguntas._perguntar(context, "Are the dimensions correct?", [
+            ("Yes", 'CHECKMARK', 'object.cabinet_cantos_porta',
              {'grupo': grupo.name, 'manter': True}),
-            ('Nao', 'X', 'object.cabinet_cantos_porta',
+            ("No", 'X', 'object.cabinet_cantos_porta',
              {'grupo': grupo.name, 'pontos': planos,
               'objeto_a': nomes[0], 'objeto_b': nomes[1]})], na_gaveta=False)
     return resultado
 
 
 class OBJECT_OT_cantos_porta(Operator):
-    """Refaz a porta pelos 2 cliques (resposta do "As medidas estao corretas?")"""
+    """Rebuild the door from the two clicks (answer to 'Are the dimensions correct?')."""
     bl_idname = 'object.cabinet_cantos_porta'
-    bl_label = 'Cantos da Porta'
+    bl_label = "Door Corners"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
     pontos: FloatVectorProperty(size=6, options={'SKIP_SAVE'})
-    # a chapa de cada clique: sem ela o meio da espessura nao vira curva
+    # The panel for each click: without it, mid-thickness cannot select a half-overlay
+    # hinge.
     objeto_a: StringProperty(options={'SKIP_SAVE'})
     objeto_b: StringProperty(options={'SKIP_SAVE'})
     manter: BoolProperty(options={'SKIP_SAVE'})
@@ -392,12 +391,12 @@ class OBJECT_OT_cantos_porta(Operator):
 
 
 def _preparar_canto_nativo(context, grupo, indice):
-    """O cursor e' o canto temporario e o snap NATIVO acha o destino
-    (`_gavetas.iniciar_cursor_nativo`). Antes cada malha visivel era lida
-    (to_mesh) no clique e cada vertice projetado em Python a cada movimento:
-    segundos de travamento."""
+    """The cursor is the temporary corner; NATIVE snapping finds the destination
+    (`_gavetas.iniciar_cursor_nativo`). Previously every visible mesh was read
+    (to_mesh) on click and every vertex projected in Python on each movement,
+    causing seconds of freezing."""
     antigos = _cantos_da_porta(grupo)
-    # a propria porta nao e' ima de si mesma; ferragem/puxador so' pesariam o BVH
+    # The door must not snap to itself; hardware/handles would only burden the BVH.
     _gavetas.iniciar_cursor_nativo(
         context, _arraste_canto_porta,
         {'regiao': context.region.as_pointer(), 'grupo': grupo.name,
@@ -423,7 +422,7 @@ def _acompanhar_canto_nativo():
 
 class OBJECT_OT_confirmar_canto_porta(Operator):
     bl_idname = 'object.cabinet_confirmar_canto_porta'
-    bl_label = 'Confirmar Canto da Porta'
+    bl_label = "Confirm Door Corner"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -446,8 +445,8 @@ class OBJECT_OT_confirmar_canto_porta(Operator):
 
 
 def _chapa_do_ponto(context, grupo, ponto):
-    """A chapa do clique: ray cast/BVH nativos, so' no soltar. As duas
-    contam (o meio da espessura de cada lado so' se ve pela chapa)."""
+    """The clicked panel: native ray cast/BVH, only on release. Both panels matter:
+    mid-thickness on either side can only be determined from its panel."""
     nome = (_gavetas._objeto_do_ponto_criacao(context, ponto)
             if context.area is not None and context.area.type == 'VIEW_3D' else None)
     obj = bpy.data.objects.get(nome or '')
@@ -456,7 +455,7 @@ def _chapa_do_ponto(context, grupo, ponto):
 
 class OBJECT_OT_mover_canto_porta(Macro):
     bl_idname = 'object.cabinet_mover_canto_porta'
-    bl_label = 'Mover Canto da Porta'
+    bl_label = "Move Door Corner"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
 
@@ -466,9 +465,9 @@ def registrar_macro_canto():
 
 
 class OBJECT_OT_arrastar_canto_porta(Operator):
-    """Arraste um dos 2 cantos da porta (Alt) ate' outro vertice: a porta se refaz por ele"""
+    """Drag either door corner (Alt) to another vertex to rebuild the door from it."""
     bl_idname = 'object.cabinet_arrastar_canto_porta'
-    bl_label = 'Mover Canto da Porta'
+    bl_label = "Move Door Corner"
     bl_options = {'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
@@ -493,28 +492,28 @@ class OBJECT_OT_arrastar_canto_porta(Operator):
         return {'FINISHED'}
 
 
-# ------------------------------------------ slider de abertura (Epico 4)
-# Um por folha, so' com a porta (ou a folha) selecionada: na BASE da folha
-# FECHADA, um pouco a' frente (fica parado enquanto ela abre, entao nao
-# foge do mouse) e por cima de tudo (raio-X). Arrastar para a direita
-# abre, para a esquerda fecha -- seja qual for o lado da dobradica.
-# Grosso (pedido do usuario) e recuado das pontas da folha: em porta dupla
-# os dois nunca se encostam no meio, sobra uma folga entre eles.
+# ------------------------------------------ opening slider (Epic 4)
+# One per leaf, only when the door (or leaf) is selected: at the BASE of the CLOSED
+# leaf, slightly in front (stationary while it opens, so it stays under the mouse),
+# above everything else (X-ray). Drag right to open, left to close, regardless of hinge
+# side. Thick (user request) and inset from the leaf ends: double-door sliders never
+# touch in the middle; a gap remains.
 SLIDER_FRENTE_MM = 30.0
-SLIDER_RECUO_MM = 40.0           # de cada ponta da folha (min.)
-SLIDER_RECUO_FRACAO = 0.12       # ... ou esta fracao da largura
-SLIDER_DEGRAU_MM = 40.0          # correr: um slider acima do outro, por trilho
-# Medidas em MM do mundo (pedido do usuario): longe, o slider encolhe na
-# mesma proporcao da porta; perto, para no teto (2x). Calibrado na vista
-# normal de um modulo (~1 px/mm): o desenho aprovado pelo usuario.
-SLIDER_ESPESSURA_MM = 13.0       # altura do trilho
-SLIDER_BOTAO_MM = 12.0           # raio da bolinha = o alcance do clique
-SLIDER_TEXTO_MM = 13.0           # altura do valor
-SLIDER_PX_POR_MM_MAX = 2.0       # teto da escala (por ui_scale)
-SLIDER_TEXTO_MIN_PX = 7.0        # menor que isto o valor nao se le: some
-SIMBOLO_GRAU = chr(0xB0)         # codigo so' em ASCII
-_arraste_slider_porta = [None]   # nome da folha sendo arrastada
-_slider_hover = [None]           # nome da folha com a bolinha sob o mouse
+SLIDER_RECUO_MM = 40.0           # Minimum inset from each leaf end.
+SLIDER_RECUO_FRACAO = 0.12       # ...or this fraction of the width.
+SLIDER_DEGRAU_MM = 40.0          # Sliding doors: vertically stacked sliders, one per
+                                 # track.
+# WORLD dimensions in MM (user request): at a distance, the slider shrinks with the
+# door; close up, scale is capped at 2x. Calibrated in a normal cabinet view (~1 px/mm)
+# to match the user-approved drawing.
+SLIDER_ESPESSURA_MM = 13.0       # Track height.
+SLIDER_BOTAO_MM = 12.0           # Dot radius = click reach.
+SLIDER_TEXTO_MM = 13.0           # Value text height.
+SLIDER_PX_POR_MM_MAX = 2.0       # Scale cap (per ui_scale).
+SLIDER_TEXTO_MIN_PX = 7.0        # Below this size the value is unreadable: hide it.
+SIMBOLO_GRAU = chr(0xB0)         # ASCII-only code.
+_arraste_slider_porta = [None]   # Name of the leaf being dragged.
+_slider_hover = [None]           # Name of the leaf whose dot is under the mouse.
 
 
 def _folhas_com_slider(context):
@@ -527,9 +526,9 @@ def _folhas_com_slider(context):
         else:
             continue
         if _porta_veio_do_modulo(grupo):
-            continue        # modulo selecionado: sem sliders
-        # .get: o ramo da folha nao garante parametros (grupo legado) e o
-        # KeyError aqui caia no poll do GizmoGroup
+            continue        # Cabinet selected: no sliders.
+        # Use .get: the leaf branch does not guarantee parameters (legacy group), and a
+        # KeyError here used to reach GizmoGroup.poll.
         if (grupo.get('porta_parametros') or {}).get('abertura') == 'ZIGZAG':
             candidatas = _portas._folhas_portas(grupo)[-1:]
         folhas += [f for f in candidatas if f not in folhas]
@@ -537,15 +536,15 @@ def _folhas_com_slider(context):
 
 
 def _slider_no_mundo(folha):
-    """As 2 pontas do slider em MUNDO: base da folha fechada, a' frente,
-    recuadas das quinas (a folga entre os sliders de uma porta dupla)."""
+    """Slider endpoints in WORLD space: base of the closed leaf, slightly in front,
+    inset from the corners (the gap between double-door sliders)."""
     l, a, e, centro = _ferragens._dados_da_folha(folha)
     fechada = _ferragens._matriz_fechada(folha)
     curso = _curso_do_slider(folha, l, centro)
     if curso is not None:
-        # correr: do centro da folha fechada ao da aberta (a bolinha anda
-        # embaixo dela), um degrau acima por trilho -- os sliders de uma
-        # porta de varias folhas nao se sobrepoem
+        # Sliding doors: from the closed leaf center to the open center (the dot moves
+        # beneath the leaf), one level higher per track so sliders on multi-leaf doors
+        # do not overlap.
         y = -a / 2.0 + int(folha.get('porta_indice', 0)) * SLIDER_DEGRAU_MM
         return [fechada @ (Vector((dx, y, e / 2.0 + SLIDER_FRENTE_MM)) / 1000.0)
                 for dx in curso]
@@ -556,8 +555,8 @@ def _slider_no_mundo(folha):
 
 
 def _curso_do_slider(folha, l, centro):
-    """(0, deslocamento) da folha de CORRER fechada ate' aberta (mm, no X
-    do vao), ou None se ela nao for de correr."""
+    """(0, displacement) from closed to open for a SLIDING leaf (mm along the opening's
+    X), or None for other leaf types."""
     grupo = _portas._grupo_portas(folha)
     p = (grupo.get('porta_parametros') or {}) if grupo is not None else {}
     if p.get('abertura') != 'CORRER':
@@ -569,9 +568,9 @@ def _curso_do_slider(folha, l, centro):
 
 
 def _slider_na_tela(context, folha):
-    """(inicio, fim) do slider em pixels, o inicio sempre a' esquerda --
-    menos no de correr, que vai de onde a folha fecha para onde ela abre
-    (a bolinha acompanha a folha)."""
+    """(start, end) of the slider in pixels, with start always on the left, except for
+    sliding doors: it goes from the closed position to the open position (the dot
+    follows the leaf)."""
     pontos = [_hud._projetar_hud(context, p) for p in _slider_no_mundo(folha)]
     if any(p is None for p in pontos) or (pontos[1] - pontos[0]).length < 1:
         return None
@@ -586,8 +585,8 @@ def _fracao_no_slider(inicio, fim, mouse):
 
 
 def _px_por_mm_do_slider(context, folha):
-    """Pixels por mm no meio do slider, medidos na vertical da TELA (a
-    inclinacao do trilho nao afina o desenho), com o teto."""
+    """Pixels per mm at the slider midpoint, measured along SCREEN vertical so track
+    tilt does not thin the drawing; apply the cap."""
     rv3d = context.region_data
     a, b = _slider_no_mundo(folha)
     meio = (a + b) / 2.0
@@ -600,7 +599,7 @@ def _px_por_mm_do_slider(context, folha):
 
 
 def _botao_do_slider(context, folha):
-    """Centro da bolinha do slider (pixels), ou None."""
+    """Slider dot center (pixels), or None."""
     tela = _slider_na_tela(context, folha)
     if tela is None:
         return None
@@ -608,17 +607,17 @@ def _botao_do_slider(context, folha):
 
 
 def _slider_sob_mouse(context, posicao):
-    """A folha cuja BOLINHA esta' sob o mouse, ou None. O alcance e' o
-    tamanho da bolinha (pedido do usuario): o trilho nao pega o clique."""
+    """Leaf whose DOT is under the mouse, or None. Hit reach equals dot size (user
+    request): the track does not capture clicks."""
     if getattr(context, 'region_data', None) is None:
-        return None             # sem vista 3D nao ha' slider na tela
+        return None             # Without a 3D view there is no onscreen slider.
     mouse = Vector(posicao)
     melhor = None
     for folha in _folhas_com_slider(context):
         botao = _botao_do_slider(context, folha)
         if botao is None:
             continue
-        # do tamanho da bolinha desenhada (3 px no minimo: ainda se pega)
+        # Match the drawn dot size (minimum 3 px so it remains clickable).
         raio = max(3.0, SLIDER_BOTAO_MM * _px_por_mm_do_slider(context, folha))
         d = (botao - mouse).length
         if d <= raio and (melhor is None or d < melhor[0]):
@@ -660,13 +659,13 @@ def _desenhar_sliders_porta(context):
             inicio, fim = tela
             fracao = float(folha.get(_ferragens.CHAVE_ABERTURA, 0.0))
             botao = inicio.lerp(fim, fracao)
-            # tudo proporcional ao zoom: 1 "escala" = 1 mm na tela
+            # Everything scales with zoom: one scale unit = 1 mm onscreen.
             mm = _px_por_mm_do_slider(context, folha)
             grosso = SLIDER_ESPESSURA_MM * mm
             raio = SLIDER_BOTAO_MM * mm
             aceso = folha.name in (arrastando, _slider_hover[0])
             shader.bind()
-            # cores opacas: com alfa, a emenda das pontas redondas apareceria
+            # Opaque colors: alpha would expose the join between the rounded ends.
             _capsula_2d(shader, inicio, fim, grosso + 3.0 * mm,
                         (0.92, 0.92, 0.92, 1.0))
             _capsula_2d(shader, inicio, fim, grosso, (0.13, 0.13, 0.13, 1.0))
@@ -676,8 +675,8 @@ def _desenhar_sliders_porta(context):
                 _hud._bolinha_2d(shader, botao, raio + 3.0 * mm, realce)
             _hud._bolinha_2d(shader, botao, raio, (1.0, 1.0, 1.0, 1.0))
             _hud._bolinha_2d(shader, botao, raio * 0.45, realce)
-            # o valor numa caixa preta, centrado acima do botao; pequeno
-            # demais para ler, some (o slider continua)
+            # Value in a black box centered above the button; hide it when too small to
+            # read (the slider remains).
             tamanho = SLIDER_TEXTO_MM * mm
             if tamanho >= SLIDER_TEXTO_MIN_PX:
                 texto = _texto_abertura(folha)
@@ -692,7 +691,7 @@ def _desenhar_sliders_porta(context):
 
 
 def _capsula_2d(shader, a, b, grossura, rgba):
-    """Trilho com as pontas redondas (o slider)."""
+    """Track with rounded ends (the slider)."""
     shader.uniform_float('color', rgba)
     quad = _puxadores._quad_2d(a, b, grossura)
     if quad:
@@ -702,9 +701,9 @@ def _capsula_2d(shader, a, b, grossura, rgba):
 
 
 class OBJECT_OT_abrir_porta(Operator):
-    """Arraste o slider da folha: para a direita abre, para a esquerda fecha"""
+    """Drag the leaf slider: right opens, left closes."""
     bl_idname = 'object.cabinet_abrir_porta'
-    bl_label = 'Abrir Porta'
+    bl_label = "Open Door"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     folha: StringProperty(options={'SKIP_SAVE'})
@@ -722,7 +721,7 @@ class OBJECT_OT_abrir_porta(Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        # do gizmo da bolinha (ou do keymap): fora dela o clique segue
+        # From the dot gizmo (or keymap): clicks outside it pass through.
         folha = _slider_sob_mouse(context, (event.mouse_region_x,
                                             event.mouse_region_y))
         if folha is None:
@@ -730,7 +729,7 @@ class OBJECT_OT_abrir_porta(Operator):
         self.folha = folha.name
         self._antes = float(folha.get(_ferragens.CHAVE_ABERTURA, 0.0))
         self._area = context.area
-        # pegou a bolinha fora do centro: ela nao pula ate' o mouse
+        # An off-center grab must not make the dot jump to the mouse.
         self._desvio = self._fracao_do_mouse(context, event, folha) - self._antes
         _arraste_slider_porta[0] = folha.name
         context.window_manager.modal_handler_add(self)
@@ -781,12 +780,12 @@ class OBJECT_OT_abrir_porta(Operator):
 
 
 class VIEW3D_GT_slider_porta(Gizmo):
-    """A bolinha do slider de abertura; o hit-test e' do tamanho dela.
+    """Opening slider dot; its hit area matches its size.
 
-    Gizmo e nao so' keymap: o gizmo e' avaliado ANTES de qualquer keymap.
-    No keyconfig do usuario a selecao vinha antes da entrada do slider
-    (o head=True do add-on nao vale na ordem dele), limpava a selecao e
-    o slider sumia antes de receber o clique."""
+    Use a gizmo, not only a keymap: gizmos are evaluated BEFORE any keymap. In the
+    user's keyconfig, selection preceded the slider entry (the add-on's head=True
+    does not affect that ordering), cleared selection and made the slider disappear
+    before receiving the click."""
     bl_idname = 'VIEW3D_GT_slider_porta'
 
     def draw(self, context):
@@ -804,7 +803,7 @@ class VIEW3D_GT_slider_porta(Gizmo):
 
 class VIEW3D_GGT_slider_porta(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_slider_porta'
-    bl_label = 'Slider de abertura das portas'
+    bl_label = "Door Opening Slider"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}

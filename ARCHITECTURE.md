@@ -6,25 +6,25 @@ Python names and persisted identifiers remain compatible.
 
 | Task | Owner under archy_builder/ | Guide | Harness suites |
 |---|---|---|---|
-| Panel mesh, thickness, Tab, A1..An, individual angles | cabinetry/panels/, shapes.py, fronts.py; core/geometry.py | cabinetry/panels/AGENTS.md | formas, geometria, frentes, hud |
-| Cabinet body, bounds, resize, Outliner collections | cabinetry/cabinets/ | cabinetry/cabinets/AGENTS.md | armarios, operadores, organizacao |
-| Doors, hinges, handles, opening and creation | cabinetry/doors/, door_assistant.py, hardware.py, handles.py; ui/door_controls.py | cabinetry/doors/AGENTS.md | portas, puxadores, importacao |
-| Drawer boxes, rails, shared native capture | cabinetry/drawers/ | cabinetry/drawers/AGENTS.md | gavetas, areas_criacao |
-| Shelf counts, E1..En, deletion, distribution | cabinetry/shelves/ | cabinetry/shelves/AGENTS.md | prateleiras |
-| Partitions, segmentation, shared creation area | cabinetry/partitions/; ui/creation_areas.py | cabinetry/partitions/AGENTS.md | divisorias, areas_criacao |
-| Backs, rail supports, depth coupling | cabinetry/backs.py, cabinets/ | cabinetry/AGENTS.md | fundos, gavetas, prateleiras |
-| Welding, anchors, gap, detach/reset | cabinetry/welding.py | cabinetry/AGENTS.md | solda, hud |
-| Sidebar layout, drawing, events, numeric editor | ui/sidebar*.py | ui/AGENTS.md | gaveta, medidas, snapshot, estrutura |
-| Selection, viewport HUD, volume handles, fading | ui/selection.py, hud.py, volume_hud.py, visibility.py | ui/AGENTS.md | hud, operadores, visibilidade |
-| Editor persistence and scene command bridge | ui/editor.py | ui/AGENTS.md | editor, biblioteca_faixa |
-| Preferences, timers, native undo guards | core/options.py, events.py | core/AGENTS.md | operadores, medidas, estrutura |
-| Masonry, face selection, room categories | architecture/masonry.py, rooms.py, walls.py, wall_selection.py | architecture/AGENTS.md | alvenaria, ambientes, paredes_selecao |
-| Wall 2D sessions, placement, dimensions | architecture/wall_editor.py, wall_layout.py | architecture/AGENTS.md | paredes_edicao, paredes_composicao |
-| Openings, installations, lighting, ceilings | architecture/installations.py, openings.py, lighting.py | architecture/AGENTS.md | instalacoes, esquadrias, iluminacao |
-| Catalog, presets, DXF adoption, estimates, materials | integrations/ | integrations/AGENTS.md | biblioteca, importacao, orcamento |
-| Offline import, repair, audit, hardware extraction | tools/ | ../tools/AGENTS.md | migracoes, soldas_biblioteca, auditoria_internos |
-| Build and local Blender link | ../tools/development/ | ../tools/development/AGENTS.md | empacotamento |
-| Harness, regression scenes and count floors | ../tests/ | ../tests/AGENTS.md | cobertura and changed suites |
+| Panel mesh, thickness, Tab, A1..An, individual angles | cabinetry/panels/, shapes.py, fronts.py; core/geometry.py | cabinetry/panels/AGENTS.md | shapes, geometry, fronts, hud |
+| Cabinet body, bounds, resize, Outliner collections | cabinetry/cabinets/ | cabinetry/cabinets/AGENTS.md | cabinets, operators, organization |
+| Doors, hinges, handles, opening and creation | cabinetry/doors/, door_assistant.py, hardware.py, handles.py; ui/door_controls.py | cabinetry/doors/AGENTS.md | doors, handles, importing |
+| Drawer boxes, rails, shared native capture | cabinetry/drawers/ | cabinetry/drawers/AGENTS.md | drawers, creation_areas |
+| Shelf counts, E1..En, deletion, distribution | cabinetry/shelves/ | cabinetry/shelves/AGENTS.md | shelves |
+| Partitions, segmentation, shared creation area | cabinetry/partitions/; ui/creation_areas.py | cabinetry/partitions/AGENTS.md | partitions, creation_areas |
+| Backs, rail supports, depth coupling | cabinetry/backs.py, cabinets/ | cabinetry/AGENTS.md | backs, drawers, shelves |
+| Welding, anchors, gap, detach/reset | cabinetry/welding.py | cabinetry/AGENTS.md | welding, hud |
+| Sidebar layout, drawing, events, numeric editor | ui/sidebar*.py | ui/AGENTS.md | sidebar, measurements, snapshot, structure |
+| Selection, viewport HUD, volume handles, fading | ui/selection.py, hud.py, volume_hud.py, visibility.py | ui/AGENTS.md | hud, operators, visibility |
+| Editor persistence and scene command bridge | ui/editor.py | ui/AGENTS.md | editor, library_strip |
+| Preferences, timers, native undo guards | core/options.py, events.py | core/AGENTS.md | operators, measurements, structure |
+| Masonry, face selection, room categories | architecture/masonry.py, rooms.py, walls.py, wall_selection.py | architecture/AGENTS.md | masonry, rooms, wall_selection |
+| Wall 2D sessions, placement, dimensions | architecture/wall_editor.py, wall_layout.py | architecture/AGENTS.md | wall_editor, wall_layout |
+| Openings, installations, lighting, ceilings | architecture/installations.py, openings.py, lighting.py | architecture/AGENTS.md | installations, openings, lighting |
+| Catalog, presets, DXF adoption, estimates, materials | integrations/ | integrations/AGENTS.md | library, importing, estimates |
+| Offline import, repair, audit, hardware extraction | tools/ | ../tools/AGENTS.md | migrations, library_joints, internal_audit |
+| Build and local Blender link | ../tools/development/ | ../tools/development/AGENTS.md | packaging |
+| Harness, regression scenes and count floors | ../tests/ | ../tests/AGENTS.md | coverage and changed suites |
 
 Guide links above are repository paths under archy_builder/ unless prefixed
 with ../. No sector owns another sector's geometry. Sidebar is UI, drawers are
@@ -64,9 +64,10 @@ Fronts owns the shared semantic face/edge reference and caches outside redraw.
 
 ## Data and tooling
 
-`biblioteca/`, `ferragens/`, `fotos/` remain resource directories with their original
-names and bytes. They are NOT Python packages. Existing saved library paths,
-catalog UUIDs and user models must survive source reorganization.
+`assets/library/`, `assets/hardware/` and `assets/previews/` contain resource data,
+not Python packages. Their filenames and binary contents remain unchanged. Catalog
+display names are English and retain existing UUIDs. Source/input data identifiers
+are distinct from English labels; import boundaries normalize known source labels.
 Core preferences and resource owners resolve these paths from the add-on root,
 not from their newly nested source directory.
 

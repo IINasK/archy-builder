@@ -1,13 +1,8 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_walls_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_walls_blender.py
 
-Paredes, como no Promob (pedido do usuario): o modulo solto numa parede
-encosta as COSTAS nela e fica ASSOCIADO; as guias medem ate' as pontas, o
-piso e o teto, e digitar uma delas leva o modulo. A parede e' QUALQUER
-superficie vertical que nao seja movel do add-on.
+Promob-style walls, as requested: a cabinet dropped on a wall places its back against it and becomes associated. Guides measure to endpoints, floor and ceiling; typing a guide moves the cabinet. Any vertical surface outside the add-on's furniture can be a wall.
 
-O arraste com o botao direito e o clique no numero da guia (modais, com
-eventos de verdade) estao em `gui_interaction.py`.
-"""
+Real modal events for right-button dragging and clicking guide numbers are covered in gui_interaction.py."""
 import math
 import os
 import sys
@@ -27,7 +22,7 @@ P = addon.paredes
 
 
 def caixa(nome, dims, centro):
-    """Malha de caixa sem marcador (a parede que o usuario modelou)."""
+    """Create an unmarked box mesh representing a user-modeled wall."""
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
@@ -61,7 +56,7 @@ class TestParedes(unittest.TestCase):
         self.assertNotIn(P.CHAVE_PAREDE,conj)
         self.assertEqual(conj.matrix_world,antes)
         itens=[];addon.alvenaria.widgets_classificar(bpy.context,itens,0,500,300)
-        self.assertTrue(any(i[4] == 'Criar Alvenaria' for i in itens))
+        self.assertTrue(any(i[4] == "Create Masonry" for i in itens))
         self.assertFalse(any(i[5] == ('operador','object.cabinet_editar_parede') for i in itens))
 
     def test_snap_nativo_ignora_malhas_nao_definidas_mesmo_na_frente_da_parede(self):
@@ -172,9 +167,9 @@ class TestParedes(unittest.TestCase):
         self.assertEqual(len(r['faces']),4)
 
     def test_arraste_no_piso_confirma_sem_bloquear_por_outro_modulo(self):
-        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        conj=self.modulo();piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         piso[P.CHAVE_ALVENARIA]=True
-        # Um segundo modulo copia so' a carcaca atraves do operador existente.
+        # A second cabinet copies only the carcass through the existing operator.
         outro=addon.modulos.criar_armario(bpy.context,'Vizinho',800,700,600)
         outro.location=(0,0,0);bpy.context.view_layer.update()
         classe,op,ctx,e=self.arrastador(conj)
@@ -190,7 +185,7 @@ class TestParedes(unittest.TestCase):
         self.assertIsNone(P._arraste_parede[0]);self.assertIsNone(P._erro_apoio[0])
 
     def test_piso_afastamento_g_zero_guias_e_movimento_do_apoio(self):
-        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        conj=self.modulo();piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         P.associar(conj,piso,Vector((.3,.2,0)),Vector((0,0,1)))
         P.colocar_na_parede(conj,piso,Vector((.3,.2,0)),Vector((0,0,1)))
         bpy.context.view_layer.update();P.manter_nas_paredes()
@@ -209,7 +204,7 @@ class TestParedes(unittest.TestCase):
         P.desassociar(conj);self.assertNotIn(P.CHAVE_EIXO_PISO,conj)
 
     def test_piso_cache_nao_rele_malha_parada_e_erro_limpa_no_timer(self):
-        piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         r=P.regiao_do_piso(piso,Vector((0,0,0)),Vector((0,0,1)))
         with patch.object(P,'_calcular_regiao',side_effect=AssertionError('Releu malha')):
             for _ in range(20):self.assertIs(P.regiao_do_piso(piso,Vector((.1,.1,0)),Vector((0,0,1))),r)
@@ -219,7 +214,7 @@ class TestParedes(unittest.TestCase):
         self.assertIsNone(P._erro_apoio[0])
 
     def test_roda_no_piso_gira_em_pe_e_esc_devolve_pose_e_associacao(self):
-        conj=self.modulo();piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        conj=self.modulo();piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         piso[P.CHAVE_ALVENARIA]=True
         classe,op,ctx,e=self.arrastador(conj);antes=conj.matrix_world.copy()
         with patch.object(P,'_raio_ignorando',return_value=(piso,Vector((0,0,0)),Vector((0,0,1)),None)), \
@@ -236,7 +231,7 @@ class TestParedes(unittest.TestCase):
         self.assertNotIn(P.CHAVE_EIXO_PISO,conj)
 
     def test_piso_e_gap_sobrevivem_salvar_reabrir_sem_reconstruir_geometria(self):
-        conj=self.modulo();nome=conj.name;piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        conj=self.modulo();nome=conj.name;piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         conj.rotation_euler.z=.4;bpy.context.view_layer.update()
         P.associar(conj,piso,Vector((.2,.3,0)),Vector((0,0,1)))
         P.definir_afastamento(conj,.12)
@@ -256,7 +251,7 @@ class TestParedes(unittest.TestCase):
             self.assertIsNotNone(P.calcular_guias(rec))
 
     def test_g_nativo_afasta_da_parede_e_publica_cota_sem_perder_vinculo(self):
-        # Regressao 393: o timer desfazia o afastamento confirmado pelo G.
+        # Regression v393: the timer undid the offset confirmed through G.
         conj=self.modulo();self.encostar(conj)
         bpy.ops.object.select_all(action='DESELECT');conj.select_set(True)
         bpy.context.view_layer.objects.active=conj
@@ -301,7 +296,7 @@ class TestParedes(unittest.TestCase):
 
     def test_piso_encaixa_base_sem_deitar_e_conserva_giro(self):
         conj=self.modulo();conj.rotation_euler.z=.63
-        piso=caixa('Piso',(4,4,.1),(0,0,-.05))
+        piso=caixa("Floor",(4,4,.1),(0,0,-.05))
         bpy.context.view_layer.update()
         regiao=P.regiao_do_piso(piso,Vector((0,0,0)),Vector((0,0,1)))
         ponto=Vector((0,0,0))
@@ -339,8 +334,8 @@ class TestParedes(unittest.TestCase):
         camada = bpy.context.view_layer
         camada.active_layer_collection = camada.layer_collection
         P.esquecer()
-        # parede de 3000 x 2700, face da frente em y = 1 m olhando para -Y
-        self.parede = caixa('Parede', (3.0, 0.15, 2.7), (0.0, 1.075, 1.35))
+        # 3000 x 2700 wall, front face at y = 1 m looking toward -Y.
+        self.parede = caixa("Wall", (3.0, 0.15, 2.7), (0.0, 1.075, 1.35))
 
     def modulo(self):
         bpy.ops.object.cabinet_criar_nicho()
@@ -357,7 +352,7 @@ class TestParedes(unittest.TestCase):
         return (hi.x - lo.x) * 1000, (hi.z - lo.z) * 1000
 
     def encostar(self, conj, s=0.0, base=0.5):
-        """O que o soltar do arraste faz, sem o mouse."""
+        """Perform the drag-release behavior without using the mouse."""
         normal = Vector((0.0, -1.0, 0.0))
         costas = Vector((s, 1.0, base))
         self.assertTrue(P.colocar_na_parede(conj, self.parede, costas, normal))
@@ -375,13 +370,13 @@ class TestParedes(unittest.TestCase):
             moldura_mm=15,rodape_mm=100,testeira_mm=80)
 
     def cantos_do_envelope(self, conj):
-        # Oraculo independente: caixas nativas das pecas, incluindo os apoios.
+        # Independent oracle: native part boxes, including supports.
         bpy.context.view_layer.update()
         return [o.matrix_world@Vector(c) for o in addon.modulos.pecas_do_envelope(conj)
                 for c in o.bound_box]
 
     def test_caixa_de_parede_inclui_apoios_da_porta_pesada_como_o_grupo(self):
-        # Regressao 390: a HUD incluia a moldura, o encaixe media so' a carcaca.
+        # Regression v390: the HUD included the frame, but fitting measured only the carcass.
         conj=self.modulo()
         corpo=tuple(v.copy() for v in P.caixa_local_do_modulo(conj))
         grupo=self.moldura_pesada(conj)
@@ -393,7 +388,7 @@ class TestParedes(unittest.TestCase):
         self.assertGreater(hi.x,corpo[1].x)
         self.assertLess(lo.z,corpo[0].z)
         self.assertEqual(P.frente_do_modulo(conj),'NEG_Y')
-        # O vao das portas conserva a referencia estrutural, sem realimentar moldura.
+        # The door opening retains its structural reference without feeding the frame back in.
         interno=addon.portas._limites_locais_modulo(conj)
         self.assertVetor(interno[0]/1000,corpo[0],6)
         self.assertVetor(interno[1]/1000,corpo[1],6)
@@ -420,7 +415,7 @@ class TestParedes(unittest.TestCase):
         pux=addon.puxadores.criar_puxador(bpy.context,folhas[1],'ALCA','X+',1)
         pux.location.x+=8
         solta=addon.modulos._chapas_do_conjunto(conj)[0]
-        # Uma copia fora do grupo nao amplia a referencia de montagem.
+        # A copy outside the group does not enlarge the assembly reference.
         copia=solta.copy();copia.data=solta.data.copy();copia.parent=None
         bpy.context.scene.collection.objects.link(copia);copia.location.x=20
         bpy.context.view_layer.update()
@@ -465,10 +460,10 @@ class TestParedes(unittest.TestCase):
     def test_parede_e_superficie_vertical_que_nao_e_movel(self):
         n, u = P.eixos_da_parede(Vector((0.0, -1.0, 0.0)))
         self.assertVetor(n, (0, -1, 0))
-        self.assertVetor(u, (1, 0, 0))        # a direita de quem olha a parede
-        self.assertIsNone(P.eixos_da_parede(Vector((0.0, 0.0, 1.0))))    # piso
-        self.assertIsNone(P.eixos_da_parede(Vector((0.0, -0.4, -0.9))))  # teto
-        # as costas (+Y do modulo) apontam para dentro da parede
+        self.assertVetor(u, (1, 0, 0))        # To the viewer's right when looking at the wall.
+        self.assertIsNone(P.eixos_da_parede(Vector((0.0, 0.0, 1.0))))    # Floor.
+        self.assertIsNone(P.eixos_da_parede(Vector((0.0, -0.4, -0.9))))  # Ceiling.
+        # The cabinet back (+Y) points into the wall.
         self.assertVetor(P.rotacao_na_parede(n, u) @ Vector((0, 1, 0)), (0, 1, 0))
         conj = self.modulo()
         self.assertTrue(P.eh_movel(conj))
@@ -479,15 +474,15 @@ class TestParedes(unittest.TestCase):
         retangulo = P.retangulo_da_parede(
             self.parede, Vector((0.4, 1.0, 1.0)), Vector((0.0, -1.0, 0.0)))
         self.assertVetor(retangulo, (-1.5, 1.5, 0.0, 2.7))
-        # a face de tras e' outra parede (normal oposta): pontas espelhadas
+        # The rear face is a different wall with opposite normal and mirrored endpoints.
         retangulo = P.retangulo_da_parede(
             self.parede, Vector((0.4, 1.15, 1.0)), Vector((0.0, 1.0, 0.0)))
         self.assertVetor(retangulo, (-1.5, 1.5, 0.0, 2.7))
 
     def test_regiao_de_malha_pesada_em_lote_e_uma_vez_por_parede(self):
-        # Cena real (relato do usuario): uma casa de centenas de milhares de
-        # faces travava a cada passo do mouse. A regiao sai em lote e vale
-        # para TODAS as faces dela: andar pela parede nao recalcula.
+        # User's real scene: a house with hundreds of thousands of faces froze on every
+        # mouse move. Compute the region in a batch for all its faces;
+        # moving along the wall must not recalculate it.
         import time
         from unittest.mock import patch
         casa = caixa('Casa', (3.0, 0.15, 2.7), (0.0, 5.075, 1.35))
@@ -507,13 +502,13 @@ class TestParedes(unittest.TestCase):
         self.assertAlmostEqual(s1 - s0, 3.0, places=4)
         self.assertAlmostEqual(z1 - z0, 2.7, places=4)
         self.assertEqual(len(a['faces']), 121 * 121)
-        # contorno = so' a borda da face (4 lados de 121 arestas)
+        # Outline = only the face boundary, four sides of 121 edges.
         self.assertEqual(len(a['contorno']), 4 * 121)
         self.assertEqual(len(a['triangulos']), 3 * 2 * 121 * 121)
         outra = next(f for f in a['faces'] if f != a['face'])
         with patch.object(P, '_calcular_regiao', side_effect=AssertionError('recalculou')):
             b = P.regiao_da_parede(casa, Vector((1.0, 5.0, 2.0)), normal, dep, outra)
-            # associacao antiga, sem indice: o retangulo do plano basta
+            # Legacy association without an index: the plane rectangle suffices.
             c = P.regiao_da_parede(casa, Vector((0.0, 5.0, 1.0)), normal, dep)
         self.assertEqual(b['face'], outra)
         self.assertEqual(b['retangulo'], a['retangulo'])
@@ -521,11 +516,11 @@ class TestParedes(unittest.TestCase):
 
     def test_soltar_encosta_as_costas_e_mede_as_guias(self):
         conj = self.modulo()
-        conj.rotation_euler = Euler((0, 0, math.radians(70)))  # torto antes
+        conj.rotation_euler = Euler((0, 0, math.radians(70)))  # Initially tilted.
         bpy.context.view_layer.update()
         largura, altura = self.medidas(conj)
         self.encostar(conj, s=0.2, base=0.5)
-        # virado para fora da parede, costas no plano y = 1 m
+        # Facing away from the wall, with its back in the y = 1 m plane.
         self.assertVetor(conj.matrix_world.to_3x3() @ Vector((0, 1, 0)), (0, 1, 0))
         self.assertAlmostEqual(P.ponto_das_costas(conj).y, 1.0, places=5)
         guias = P.calcular_guias(conj)
@@ -534,17 +529,17 @@ class TestParedes(unittest.TestCase):
         self.assertAlmostEqual(valores['teto'], 2700.0 - 500.0 - altura, places=2)
         self.assertAlmostEqual(valores['esquerda'], 1700.0 - largura / 2, places=2)
         self.assertAlmostEqual(valores['direita'], 1300.0 - largura / 2, places=2)
-        # cada linha vai da parede ao modulo, 1 mm a' frente dela
+        # Each line runs from wall to cabinet, 1 mm in front of the wall.
         a, b = guias['linhas']['piso']
         self.assertAlmostEqual(a.z, 0.0, places=5)
         self.assertAlmostEqual(b.z, 0.5, places=5)
         self.assertAlmostEqual(a.y, 1.0 - P.DESLOCAMENTO_GUIA_M, places=6)
-        # o UID fica na parede, a parede no modulo
+        # UID stored on the wall; wall reference stored on the cabinet.
         self.assertEqual(conj[P.CHAVE_PAREDE], self.parede[P.CHAVE_UID_PAREDE])
         self.assertIs(P.parede_do_modulo(conj), self.parede)
 
     def test_digitar_a_guia_leva_o_modulo(self):
-        # o desenho do usuario: 1000 da esquerda, 1200 do piso
+        # User drawing: 1000 from the left, 1200 from the floor.
         conj = self.modulo()
         largura, altura = self.medidas(conj)
         self.encostar(conj)
@@ -555,7 +550,7 @@ class TestParedes(unittest.TestCase):
         self.assertAlmostEqual(valores['piso'], 1200.0, places=2)
         self.assertAlmostEqual(valores['direita'], 3000.0 - 1000.0 - largura, places=2)
         self.assertAlmostEqual(valores['teto'], 2700.0 - 1200.0 - altura, places=2)
-        # pela direita e pelo teto tambem; as costas nao saem da parede
+        # Also through right and ceiling guides; the back stays on the wall.
         P.aplicar_guia(conj, 'direita', 350.0)
         P.aplicar_guia(conj, 'teto', 200.0)
         valores = P.calcular_guias(conj)['valores']
@@ -589,16 +584,16 @@ class TestParedes(unittest.TestCase):
         depois = P.calcular_guias(conj)['valores']
         for lado in P.LADOS:
             self.assertAlmostEqual(depois[lado], antes[lado], places=2, msg=lado)
-        # girou junto: as costas agora apontam para +X... para dentro dela
+        # Rotated together: the back now points toward +X, into the wall.
         normal = P._normal_no_mundo(self.parede, conj[P.CHAVE_PAREDE_NORMAL])
         self.assertVetor(conj.matrix_world.to_3x3() @ Vector((0, 1, 0)), -normal)
-        # parada, nada mais muda
+        # Stationary: nothing else changes.
         self.assertFalse(P.manter_nas_paredes())
 
     def test_modulo_movido_so_desliza_na_parede(self):
         conj = self.modulo()
         self.encostar(conj, s=0.0, base=0.5)
-        # G para longe da parede e R torto: volta ao plano, guarda o resto
+        # G away from the wall and R to tilt: restore the plane while keeping other changes.
         conj.location += Vector((0.25, -0.4, 0.1))
         conj.rotation_euler.z += math.radians(30)
         bpy.context.view_layer.update()
@@ -618,31 +613,31 @@ class TestParedes(unittest.TestCase):
         self.assertNotIn(P.CHAVE_PAREDE, conj)
         conj.location.y -= 0.5
         bpy.context.view_layer.update()
-        self.assertFalse(P.manter_nas_paredes())      # nao volta mais
+        self.assertFalse(P.manter_nas_paredes())      # No longer returns.
         self.assertEqual(bpy.ops.object.cabinet_desassociar_parede(), {'CANCELLED'})
 
     def test_parede_duplicada_desempata_pelo_nome(self):
         conj = self.modulo()
         self.encostar(conj)
-        copia = self.parede.copy()          # Shift+D: o UID vai junto
+        copia = self.parede.copy()          # Shift+D copies the UID.
         bpy.context.scene.collection.objects.link(copia)
         self.assertIs(P.parede_do_modulo(conj), self.parede)
-        self.parede.name = 'Parede Renomeada'   # renomear nao solta
+        self.parede.name = 'Parede Renomeada'   # Renaming does not unlink.
         self.assertIn(P.parede_do_modulo(conj), {self.parede, copia})
 
     def test_arraste_gruda_nas_pontas_no_piso_e_no_teto(self):
         retangulo = (-1.5, 1.5, 0.0, 2.7)
-        # a 1 cm da ponta esquerda e do piso: gruda (tolerancia 2 cm)
+        # 1 cm from left endpoint and floor: snap within the 2 cm tolerance.
         s, base = P.posicao_no_arraste(retangulo, -1.5 + 0.3 + 0.01, 0.01,
                                        0.6, 0.7, 0.02)
         self.assertAlmostEqual(s, -1.2)
         self.assertAlmostEqual(base, 0.0)
-        # perto da direita e do teto
+        # Near right and ceiling.
         s, base = P.posicao_no_arraste(retangulo, 1.5 - 0.3 - 0.015, 2.0 - 0.01,
                                        0.6, 0.7, 0.02)
         self.assertAlmostEqual(s, 1.2)
         self.assertAlmostEqual(base, 2.0)
-        # longe: fica onde esta'
+        # Far away: stay in place.
         self.assertEqual(P.posicao_no_arraste(retangulo, 0.0, 1.0, 0.6, 0.7, 0.02),
                          (0.0, 1.0))
 
@@ -653,71 +648,68 @@ class TestParedes(unittest.TestCase):
         conj.select_set(True)
         bpy.context.view_layer.objects.active = conj
         P.atualizar_guias()
-        self.assertIsNone(P._guias[0])               # ainda solto
+        self.assertIsNone(P._guias[0])               # Still unassociated.
         self.encostar(conj)
         P.atualizar_guias()
         self.assertEqual(P._guias[0]['modulo'], conj.name)
         conj.select_set(False)
         P.atualizar_guias()
         self.assertIsNone(P._guias[0])
-        # sem guias, o gizmo dos numeros (VIEW3D_GGT_guias_parede) nao
-        # aparece e o operador da guia (cabinet_guia_parede) nao roda
+        # Without guides, the number gizmo VIEW3D_GGT_guias_parede does not appear,
+        # and the guide operator cabinet_guia_parede does not run.
         self.assertFalse(P.OBJECT_OT_guia_parede.poll(bpy.context))
 
     def test_raio_atravessa_o_modulo_encostado_e_acha_a_face_da_parede(self):
         self.parede[P.CHAVE_ALVENARIA]=True
-        # Regressao (relato do usuario, v202): com as costas NO plano da
-        # parede, pular o modulo andando 0,1 mm atravessava a face dela e
-        # o arraste pegava o outro lado da parede ou nada -- "nao e' parede"
+        # User-reported regression v202: with the cabinet back already on the wall plane,
+        # skipping the cabinet by advancing 0.1 mm crossed the wall face, so dragging
+        # hit the wall's other side or nothing and rejected it as a wall.
         conj = self.modulo()
         self.encostar(conj, s=0.0, base=0.5)
         lateral = min(addon.modulos._chapas_do_conjunto(conj),
                       key=lambda c: c.matrix_world.translation.x)
         x = lateral.matrix_world.translation.x
         ignorar = {conj.name, *(o.name for o in conj.children_recursive)}
-        # pela espessura da lateral: sai dela EXATAMENTE na face da parede
+        # Through the side-panel thickness: exit exactly at the wall face.
         acerto = P.raio_ate_parede(bpy.context, Vector((x, -3.0, 0.7)),
                                    Vector((0.0, 1.0, 0.0)), ignorar)
         self.assertIsNotNone(acerto)
         parede, ponto, normal, face = acerto
         self.assertIs(parede, self.parede)
-        self.assertAlmostEqual(ponto.y, 1.0, places=5)        # a face da FRENTE
+        self.assertAlmostEqual(ponto.y, 1.0, places=5)        # The front face.
         self.assertVetor(normal, (0, -1, 0))
         self.assertVetor(self.parede.matrix_world.to_3x3()
                          @ self.parede.data.polygons[face].normal, (0, -1, 0))
 
     def sala(self):
-        """Um objeto so' (como a sala do usuario, Geometry Nodes): na
-        mesma linha y = 1, a parede A em dois quads ligados (-1.5..-0.5 e
-        -0.5..0) e, depois de um vao, a parede B (0.5..1.5); a parede C,
-        de lado, ligada a' A pela quina."""
+        """Create one object like the user's Geometry Nodes room. At y = 1, wall A has two connected quads (-1.5..-0.5 and -0.5..0), wall B follows after a gap (0.5..1.5), and perpendicular wall C joins A at its corner."""
         h = 2.7
         vs = [(-1.5, 1, 0), (-0.5, 1, 0), (-0.5, 1, h), (-1.5, 1, h),   # A1
               (0.0, 1, 0), (0.0, 1, h),                                # A2
               (0.5, 1, 0), (1.5, 1, 0), (1.5, 1, h), (0.5, 1, h),       # B
               (-1.5, -1, 0), (-1.5, -1, h)]                            # C
         faces = [(0, 1, 2, 3), (1, 4, 5, 2), (6, 7, 8, 9), (10, 0, 3, 11)]
-        malha = bpy.data.meshes.new('Sala')
+        malha = bpy.data.meshes.new("Living Room")
         malha.from_pydata(vs, [], faces)
         malha.update()
-        obj = bpy.data.objects.new('Sala', malha)
+        obj = bpy.data.objects.new("Living Room", malha)
         bpy.context.scene.collection.objects.link(obj)
         bpy.context.view_layer.update()
         return obj
 
     def test_associa_a_face_e_nao_ao_objeto(self):
-        # pedido do usuario: a parede e' a FACE (com as vizinhas no mesmo
-        # plano ligadas a ela), nao o objeto inteiro nem o plano inteiro
+        # User request: a wall is the face plus connected coplanar neighbors,
+        # not the entire object or infinite plane.
         sala = self.sala()
         frente = Vector((0.0, -1.0, 0.0))
         regiao = P.regiao_da_parede(sala, Vector((-1.0, 1.0, 1.0)), frente, face=0)
         self.assertEqual(regiao['face'], 0)
         self.assertVetor(regiao['retangulo'], (-1.5, 0.0, 0.0, 2.7))   # A1 + A2
-        self.assertEqual(len(regiao['contorno']), 6)    # sem a aresta entre A1 e A2
+        self.assertEqual(len(regiao['contorno']), 6)    # Without the edge between A1 and A2.
         self.assertEqual(len(regiao['triangulos']), 2 * 2 * 3)
         b = P.regiao_da_parede(sala, Vector((1.0, 1.0, 1.0)), frente, face=2)
-        self.assertVetor(b['retangulo'], (0.5, 1.5, 0.0, 2.7))         # so' a B
-        # modulo na B: a esquerda mede da ponta da B, nao da A
+        self.assertVetor(b['retangulo'], (0.5, 1.5, 0.0, 2.7))         # Only B.
+        # Cabinet on B: its left guide measures from B's endpoint, not A's.
         conj = self.modulo()
         largura, _altura = self.medidas(conj)
         costas = Vector((1.0, 1.0, 0.0))
@@ -727,7 +719,7 @@ class TestParedes(unittest.TestCase):
         valores = P.calcular_guias(conj)['valores']
         self.assertAlmostEqual(valores['esquerda'], 500.0 - largura / 2, places=2)
         self.assertAlmostEqual(valores['direita'], 500.0 - largura / 2, places=2)
-        # malha refeita (indice que nao bate): a face do plano mais perto
+        # Rebuilt mesh with mismatched index: use the nearest face in the plane.
         conj[P.CHAVE_PAREDE_FACE] = 999
         P._retangulos.clear()
         self.assertAlmostEqual(P.calcular_guias(conj)['valores']['esquerda'],
@@ -736,12 +728,12 @@ class TestParedes(unittest.TestCase):
         self.assertNotIn(P.CHAVE_PAREDE_FACE, conj)
 
     def modulo_com_porta_em_x(self):
-        """Modulo com a porta na face +X (preset girado por dentro)."""
+        """Create a cabinet with its door on face +X, representing an internally rotated preset."""
         conj = self.modulo()
         grupo = addon.portas.porta_no_modulo(conj)
         bpy.context.view_layer.update()
         self.assertEqual(P.frente_do_modulo(conj), 'NEG_Y')
-        # gira a porta 90 graus em volta do Empty: da face -Y para a +X
+        # Rotate the door 90 degrees around the Empty, from -Y to +X.
         giro = (conj.matrix_world @ Matrix.Rotation(math.radians(90), 4, 'Z')
                 @ conj.matrix_world.inverted())
         grupo.matrix_world = giro @ grupo.matrix_world
@@ -749,28 +741,28 @@ class TestParedes(unittest.TestCase):
         return conj
 
     def test_costas_sao_o_lado_oposto_a_porta(self):
-        # Relato do usuario: o preset com a porta em X encostava a lateral
-        # na parede. As costas sao SEMPRE o lado oposto a' porta.
+        # User report: a preset with its door on X placed its side against the wall.
+        # The back is always opposite the door.
         conj = self.modulo_com_porta_em_x()
         self.assertEqual(P.frente_do_modulo(conj), 'POS_X')
         self.assertEqual(P.lado_das_costas(conj), 'NEG_X')
         lo, hi = P.caixa_local_do_modulo(conj)
         self.encostar(conj, s=0.2, base=0.5)
-        self.assertEqual(conj[P.CHAVE_COSTAS], 'NEG_X')      # gravado ao associar
-        # a porta (+X do modulo) olha para fora da parede (-Y do mundo)
+        self.assertEqual(conj[P.CHAVE_COSTAS], 'NEG_X')      # Stored upon association.
+        # The door (cabinet +X) faces away from the wall (world -Y).
         self.assertVetor(conj.matrix_world.to_3x3() @ Vector((1, 0, 0)), (0, -1, 0))
         pontos = [conj.matrix_world @ Vector((x, y, z)) for x in (lo.x, hi.x)
                   for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
-        self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=5)   # costas no plano
+        self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=5)   # Back on the plane.
         self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2,
                                0.2, places=5)
         self.assertAlmostEqual(min(p.z for p in pontos), 0.5, places=5)
-        # ao longo da parede vale a PROFUNDIDADE do modulo
+        # Cabinet depth determines its span along the wall.
         largura, _altura = self.medidas(conj)
         self.assertAlmostEqual(largura, (hi.y - lo.y) * 1000, places=3)
         guias = P.calcular_guias(conj)['valores']
         self.assertAlmostEqual(guias['esquerda'], 1700.0 - largura / 2, places=2)
-        # o timer nao desfaz o giro
+        # The timer must not undo rotation.
         self.assertFalse(P.manter_nas_paredes())
 
     def test_roda_do_mouse_troca_a_face_contra_a_parede(self):
@@ -785,10 +777,10 @@ class TestParedes(unittest.TestCase):
                 SimpleNamespace(type='WHEELUPMOUSE'))))
             P.colocar_na_parede(conj, self.parede, Vector((0.0, 1.0, 0.5)), Vector((0, -1, 0)))
             bpy.context.view_layer.update()
-            # o lado escolhido aponta para dentro da parede (+Y do mundo)
+            # The chosen side points into the wall, world +Y.
             self.assertVetor(conj.matrix_world.to_3x3() @ Vector(dentro[vistos[-1]]), (0, 1, 0))
             self.assertAlmostEqual(P.ponto_das_costas(conj).y, 1.0, places=5)
-        self.assertEqual(vistos, ['POS_X', 'NEG_Y', 'NEG_X', 'POS_Y'])   # volta inteira
+        self.assertEqual(vistos, ['POS_X', 'NEG_Y', 'NEG_X', 'POS_Y'])   # Returns in full.
         self.assertEqual(P.girar_costas(conj, P.passos_da_roda(
             SimpleNamespace(type='WHEELDOWNMOUSE'))), 'NEG_X')
         self.assertEqual(P.passos_da_roda(SimpleNamespace(type='MOUSEMOVE')), 0)
@@ -801,4 +793,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestParedes)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de paredes')
+    raise RuntimeError("Wall tests failed")

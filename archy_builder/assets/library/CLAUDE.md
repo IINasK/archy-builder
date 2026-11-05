@@ -2,9 +2,10 @@
 
 AGENTS.md and CLAUDE.md are exact mirrors; maximum 200 lines. Root instructions
 apply. This is RESOURCE DATA, not a Python package; never add __init__.py.
-The original directory name, filenames, indices and catalog UUIDs are persisted
-contracts. Source code lives in ../integrations/library.py and importing.py.
-Detailed historical decisions: ../../docs/reference/library_history.md.
+This resource directory uses the current English layout. Filenames, index schemas
+and catalog UUIDs remain data contracts; visible catalog names use English.
+Source code lives in ../../integrations/library.py and importing.py.
+Detailed historical decisions: ../../../docs/reference/library_history.md.
 
 ## One library
 
@@ -60,7 +61,7 @@ shelves, larger intentional gaps and back channels. Backs retain minimum recess.
 
 ## Publication and tests
 
-Maintenance scripts now live in ../../tools (see ../../tools/AGENTS.md).
+Maintenance scripts now live in ../../../tools (see ../../../tools/AGENTS.md).
 Prepare outside the library, validate .blend and preview by reopening, store
 originals/backups and hashes, then publish ONLY with the explicit apply flag.
 Rollback restores the exact originals. Verify hashes before the first write.

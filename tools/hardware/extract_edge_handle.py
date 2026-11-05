@@ -14,26 +14,26 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware")
 NOME = 'Puxador Borda'
-ESPESSURA_PORTA = 0.018      # o modelo e' montado para porta de 18 mm
+ESPESSURA_PORTA = 0.018      # The model is assembled for an 18 mm door.
 COMPRIMENTO = 0.080
 ENTRE_FUROS = 0.064
-PROJECAO = 0.020             # quanto o tampo avanca a' frente da porta
+PROJECAO = 0.020             # How far the top projects beyond the door front.
 
 
 def _vao(valores, filtro=lambda a, b: True):
-    """(tamanho, a, b) do maior intervalo sem vertice que passa no filtro."""
+    """(size, a, b) of the largest vertex-free interval passing the filter."""
     vs = sorted(set(round(c, 7) for c in valores))
     return max(((b - a, a, b) for a, b in zip(vs, vs[1:]) if filtro(a, b)), default=None)
 
 
 def geometria_borda(objeto):
-    """Geometria crua do objeto no referencial da linha, com as medidas
-    comerciais: so' os trechos RETOS andam (furos, chanfros e o enrolado
-    da frente continuam do modelo)."""
+    """Raw object geometry in the edge frame, at commercial dimensions:
+    move only STRAIGHT sections, preserving modeled holes, chamfers,
+    and the rolled front."""
     dep = bpy.context.evaluated_depsgraph_get()
-    # avaliado: o Smooth by Angle vira aresta viva (edge.smooth no BMesh)
+    # Evaluated: Smooth by Angle becomes a sharp edge (edge.smooth in BMesh).
     malha = bpy.data.meshes.new_from_object(objeto.evaluated_get(dep))
     bm = bmesh.new()
     bm.from_mesh(malha)
@@ -43,8 +43,8 @@ def geometria_borda(objeto):
     topo = max(p.z for p in ps)
     y_tras = max(p.y for p in ps)
     meio = [p for p in ps if abs(p.x - x_meio) < 0.02]
-    # baixo do tampo (assenta na borda) entre a aba e o enrolado da frente,
-    # que desce mais; dentro da aba (encosta nas costas da porta)
+    # Underside of the top (resting on the edge), between the flange and the
+    # lower rolled front; inside the flange (against the door back).
     baixo_tampo = min(p.z for p in meio if 0.0015 < y_tras - p.y < 0.0295
                       and topo - p.z < 0.003)
     dentro_aba = min(p.y for p in meio if baixo_tampo - p.z > 0.003)
@@ -87,11 +87,11 @@ def geometria_borda(objeto):
 
 
 def furos(vs):
-    """[[x, y, z]] (m) de cada furo da aba: o centro dele no ASSENTO do
-    parafuso (a face de fora da aba). A parede do furo e' o que fica entre
-    as duas faces da aba, longe do tampo, da ponta de baixo e do
-    arredondado das pontas (que tambem fica entre as faces)."""
-    fora = min(v.z for v in vs)                       # face de fora da aba
+    """[[x, y, z]] (m) for each flange hole: its center at the screw SEAT
+    (the flange's outer face). Hole walls lie between the flange faces,
+    away from the top, lower end, and rounded ends, which also lie
+    between those faces."""
+    fora = min(v.z for v in vs)                       # Outer flange face.
     dentro = -ESPESSURA_PORTA
     meio = max(abs(v.x) for v in vs)
     parede = [v for v in vs if fora + 1e-5 < v.z < dentro - 1e-5
@@ -118,8 +118,8 @@ def montar(dados):
     vivas = {tuple(sorted(par)) for par in dados['vivas']}
     for e in malha.edges:
         e.use_edge_sharp = tuple(sorted(e.vertices)) in vivas
-    # A escala -1 do objeto do usuario deixava o recalculo virado para
-    # DENTRO (volume negativo): o solido fechado decide pelo volume.
+    # The user's object scale of -1 made recalculated normals point
+    # INWARD (negative volume): determine orientation from the closed solid's volume.
     bm = bmesh.new()
     bm.from_mesh(malha)
     if bm.calc_volume(signed=True) < 0:
@@ -130,16 +130,16 @@ def montar(dados):
         bpy.data.objects.remove(o, do_unlink=True)
     objeto = bpy.data.objects.new(NOME, malha)
     bpy.context.scene.collection.objects.link(objeto)
-    # Normais NAO gravadas: esticar muda a forma das faces em volta dos
-    # furos e normal gravada entortava (15 graus). O add-on poe o Weighted
-    # Normal no puxador (`_normais_da_borda`), refeito a cada medida.
+    # Do NOT save normals: stretching changes faces around holes,
+    # and stored normals tilted by 15 degrees. The add-on applies Weighted
+    # Normal to the handle (`_normais_da_borda`), rebuilt for each size.
     final = malha
-    final['cabinet_origem'] = NOME            # o add-on deduplica por isto
+    final['cabinet_origem'] = NOME            # The add-on uses this for deduplication.
 
     vs = [v.co for v in final.vertices]
     xs, ys, zs = ([v[i] for v in vs] for i in range(3))
-    # corte das COSTAS: o trecho reto do tampo sobre a porta (atras da face
-    # da frente); a aba e o que fica atras dele andam com a espessura
+    # BACK cut: straight top section over the door (behind the front
+    # face); the flange and everything behind it follow the thickness.
     _, a, b = _vao(zs, lambda a, b: a < 0.0 < b)
     _, ax, bx = _vao(xs)
     medidas = {'origem': dados.get('origem'), 'objeto': dados.get('objeto'),
@@ -150,7 +150,7 @@ def montar(dados):
                'projecao_mm': round(max(zs) * 1000, 4),
                'aba_mm': round(max(ys) * 1000, 4),
                'tampo_mm': round(-min(ys) * 1000, 4),
-               # onde a malha estica: x (comprimento) e z (espessura da porta)
+               # Mesh stretch locations: x (length) and z (door thickness).
                'corte_x': round((ax + bx) / 2, 7), 'vao_x': round(bx - ax, 7),
                'corte_costas': round(a + 0.95 * (0.0 - a), 7),
                'vao_costas': round(0.95 * (0.0 - a), 7),
@@ -160,7 +160,7 @@ def montar(dados):
         json.dump(medidas, f, indent=1)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(DESTINO, 'puxador_borda.blend'),
                                 compress=True, copy=True)
-    print('[extrair] puxador borda:', medidas, len(final.vertices), 'vertices')
+    print("[extract] edge handle:", medidas, len(final.vertices), 'vertices')
 
 
 if __name__ == '__main__':

@@ -1,13 +1,9 @@
-"""Testes de INTERFACE: cliques e teclas simulados numa janela de verdade.
+"""Interface tests: simulated clicks and keystrokes in a real window.
 
-Execute pelo executor (abre o Blender com janela, ~1 min):
+Run through the harness (opens a Blender window; about one minute):
     blender --background --factory-startup --python tests/run_tests.py -- --gui --suites gui_interacao
 
-Cobre o que os testes headless nao alcancam: keymap real, gizmos com
-hover, modais recebendo a sequencia real de eventos. Foi um furo desses
-(o 2o clique do duplo chega como PRESS) que deixou o duplo clique na
-foto quebrado sem nenhum teste acusar.
-"""
+Covers behavior unavailable to headless tests: real keymaps, gizmo hover and modal event sequences. One such gap (the second double-click event arrives as PRESS) left photo double-clicking broken without a failing test."""
 import math
 import os
 import sys
@@ -29,7 +25,7 @@ from interaction_harness import (rodar, esperar, viewport_principal, na_tela,  #
                          Pular)
 
 
-# O register agenda catalogos: toda a suite usa uma copia antes dele.
+# Registration schedules catalog work, so the entire suite uses a copy beforehand.
 _REAL = addon.opcoes._pasta_addon()
 _GUARDA = tempfile.mkdtemp(prefix='cabinet_gui_guard_')
 with open(os.path.join(_REAL, 'indice.json'), encoding='utf-8') as f:
@@ -50,10 +46,10 @@ addon.biblioteca.pasta_biblioteca = lambda: _GUARDA
 addon.opcoes._pasta_addon = lambda: _GUARDA
 
 
-# ------------------------------------------------------------- apoio
+# ------------------------------------------------------------- helpers
 def gaveta(janela):
     area = addon.gaveta._area_gaveta(janela.screen)
-    assert area is not None, 'a gaveta nao abriu'
+    assert area is not None, 'the sidebar did not open'
     return area, next(r for r in area.regions if r.type == 'WINDOW')
 
 
@@ -69,8 +65,7 @@ def viewport(janela):
 
 
 def widget(janela, teste):
-    """Centro, em coordenadas da janela, do widget CLICAVEL da gaveta
-    para o qual teste(v) e' verdadeiro."""
+    """Return the window-coordinate center of the clickable sidebar widget satisfying teste(v)."""
     for area in (addon.gaveta._area_gaveta(janela.screen),
                  addon.biblioteca_faixa.area_da_faixa(janela.screen)):
         if area is None:
@@ -82,7 +77,7 @@ def widget(janela, teste):
         if v is not None:
             x, y, w, h = v[:4]
             return regiao.x + x + w / 2, regiao.y + y + h / 2
-    raise AssertionError('widget nao encontrado na interface')
+    raise AssertionError('widget not found in the interface')
 
 
 def criar_modulo(janela):
@@ -111,17 +106,15 @@ def caixa_mundo(objetos):
 
 
 def exigir_biblioteca_legivel():
-    """Os presets foram gravados pelo Blender 5.x, cujo formato de .blend
-    o 4.x nao le ("not a blend file"). Ali o teste do CLIQUE nao tem
-    o que provar: a falha e' do arquivo, registrada a parte."""
+    """These presets were saved by Blender 5.x; 4.x cannot read their .blend format ("not a blend file"). The click test cannot establish anything in that case; the file failure is recorded separately."""
     if bpy.app.version < (5, 0, 0):
-        raise Pular('biblioteca em formato .blend do 5.x: o %s nao le'
+        raise Pular('library uses Blender 5.x .blend format: %s cannot read it'
                     % bpy.app.version_string)
 
 
 def mostrar_chapas_na_biblioteca(cena):
-    cena.chapa_n1 = 'Chapas'
-    cena.chapa_n2 = (addon.biblioteca._filhos_n2('Chapas') or [''])[0]
+    cena.chapa_n1 = "Panels"
+    cena.chapa_n2 = (addon.biblioteca._filhos_n2("Panels") or [''])[0]
     cena.chapa_n3 = ''
 
 
@@ -143,7 +136,7 @@ def limpar(janela):
     cena.cursor.location = (0.0, 0.0, 0.0)
     for nome in addon.portas._PROPS_PORTAS_CENA:
         cena.property_unset(nome)
-    cena.chapa_n1, cena.chapa_n2, cena.chapa_n3 = 'Armarios', '', ''
+    cena.chapa_n1, cena.chapa_n2, cena.chapa_n3 = "Cabinets", '', ''
     cena.cabinet_bib_modo = 'MODULOS'
     cena.cabinet_mat_n1 = cena.cabinet_mat_n2 = cena.cabinet_mat_n3 = ''
     addon.materiais._apagar_pendente[0] = None
@@ -165,7 +158,7 @@ def limpar(janela):
     addon.solda._arraste_ancora[0] = None
 
 
-# ------------------------------------------------------------ testes
+# ------------------------------------------------------------ tests
 def test_gaveta_abre_na_largura_com_medidas_em_linha(janela, m):
     yield esperar(0.3)
     area, regiao = gaveta(janela)
@@ -179,7 +172,7 @@ def test_gaveta_abre_na_largura_com_medidas_em_linha(janela, m):
             bpy.context, regiao.width, regiao.height)
             if v[5] and v[5][0] == 'medida']
     assert len(medidas) == 4 and len({v[1] for v in medidas}) == 1, \
-        'L/A/P/E nao ficaram na mesma linha: %r' % [v[:4] for v in medidas]
+        'L/A/P/E did not stay on the same line: %r' % [v[:4] for v in medidas]
 
 
 def test_clique_na_aba_troca_a_aba(janela, m):
@@ -245,12 +238,12 @@ def test_duplo_clique_na_foto_insere_no_cursor(janela, m):
     m.mover(*widget(janela, lambda v: v[5][0] == 'preset'))
     yield
     m.clicar()
-    yield esperar(0.05)      # bem abaixo do tempo de duplo clique
+    yield esperar(0.05)      # Well within the double-click interval.
     m.clicar()
     yield esperar(0.3)
     novos = [o for o in bpy.data.objects if o not in antes]
-    assert novos, 'o duplo clique nao inseriu nada'
-    assert all(not o.hide_get() for o in novos), 'ficou escondido (staging)'
+    assert novos, 'double click inserted nothing'
+    assert all(not o.hide_get() for o in novos), 'remained hidden in staging'
     lo, hi = caixa_mundo(novos)
     base = Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z))
     assert (base - cena.cursor.location).length < 1e-4, (tuple(base),)
@@ -265,7 +258,7 @@ def test_clique_na_foto_e_depois_na_viewport_posiciona(janela, m):
     m.mover(*widget(janela, lambda v: v[5][0] == 'preset'))
     yield
     m.clicar()
-    yield esperar(0.6)       # passou do tempo de duplo: e' clique simples
+    yield esperar(0.6)       # Past the double-click interval: this is a single click.
     area, regiao, rv3d = viewport(janela)
     destino = Vector((1.0, 0.5, 0.0))
     x, y = na_tela(regiao, rv3d, destino)
@@ -275,8 +268,8 @@ def test_clique_na_foto_e_depois_na_viewport_posiciona(janela, m):
     m.clicar()
     yield esperar(0.2)
     novos = [o for o in bpy.data.objects if o not in antes]
-    assert novos, 'o posicionador nao inseriu nada'
-    # onde o raio do mouse corta o plano do cursor (cena vazia)
+    assert novos, 'the placement tool inserted nothing'
+    # Where the mouse ray intersects the cursor plane in an empty scene.
     coord = (m.x - regiao.x, m.y - regiao.y)
     origem = view3d_utils.region_2d_to_origin_3d(regiao, rv3d, coord)
     direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv3d, coord)
@@ -304,8 +297,7 @@ def test_clique_na_viewport_seleciona_o_modulo(janela, m):
 
 
 def aproximar(janela, conj):
-    """Vista centrada e perto do modulo: na vista de fabrica ele ocupa
-    poucos pixels e a aresta fica dificil de mirar."""
+    """Center the view close to the cabinet; the factory view leaves it only a few pixels wide, making its edge hard to target."""
     _area, _regiao, rv3d = viewport(janela)
     lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
@@ -321,8 +313,7 @@ def _linha_l(janela, conj):
             a, b = (na_tela(regiao, rv3d, p) for p in linha['pontos'])
             if a and b and (Vector(b) - Vector(a)).length > 60:
                 return geometria, linha, Vector(a), Vector(b)
-    raise AssertionError('nenhuma linha L visivel o bastante: geometria=%s '
-                         'linhas=%r' % (geometria is not None, [
+    raise AssertionError('no sufficiently visible L line: geometry=%s lines=%r' % (geometria is not None, [
                              (l['tipo'], l.get('eixo'), [na_tela(regiao, rv3d, p)
                                                           for p in l['pontos']])
                              for l in (geometria or {}).get('linhas', [])][:6]))
@@ -378,7 +369,7 @@ def test_circulo_da_face_translate_b_esc_e_undo(janela, m):
     assert addon.hud_volume._estado[0] is not None
     m.tecla('B')
     yield
-    # Esc cancela tambem durante a escolha nativa da base do snap.
+    # Esc also cancels while choosing the native snap base.
     m.tecla('ESC')
     m.soltar()
     yield
@@ -405,8 +396,8 @@ def test_circulo_da_face_translate_b_esc_e_undo(janela, m):
 
 
 def test_snap_b_depois_de_arrastar_face_nao_soma_deslocamento_anterior(janela, m):
-    # Regressao v290: B usa a posicao atual, sem devolver a madeira ao
-    # inicio. O snap completa so' o que falta ate' o destino fixo.
+    # Regression v290: B uses the current position without returning the panel to
+    # its starting point. Snapping covers only the remaining distance to the fixed target.
     conj=criar_modulo(janela);nome=conj.name
     chapas=addon.modulos._chapas_do_conjunto(conj)
     lo,hi=caixa_mundo(chapas)
@@ -429,19 +420,19 @@ def test_snap_b_depois_de_arrastar_face_nao_soma_deslocamento_anterior(janela, m
     m.mover(*(inicio+Vector((60,0))))
     yield
     yield
-    assert abs(conj.conj_largura_mm-largura)>1,'nao houve previa antes de B'
+    assert abs(conj.conj_largura_mm-largura)>1,'no preview appeared before B'
     largura_ao_apertar_b=conj.conj_largura_mm
     lo_atual,hi_atual=caixa_mundo(chapas)
     base_atual=Vector((hi_atual.x,lo_atual.y,lo_atual.z))
     m.tecla('B')
     yield
-    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'B perdeu o arraste anterior'
-    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(largura_ao_apertar_b-largura))<.05,'B nao chegou ao observador'
+    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'B lost the previous drag'
+    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(largura_ao_apertar_b-largura))<.05,'B did not reach the observer'
     m.mover(*na_tela(regiao,rv3d,base_atual))
     yield
     m.tecla('B')
     yield
-    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'confirmar a base alterou a medida'
+    assert abs(conj.conj_largura_mm-largura_ao_apertar_b)<.05,'confirming the base changed the measurement'
     m.mover(*na_tela(regiao,rv3d,destino))
     yield
     yield
@@ -495,12 +486,12 @@ def test_snap_b_gavetas_em_corpo_dobrado_e_girado_alinha_vertice_real(janela, m)
     yield
     yield
     atual=g.medidas(grupo)[0]
-    assert abs(atual-largura)>1,'nao houve previa nas gavetas'
+    assert abs(atual-largura)>1,'no drawer preview appeared'
     base_atual=ponta_da_frente()
     m.tecla('B')
     yield
-    assert abs(g.medidas(grupo)[0]-atual)<.05,'gavetas voltaram ao tamanho anterior'
-    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(atual-largura))<.05,'B nao foi reconhecido'
+    assert abs(g.medidas(grupo)[0]-atual)<.05,'drawers reverted to their previous size'
+    assert abs(addon.hud_volume._estado[0]['deslocamento_base_mm']-(atual-largura))<.05,'B was not recognized'
     m.mover(*na_tela(regiao,rv3d,base_atual))
     yield
     m.tecla('B')
@@ -544,20 +535,20 @@ def test_clicar_na_seta_e_digitar_a_medida(janela, m):
 
 
 def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
-    # O mesmo da HUD no campo da gaveta: clicar nele em edicao nao
-    # confirma, leva o cursor; Backspace/undo e selecao so' por comando.
+    # The sidebar field behaves like the HUD: clicking during editing moves the cursor
+    # without confirming; Backspace, undo and selection require explicit commands.
     chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
                              (0, 0, 0), bpy.context)
     selecionar(janela, chapa, individual=True)
     yield
-    campo = lambda v: v[5][0] == 'medida' and v[5][3] == 'Largura'
+    campo = lambda v: v[5][0] == 'medida' and v[5][3] == "Width"
     cx, cy = widget(janela, campo)
     m.mover(cx, cy)
     yield
     m.clicar()
     yield
     estado = addon.gaveta._edicao_gaveta[0]
-    assert estado is not None, 'o campo nao abriu'
+    assert estado is not None, 'the field did not open'
     assert not estado['selecionado'], estado
     m.tecla('BACK_SPACE')
     yield
@@ -586,12 +577,12 @@ def test_clique_dentro_do_campo_da_gaveta_move_o_cursor(janela, m):
     with contexto(janela, area, regiao):
         x = next(v for v in addon.gaveta._widgets_interativos(bpy.context)
                  if v[5] and campo(v))[0]
-    # logo depois do 6 (o texto comeca em x + 7)
+    # Immediately after the 6 (text starts at x + 7).
     m.mover(regiao.x + x + 7 + addon.gaveta_desenho._medidor_blf(12)('6') + 1, cy)
     yield
     m.clicar()
     yield
-    assert addon.gaveta._edicao_gaveta[0] is estado, 'o clique no campo fechou a edicao'
+    assert addon.gaveta._edicao_gaveta[0] is estado, 'clicking the field ended editing'
     assert estado['cursor'] == 1, estado['cursor']
     m.digitar('1')
     m.tecla('RET')
@@ -615,8 +606,8 @@ def _nicho_com_lateral_afastada(janela, metros=0.2):
 
 
 def test_resetar_pela_gaveta_move_a_chapa_ativa(janela, m):
-    # Print do usuario: a lateral se afastou do nicho. Selecionada sozinha,
-    # o botao regua da gaveta fica AZUL; o clique a devolve a solda.
+    # User screenshot: the side panel moved away from the niche. Selected alone,
+    # it has a blue sidebar ruler button; clicking restores its welded position.
     conj, chapas, direita, origem = _nicho_com_lateral_afastada(janela)
     selecionar(janela, direita, individual=True)
     yield
@@ -626,23 +617,23 @@ def test_resetar_pela_gaveta_move_a_chapa_ativa(janela, m):
     with contexto(janela, area, regiao):
         botao = next(v for v in addon.gaveta._widgets_interativos(bpy.context)
                      if v[5] and regua(v))
-    assert botao[5][2] is True, 'com a solda fora, o botao devia estar azul'
+    assert botao[5][2] is True, 'the button should be blue with the weld displaced'
     m.mover(*widget(janela, regua))
     yield
     m.clicar()
     yield
     for a, b in zip(direita.matrix_world, origem):
-        assert (a - b).length < 1e-5, 'a lateral nao voltou'
-    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
+        assert (a - b).length < 1e-5, 'the side panel did not return'
+    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'welds out of position'
 
 
 def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
-    # Alt: todas as quinas soldadas fora da origem, cada uma com corrente
-    # e regua. Modulo ativo -> o MODULO se adapta a lateral (que fica).
+    # Alt: all welded corners away from their origins have a chain and ruler.
+    # With the cabinet active, the cabinet adapts to the stationary side panel.
     conj, chapas, direita, _origem = _nicho_com_lateral_afastada(janela)
     lateral = direita.matrix_world.copy()
     largura = conj.conj_largura_mm
-    selecionar(janela, direita)                   # clique: o modulo
+    selecionar(janela, direita)                   # Click target: the cabinet.
     area, regiao, rv3d = viewport(janela)
     yield
     yield
@@ -651,8 +642,8 @@ def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
     with contexto(janela, area, regiao):
         correntes = addon.solda._correntes_hud(bpy.context)
         visiveis = [c for c in correntes if c['meio'] is not None]
-        assert len(correntes) == 4, '%d quinas soldadas' % len(correntes)
-        assert visiveis, 'nenhuma quina na tela'
+        assert len(correntes) == 4, '%d welded corners' % len(correntes)
+        assert visiveis, 'no corner onscreen'
         centro = addon.solda._botoes_da_corrente(bpy.context, visiveis[0])['regua']
     m.mover(regiao.x + centro.x, regiao.y + centro.y)
     yield
@@ -662,16 +653,16 @@ def test_regua_da_viewport_com_o_modulo_ativo_adapta_o_modulo(janela, m):
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
     for a, b in zip(direita.matrix_world, lateral):
-        assert (a - b).length < 1e-5, 'a lateral se mexeu (era o modulo)'
-    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'soldas fora'
+        assert (a - b).length < 1e-5, 'the side panel moved instead of the cabinet'
+    assert addon.solda._pontas_fora_do_lugar(chapas) == [], 'welds out of position'
     assert abs(conj.conj_largura_mm - (largura + 200.0)) < 0.5, \
         conj.conj_largura_mm
 
 
 def test_regua_que_muda_a_medida_pergunta_e_espera(janela, m):
-    # Caso extremo: o tampo encolheu e, sozinho e ativo, so' volta a solda
-    # da direita esticando. A regua pergunta "Mover mesmo assim?" e a
-    # pergunta ESPERA: o soltar do proprio clique nao pode responder.
+    # Extreme case: the top shrank and, selected alone, can only reach its right weld
+    # by stretching. The ruler asks whether to move anyway; the question must wait:
+    # releasing the click that opened it must not answer it.
     conj, base, tampo = _caixote_aberto(janela)
     selecionar(janela, tampo, individual=True)
     area, regiao, rv3d = viewport(janela)
@@ -696,12 +687,12 @@ def test_regua_que_muda_a_medida_pergunta_e_espera(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon.solda._pergunta_reset[0] == tampo.name, 'nao perguntou'
+    assert addon.solda._pergunta_reset[0] == tampo.name, 'no confirmation prompt appeared'
     assert abs(tampo.chapa_largura_mm - largura) < 1e-6, \
-        'o soltar do clique respondeu a pergunta sozinho'
-    # veio da VIEWPORT (regua): essa sim e' pop-up
-    assert not addon.perguntas._pergunta_atual[0]['na_gaveta'], 'regua devia ser pop-up'
-    m.tecla('ESC')                               # fecha o pop-up
+        'releasing the opening click answered the prompt'
+    # Opened from the viewport ruler, so this question uses a popup.
+    assert not addon.perguntas._pergunta_atual[0]['na_gaveta'], 'the ruler prompt should be a popup'
+    m.tecla('ESC')                               # Close the popup.
     yield
     with contexto(janela, area, regiao):
         assert bpy.ops.object.cabinet_resetar_distancia(
@@ -710,9 +701,9 @@ def test_regua_que_muda_a_medida_pergunta_e_espera(janela, m):
 
 
 def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
-    # Alt: bolinhas brancas nas pontas das linhas. Arrastar a do lado da
-    # lateral ate' outro vertice dela troca a ancora (so' isso: a chapa
-    # vai la' pela regua).
+    # Alt: white dots mark line endpoints. Dragging the side panel's dot to another
+    # vertex changes only its anchor; the ruler subsequently moves the panel
+    # to that position.
     conj, chapas, direita, _origem = _nicho_com_lateral_afastada(janela)
     selecionar(janela, direita)
     area, regiao, rv3d = viewport(janela)
@@ -723,12 +714,12 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     with contexto(janela, area, regiao):
         correntes = [c for c in addon.solda._correntes_hud(bpy.context)
                      if 'b' in addon.solda._bolinhas_da_corrente(bpy.context, c)]
-        assert correntes, 'nenhuma bolinha na tela'
+        assert correntes, 'no dot onscreen'
         corrente = correntes[0]
         inicio = addon.solda._bolinhas_da_corrente(bpy.context, corrente)['b']
     tampo, ponta, k = corrente['a'], corrente['ponta'], corrente['indice']
     antes = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)[k]
-    # destino: outro vertice da lateral, visivel na tela
+    # Target: another side-panel vertex visible on screen.
     with contexto(janela, area, regiao):
         opcoes = []
         for a in '+-':
@@ -745,7 +736,7 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     yield
     m.apertar(alt=True)
     yield
-    assert addon.solda._arraste_ancora[0] is not None, 'a bolinha nao comecou a arrastar'
+    assert addon.solda._arraste_ancora[0] is not None, 'the dot did not start dragging'
     for passo in range(1, 6):
         ponto = inicio + (alvo - inicio) * (passo / 5)
         m.mover(regiao.x + ponto.x, regiao.y + ponto.y)
@@ -754,14 +745,13 @@ def test_arrastar_a_bolinha_troca_a_ancora(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon.solda._arraste_ancora[0] is None, 'o arraste nao terminou'
+    assert addon.solda._arraste_ancora[0] is None, 'the drag did not finish'
     gravadas = addon.solda._ancoras_gravadas(tampo, ponta)
     assert gravadas and gravadas[k] == (antes[0], destino), gravadas
 
 
 def _wizard_ate_o_tipo(janela, m):
-    """Modulo de frente, "Criar Portas" da gaveta e os 2 cantos internos
-    da diagonal. Devolve (conj, area, regiao, rv3d)."""
+    """Front-facing cabinet, sidebar Create Doors action and two opposite inner corners. Return (conj, area, regiao, rv3d)."""
     conj = criar_modulo(janela)
     area, regiao, rv3d = viewport(janela)
     rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
@@ -790,7 +780,7 @@ def _clicar_botao_do_wizard(m, regiao, chave):
 
 
 def _contador_ate(janela, m, prop, valor):
-    """Clica nas metades do contador (dir. soma, esq. tira) ate' `valor`."""
+    """Click the counter halves (right increments, left decrements) until reaching valor."""
     for _ in range(8):
         area, regiao = gaveta(janela)
         with contexto(janela, area, regiao):
@@ -803,7 +793,7 @@ def _contador_ate(janela, m, prop, valor):
         yield
         m.clicar()
         yield
-    raise AssertionError('o contador nao chegou a %s' % valor)
+    raise AssertionError('the counter did not reach %s' % valor)
 
 
 def _clicar_na_fila(janela, m, prop, valor):
@@ -820,7 +810,7 @@ def _local(conj, x, y, z):
 
 
 def _filas_da_aba(janela):
-    """Filas de escolha que a aba Portas mostra agora, de cima para baixo."""
+    """Return the choices currently shown in the Doors tab, from top to bottom."""
     area, regiao = gaveta(janela)
     with contexto(janela, area, regiao):
         widgets = addon.gaveta._widgets_interativos(bpy.context)
@@ -836,13 +826,13 @@ def _abrir_wizard(janela, m):
     yield
     m.clicar()
     yield
-    assert addon.portas._assistente_porta[0] is not None, 'Criar Portas nao abriu'
+    assert addon.portas._assistente_porta[0] is not None, 'Create Doors did not open'
 
 
 def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
-    # Dois limites opostos: o vao e' resolvido sem marcar outros cantos.
-    # Porta na METADE das duas laterais = Curva, sem
-    # escolher dobradica. Depois: folhas, abertura, borda, qtd, margem.
+    # Two opposite limits resolve the opening without selecting other corners.
+    # A door covering half of each side panel uses a half-overlay hinge automatically.
+    # Then choose leaves, opening, edge, count and margin.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
     yield
@@ -856,11 +846,11 @@ def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
     assert w['etapa'] == 'FOLHAS', w['etapa']
     assert [w['coberturas'][k] for k in addon.portas.COBERTURAS_LADOS] == [
         0.5, 0.5, 1.0, 1.0], w['coberturas']
-    # a aba Portas mostra a COPIA da pergunta quando o wizard chega nela
+    # The Doors tab mirrors the question once the wizard reaches that step.
     assert _filas_da_aba(janela) == ['porta_folhas'], _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, '1')
     assert w['etapa'] == 'TIPO', w['etapa']
-    # por cima, o correr vem COM MOLDURA (pedido do usuario)
+    # An overlay sliding door includes a frame by default, as requested.
     assert [c for _r, c, _t in w['botoes']] == ['GIRO', 'BASCULANTE', 'CORRER']
     assert _filas_da_aba(janela) == ['porta_folhas', 'porta_abertura'],         _filas_da_aba(janela)
     yield from _clicar_botao_do_wizard(m, regiao, 'GIRO')
@@ -873,7 +863,7 @@ def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
     yield
     yield
     assert w['snap'] and w['snap'][0]['lado'] == 'ESQUERDA', w['snap']
-    assert 'Curva' in w['recado'], w['recado']
+    assert "Curve" in w['recado'], w['recado']
     m.clicar()
     yield
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
@@ -893,7 +883,7 @@ def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
     assert margem > addon.portas.MARGEM_DOBRADICAS_PADRAO, margem
     m.clicar()
     yield
-    assert addon.portas._assistente_porta[0] is None, 'o wizard nao terminou'
+    assert addon.portas._assistente_porta[0] is None, 'the wizard did not finish'
     grupo = addon.portas._portas_do_conjunto(conj)[0]
     p = grupo['porta_parametros']
     assert p['dobradica'] == 'CURVA' and p['abertura'] == 'GIRO', dict(p)
@@ -903,9 +893,9 @@ def test_wizard_dois_cliques_meia_chapa_vira_curva(janela, m):
 
 
 def test_wizard_correr_metade_metade_pergunta_moldura(janela, m):
-    # Um limite interno e o oposto externo num correr = duvida;
-    # a caixa (e a copia na gaveta) pergunta
-    # "Porta embutida ou com moldura?" e a moldura usa o modulo inteiro
+    # One inner and one opposite outer limit make sliding-door placement ambiguous;
+    # the dialog and its sidebar copy ask whether the door is inset or framed.
+    # A framed door uses the entire cabinet.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
     yield
@@ -918,35 +908,35 @@ def test_wizard_correr_metade_metade_pergunta_moldura(janela, m):
     w = addon.portas._assistente_porta[0]
     assert w['etapa'] == 'FOLHAS', w['etapa']
     yield from _clicar_na_fila(janela, m, 'porta_folhas', 2)
-    assert w['etapa'] == 'TIPO', w['etapa']        # 2 por cima: Giro ou Correr
+    assert w['etapa'] == 'TIPO', w['etapa']        # Two overlay leaves: hinged or sliding.
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'CORRER')
     assert w['etapa'] == 'MOLDURA', w['etapa']
     assert 'porta_tipo_correr' in _filas_da_aba(janela), _filas_da_aba(janela)
     yield from _clicar_na_fila(janela, m, 'porta_tipo_correr', 'MOLDURA')
-    # com moldura: "A porta tem base?" -- sem rodape, direto no chao
+    # Framed: choose whether the door has a base; no plinth means directly on the floor.
     assert w['etapa'] == 'BASE', w['etapa']
     assert 'porta_base' in _filas_da_aba(janela), _filas_da_aba(janela)
     yield from _clicar_na_fila(janela, m, 'porta_base', 'SEM')
-    # e o trilho (pedido do usuario): pesado ou leve
+    # Then choose a heavy or light track, as requested.
     assert w['etapa'] == 'TRILHO', w['etapa']
     assert 'porta_trilho' in _filas_da_aba(janela), _filas_da_aba(janela)
     yield from _clicar_na_fila(janela, m, 'porta_trilho', 'LEVE')
     yield
-    assert addon.portas._assistente_porta[0] is None, 'o wizard nao terminou'
+    assert addon.portas._assistente_porta[0] is None, 'the wizard did not finish'
     grupo = addon.portas._portas_do_conjunto(conj)[0]
     p = grupo['porta_parametros']
     assert [p[k] for k in addon.portas.COBERTURAS_LADOS] == [1.0] * 4, dict(p)
     assert p['rodape_mm'] == 0.0, dict(p)
     assert p['trilho'] == 'LEVE', dict(p)
     pecas = {o['porta_moldura_peca'] for o in addon.portas._moldura_da_porta(grupo)}
-    # sem base: sem rodape; trilho leve: sem testeira
+    # No base means no plinth; a light track has no fascia.
     assert pecas == {'LATERAL_ESQ', 'LATERAL_DIR', 'BASE_CIMA', 'BASE_BAIXO'}, pecas
 
 
 def test_wizard_basculante_com_pistoes(janela, m):
-    # Basculante: dobradicas SEMPRE em CIMA (sem perguntar a borda) e os
-    # pistoes na posicao automatica; o mouse em Y so' os sobe (descer
-    # passaria do curso). Quina de fora = Reta, automatica.
+    # Lift-up door: hinges always go at the top without asking for an edge;
+    # gas struts use their automatic positions. Mouse movement along Y only raises them
+    # because lowering would exceed their travel. An outer corner selects full overlay automatically.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     yield
     yield
@@ -957,21 +947,21 @@ def test_wizard_basculante_com_pistoes(janela, m):
     for ponto in ((-L / 2, y, A), (L / 2, y, 0)):
         yield from _clicar_no_mundo(m, regiao, rv3d, _local(conj, *ponto))
     w = addon.portas._assistente_porta[0]
-    # respondido pela COPIA da caixa na aba Portas (pedido do usuario);
-    # responder de novo uma fila ja' respondida refaz dali
+    # Answer through the dialog copy in the Doors tab, as requested;
+    # answering an earlier row again rebuilds the choices from there.
     yield from _clicar_na_fila(janela, m, 'porta_folhas', 1)
     assert w['etapa'] == 'TIPO', w['etapa']
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'GIRO')
     assert w['etapa'] == 'EIXO', w['etapa']
-    # escolhida, a abertura vira um retrato so' na linha das dobradicas;
-    # clicar nele volta a' escolha, com as tres
+    # Once selected, the opening becomes a single thumbnail in the hinge row;
+    # clicking it restores the three opening choices.
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'GIRO')
     assert w['etapa'] == 'TIPO', w['etapa']
     yield from _clicar_na_fila(janela, m, 'porta_abertura', 'BASCULANTE')
     assert w['etapa'] == 'QUANTIDADE', w['etapa']
     assert w['escolhas']['abertura'] == 'BASCULANTE', w['escolhas']
-    # dobradicas EDITAVEIS na gaveta (pedido do usuario): a quantidade
-    # pelos segmentos (sem avancar a etapa) e o afastamento digitado
+    # Hinges are editable in the sidebar, as requested: adjust their count through
+    # the segments without advancing the step, and type their spacing.
     yield from _contador_ate(janela, m, 'dobradicas_qtd', 3)
     assert (w['qtd'], w['etapa']) == (3, 'QUANTIDADE'), (w['qtd'], w['etapa'])
     m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
@@ -989,14 +979,14 @@ def test_wizard_basculante_com_pistoes(janela, m):
     assert w['aresta']['lado'] == 'CIMA'
     assert w['escolhas']['dobradica_lado'] == 'CIMA', w['escolhas']
     assert w['escolhas']['dobradica'] == 'RETA', w['escolhas']
-    # quantidade e afastamento confirmados pela GAVETA (pedido do usuario)
+    # Confirm count and spacing through the sidebar, as requested.
     yield from _clicar_na_fila(janela, m, 'confirmar_etapa', 'QUANTIDADE')
     assert w['etapa'] == 'MARGEM', w['etapa']
     yield from _clicar_na_fila(janela, m, 'confirmar_etapa', 'MARGEM')
     assert w['etapa'] == 'PISTOES_QTD', w['etapa']
     m.mover(regiao.x + regiao.width / 2, regiao.y + regiao.height / 2)
     yield
-    assert abs(w['margem'] - 80.0) < 1e-6, w['margem']     # nao pulou
+    assert abs(w['margem'] - 80.0) < 1e-6, w['margem']     # The wizard did not advance.
     assert w['pqtd'] == addon.portas._qtd_pistoes_padrao(w['largura'])
     m.janela.event_simulate('WHEELUPMOUSE', 'PRESS', x=m.x, y=m.y)
     yield
@@ -1007,12 +997,12 @@ def test_wizard_basculante_com_pistoes(janela, m):
     inicial = w['poffset']
     assert abs(inicial - w['poffset_auto']) < 1e-6
     for passo in range(1, 4):
-        m.mover(m.x, m.y - 8 * passo)             # descer: trava no curso
+        m.mover(m.x, m.y - 8 * passo)             # Downward movement stops at the travel limit.
         yield
     assert abs(w['poffset'] - inicial) < 1e-6, (inicial, w['poffset'])
     assert 'curso maximo' in w['recado'], w['recado']
     for passo in range(1, 6):
-        m.mover(m.x, m.y + 8 * passo)             # subir: o pistao sobe
+        m.mover(m.x, m.y + 8 * passo)             # Upward movement raises the gas strut.
         yield
     assert w['poffset'] < inicial - 1, (inicial, w['poffset'])
     offset = w['poffset']
@@ -1058,8 +1048,8 @@ def test_wizard_diagonal_invalida_e_voltar_preservam_primeiro_canto(janela, m):
 
 
 def test_alt_arrasta_o_canto_da_porta(janela, m):
-    # Pedido do usuario: clique simples na porta = os fios do wizard; com
-    # Alt as 2 bolinhas (os cliques) viram alcas e o canto arrastado refaz a porta.
+    # User request: a single door click shows wizard outlines; with Alt, the two
+    # selection dots become handles, and dragging a corner rebuilds the door.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
@@ -1089,10 +1079,10 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
     yield
     m.apertar(alt=True)
     yield
-    assert addon.portas_viewport._arraste_canto_porta[0] is not None, 'o canto nao pegou'
-    # o arraste e' o translate NATIVO do cursor (macro), sem ima em Python
+    assert addon.portas_viewport._arraste_canto_porta[0] is not None, 'the corner was not grabbed'
+    # Dragging uses native cursor translation through a macro, without Python snapping.
     assert any(o.bl_idname.endswith('cabinet_mover_canto_porta')
-               for o in m.janela.modal_operators), 'o arraste nao abriu'
+               for o in m.janela.modal_operators), 'the drag did not start'
     destino = na_tela(regiao, rv3d, _local(conj, L / 2, y, 0))
     inicio = (m.x, m.y)
     for passo in range(1, 5):
@@ -1111,8 +1101,8 @@ def test_alt_arrasta_o_canto_da_porta(janela, m):
 
 
 def test_slider_abre_a_folha(janela, m):
-    # Fase 3 (Epico 4): porta selecionada = um slider na base de cada
-    # folha; arrastar para a direita abre (o clique NAO vira selecao).
+    # Phase 3 (Epic 4): a selected door has a slider at each leaf's base;
+    # dragging right opens it, and the click must not select anything.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
@@ -1133,20 +1123,20 @@ def test_slider_abre_a_folha(janela, m):
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Porta criada')
     yield
-    # como o usuario: clique de verdade na folha seleciona a porta
+    # Use a real click on the leaf to select the door, as a user would.
     centro = folha.matrix_world.translation
     yield from _clicar_no_mundo(m, regiao, rv3d, centro)
-    yield esperar(0.4)          # sem virar duplo clique
-    assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context), 'a porta nao selecionou'
+    yield esperar(0.4)          # Avoid creating a double click.
+    assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context), 'the door was not selected'
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Porta selecionada')
         inicio, fim = addon.portas_viewport._slider_na_tela(bpy.context, folha)
-    # a bolinha (fracao 0 = no inicio) e' um gizmo (VIEW3D_GT_slider_porta,
-    # grupo VIEW3D_GGT_slider_porta): vem antes de qualquer keymap. O
-    # trilho fora dela nao pega; passar por cima dela acende
+    # The dot at fraction 0 is a gizmo (VIEW3D_GT_slider_porta,
+    # group VIEW3D_GGT_slider_porta), which receives events before any keymap.
+    # The track outside it is inactive; hovering over the dot highlights it.
     with contexto(janela, area, regiao):
         assert addon.portas_viewport.VIEW3D_GGT_slider_porta.poll(bpy.context)
-    # tamanho em mm do mundo (pedido do usuario): afastar 3x encolhe ~3x
+    # Size uses world millimeters, as requested: moving 3x farther away shrinks it about 3x.
     with contexto(janela, area, regiao):
         perto = addon.portas_viewport._px_por_mm_do_slider(bpy.context, folha)
     distancia = rv3d.view_distance
@@ -1166,19 +1156,19 @@ def test_slider_abre_a_folha(janela, m):
             regiao.y + inicio.y + (fim.y - inicio.y) * 0.5)
     yield
     yield
-    assert addon.portas_viewport._slider_hover[0] is None, 'o trilho pegou o hover'
+    assert addon.portas_viewport._slider_hover[0] is None, 'the track captured hover'
     m.mover(regiao.x + inicio.x + raio * 0.6, regiao.y + inicio.y)
     yield
     yield
-    assert addon.portas_viewport._slider_hover[0] == folha.name, 'a bolinha nao acendeu'
+    assert addon.portas_viewport._slider_hover[0] == folha.name, 'the dot did not highlight'
     m.apertar()
     yield
-    assert addon.portas_viewport._arraste_slider_porta[0] == folha.name, 'o slider nao pegou'
+    assert addon.portas_viewport._arraste_slider_porta[0] == folha.name, 'the slider was not grabbed'
     assert any(o.bl_idname.endswith('cabinet_abrir_porta')
-               for o in m.janela.modal_operators), 'o arraste nao abriu'
+               for o in m.janela.modal_operators), 'the drag did not start'
     meio = inicio.lerp(fim, 0.5)
     for passo in range(1, 5):
-        # pegou a 0.6 raio do centro: ela anda junto, sem pular
+        # Grab at 0.6 radii from the center: the dot follows without jumping.
         m.mover(regiao.x + inicio.x + raio * 0.6
                 + (meio.x - inicio.x) * passo / 4,
                 regiao.y + inicio.y + (meio.y - inicio.y) * passo / 4)
@@ -1189,23 +1179,23 @@ def test_slider_abre_a_folha(janela, m):
     assert addon.portas_viewport._arraste_slider_porta[0] is None
     fracao = folha[addon.ferragens.CHAVE_ABERTURA]
     assert abs(fracao - 0.5) < 0.05, fracao
-    # a porta continua selecionada (o clique foi do slider)
+    # The door remains selected because the slider consumed the click.
     assert grupo in addon.portas_viewport._portas_com_cantos(bpy.context)
-    # Ctrl+Z desfaz a abertura
+    # Ctrl+Z undoes opening.
     m.apertar('Z', ctrl=True)
     m.soltar('Z', ctrl=True)
     yield
     yield
-    # o undo troca os objetos: buscar de novo (a referencia antiga morreu)
+    # Undo replaces the objects, so fetch them again; the old references are invalid.
     grupo = next(o for o in bpy.data.objects if addon.chapas.MARCA_PORTAS in o)
     folha = addon.portas._folhas_portas(grupo)[0]
     assert folha.get(addon.ferragens.CHAVE_ABERTURA, 0.0) == 0.0, folha.get(addon.ferragens.CHAVE_ABERTURA)
 
 
 def test_digitar_com_operador_e_cursor_no_meio(janela, m):
-    # Pedido do usuario: na caixa de digitar da HUD, '+' continua a conta
-    # (nao apaga o "600"); clicar DENTRO da caixa nao fecha, so' leva o
-    # cursor ate' ali; "6cm00" vale 600 cm.
+    # User request: '+' continues the HUD expression without erasing "600";
+    # clicking inside the field moves the cursor without closing it;
+    # "6cm00" evaluates to 600 cm.
     conj = criar_modulo(janela)
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     aproximar(janela, conj)
@@ -1226,7 +1216,7 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
     m.tecla('RET')
     yield
     assert abs(conj.conj_largura_mm - (largura + 100)) < 1e-3, conj.conj_largura_mm
-    # de novo: agora "600" e o clique ao lado do 6
+    # Repeat with "600", clicking beside the 6.
     m.mover(*(a + (b - a) * 0.2))
     yield
     yield
@@ -1242,7 +1232,7 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
     yield
     m.clicar()
     yield
-    assert addon.hud._edicao_hud[0] is not None, 'o clique na caixa fechou a edicao'
+    assert addon.hud._edicao_hud[0] is not None, 'clicking the box ended editing'
     assert estado['cursor'] == 1, estado['cursor']
     m.digitar('cm')
     yield
@@ -1253,10 +1243,7 @@ def test_digitar_com_operador_e_cursor_no_meio(janela, m):
 
 
 def _duplo_clique_do_keymap(janela, shift=False):
-    """O 2o clique de um duplo, como o keymap entrega: o simulador nao
-    gera DOUBLE_CLICK (fonte do Blender), entao o operador e' chamado
-    com as props da entrada DOUBLE_CLICK de `_ENTRADAS_KEYMAP`, no mesmo
-    contexto e posicao de mouse de um clique real."""
+    """Deliver the second double-click event as the keymap does. Blender's simulator does not generate DOUBLE_CLICK, so invoke the operator using the DOUBLE_CLICK entry properties from _ENTRADAS_KEYMAP, with the context and mouse position of a real click."""
     entrada = next(e for e in addon.selecao._ENTRADAS_KEYMAP
                    if e[0] == 'DOUBLE_CLICK' and e[1] == shift)
     area, regiao, _ = viewport(janela)
@@ -1283,7 +1270,7 @@ def test_selecao_da_porta_e_da_folha(janela, m):
     grupo = addon.portas._portas_do_conjunto(conj)[0]
     folha = addon.portas._folhas_portas(grupo)[0]
     bpy.ops.object.select_all(action='DESELECT')
-    # vista de frente (olhando para +Y): a folha fica na frente de tudo
+    # Front view looking toward +Y places the leaf in front of everything.
     rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
     lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
@@ -1292,35 +1279,35 @@ def test_selecao_da_porta_e_da_folha(janela, m):
     m.mover(*na_tela(regiao, rv3d, folha.matrix_world.translation))
     yield
     portas = {grupo, *addon.portas._folhas_portas(grupo)}
-    # Backlog do usuario (Epico 3): clique na porta = a PORTA inteira,
-    # nunca o modulo; duplo = UMA folha ("aba")
+    # User backlog (Epic 3): clicking a door selects the whole door,
+    # never the cabinet; double-clicking selects one leaf.
     m.clicar()
     yield
     selecionados = set(bpy.context.selected_objects)
-    assert selecionados == portas, 'clique devia ir para a PORTA; ficou %s' % (
+    assert selecionados == portas, 'click should select the DOOR; got %s' % (
         sorted(o.name for o in selecionados))
     assert bpy.context.view_layer.objects.active == grupo
-    # duplo (o 2o clique chega ao keymap como DOUBLE_CLICK): a folha
+    # Double click: the second keymap event is DOUBLE_CLICK and selects the leaf.
     m.clicar()
     yield
     _duplo_clique_do_keymap(janela)
     yield
     assert set(bpy.context.selected_objects) == {folha}, (
-        'duplo clique devia ir para a FOLHA; ficou %s'
+        'double click should select the LEAF; got %s'
         % sorted(o.name for o in bpy.context.selected_objects))
-    # so' a folha selecionada: o contorno laranja nativo segue desligado
+    # With only the leaf selected, the native orange outline remains disabled.
     espaco = area.spaces.active
-    assert not espaco.overlay.show_outline_selected,         'contorno nativo voltou com a folha selecionada'
-    # clique de novo: a porta inteira outra vez
+    assert not espaco.overlay.show_outline_selected,         'the native outline returned with the leaf selected'
+    # Click again to select the whole door.
     m.clicar()
     yield
     assert set(bpy.context.selected_objects) == portas
 
 
 def test_correr_duplo_clique_na_folha_e_clique_no_trilho(janela, m):
-    # Pedido do usuario: o duplo clique na folha a seleciona COM o contorno
-    # branco do add-on (o nativo fica desligado: sem ele parecia que nada
-    # foi selecionado); um clique no trilho o acende como as dobradicas
+    # User request: double-clicking a leaf selects it with the add-on's white outline;
+    # the native outline stays disabled. Without this feedback selection looked inert.
+    # Clicking the track highlights it like the hinges.
     conj = criar_modulo(janela)
     area, regiao, rv3d = viewport(janela)
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
@@ -1360,14 +1347,14 @@ def test_correr_duplo_clique_na_folha_e_clique_no_trilho(janela, m):
         o.name for o in bpy.context.selected_objects)
     with contexto(janela, area, regiao):
         contornos = addon.portas_viewport._folhas_com_contorno(bpy.context)
-    assert contornos == [folha], 'a folha sozinha ficou sem o contorno branco'
-    # o trilho de cima: a parede da frente, acima da folha
+    assert contornos == [folha], 'the individually selected leaf lost its white outline'
+    # Upper track: its front wall, above the leaf.
     p = grupo['porta_parametros']
     ponto = grupo.matrix_world @ (Vector((
         grupo['porta_vao_largura_mm'] / 2,
         grupo['porta_vao_altura_mm'] - addon.ferragens.TRILHO_CIMA_ALTURA_MM / 2,
         -p['recuo_correr_mm'] + addon.ferragens.TRILHO_PAREDE_MM / 2)) / 1000.0)
-    yield esperar(0.6)          # sem virar duplo clique
+    yield esperar(0.6)          # Avoid creating a double click.
     m.mover(*na_tela(regiao, rv3d, ponto))
     yield
     m.clicar()
@@ -1377,11 +1364,11 @@ def test_correr_duplo_clique_na_folha_e_clique_no_trilho(janela, m):
     assert [(g, t) for g, t in edicao] == [(grupo, {'TRILHO'})], edicao
     with contexto(janela, area, regiao):
         _pecas, pontos = addon.arame._arame_ferragens(grupo, {'TRILHO'})
-    assert pontos, 'o trilho selecionado ficou sem o arame'
+    assert pontos, 'the selected track lost its wireframe'
 
 
 def _modulo_em(janela, x):
-    """Um modulo (nicho agrupado) com o centro em x metros."""
+    """Create a cabinet (grouped niche) centered at x meters."""
     area, regiao, _ = viewport(janela)
     antes = set(bpy.data.objects)
     with contexto(janela, area, regiao):
@@ -1398,8 +1385,7 @@ def _modulo_em(janela, x):
 
 
 def _chapas_visiveis(janela, conj):
-    """{chapa: ponto na janela} das chapas que o raio acerta no proprio
-    centro (as outras ficam atras de alguma peca nesta vista)."""
+    """Return {panel: window point} for panels whose centers the ray hits directly; other panels are occluded in this view."""
     area, regiao, rv3d = viewport(janela)
     saida = {}
     with contexto(janela, area, regiao):
@@ -1415,10 +1401,10 @@ def _chapas_visiveis(janela, conj):
 
 
 def test_shift_soma_chapas_individuais_e_grupos(janela, m):
-    # Pedido do usuario: clique = grupo; duplo = uma chapa; Shift+clique
-    # em outra chapa do MESMO grupo soma so' ela. Com dois grupos
-    # (clique + Shift+clique), Shift+duplo isola a chapa DENTRO da
-    # selecao e o outro grupo fica.
+    # User request: click selects a group, double click selects one panel, and
+    # Shift+click adds only another panel of that same group. With two selected groups
+    # (click then Shift+click), Shift+double-click isolates a panel within the selection
+    # while retaining the other group.
     a = _modulo_em(janela, -0.5)
     b = _modulo_em(janela, 0.5)
     area, regiao, rv3d = viewport(janela)
@@ -1430,30 +1416,30 @@ def test_shift_soma_chapas_individuais_e_grupos(janela, m):
     yield
     yield
     alvos_a, alvos_b = _chapas_visiveis(janela, a), _chapas_visiveis(janela, b)
-    assert len(alvos_a) >= 2 and alvos_b, 'chapas fora de vista'
+    assert len(alvos_a) >= 2 and alvos_b, 'panels out of view'
     (a1, p_a1), (a2, p_a2) = list(alvos_a.items())[:2]
     b1, p_b1 = next(iter(alvos_b.items()))
     grupo_a = {a, *a.children_recursive}
     grupo_b = {b, *b.children_recursive}
-    # um grupo: clique, duplo, Shift+clique em outra chapa dele
+    # One group: click, double click, then Shift+click another of its panels.
     m.mover(*p_a1)
     yield
     m.clicar()
     yield
-    assert set(bpy.context.selected_objects) == grupo_a, 'clique: grupo'
+    assert set(bpy.context.selected_objects) == grupo_a, 'click should select the group'
     m.clicar()
     yield
     _duplo_clique_do_keymap(janela)
     yield
-    assert set(bpy.context.selected_objects) == {a1}, 'duplo: a chapa'
+    assert set(bpy.context.selected_objects) == {a1}, 'double click should select the panel'
     m.mover(*p_a2)
     yield
     m.clicar(shift=True)
     yield
     selecao = set(bpy.context.selected_objects)
-    assert selecao == {a1, a2}, 'Shift+clique devia somar so a chapa: %s' % (
+    assert selecao == {a1, a2}, 'Shift+click should add only the panel: %s' % (
         sorted(o.name for o in selecao))
-    # dois grupos: clique em A, Shift+clique em B
+    # Two groups: click A, then Shift+click B.
     m.mover(*p_a1)
     yield
     m.clicar()
@@ -1462,8 +1448,8 @@ def test_shift_soma_chapas_individuais_e_grupos(janela, m):
     yield
     m.clicar(shift=True)
     yield
-    assert set(bpy.context.selected_objects) == grupo_a | grupo_b,         'Shift+clique devia somar o grupo B'
-    # Shift+duplo em A: so' a1 de A, B inteiro
+    assert set(bpy.context.selected_objects) == grupo_a | grupo_b,         'Shift+click should add group B'
+    # Shift+double-click A: retain only a1 from A and all of B.
     m.mover(*p_a1)
     yield
     m.clicar(shift=True)
@@ -1471,9 +1457,9 @@ def test_shift_soma_chapas_individuais_e_grupos(janela, m):
     _duplo_clique_do_keymap(janela, shift=True)
     yield
     selecao = set(bpy.context.selected_objects)
-    assert selecao == {a1} | grupo_b, 'Shift+duplo em A: %s' % (
+    assert selecao == {a1} | grupo_b, 'Shift+double click on A: %s' % (
         sorted(o.name for o in selecao))
-    # Shift+duplo em B: a1 fica, b1 sozinha
+    # Shift+double-click B: retain a1 and only b1.
     m.mover(*p_b1)
     yield
     m.clicar(shift=True)
@@ -1481,14 +1467,14 @@ def test_shift_soma_chapas_individuais_e_grupos(janela, m):
     _duplo_clique_do_keymap(janela, shift=True)
     yield
     selecao = set(bpy.context.selected_objects)
-    assert selecao == {a1, b1}, 'Shift+duplo em B: %s' % (
+    assert selecao == {a1, b1}, 'Shift+double click on B: %s' % (
         sorted(o.name for o in selecao))
 
 
 def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
-    # Pedido do usuario: com dois modulos selecionados o contorno so'
-    # aparecia no ultimo. A seta e a quina do modulo que NAO e' o ativo
-    # tambem respondem ao mouse real; sem "Editar como?".
+    # User request: with two cabinets selected, only the last showed an outline.
+    # The inactive cabinet's arrow and corner must also respond to real mouse input,
+    # without asking how to edit.
     a = _modulo_em(janela, -0.5)
     b = _modulo_em(janela, 0.5)
     area, regiao, rv3d = viewport(janela)
@@ -1512,11 +1498,11 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     with contexto(janela, area, regiao):
         desenhos = addon.hud._desenhos_hud(bpy.context)
     assert {g['objeto'] for g, _x in desenhos} == {a, b}, \
-        'contorno devia aparecer nos dois: %s' % [g['objeto'].name
+        'outlines should appear on both: %s' % [g['objeto'].name
                                                  for g, _x in desenhos]
-    # Seta L de A (nao ativo): os dois estao selecionados, entao os
-    # dois se editam. B ainda sem seta pisca; a seta de B escolhida, o
-    # valor digitado vale para os dois, cada um com a sua quina parada.
+    # Width arrow on inactive A: both cabinets are selected, so both are edited.
+    # B flashes until its arrow is chosen; then the typed value applies to both,
+    # each retaining its own fixed corner.
     linhas = {}
     for item in (a, b):
         geometria = addon.hud._geometria_do_item(item, 'GRUPO',
@@ -1528,24 +1514,24 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
                     linhas[item] = (geometria['cantos'][l['cantos'][0]].copy(),
                                     Vector(p), Vector(q))
                     break
-        assert item in linhas, 'linha L de %s fora de vista' % item.name
+        assert item in linhas, 'L line for %s is out of view' % item.name
     fixa_a, ini, fim = linhas[a]
     m.mover(*(ini + (fim - ini) * 0.2))
     yield
     yield
     hover = addon.hud._hover_hud.get(regiao.as_pointer())
-    assert hover and hover['objeto'] == a, 'a linha de A nao acendeu: %s' % (
+    assert hover and hover['objeto'] == a, "A's line did not highlight: %s" % (
         hover and hover['objeto'].name)
     m.clicar()
     yield
     estado = addon.hud._edicao_hud[0]
     assert estado and estado.get('fase') == 'coletar', estado
-    assert not estado.get('botoes'), 'voltou o "Editar como?"'
+    assert not estado.get('botoes'), 'the "How to Edit?" prompt returned'
     with contexto(janela, area, regiao):
         pendentes = [g['objeto'] for g, _x in addon.hud._desenhos_hud(bpy.context)
                      if g.get('pendente')]
-    assert pendentes == [b], 'B devia piscar: %s' % pendentes
-    assert time.time() - addon.hud._piscada_hud[0] < 5, 'nao piscou'
+    assert pendentes == [b], 'B should blink: %s' % pendentes
+    assert time.time() - addon.hud._piscada_hud[0] < 5, 'did not blink'
     fixa_b, ini, fim = linhas[b]
     m.mover(*(ini + (fim - ini) * 0.2))
     yield
@@ -1553,7 +1539,7 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
     m.clicar()
     yield
     assert addon.hud._edicao_hud[0].get('texto') is not None, \
-        'orientados os dois, devia digitar'
+        'typing should start once both are oriented'
     m.clicar('A', ctrl=True)
     m.digitar('900')
     m.tecla('RET')
@@ -1563,19 +1549,19 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
         nova = addon.hud._geometria_do_item(item, 'GRUPO',
                                         addon.modulos._chapas_do_conjunto(item))
         assert min((c - fixa).length for c in nova['cantos']) < 1e-4, \
-            'a quina escolhida de %s saiu do lugar' % item.name
-    # quina do modulo A: arrastar move so' ele
+            'the chosen corner of %s moved' % item.name
+    # Dragging cabinet A's corner moves only A.
     geometria = addon.hud._geometria_do_item(a, 'GRUPO', addon.modulos._chapas_do_conjunto(a))
     canto = min((na_tela(regiao, rv3d, c) for c in geometria['cantos']
                  if na_tela(regiao, rv3d, c)),
-                key=lambda c: c[0])            # a quina mais a esquerda
+                key=lambda c: c[0])            # The leftmost corner.
     pos_a, pos_b = a.matrix_world.translation.copy(), b.matrix_world.translation.copy()
     m.mover(*canto)
     yield
     yield
     hover = addon.hud._hover_hud.get(regiao.as_pointer())
     assert hover and hover['tipo'] == 'ancora' and hover['objeto'] == a, \
-        'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
+        "A's corner did not highlight: %s" % (hover and hover['tipo'])
     m.apertar()
     yield
     for passo in range(1, 5):
@@ -1583,13 +1569,13 @@ def test_dois_modulos_selecionados_editam_pela_hud_os_dois(janela, m):
         yield
     m.soltar()
     yield
-    assert (a.matrix_world.translation - pos_a).length > 0.01, 'A nao moveu'
-    assert (b.matrix_world.translation - pos_b).length < 1e-6, 'B moveu junto'
+    assert (a.matrix_world.translation - pos_a).length > 0.01, 'A did not move'
+    assert (b.matrix_world.translation - pos_b).length < 1e-6, 'B moved along with A'
 
 
 def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
-    # Pedido do usuario: movendo o modulo pela quina, o Ctrl liga um snap
-    # especial, so' em quinas de outros armarios ou chapas.
+    # User request: while moving a cabinet by its corner, Ctrl enables snapping
+    # only to corners of other cabinets or panels.
     a = _modulo_em(janela, -0.5)
     b = _modulo_em(janela, 0.5)
     area, regiao, rv3d = viewport(janela)
@@ -1616,35 +1602,35 @@ def test_quina_com_ctrl_gruda_na_quina_de_outro_modulo(janela, m):
     yield
     hover = addon.hud._hover_hud.get(regiao.as_pointer())
     assert hover and hover['tipo'] == 'ancora' and hover['objeto'] == a, \
-        'a quina de A nao acendeu: %s' % (hover and hover['tipo'])
+        "A's corner did not highlight: %s" % (hover and hover['tipo'])
     m.apertar()
     yield
-    # o arraste passa ao translate NATIVO do cursor; o Ctrl dele liga o
-    # snap de vertice (as quinas das chapas de B)
+    # Dragging delegates to native cursor translation; Ctrl enables its vertex snap
+    # to the corners of B's panels.
     for passo in range(1, 6):
         m.x, m.y = (int(round(v)) for v in
                     Vector(canto) + (destino - Vector(canto)) * passo / 5)
         janela.event_simulate('MOUSEMOVE', 'NOTHING', ctrl=True, x=m.x, y=m.y)
         yield
-    assert addon.hud._arraste_quina[0] is not None, 'o arraste nativo nao abriu'
+    assert addon.hud._arraste_quina[0] is not None, 'the native drag did not start'
     m.soltar(ctrl=True)
     yield
     yield
     janela.event_simulate('LEFT_CTRL', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon.hud._arraste_quina[0] is None, 'o arraste nao terminou'
-    # grudou num vertice de B perto do alvo: a quina da caixa ou a de uma
-    # chapa dele (a espessura as separa por poucos pixels)
+    assert addon.hud._arraste_quina[0] is None, 'the drag did not finish'
+    # Snap to a vertex of B near the target: either the cabinet-box corner or a panel
+    # corner, separated by only a few pixels because of panel thickness.
     vertices_b = [o.matrix_world @ v.co for o in addon.modulos._chapas_do_conjunto(b)
                   for v in o.data.vertices if (o.matrix_world @ v.co - alvo).length < 0.05]
     erro = min((cantos(a)[i] - q).length for q in vertices_b)
-    assert erro < 1e-5, 'quina de A a %.4f m de uma quina de B' % erro
+    assert erro < 1e-5, "A's corner is %.4f m from a corner of B" % erro
 
 
 def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
-    # Crash do usuario: Ctrl+Z com o mouse sobre a HUD. O undo libera os
-    # objetos, e o hover guardava um deles para o desenho seguinte (o
-    # Blender caia depois, em lugar aleatorio).
+    # User crash: Ctrl+Z while hovering over the HUD. Undo freed the objects,
+    # but hover retained one for the next redraw, causing Blender to crash later
+    # at an apparently unrelated location.
     area, regiao, rv3d = viewport(janela)
     with contexto(janela, area, regiao):
         bpy.ops.ed.undo_push(message='Antes do modulo')
@@ -1652,7 +1638,7 @@ def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
     chapas = addon.modulos._chapas_do_conjunto(conj)
     selecionar(janela, chapas[0])
     with contexto(janela, area, regiao):
-        bpy.ops.ed.undo_push(message='Modulo')
+        bpy.ops.ed.undo_push(message="Cabinet")
     rv3d.view_rotation = Euler((math.pi / 2, 0, 0)).to_quaternion()
     lo, hi = caixa_mundo(chapas)
     rv3d.view_location = (lo + hi) / 2
@@ -1666,34 +1652,34 @@ def test_ctrl_z_com_o_mouse_na_hud_esquece_o_objeto(janela, m):
     m.mover(*(p + (q - p) * 0.3))
     yield
     yield
-    assert addon.hud._hover_hud.get(regiao.as_pointer()), 'a linha nao acendeu'
+    assert addon.hud._hover_hud.get(regiao.as_pointer()), 'the line did not highlight'
     m.apertar('Z', ctrl=True)
     m.soltar('Z', ctrl=True)
     yield
     yield
-    assert not any(addon.chapas.MARCA_CONJUNTO in o for o in bpy.data.objects),         'o Ctrl+Z nao desfez o modulo'
-    assert all(addon.hud._alvo_vivo(a) for a in addon.hud._hover_hud.values()),         'o hover ficou com objeto liberado'
-    # o handler do depsgraph esperou o undo assentar e ja' voltou
-    assert not addon.eventos._desfazendo[0], 'o handler ficou desligado'
+    assert not any(addon.chapas.MARCA_CONJUNTO in o for o in bpy.data.objects),         'Ctrl+Z did not undo the cabinet'
+    assert all(addon.hud._alvo_vivo(a) for a in addon.hud._hover_hud.values()),         'hover retained a freed object'
+    # The depsgraph handler waited for undo to settle and has resumed.
+    assert not addon.eventos._desfazendo[0], 'the handler remained disabled'
     m.mover(m.x + 6, m.y)
     yield
     yield
 
 
 def test_hover_acende_o_botao_pelo_gizmo_da_gaveta(janela, m):
-    # O hover vem do VIEW3D_GGT_cabinet_gaveta (um gizmo invisivel por
-    # widget, `_preparar_hover`): sem ele o glow nunca acende.
+    # Hover comes from VIEW3D_GGT_cabinet_gaveta: one invisible gizmo per widget,
+    # prepared by _preparar_hover. Without it, the glow never appears.
     area, regiao = gaveta(janela)
     m.mover(*widget(janela, lambda v: v[5] == ('aba', 'PORTAS')))
     yield esperar(0.4)
     with contexto(janela, area, regiao):
         aceso = addon.gaveta._valor_realce(bpy.context, 'aba:PORTAS')
-    assert aceso > 0.5, 'hover nao acendeu a aba (%.2f)' % aceso
-    m.mover(regiao.x + regiao.width / 2, regiao.y + 20)   # pe' vazio
+    assert aceso > 0.5, 'hover did not highlight the tab (%.2f)' % aceso
+    m.mover(regiao.x + regiao.width / 2, regiao.y + 20)   # Empty footer.
     yield esperar(0.6)
     with contexto(janela, area, regiao):
         apagado = addon.gaveta._valor_realce(bpy.context, 'aba:PORTAS')
-    assert apagado < 0.1, 'o glow nao apagou ao sair (%.2f)' % apagado
+    assert apagado < 0.1, 'the glow did not fade after leaving (%.2f)' % apagado
 
 
 def _porta_no_modulo(janela, conj):
@@ -1714,9 +1700,9 @@ def _porta_no_modulo(janela, conj):
 
 
 def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
-    # Pedido do usuario: com Alt a ancora do puxador vira uma bolinha;
-    # arrastar leva-o a outra borda do GRUPO (snap de linha), virado
-    # conforme ela. So' as bordas das folhas da porta valem.
+    # User request: Alt turns the handle anchor into a dot; dragging moves it
+    # to another group edge using line snapping and orients it to that edge.
+    # Only edges of the door leaves are eligible.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, m)
     grupo = _porta_no_modulo(janela, conj)
     folha = addon.portas._folhas_portas(grupo)[0]
@@ -1734,7 +1720,7 @@ def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
     m.apertar(alt=True)
     yield
     estado = addon.puxadores._arraste_puxador[0]
-    assert estado is not None, 'a ancora do puxador nao pegou'
+    assert estado is not None, 'the handle anchor was not grabbed'
     a, b = addon.puxadores._bordas_da_face(folha, 1)['Y-']
     destino = na_tela(regiao, rv3d, a.lerp(b, 0.3))
     inicio = (m.x, m.y)
@@ -1742,13 +1728,13 @@ def test_alt_arrasta_o_puxador_para_outra_borda(janela, m):
         m.mover(inicio[0] + (destino[0] - inicio[0]) * passo / 5,
                 inicio[1] + (destino[1] - inicio[1]) * passo / 5)
         yield
-    assert len(estado['linhas']) == 4, 'so\' as bordas da folha: %d' % len(
+    assert len(estado['linhas']) == 4, 'expected only leaf edges: %d' % len(
         estado['linhas'])
     m.soltar(alt=True)
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert addon.puxadores._arraste_puxador[0] is None, 'o arraste nao terminou'
+    assert addon.puxadores._arraste_puxador[0] is None, 'the drag did not finish'
     assert (pux.parent, pux['puxador_borda']) == (folha, 'Y-'), (
         pux.parent.name, pux['puxador_borda'])
     assert abs(pux['puxador_fracao'] - 0.3) < 0.05, pux['puxador_fracao']
@@ -1764,8 +1750,8 @@ def test_definir_frente_com_clique_na_face(janela, m):
     folha.select_set(True)
     bpy.context.view_layer.objects.active = folha
     area, regiao, rv3d = viewport(janela)
-    # vista de TRAS (olhando para -Y): o nicho nao tem fundo, o raio
-    # bate direto na face de tras da folha
+    # Rear view looking toward -Y: the niche has no back, so the ray
+    # hits the rear face of the leaf directly.
     rv3d.view_rotation = Euler((math.pi / 2, 0, math.pi)).to_quaternion()
     lo, hi = caixa_mundo(addon.modulos._chapas_do_conjunto(conj))
     rv3d.view_location = (lo + hi) / 2
@@ -1779,12 +1765,12 @@ def test_definir_frente_com_clique_na_face(janela, m):
     m.clicar()
     yield
     nova = grupo.matrix_world.to_3x3().col[2].normalized()
-    assert nova.y > 0.99, 'a frente nao virou para tras: %r' % (tuple(nova),)
+    assert nova.y > 0.99, 'the front did not turn backward: %r' % (tuple(nova),)
 
 
 def test_escalar_o_modulo_com_S(janela, m):
-    # Bug achado pelo harness (corrigido na 126): S no Empty do modulo
-    # nao surtia efeito -- as chapas voltavam ao tamanho antigo.
+    # Harness-discovered bug, fixed in v126: S on the cabinet Empty had no effect;
+    # panels reverted to their previous sizes.
     conj = criar_modulo(janela)
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     largura = conj.conj_largura_mm
@@ -1793,22 +1779,22 @@ def test_escalar_o_modulo_com_S(janela, m):
     m.mover(centro[0] + 60, centro[1])
     yield
     m.tecla('S')
-    # com as suites em paralelo o S podia nao ter aberto a escala ainda e
-    # o X/1.5/Enter caiam no vazio (largura intacta): espera o modal
+    # With parallel suites, scaling might not start before X/1.5/Enter arrived,
+    # leaving width unchanged. Wait for the modal operator.
     for _tentativa in range(25):
         yield
         if any(op.bl_idname == 'TRANSFORM_OT_resize'
                for op in janela.modal_operators):
             break
-    m.tecla('X')            # so' na largura
+    m.tecla('X')            # Scale only the width.
     yield
     m.digitar('1.5')
     m.tecla('RET')
-    # espessura imune a escala: as laterais seguem com 18 mm e so' a
-    # POSICAO delas escala -- (L - E) * 1.5 + E, nao L * 1.5
+    # Thickness is unaffected by scale: side panels stay 18 mm thick and only their
+    # positions scale: (L - E) * 1.5 + E, not L * 1.5.
     esperado = (largura - 18.0) * 1.5 + 18.0
-    # handler/timer (0.2 s) absorvem e normalizam: espera a CONDICAO, nao
-    # um tempo fixo -- com as suites em paralelo 0.6 s nao bastava (v146)
+    # The handler/timer (0.2 s) absorbs and normalizes scale. Wait for the condition,
+    # not a fixed delay; 0.6 s was insufficient with parallel suites (v146).
     for _tentativa in range(25):
         yield esperar(0.2)
         if (abs(conj.conj_largura_mm - esperado) < 0.5
@@ -1824,18 +1810,18 @@ def test_escalar_o_modulo_com_S(janela, m):
 
 
 def test_clique_na_corrente_desassocia(janela, m):
-    # A corrente e' o botao do VIEW3D_GGT_correntes_cabinet (gizmo nativo
-    # LINKED); com Alt segurado quem pega o clique e' cabinet_clique_corrente
-    # (o gizmo nativo nao aceita clique com modificador). So' aparece com
-    # a tecla das opcoes (Alt) segurada e a solda fora da origem; TODAS as
-    # quinas; o clique desagrega a peca INTEIRA (todas as quinas).
-    piso = addon.chapas.nova_chapa('Piso', 600.0, 400.0, 18.0, (0, 0, 9.0),
+    # The chain is the native LINKED button in VIEW3D_GGT_correntes_cabinet.
+    # With Alt held, cabinet_clique_corrente handles the click because native gizmos
+    # reject modified clicks. It appears only while the options key (Alt) is held
+    # and the weld is away from its origin, at every corner.
+    # Clicking detaches the entire part, including all its corners.
+    piso = addon.chapas.nova_chapa("Floor", 600.0, 400.0, 18.0, (0, 0, 9.0),
                             (0, 0, 0), bpy.context)
     lateral = addon.chapas.nova_chapa('Lateral', 720.0, 400.0, 18.0,
                                (319.0, 0, 360.0), (0, 90.0, 0), bpy.context)
     bpy.context.view_layer.update()
     addon.chapas.detectar_adjacencia([piso, lateral])
-    lateral.location.x += 0.02          # 20 mm fora da origem da solda
+    lateral.location.x += 0.02          # 20 mm away from the weld origin.
     bpy.context.view_layer.update()
     selecionar(janela, piso)
     area, regiao, rv3d = viewport(janela)
@@ -1848,12 +1834,12 @@ def test_clique_na_corrente_desassocia(janela, m):
         with contexto(janela, area, regiao):
             return addon.solda._correntes_hud(bpy.context)
 
-    assert corrente_visivel() == [], 'sem Alt a corrente nao aparece'
+    assert corrente_visivel() == [], 'the chain should be hidden without Alt'
     m.janela.event_simulate('LEFT_ALT', 'PRESS', alt=True, x=m.x, y=m.y)
     yield
     correntes = corrente_visivel()
-    assert len(correntes) == 2, 'com Alt: as 2 quinas, veio %d' % len(correntes)
-    assert correntes[0]['meio'] is not None, 'a corrente ficou fora da tela'
+    assert len(correntes) == 2, 'expected 2 corners with Alt; got %d' % len(correntes)
+    assert correntes[0]['meio'] is not None, 'the chain was offscreen'
     with contexto(janela, area, regiao):
         meio = addon.solda._botoes_da_corrente(bpy.context, correntes[0])['corrente']
     m.mover(regiao.x + meio.x, regiao.y + meio.y)
@@ -1861,13 +1847,13 @@ def test_clique_na_corrente_desassocia(janela, m):
     yield
     m.clicar(alt=True)
     yield
-    assert not addon.solda.agregado(piso), 'um clique e o piso segue agregado'
+    assert not addon.solda.agregado(piso), 'the floor remains attached after one click'
     assert addon.solda._ligacoes_adjacencia([piso, lateral]) == []
-    assert corrente_visivel() == [], 'a corrente nao sumiu'
+    assert corrente_visivel() == [], 'the chain did not disappear'
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert not addon.solda._tecla_corrente_segurada[0], 'soltar o Alt nao escondeu'
-    # o clique foi DA corrente: a selecao continua a mesma
+    assert not addon.solda._tecla_corrente_segurada[0], 'releasing Alt did not hide it'
+    # The chain consumed the click, leaving selection unchanged.
     assert piso.select_get() and lateral.select_get()
 
 
@@ -1884,8 +1870,8 @@ def _caixote_aberto(janela):
 
 
 def test_clique_na_corrente_tira_a_peca_do_modulo(janela, m):
-    # 3a print: tampo e base recuados; o clique na corrente desagrega a
-    # peca da corrente (todas as quinas) e ela SAI do modulo, no lugar.
+    # Third screenshot: recessed top and base. Clicking the chain detaches all
+    # corners of its part and removes it from the cabinet without moving it.
     conj, base, tampo = _caixote_aberto(janela)
     selecionar(janela, base)
     area, regiao, rv3d = viewport(janela)
@@ -1900,7 +1886,7 @@ def test_clique_na_corrente_tira_a_peca_do_modulo(janela, m):
     with contexto(janela, area, regiao):
         correntes = [c for c in addon.solda._correntes_hud(bpy.context)
                      if c['meio'] is not None]
-        assert correntes, 'nenhuma corrente na tela'
+        assert correntes, 'no chain onscreen'
         meio = addon.solda._botoes_da_corrente(bpy.context, correntes[0])['corrente']
     peca = correntes[0]['a']
     assert peca in (base, tampo)
@@ -1912,21 +1898,21 @@ def test_clique_na_corrente_tira_a_peca_do_modulo(janela, m):
     yield
     m.janela.event_simulate('LEFT_ALT', 'RELEASE', x=m.x, y=m.y)
     yield
-    assert peca.parent is None, 'a peca continua no modulo'
+    assert peca.parent is None, 'the component remains in the cabinet'
     assert not addon.solda.agregado(peca)
     for a, b in zip(peca.matrix_world, mundo):
-        assert (a - b).length < 1e-5, 'a peca saiu do lugar'
+        assert (a - b).length < 1e-5, 'the component moved'
     outra = tampo if peca is base else base
-    assert outra.parent == conj, 'a outra peca saiu junto'
+    assert outra.parent == conj, 'the other component detached as well'
 
 
 def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
-    # Fluxo do botao Corrente (cabinet_corrente_objeto) com a peca
-    # desagregada e nada ao alcance: modo "selecionar vertice"
-    # (cabinet_conectar_vertices), canto da peca e depois o canto onde ela
-    # gruda, 2 vezes; "Confirmar" no pe' da gaveta
-    # (cabinet_confirmar_conexao); "Juntar ao modulo?" -> Sim
-    # (cabinet_juntar_modulo). O modulo NAO e' puxado.
+    # Chain-button flow (cabinet_corrente_objeto) with a detached part and no target
+    # in range enters vertex-selection mode (cabinet_conectar_vertices).
+    # Choose the part corner and destination corner twice, then confirm in the
+    # sidebar footer (cabinet_confirmar_conexao).
+    # Answer yes to joining the cabinet (cabinet_juntar_modulo).
+    # The cabinet must not be pulled toward the part.
     conj = criar_modulo(janela)
     chapas = addon.modulos._chapas_do_conjunto(conj)
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
@@ -1945,12 +1931,12 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
     botao = lambda v: v[5][:2] == ('operador', addon.solda.OP_CORRENTE_OBJETO)
     with contexto(janela, *gaveta(janela)):
         estado = addon.solda._estado_corrente_objeto(bpy.context)
-    assert estado is False, 'prateleira solta devia deixar o botao cinza'
+    assert estado is False, 'a detached shelf should make the button gray'
     m.mover(*widget(janela, botao))
     yield
     m.clicar()
     yield
-    assert addon.solda._conexao_manual[0] is not None, 'nao entrou em selecionar vertice'
+    assert addon.solda._conexao_manual[0] is not None, 'did not enter vertex selection'
     fora_x = max(p.x for p in addon.chapas._cantos(direita))
     alvos = sorted((p for p in addon.chapas._cantos(direita)
                     if abs(p.x - fora_x) < 1e-6 and p.z < 0.01),
@@ -1974,23 +1960,23 @@ def test_botao_corrente_associa_por_vertices_e_junta(janela, m):
     yield
     m.mover(*na_tela(regiao, rv3d, conj.matrix_world.translation))
     yield
-    assert addon.solda._conexao_manual[0] is None, 'Confirmar nao encerrou'
-    assert addon.solda._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
-    # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
-    # nao em pop-up -- clica no "Sim, juntar" de dentro da caixa
+    assert addon.solda._conexao_manual[0] is None, 'Confirm did not finish'
+    assert addon.solda._conexao_pendente[0] is not None, 'no "Join Cabinet?" prompt'
+    # Opened by a sidebar button: the question appears there in a black box,
+    # not a popup. Click its affirmative join response.
     assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
-        'a pergunta devia estar na gaveta'
+        'the prompt should be in the sidebar'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
-    assert prateleira.parent == conj, 'nao entrou no modulo'
+    assert prateleira.parent == conj, 'did not join the cabinet'
     assert addon.solda.agregado(prateleira)
     lo = min(p.x for p in addon.chapas._cantos(prateleira))
-    assert abs(lo - fora_x) < 1e-5, "a ponta nao foi ate' a lateral (%f)" % lo
+    assert abs(lo - fora_x) < 1e-5, 'the end did not reach the side panel (%f)' % lo
     for o in chapas:
         for a, b in zip(o.matrix_world, fixos[o.name]):
-            assert (a - b).length < 1e-6, 'o modulo foi puxado (%s)' % o.name
+            assert (a - b).length < 1e-6, 'the cabinet was pulled (%s)' % o.name
 
 
 def _vista_do_lado_direito(janela):
@@ -2003,9 +1989,9 @@ def _vista_do_lado_direito(janela):
 
 
 def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
-    # Clique no modulo (o alvo), Shift+clique na prateleira a 3 mm (a
-    # peca de fora, que vira o ativo), botao Corrente: conecta por
-    # distancia -> "Juntar ao modulo?" -> Sim. O modulo NAO e' puxado.
+    # Click the cabinet target, then Shift+click the shelf 3 mm away to make that
+    # external part active. The chain button connects by distance, then asks to join.
+    # Answer yes; the cabinet must not be pulled toward the part.
     conj = criar_modulo(janela)
     chapas = addon.modulos._chapas_do_conjunto(conj)
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
@@ -2018,19 +2004,19 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
     bpy.context.view_layer.update()
     area, regiao, rv3d = _vista_do_lado_direito(janela)
     yield
-    # a lateral direita: o centro do modulo fica embaixo da gaveta
+    # Right side panel: the cabinet center is beneath the sidebar.
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
     m.mover(*na_tela(regiao, rv3d, direita.matrix_world.translation))
     yield
     m.clicar()
     yield
-    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
+    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'click did not select the cabinet: %s' % bpy.context.selected_objects
     m.mover(*na_tela(regiao, rv3d, prateleira.matrix_world.translation))
     yield
     m.clicar(shift=True)
     yield
-    assert bpy.context.view_layer.objects.active == prateleira,         'a peca de fora nao virou o ativo'
-    assert all(o.select_get() for o in chapas), 'o Shift perdeu o alvo: %s' % (
+    assert bpy.context.view_layer.objects.active == prateleira,         'the external component did not become active'
+    assert all(o.select_get() for o in chapas), 'Shift lost the target: %s' % (
         [o.name for o in bpy.context.selected_objects],)
     with contexto(janela, *gaveta(janela)):
         acao = addon.solda._acao_corrente(bpy.context)
@@ -2040,22 +2026,22 @@ def test_alvo_primeiro_peca_de_fora_por_ultimo_conecta(janela, m):
     yield
     m.clicar()
     yield
-    assert addon.solda._conexao_pendente[0] is not None, 'sem "Juntar ao modulo?"'
-    # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
-    # nao em pop-up -- clica no "Sim, juntar" de dentro da caixa
+    assert addon.solda._conexao_pendente[0] is not None, 'no "Join Cabinet?" prompt'
+    # Opened by a sidebar button: the question appears there in a black box,
+    # not a popup. Click its affirmative join response.
     assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
-        'a pergunta devia estar na gaveta'
+        'the prompt should be in the sidebar'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
-    assert prateleira.parent == conj, 'nao entrou no modulo'
+    assert prateleira.parent == conj, 'did not join the cabinet'
     assert addon.solda.agregado(prateleira)
     lo = min(p.x for p in addon.chapas._cantos(prateleira))
-    assert abs(lo - fora_x) < 1e-5, "a folga nao fechou (%f)" % lo
+    assert abs(lo - fora_x) < 1e-5, 'the gap did not close (%f)' % lo
     for o in chapas:
         for a, b in zip(o.matrix_world, fixos[o.name]):
-            assert (a - b).length < 1e-6, 'o modulo foi puxado (%s)' % o.name
+            assert (a - b).length < 1e-6, 'the cabinet was pulled (%s)' % o.name
 
 
 def test_botao_corrente_no_grupo_pergunta_antes_de_desagregar(janela, m):
@@ -2064,33 +2050,33 @@ def test_botao_corrente_no_grupo_pergunta_antes_de_desagregar(janela, m):
     area, regiao, rv3d = _vista_do_lado_direito(janela)
     bpy.ops.object.select_all(action='DESELECT')
     yield
-    # a lateral direita: o centro do modulo fica embaixo da gaveta
+    # Right side panel: the cabinet center is beneath the sidebar.
     direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
     m.mover(*na_tela(regiao, rv3d, direita.matrix_world.translation))
     yield
     m.clicar()
     yield
-    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'o clique nao pegou o modulo: %s' % bpy.context.selected_objects
+    assert set(bpy.context.selected_objects) == set(addon.selecao.familia_de(conj)),         'click did not select the cabinet: %s' % bpy.context.selected_objects
     m.mover(*widget(janela, lambda v: v[5][:2] == (
         'operador', addon.solda.OP_CORRENTE_OBJETO)))
     yield
     m.clicar()
     yield
-    assert addon.solda._desagregar_pendente[0] == sorted(o.name for o in chapas),         'sem "tem certeza que deseja desagregar todos os itens?" %s %s %s' % (
+    assert addon.solda._desagregar_pendente[0] == sorted(o.name for o in chapas),         'no "Detach all items?" prompt: %s %s %s' % (
             addon.solda._desagregar_pendente[0],
             [o.name for o in bpy.context.selected_objects],
             bpy.context.view_layer.objects.active)
-    assert all(o.parent == conj for o in chapas), 'desagregou sem perguntar'
+    assert all(o.parent == conj for o in chapas), 'detached without asking'
     nome = conj.name
-    # veio de um botao da GAVETA: a pergunta esta' NELA (caixa preta),
-    # nao em pop-up -- clica no "Sim, desagregar" de dentro da caixa
+    # Opened by a sidebar button: the question appears there in a black box,
+    # not a popup. Click its affirmative detach response.
     assert addon.perguntas._pergunta_atual[0] and addon.perguntas._pergunta_atual[0]['na_gaveta'], \
-        'a pergunta devia estar na gaveta'
+        'the prompt should be in the sidebar'
     m.mover(*widget(janela, lambda v: v[5] == ('resposta', 0)))
     yield
     m.clicar()
     yield
-    assert nome not in bpy.data.objects, 'o modulo vazio ficou'
+    assert nome not in bpy.data.objects, 'the empty cabinet remained'
     assert all(o.parent is None and not addon.solda.agregado(o) for o in chapas)
 
 
@@ -2100,7 +2086,7 @@ def test_digitar_no_campo_da_gaveta(janela, m):
     selecionar(janela, chapa, individual=True)
     yield
     m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
-                    and v[5][3] == 'Largura'))
+                    and v[5][3] == "Width"))
     yield
     m.clicar()
     yield
@@ -2113,15 +2099,15 @@ def test_digitar_no_campo_da_gaveta(janela, m):
 
 
 def test_arrastar_o_campo_muda_o_valor(janela, m):
-    # Pedido do usuario: clicar e ARRASTAR de lado em qualquer campo de
-    # valor -- direita aumenta, esquerda diminui (1 mm por pixel); soltar
-    # sem arrastar continua abrindo a digitacao. Um Ctrl+Z desfaz tudo.
+    # User request: dragging sideways on any value field increases rightward
+    # and decreases leftward at 1 mm per pixel. Releasing without dragging still
+    # opens text entry; one Ctrl+Z undoes the whole operation.
     chapa = addon.chapas.nova_chapa('Campo', 600.0, 400.0, 18.0, (0, 0, 0),
                                     (0, 0, 0), bpy.context)
     selecionar(janela, chapa, individual=True)
     yield
     m.mover(*widget(janela, lambda v: v[5][0] == 'medida'
-                    and v[5][3] == 'Largura'))
+                    and v[5][3] == "Width"))
     yield
     m.apertar()
     yield
@@ -2132,7 +2118,7 @@ def test_arrastar_o_campo_muda_o_valor(janela, m):
     m.soltar()
     yield
     assert abs(chapa.chapa_largura_mm - 650.0) < 1e-3, chapa.chapa_largura_mm
-    assert addon.gaveta._edicao_gaveta[0] is None, 'arrastar nao abre a digitacao'
+    assert addon.gaveta._edicao_gaveta[0] is None, 'dragging should not open text entry'
     m.apertar()
     yield
     for passo in range(1, 4):
@@ -2149,10 +2135,10 @@ def janelas_do_salvar_como():
 
 
 def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
-    # A linha do comodo expande, o clique na opcao poe o armario na PASTA
-    # do comodo (Outliner) e fecha a lista. "Gerar orcamento" mora no fim
-    # das Opcoes (engrenagem) e abre o "Salvar como" do Blender -- no
-    # SOLTAR do clique, como os outros botoes que abrem janela.
+    # The room row expands; choosing an entry moves the cabinet into that room's
+    # Outliner folder and closes the list. Estimate generation is at the bottom
+    # of Options (gear icon) and opens Blender's Save As dialog on click release,
+    # like other buttons that open windows.
     conj = criar_modulo(janela)
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
     bpy.context.scene.cabinet_aba = 'MODULOS'
@@ -2166,14 +2152,14 @@ def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
         yield
         m.mover(*widget(janela, lambda v: v[5][0] == 'escolha'
                         and v[5][5] == addon.orcamento.ALVO_COMODO
-                        and v[5][2] == 'Cozinha'))
+                        and v[5][2] == "Kitchen"))
         yield
         m.clicar()
         yield
         comodo = addon.orcamento._comodo_do_modulo(conj)
-        assert comodo is not None and comodo.name == 'Cozinha', comodo
+        assert comodo is not None and comodo.name == "Kitchen", comodo
         assert bpy.context.screen.get(addon.gaveta._CHAVE_SUSPENSO, '') == '', \
-            'a lista devia fechar depois da escolha'
+            'the list should close after choosing'
         m.mover(*widget(janela, lambda v: v[5] == (
             'operador', addon.gaveta.OP_OPCOES)))
         yield
@@ -2189,7 +2175,7 @@ def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
             yield
             if janelas_do_salvar_como():
                 break
-        assert janelas_do_salvar_como(), 'o "Salvar como" nao abriu'
+        assert janelas_do_salvar_como(), 'Save As did not open'
     finally:
         for j, a in janelas_do_salvar_como():
             with bpy.context.temp_override(window=j, area=a):
@@ -2199,8 +2185,8 @@ def test_comodo_e_gerar_orcamento_pelas_opcoes(janela, m):
 
 
 def test_criar_puxador_no_topo_da_aba(janela, m):
-    # Mesmo padrao do "Criar Portas": topo da aba, laranja; o clique
-    # comeca o posicionamento e o botao avisa enquanto ele dura.
+    # Same pattern as Create Doors: orange at the top of the tab. Clicking starts
+    # placement, and the button indicates that placement is in progress.
     bpy.context.scene.cabinet_aba = 'PUXADORES'
     yield
     m.mover(*widget(janela, lambda v: v[5][0] == 'criar_puxador'))
@@ -2208,20 +2194,20 @@ def test_criar_puxador_no_topo_da_aba(janela, m):
     m.clicar()
     yield
     try:
-        assert addon.puxadores._posicionador_puxador[0] is not None, 'nao comecou'
+        assert addon.puxadores._posicionador_puxador[0] is not None, 'did not start'
         widget(janela, lambda v: v[5][0] == 'criar_puxador' and v[5][2]
                and v[4].startswith('Posicionando'))
     finally:
         m.tecla('ESC')
         yield
-    assert addon.puxadores._posicionador_puxador[0] is None, 'Esc devia encerrar'
+    assert addon.puxadores._posicionador_puxador[0] is None, 'Esc should finish'
 
 
 def test_usar_como_puxador_pela_gaveta(janela, m):
-    # Objeto de fora solto: "Usar como puxador" (no SOLTAR) pede o clique
-    # na face que encosta na porta; o modelo vai para a biblioteca (aqui
-    # uma pasta temporaria) com a foto de verdade e o criador abre com
-    # ele aceso no carrossel de retratos.
+    # For an ungrouped external object, the use-as-handle action runs on release
+    # and asks for the face touching the door. Save the model to the library
+    # (a temporary directory here) with a real preview, then open the creator
+    # with that model highlighted in the thumbnail carousel.
     import shutil
     import tempfile
     import bmesh
@@ -2249,10 +2235,10 @@ def test_usar_como_puxador_pela_gaveta(janela, m):
         yield
         m.clicar()
         yield
-        assert addon.puxadores._usando_como_puxador[0] is not None,             'o clique na face nao foi pedido'
+        assert addon.puxadores._usando_como_puxador[0] is not None,             'no face-click prompt appeared'
         widget_texto = [v for v in addon.gaveta._widgets_gaveta(
             bpy.context, 320, 1400) if v[4].startswith('Clique na face')]
-        assert widget_texto, 'a gaveta devia dizer o que fazer'
+        assert widget_texto, 'the sidebar should explain what to do'
         area, regiao, rv3d = viewport(janela)
         m.mover(*na_tela(regiao, rv3d, Vector((0.0, 0.0, 0.04))))
         yield
@@ -2261,7 +2247,7 @@ def test_usar_como_puxador_pela_gaveta(janela, m):
             yield
         assert addon.puxadores._usando_como_puxador[0] is None
         (it,) = addon.puxadores.modelos_do_usuario()
-        assert os.path.isfile(os.path.join(pasta, 'Barra.png')), 'sem foto'
+        assert os.path.isfile(os.path.join(pasta, 'Barra.png')), "no photo"
         estado = addon.puxadores._posicionador_puxador[0]
         assert estado is not None and (estado['tipo'], estado['arquivo']) == (
             'MODELO', it['arquivo']), estado
@@ -2271,21 +2257,21 @@ def test_usar_como_puxador_pela_gaveta(janela, m):
         m.tecla('ESC')
         yield
         addon.biblioteca.pasta_biblioteca = original
-        addon.puxadores.escolher_modelo(bpy.context.scene, 'PERFIL')   # o padrao
+        addon.puxadores.escolher_modelo(bpy.context.scene, 'PERFIL')   # The default.
         shutil.rmtree(pasta, True)
 
 
 def test_materiais_pela_gaveta(janela, m):
-    # Um teste anterior pode deixar o menu nativo da parede aberto.
-    # A pintura precisa comecar com a mesma interface limpa do teste isolado.
+    # A previous test may leave the native wall menu open.
+    # Painting must start with the same clean interface as an isolated run.
     m.tecla('ESC')
     yield
     yield
-    # Botao "Materiais" ao lado do titulo -> MDF -> Unicolores -> UM clique
-    # na esfera nao faz nada; o DUPLO pinta o modulo selecionado; ARRASTAR
-    # a esfera e soltar no modulo (fora da selecao) pinta ele. A lixeira
-    # pergunta na caixa preta, logo abaixo, e o "Nao" nao apaga nada. A
-    # biblioteca vai para uma pasta temporaria (nada pode escrever na real).
+    # Materials button beside the title -> MDF -> solid colors. One sphere click
+    # does nothing; double-click paints the selected cabinet. Dragging a sphere
+    # onto an unselected cabinet paints that cabinet. The trash action asks in the
+    # black box immediately below; answering no deletes nothing. Redirect the library
+    # to a temporary directory so nothing can write to the real library.
     import shutil
     import tempfile
     pasta = tempfile.mkdtemp()
@@ -2297,7 +2283,7 @@ def test_materiais_pela_gaveta(janela, m):
         yield
         passos = ((lambda v: v[5][:2] == ('biblioteca', 'MATERIAIS')),
                   (lambda v: v[5][:3] == ('navegar', 1, 'MDF')),
-                  (lambda v: v[5][:3] == ('navegar', 2, 'Unicolores')))
+                  (lambda v: v[5][:3] == ('navegar', 2, "Solid Colors")))
         for alvo in passos:
             m.mover(*widget(janela, alvo))
             yield
@@ -2305,9 +2291,9 @@ def test_materiais_pela_gaveta(janela, m):
             yield
         cena = bpy.context.scene
         assert (cena.cabinet_bib_modo, cena.cabinet_mat_n1, cena.cabinet_mat_n2) == (
-            'MATERIAIS', 'MDF', 'Unicolores'), (cena.cabinet_bib_modo, cena.cabinet_mat_n1)
-        # a 1a da grade (ordem alfabetica): a 2a fila fica abaixo do painel
-        areia = 'MDF/Unicolores//Areia'
+            'MATERIAIS', 'MDF', "Solid Colors"), (cena.cabinet_bib_modo, cena.cabinet_mat_n1)
+        # First grid entry alphabetically; the second row lies below the panel.
+        areia = "MDF/Solid Colors//Sand"
         m.mover(*widget(janela, lambda v: v[5][0] == 'material'
                         and v[5][1]['chave'] == areia))
         yield
@@ -2318,14 +2304,14 @@ def test_materiais_pela_gaveta(janela, m):
                     if c.material_slots and c.material_slots[0].material
                     else None for c in chapas}
         m.clicar()
-        yield esperar(0.6)       # passou do tempo de duplo: clique simples
-        assert nomes() == {None}, ('um clique pintou', nomes())
+        yield esperar(0.6)       # Past the double-click interval: a single click.
+        assert nomes() == {None}, ('a single click painted the object', nomes())
         m.clicar()
-        yield esperar(0.05)      # bem abaixo do tempo de duplo clique
+        yield esperar(0.05)      # Well within the double-click interval.
         m.clicar()
         yield
         assert nomes() == {'MDF Areia'}, nomes()
-        # a esfera do material da selecao acende
+        # The selected object's material sphere highlights.
         widget(janela, lambda v: v[5][0] == 'material' and v[5][2]
                and v[5][1]['chave'] == areia)
         m.mover(*widget(janela, lambda v: v[5][0] == 'material_item'
@@ -2335,13 +2321,13 @@ def test_materiais_pela_gaveta(janela, m):
         yield
         pergunta = addon.perguntas._pergunta_atual[0]
         assert pergunta is not None and pergunta.get('biblioteca'), pergunta
-        m.mover(*widget(janela, lambda v: v[5] == ('resposta', 1)))     # Nao
+        m.mover(*widget(janela, lambda v: v[5] == ('resposta', 1)))     # No.
         yield
         m.clicar()
         yield
         assert addon.perguntas._pergunta_atual[0] is None
-        assert addon.materiais.achar(areia) is not None, 'o Nao apagou'
-        # arrastar outra esfera ate' o modulo, sem selecao: pinta o modulo
+        assert addon.materiais.achar(areia) is not None, 'choosing No deleted the item'
+        # Drag another sphere onto the unselected cabinet to paint it.
         bpy.ops.object.select_all(action='DESELECT')
         yield
         area_g = addon.biblioteca_faixa.area_da_faixa(janela.screen)
@@ -2364,17 +2350,17 @@ def test_materiais_pela_gaveta(janela, m):
         m.soltar()
         yield
         assert nomes() == {outro}, (outro, nomes())
-        assert not bpy.context.selected_objects, 'o solte mexeu na selecao'
+        assert not bpy.context.selected_objects, 'dropping changed the selection'
     finally:
         addon.biblioteca.pasta_biblioteca = original
         shutil.rmtree(pasta, True)
 
 
 def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
-    # Promob (pedido do usuario): botao DIREITO segurado no modulo e solto
-    # na parede (cabinet_arrastar_na_parede) encosta as costas nela e
-    # associa; o numero da guia (VIEW3D_GGT_guias_parede /
-    # VIEW3D_GT_guia_parede -> cabinet_guia_parede), clicado, digita.
+    # Promob-style user request: hold the right mouse button on the cabinet and
+    # release on the wall (cabinet_arrastar_na_parede) to place its back against
+    # and associate it with that wall. Clicking a guide number
+    # (VIEW3D_GGT_guias_parede / VIEW3D_GT_guia_parede -> cabinet_guia_parede) opens text entry.
     import bmesh
     P = addon.paredes
     conj = criar_modulo(janela)
@@ -2382,44 +2368,44 @@ def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
         v.co.x, v.co.y, v.co.z = v.co.x * 3.0, v.co.y * 0.15, v.co.z * 2.7
-    malha = bpy.data.meshes.new('Parede')
+    malha = bpy.data.meshes.new("Wall")
     bm.to_mesh(malha)
     bm.free()
-    parede = bpy.data.objects.new('Parede', malha)
+    parede = bpy.data.objects.new("Wall", malha)
     bpy.context.scene.collection.objects.link(parede)
-    parede.location = (0.0, 1.075, 1.35)          # frente em y = 1 m
+    parede.location = (0.0, 1.075, 1.35)          # Front at y = 1 m.
     parede[addon.paredes.CHAVE_ALVENARIA]=True
     bpy.context.view_layer.update()
     yield
     _area, regiao, rv3d = viewport(janela)
-    # Nicho nao tem fundo: o centro do vao e' vazio. Enquadrar os dois
-    # alvos e iniciar numa chapa real, sem depender da vista do teste anterior.
+    # The niche has no back, so its opening center is empty. Frame both targets
+    # and start on a real panel without depending on the preceding test's view.
     rv3d.view_rotation = Euler((math.radians(75), 0, 0)).to_quaternion()
     rv3d.view_location = (0.0, 0.5, 0.8)
     rv3d.view_distance = 4.0
     yield
     tampo = next(o for o in addon.modulos._chapas_do_conjunto(conj)
-                 if o.name.startswith('Tampo'))
+                 if o.name.startswith("Top"))
     meio = tampo.matrix_world.translation
     m.mover(*na_tela(regiao, rv3d, meio))
     yield
     m.apertar('RIGHTMOUSE')
     yield
     assert any(o.bl_idname == 'OBJECT_OT_cabinet_arrastar_na_parede'
-               for o in janela.modal_operators), 'o arraste nao iniciou numa chapa'
+               for o in janela.modal_operators), 'dragging did not start on a panel'
     destino = na_tela(regiao, rv3d, Vector((-0.9, 1.0, 1.6)))
     for t in (0.25, 0.5, 0.75, 1.0):
         m.mover(m.x + (destino[0] - m.x) * t, m.y + (destino[1] - m.y) * t)
         yield
     m.soltar('RIGHTMOUSE')
     yield
-    assert conj.get(P.CHAVE_PAREDE), 'modulo nao foi associado'
+    assert conj.get(P.CHAVE_PAREDE), 'the cabinet was not associated'
     assert conj[P.CHAVE_PAREDE] == parede.get(P.CHAVE_UID_PAREDE), dict(conj)
     assert abs(P.ponto_das_costas(conj).y - 1.0) < 1e-4, P.ponto_das_costas(conj)
-    # selecionado, as guias aparecem; clique no numero do piso digita
+    # Selection shows the guides; clicking the floor-guide number opens text entry.
     selecionar(janela, addon.modulos._chapas_do_conjunto(conj)[0])
-    yield esperar(0.5)                 # o timer calcula as guias
-    assert P._guias[0] is not None, 'sem guias'
+    yield esperar(0.5)                 # The timer computes the guides.
+    assert P._guias[0] is not None, 'no guides'
     rotulo = next(r for r in P._rotulos.get(regiao.as_pointer(), ())
                   if r[0] == 'piso')
     m.mover(regiao.x + (rotulo[1] + rotulo[3]) / 2,
@@ -2427,7 +2413,7 @@ def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
     yield
     m.clicar()
     yield
-    assert P._edicao_guia[0] is not None, 'o clique nao abriu a digitacao'
+    assert P._edicao_guia[0] is not None, 'click did not open text entry'
     m.clicar('A', ctrl=True)
     m.digitar('1200')
     m.tecla('RET')
@@ -2438,9 +2424,9 @@ def test_arrastar_modulo_com_o_direito_ate_a_parede(janela, m):
 
 
 def test_botao_direito_no_material_pinta_o_comodo(janela, m):
-    # Pintura rapida (pedido do usuario): mouse sobre o material + botao
-    # DIREITO -> "quais modulos?" (por comodo) -> "pintar o que?" na caixa
-    # preta sob o material; nenhum menu de contexto do Blender.
+    # Quick painting, as requested: right-click a material to choose cabinets by
+    # room, then choose what to paint in the black box beneath the material;
+    # no Blender context menu should appear.
     import shutil
     import tempfile
     pasta = tempfile.mkdtemp()
@@ -2449,14 +2435,14 @@ def test_botao_direito_no_material_pinta_o_comodo(janela, m):
     try:
         area, regiao, _rv3d = viewport(janela)
         with contexto(janela, area, regiao):
-            conj = addon.modulos.criar_armario(bpy.context, "Balcao", 800, 720, 550)
+            conj = addon.modulos.criar_armario(bpy.context, "Base Cabinet", 800, 720, 550)
             addon.portas.porta_no_modulo(conj, 2)
-            addon.orcamento.definir_comodo(bpy.context.scene, [conj], 'Cozinha')
+            addon.orcamento.definir_comodo(bpy.context.scene, [conj], "Kitchen")
         cena = bpy.context.scene
         cena.cabinet_bib_modo = 'MATERIAIS'
-        cena.cabinet_mat_n1, cena.cabinet_mat_n2 = 'MDF', 'Unicolores'
+        cena.cabinet_mat_n1, cena.cabinet_mat_n2 = 'MDF', "Solid Colors"
         yield
-        areia = 'MDF/Unicolores//Areia'
+        areia = "MDF/Solid Colors//Sand"
         m.mover(*widget(janela, lambda v: v[5][0] == 'material'
                         and v[5][1]['chave'] == areia))
         yield
@@ -2464,7 +2450,7 @@ def test_botao_direito_no_material_pinta_o_comodo(janela, m):
         yield
         pergunta = addon.perguntas._pergunta_atual[0]
         assert pergunta is not None and pergunta.get('biblioteca'), pergunta
-        for rotulo in ('Cozinha (1)', "So' a caixa"):
+        for rotulo in ('Cozinha (1)', "Box Only"):
             m.mover(*widget(janela, lambda v: v[5][0] == 'resposta'
                             and v[4] == rotulo))
             yield
@@ -2475,16 +2461,16 @@ def test_botao_direito_no_material_pinta_o_comodo(janela, m):
         folhas = addon.materiais.pecas_do_modulo(conj, 'PORTAS')
         assert {c.material_slots[0].material.name for c in caixa} == {'MDF Areia'}
         assert not any(f.material_slots and f.material_slots[0].material
-                       for f in folhas), 'pintou a porta'
+                       for f in folhas), 'painted the door'
     finally:
         addon.biblioteca.pasta_biblioteca = original
         bpy.context.scene.cabinet_bib_modo = 'MODULOS'
         shutil.rmtree(pasta, True)
 
 
-# ------------------------------------------------------------ gavetas
+# ------------------------------------------------------------ drawers
 def _gavetas_de_frente(janela):
-    """Nicho de frente, aba Gavetas, nada selecionado."""
+    """Front-facing niche, Drawers tab, nothing selected."""
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
     bpy.context.scene.cabinet_aba = 'GAVETAS'
     return conj, area, regiao, rv3d
@@ -2523,7 +2509,7 @@ def test_walk_entre_pontos_preserva_criacao_do_volume(janela, m):
         janela.event_simulate('ACCENT_GRAVE','PRESS',shift=True,x=m.x,y=m.y)
         janela.event_simulate('ACCENT_GRAVE','RELEASE',x=m.x,y=m.y)
         yield
-        assert any(o.bl_idname=='VIEW3D_OT_walk' for o in janela.modal_operators), 'Walk nao iniciou'
+        assert any(o.bl_idname=='VIEW3D_OT_walk' for o in janela.modal_operators), 'Walk did not start'
         inicio=rv.view_location.copy()
         m.apertar('D')
         yield
@@ -2531,7 +2517,7 @@ def test_walk_entre_pontos_preserva_criacao_do_volume(janela, m):
         yield
         m.soltar('D')
         yield
-        assert (rv.view_location-inicio).length>1e-5, 'WASD nao moveu a camera'
+        assert (rv.view_location-inicio).length>1e-5, 'WASD did not move the camera'
         m.tecla('RET')
         yield
         assert addon.gavetas._assistente_gavetas[0] is w
@@ -2559,7 +2545,7 @@ def test_scroll_na_cota_subdivide_so_vao_e_esc_descarta_previa(janela, m):
         m.clicar()
         yield
         estado=addon.hud._edicao_hud[0]
-        assert estado and estado['alvo'].get('face')==('V',0), 'Nao abriu a cota do vao'
+        assert estado and estado['alvo'].get('face')==('V',0), 'the opening dimension did not open'
         n=len(addon.prateleiras.prateleiras_do_grupo(grupo))
         for _ in range(2):
             janela.event_simulate('WHEELUPMOUSE','PRESS',x=m.x,y=m.y)
@@ -2574,7 +2560,7 @@ def test_scroll_na_cota_subdivide_so_vao_e_esc_descarta_previa(janela, m):
 
 
 def test_criar_gavetas_pelo_assistente(janela, m):
-    # Tres pontos em qualquer ordem -> frente explicita -> quantidade -> trilho.
+    # Three points in any order -> explicit front -> count -> rail.
     conj, area, regiao, rv3d = _gavetas_de_frente(janela)
     yield
     yield
@@ -2583,7 +2569,7 @@ def test_criar_gavetas_pelo_assistente(janela, m):
     m.clicar()
     yield
     w = addon.gavetas._assistente_gavetas[0]
-    assert w is not None, 'Criar Gavetas nao abriu'
+    assert w is not None, 'Create Drawers did not open'
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     y = -P / 2
@@ -2623,7 +2609,7 @@ def test_criar_gavetas_pelo_assistente(janela, m):
 
 
 def test_criar_prateleiras_pelo_assistente(janela, m):
-    # O mesmo seletor 3D entrega a caixa e a frente ao dono das prateleiras.
+    # The same 3D picker passes the box and front to the shelf owner.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
     bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
     yield
@@ -2636,7 +2622,7 @@ def test_criar_prateleiras_pelo_assistente(janela, m):
     m.mover(*widget(janela, lambda v: v[5] == ('resposta',0)));m.clicar()
     yield
     w = addon.prateleiras._assistente_prateleiras[0]
-    assert w is not None, 'Criar Prateleiras nao abriu'
+    assert w is not None, 'Create Shelves did not open'
     assert addon.gavetas._assistente_gavetas[0] is None
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
@@ -2671,8 +2657,8 @@ def test_criar_prateleiras_pelo_assistente(janela, m):
 
 
 def test_clique_nas_prateleiras_todas_duplo_uma(janela, m):
-    # como as gavetas: clique numa prateleira = todas do vao (a aba
-    # Prateleiras); duplo = so' ela (a aba mostra Abaixo/Acima dela)
+    # Like drawers: clicking a shelf selects all shelves in the opening and their
+    # tab; double-click selects only that shelf and shows its below/above distances.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
     with contexto(janela, area, regiao):
         E = conj.conj_espessura_mm
@@ -2697,12 +2683,12 @@ def test_clique_nas_prateleiras_todas_duplo_uma(janela, m):
     assert set(bpy.context.selected_objects) == {alvo}, bpy.context.selected_objects
     rotulos = [v[4] for v in addon.gaveta._widgets_gaveta(
         bpy.context, 480, 1400) if v[5] and v[5][0] == 'medida']
-    assert any(r.startswith('Abaixo') for r in rotulos), rotulos
+    assert any(r.startswith("Below") for r in rotulos), rotulos
 
 
 def test_escape_na_marcacao_nativa_do_vao(janela, m):
-    # Regressoes v240: Esc no translate nativo deve encerrar tambem o
-    # assistente pai, sem deixar cursor/bloqueios ou desenhos pendurados.
+    # Regressions v240: Esc during native translation must also finish the parent
+    # wizard without leaving cursor state, locks or drawing callbacks behind.
     conj, area, regiao, rv3d = _wizard_ate_o_tipo(janela, None)
     cursor = bpy.context.scene.cursor.location.copy()
     nomes = set(bpy.data.objects.keys())
@@ -2740,7 +2726,7 @@ def test_clique_no_puxador_da_gaveta_abre_puxadores(janela, m):
     yield
     yield from _clicar_no_mundo(m, regiao, rv3d, pux.matrix_world.translation)
     yield esperar(0.4)
-    # clique simples = a frente (as gavetas); duplo = o puxador
+    # Single click selects the front/drawers; double click selects the handle.
     assert bpy.context.view_layer.objects.active == grupo, bpy.context.object
     assert not pux.select_get()
     yield from _clicar_no_mundo(m, regiao, rv3d, pux.matrix_world.translation)
@@ -2760,10 +2746,10 @@ def test_clique_no_puxador_da_gaveta_abre_puxadores(janela, m):
 
 
 def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
-    # clique na frente = todas as gavetas (so' elas com linha na HUD); a
-    # bolinha do slider (gizmo VIEW3D_GT_slider_gaveta, grupo
-    # VIEW3D_GGT_slider_gaveta) abre pelo cabinet_abrir_gaveta, e a
-    # gaveta aberta nao cobre o slider: ele anda com a frente
+    # Clicking the front selects all drawers; only they have HUD outlines.
+    # The slider dot (VIEW3D_GT_slider_gaveta in VIEW3D_GGT_slider_gaveta)
+    # opens through cabinet_abrir_gaveta and moves with the front,
+    # so an open drawer cannot obscure its slider.
     conj, area, regiao, rv3d = _gavetas_de_frente(janela)
     grupo = _gavetas_prontas(janela, conj)
     gaveta = addon.gavetas.gavetas_do_grupo(grupo)[1]
@@ -2779,11 +2765,11 @@ def test_slider_abre_a_gaveta_e_clique_seleciona(janela, m):
     m.mover(regiao.x + inicio.x, regiao.y + inicio.y)
     yield
     yield
-    assert addon.gavetas._slider_hover[0] == gaveta.name, 'a bolinha nao acendeu'
+    assert addon.gavetas._slider_hover[0] == gaveta.name, 'the dot did not highlight'
     m.apertar()
     yield
     assert any(o.bl_idname.endswith('cabinet_abrir_gaveta')
-               for o in m.janela.modal_operators), 'o arraste nao abriu'
+               for o in m.janela.modal_operators), 'the drag did not start'
     meio = inicio.lerp(fim, 0.5)
     for passo in range(1, 5):
         m.mover(regiao.x + inicio.x + (meio.x - inicio.x) * passo / 4,
@@ -2818,7 +2804,7 @@ def _linha_editavel_gavetas(janela, grupo, letra, lado, indice=None):
                     and alvo['lado'] == lado):
                 inicio, fim = [Vector(na_tela(regiao, rv3d, p)) for p in alvo['pontos']]
                 return alvo, ponto, (fim - inicio).normalized()
-    raise AssertionError('linha de gavetas nao encontrada: %s/%s' % (letra, lado))
+    raise AssertionError('drawer line not found: %s/%s' % (letra, lado))
 
 
 def test_altura_de_uma_gaveta_com_previa_esc_e_digitacao(janela,m):
@@ -2881,7 +2867,7 @@ def test_arrastar_gavetas_redimensiona_sem_mexer_no_armario(janela, m):
             yield
             m.apertar()
             yield
-            assert addon.hud._edicao_hud[0] is not None, ('o arraste nao abriu',
+            assert addon.hud._edicao_hud[0] is not None, ('the drag did not start',
                 letra, lado, tuple(inicio), bpy.context.object,
                 addon.hud._hover_hud, [o.bl_idname for o in janela.modal_operators])
             for passo in range(1, 5):
@@ -2892,7 +2878,7 @@ def test_arrastar_gavetas_redimensiona_sem_mexer_no_armario(janela, m):
             depois = addon.gavetas.valor(grupo, (letra,))
             assert (depois - antes) * pixels > 0, (letra, antes, depois)
             cantos = addon.gavetas.cantos_hud(grupo)
-            assert min((c - fixa).length for c in cantos) < 1e-4, 'a quina fixa andou'
+            assert min((c - fixa).length for c in cantos) < 1e-4, 'the fixed corner moved'
             assert all(abs(a - b) < 0.1 for a, b in zip(modulo, addon.modulos.medir_conjunto(conj)))
             assert bpy.context.view_layer.objects.active == grupo
             assert len(addon.gavetas.gavetas_com_slider(bpy.context)) == 3
@@ -2932,7 +2918,7 @@ def test_gavetas_arraste_esc_e_digitacao_na_hud(janela, m):
     yield
     m.apertar()
     yield
-    assert addon.hud._edicao_hud[0] is not None, ('clique nao abriu',
+    assert addon.hud._edicao_hud[0] is not None, ('click did not open text entry',
         tuple(inicio), bpy.context.object, addon.hud._hover_hud,
         [o.bl_idname for o in janela.modal_operators])
     m.soltar()
@@ -2946,8 +2932,8 @@ def test_gavetas_arraste_esc_e_digitacao_na_hud(janela, m):
 
 
 def test_gavetas_esc_apos_modulo_renomeado_e_aumentado(janela, m):
-    # Regressao 222: nome salvo do preset, movel fora da origem, +100 mm,
-    # entrar na edicao e Esc SEM arrastar nao pode duplicar a translacao.
+    # Regression v222: a preset's saved name, furniture away from origin, +100 mm.
+    # Entering edit and pressing Esc without dragging must not duplicate translation.
     conj, area, regiao, rv3d = _gavetas_de_frente(janela)
     grupo = _gavetas_prontas(janela, conj)
     conj.location += Vector((6.7, -1.25, 0.3))
@@ -2984,8 +2970,8 @@ def test_gavetas_esc_apos_modulo_renomeado_e_aumentado(janela, m):
 
 
 def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
-    # pedido do usuario: com Alt, 3 pontos -- as duas quinas da frente na
-    # diagonal e a profundidade; o de cima a' esquerda gruda num vertice
+    # User request: Alt shows three points: two opposite front corners and depth;
+    # the upper-left point snaps to a vertex.
     conj, area, regiao, rv3d = _gavetas_de_frente(janela)
     grupo = _gavetas_prontas(janela, conj, n=2)
     with contexto(janela, area, regiao):
@@ -3005,13 +2991,13 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     yield
     m.apertar(alt=True)
     yield
-    assert addon.gavetas._arraste_ponto[0] is not None, 'o ponto nao pegou'
+    assert addon.gavetas._arraste_ponto[0] is not None, 'the point was not grabbed'
     m.mover(m.x + 15, m.y + 10)
     yield
     m.tecla('ESC')
     yield
     yield
-    assert addon.gavetas._arraste_ponto[0] is None, 'Esc nao encerrou o snap nativo'
+    assert addon.gavetas._arraste_ponto[0] is None, 'Esc did not end native snapping'
     assert addon.gavetas.medidas(grupo) == antes
     assert (bpy.context.scene.cursor.location - cursor).length < 1e-6
     assert area.spaces.active.overlay.show_cursor == overlay
@@ -3023,7 +3009,7 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
     assert addon.gavetas._arraste_ponto[0] is not None
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
-    # a quina de baixo do tampo vira a de cima da lateral: o vao sobe E
+    # The top's lower corner becomes the side's upper corner: the opening rises by E.
     destino = na_tela(regiao, rv3d, _local(conj, -L / 2 + E, -P / 2, A))
     inicio = (m.x, m.y)
     for passo in range(1, 5):
@@ -3057,7 +3043,7 @@ def test_alt_arrasta_o_ponto_das_gavetas(janela, m):
 
 
 def test_faces_da_parede_usam_shift_e_menu_permanece_disponivel(janela, m):
-    # 399: Shift soma faces nativas; Ctrl fica reservado ao percurso.
+    # 399: Shift adds native faces; Ctrl remains reserved for the path.
     import bmesh
     A=addon.ambientes;E=addon.paredes_edicao
     area,regiao,rv=viewport(janela)
@@ -3086,8 +3072,8 @@ def test_faces_da_parede_usam_shift_e_menu_permanece_disponivel(janela, m):
         assert len([f for f in bmesh.from_edit_mesh(parede.data).faces if f.select])==2
         itens=[]
         with contexto(janela,area,regiao):E.widgets(bpy.context,itens,12,900,400)
-        assert 'Cancelar selecao 2D' in [v[4] for v in itens]
-        assert not any(v[4] in ('Automatico','Por pontos','Confirmar area') for v in itens)
+        assert "Cancel 2D selection" in [v[4] for v in itens]
+        assert not any(v[4] in ("Automatic","By points",'Confirmar area') for v in itens)
         m.tecla('RET')
         yield
         assert E.ativa() and A._edicao_faces[0] is None
@@ -3125,7 +3111,7 @@ def test_criar_divisorias_e_prateleiras_no_mesmo_volume(janela, m):
             m.clicar('A', ctrl=True)
             m.digitar(str(mm)); m.tecla('RET')
             yield
-            assert A.objeto() is not None, 'Enter do campo aplicou a area'
+            assert A.objeto() is not None, 'Enter in the field applied the area'
             assert abs(A.valor(A.objeto(), (chave,)) - mm) < .01
         m.mover(*widget(janela, lambda v: v[5] == ('operador', 'object.cabinet_aplicar_area')))
         m.clicar()

@@ -1,4 +1,4 @@
-"""Recortes e movimento de esquadrias arquitetonicas em cena temporaria."""
+"""Architectural opening cutouts and movement in a temporary scene."""
 import math
 import os
 import sys
@@ -16,6 +16,33 @@ A, E, I, P = addon.alvenaria, addon.esquadrias, addon.instalacoes, addon.paredes
 
 
 class TestEsquadrias(unittest.TestCase):
+    def test_saved_leaf_roles_still_open_without_rebuilding(self):
+        self.parede()
+        for model in ('PORTA', 'JANELA'):
+            obj = self.instalar(model)
+            parts = list(obj.children)
+            for part in parts:
+                role = part.get(A.PECA, '')
+                if role.startswith('Leaf '):
+                    part[A.PECA] = role.replace('Leaf ', 'Folha ', 1)
+                elif role.startswith('Hinge '):
+                    part[A.PECA] = role.replace('Hinge ', 'Dobradica ', 1)
+            meshes = {part.as_pointer(): part.data.as_pointer() for part in parts}
+            E.abrir(obj, 0, .5)
+            self.assertEqual(meshes, {part.as_pointer(): part.data.as_pointer() for part in obj.children})
+            E.abrir(obj, 0, 0.)
+            I.remover(obj)
+
+    def test_removing_saved_cut_prefixes_restores_wall(self):
+        self.parede()
+        obj = self.instalar()
+        uid = obj[I.IDENTIDADE]
+        self.apoio.modifiers[I.CORTE+uid].name = 'Archy Builder - Recorte '+uid
+        self.apoio.modifiers[I.FILTRO+uid].name = 'Archy Builder - Superficie '+uid
+        I.remover(obj)
+        self.assertEqual(len(self.apoio.modifiers), 0)
+        self.assertTrue(self.raio())
+
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False)
@@ -68,7 +95,7 @@ class TestEsquadrias(unittest.TestCase):
     def test_sacada_sobre_degrau_redimensiona_altura_sem_mudar_base(self):
         self.parede()
         obj = self.instalar('SACADA', centro=(0, 0, .45), medidas=(1.6, 1.6, .12))
-        folha = next(o for o in obj.children if o.get(A.PECA) == 'Folha 1')
+        folha = next(o for o in obj.children if o.get(A.PECA) == "Leaf 1")
         malha = folha.data
         self.assertIsNone(I.editar_medida(obj, 1, 2.))
         bpy.context.view_layer.update()
@@ -85,7 +112,7 @@ class TestEsquadrias(unittest.TestCase):
         nome = self.apoio.modifiers[0].name
         E.abrir(obj, 0, 1.)
         self.assertFalse(E._toca_batente(obj, E._ficha(obj)[0]))
-        folha = next(o for o in obj.children if o.get(A.PECA) == 'Folha 1')
+        folha = next(o for o in obj.children if o.get(A.PECA) == "Leaf 1")
         antes = folha.location.copy()
         self.assertEqual(bpy.ops.object.cabinet_acao_instalacao(acao='inverter'), {'FINISHED'})
         self.assertLess(folha.location.z, antes.z)
@@ -134,7 +161,7 @@ class TestEsquadrias(unittest.TestCase):
         bpy.context.view_layer.update()
         A.verificar()
         self.assertAlmostEqual(obj[A.MEDIDAS][0], .90*1.3, places=5)
-        batente = next(o for o in obj.children if o.get(A.PECA) == 'Batente esquerdo')
+        batente = next(o for o in obj.children if o.get(A.PECA) == "Left jamb")
         self.assertAlmostEqual(batente.scale.x, E.PERFIL)
 
 
@@ -148,4 +175,4 @@ with tempfile.TemporaryDirectory(prefix='esquadrias_') as pasta, \
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nas provas de esquadrias')
+        raise RuntimeError("Architectural-opening tests failed")

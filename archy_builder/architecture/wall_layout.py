@@ -1,8 +1,7 @@
-"""Composicao existente na parede: cotas, larguras fixas e redistribuicao.
+"""Existing wall layout: dimensions, fixed widths, and redistribution.
 
-O timer publica numeros para UI/desenho. Mutacoes pertencem aos operadores;
-resize e cancelamento reutilizam os contratos do modulo e da HUD.
-"""
+The timer publishes numbers for the UI/drawing. Operators own mutations;
+resizing and cancellation reuse the cabinet and HUD contracts."""
 import math
 import time
 import bpy
@@ -29,45 +28,45 @@ _edicao = [None]
 _interiores = [{}]
 _sujos = [set()]
 _handler_interior = [None]
-# Caixa LOCAL de cada modulo do resumo, por nome: no arraste so' a matriz
-# muda, e as cotas seguem sem reler malhas.
+# LOCAL box of each cabinet in the summary, keyed by name: during dragging only the matrix
+# changes, so dimensions follow without rereading meshes.
 _caixas = [{}]
-# Modulos que o G/R/S nativo moveu na vista da parede: recebem o ima ao
-# soltar (`encaixar_movidos`). So' nomes.
+# Cabinets moved by native G/R/S in wall view receive snapping
+# on release (`encaixar_movidos`). Names only.
 _movidos = [set()]
-IMA_PX = 12     # como o SNAP_PX do arraste direito na parede
-LADO_PX = 24    # G/arraste a ate' isto de uma lateral pega AQUELA lateral
-QUINA_PX = 16   # mouse a ate' isto de uma quina-alvo: gruda nela, sem Alt
-# Mover na parede em andamento, so' para o desenho: {'modulo', 'lado',
-# 'quina' (x, z) ou None, 'linhas' [('x'|'z', valor)]}. So' nomes e numeros.
+IMA_PX = 12     # Same as SNAP_PX for right dragging on the wall.
+LADO_PX = 24    # G/drag within this distance of a side selects THAT side.
+QUINA_PX = 16   # Mouse within this distance of a target corner snaps to it without Alt.
+# Wall movement in progress, for drawing only: {'modulo', 'lado',
+# 'quina' (x, z) or None, 'linhas' [('x'|'z', value)]}. Names and numbers only.
 _movendo = [None]
-# Quina de modulo sob o mouse na vista da parede (pedido do usuario: o
-# circulo do snap de quina aparece so' de passar o mouse perto dela, como
-# o do snap de vertice): (nome do modulo, (x, z)) ou None.
+# Cabinet corner under the mouse in wall view. At the user's request,
+# the corner snap circle appears simply by hovering near it,
+# like vertex snapping: (cabinet name, (x, z)) or None.
 _quina_hover = [None]
 RAIO_QUINA_PX = 7
 
-# Guias de altura (pedido do usuario, como no DXF): linhas de referencia
-# do piso da face, SO' na vista da parede. Padrao de cozinha planejada,
-# editavel por projeto (ID props da cena).
+# Height guides, requested by the user as in DXF: reference lines
+# measured from the face floor, ONLY in wall view. Standard fitted kitchen heights,
+# editable per project (scene ID properties).
 CHAVE_GUIAS = 'parede_guias'
 CHAVE_GUIAS_MODO = 'parede_guias_modo'
-MODOS_GUIAS = (('OCULTAS', 'Ocultas'), ('VISIVEIS', 'Visiveis'), ('SNAP', 'Com snap'))
+MODOS_GUIAS = (('OCULTAS', "Hidden"), ('VISIVEIS', "Visible"), ('SNAP', "With snap"))
 ALVO_GUIAS = 'paredes_guias'
 MARCA_OBJETO_GUIAS = 'cabinet_parede_guias_2d'
-GUIAS_PADRAO = (('Rodape', 150.0), ('Bancada', 900.0), ('Peitoril', 1100.0),
-                ('Base do aereo', 1500.0), ('Altura maxima', 2150.0))
+GUIAS_PADRAO = (("Toe Kick", 150.0), ("Countertop", 900.0), ("Sill", 1100.0),
+                ("Wall cabinet base", 1500.0), ("Maximum height", 2150.0))
 _rotulos_guias = [()]
-ALTURA_ROTULO_GUIA_M = 0.07     # altura do texto na parede, em escala
-TAMANHO_MINIMO_GUIA_PX = 7      # abaixo disso o rotulo some (ilegivel)
-PISCA_CURSOR_S = 0.5            # meio periodo do cursor de digitacao
-# Guias discretas (pedido do usuario): linha PONTILHADA -- tracos curtos da
-# propria malha, entao o snap nativo de aresta continua pegando a altura --
-# e rotulo em texto cinza; a caixa preta so' com o mouse em cima.
+ALTURA_ROTULO_GUIA_M = 0.07     # Text height on the wall, to scale.
+TAMANHO_MINIMO_GUIA_PX = 7      # Hide the label below this size (illegible).
+PISCA_CURSOR_S = 0.5            # Text cursor half-period.
+# Subtle guides, requested by the user: DOTTED lines made of short mesh
+# segments, so native edge snapping still finds the height,
+# with gray text labels; the black box appears only on hover.
 TRACO_GUIA_M = 0.01
 PASSO_GUIA_M = 0.04
-COR_TEXTO_GUIA = (0.5, 0.5, 0.5, 1.0)   # legivel na parede clara e na grade escura
-_guia_hover = [None]            # 'guia_<i>' sob o mouse, ou None
+COR_TEXTO_GUIA = (0.5, 0.5, 0.5, 1.0)   # Readable on light walls and the dark grid.
+_guia_hover = [None]            # 'guia_<i>' under the mouse, or None.
 
 
 def guias(cena):
@@ -86,12 +85,12 @@ def editar_guia(context, indice, valor_mm):
     s = _paredes_edicao._sessao[0]
     lista = guias(context.scene)
     if s is None:
-        return 'A edicao da parede terminou'
+        return "Wall editing has ended"
     if not 0 <= indice < len(lista):
-        return 'Guia inexistente'
+        return "Guide does not exist"
     s0, s1, z0, z1 = s['regiao']['retangulo']
     if not math.isfinite(valor_mm) or not 0 < valor_mm <= (z1 - z0) * 1000 + 1e-6:
-        return 'A guia deve ficar dentro da altura da parede'
+        return "The guide must be within the wall height"
     lista[indice]['altura_mm'] = float(valor_mm)
     context.scene[CHAVE_GUIAS] = lista
     sincronizar_guias(context)
@@ -100,7 +99,7 @@ def editar_guia(context, indice, valor_mm):
 
 def definir_modo_guias(context, modo):
     if modo not in dict(MODOS_GUIAS):
-        return 'Modo de guia desconhecido'
+        return "Unknown guide mode"
     context.scene[CHAVE_GUIAS_MODO] = modo
     sincronizar_guias(context)
     return None
@@ -115,9 +114,9 @@ def remover_objeto_guias():
 
 
 def sincronizar_guias(context):
-    """Objeto temporario so' de ARESTAS na frente da parede: alvo do snap
-    NATIVO de aresta. Sem snap nas guias, ele sai do snap pelo filtro
-    nativo de nao-selecionaveis; ocultas, ele nem existe."""
+    """Temporary EDGES-ONLY object in front of the wall: a NATIVE edge snap
+    target. With guide snapping disabled, the native non-selectable filter
+    excludes it from snapping; when hidden, it does not exist."""
     s = _paredes_edicao._sessao[0]
     cena = context.scene
     if s is None or modo_guias(cena) == 'OCULTAS':
@@ -126,8 +125,8 @@ def sincronizar_guias(context):
         n, u, ponto = (Vector(s[k]) for k in ('normal', 'u', 'ponto'))
         s0, s1, z0, z1 = s['regiao']['retangulo']
         vertices, arestas = [], []
-        # Tracos de s0 em diante e um ultimo rente a s1: a guia marca as
-        # duas pontas da face.
+        # Dashes from s0 onward and one last dash flush with s1 mark
+        # both ends of the face.
         inicios = [s0 + k * PASSO_GUIA_M for k in range(int((s1 - s0) / PASSO_GUIA_M) + 1)
                    if s0 + k * PASSO_GUIA_M < s1 - 1e-9]
         if inicios and inicios[-1] + TRACO_GUIA_M < s1 - 1e-9:
@@ -141,9 +140,9 @@ def sincronizar_guias(context):
                 arestas.append((len(vertices) - 2, len(vertices) - 1))
         obj = next((o for o in bpy.data.objects if MARCA_OBJETO_GUIAS in o), None)
         if obj is None:
-            obj = bpy.data.objects.new('Guias da parede', bpy.data.meshes.new('Guias da parede'))
+            obj = bpy.data.objects.new("Wall guides", bpy.data.meshes.new("Wall guides"))
             obj[MARCA_OBJETO_GUIAS] = 1
-            # Clique nativo pegaria a aresta solta; o snap continua vendo.
+            # Native clicking would select the loose edge; snapping still sees it.
             obj.hide_select = True
             obj.hide_render = True
             cena.collection.objects.link(obj)
@@ -162,8 +161,8 @@ def sincronizar_guias(context):
 
 
 def desenhar_guias(context):
-    """Rotulo "altura - nome" na ponta esquerda, sobre a linha; clicar
-    digita. A linha e' a aresta nativa do objeto das guias."""
+    """"Height - name" label at the left end, above the line; click to type.
+    The line is the guide object's native edge."""
     s = _paredes_edicao._sessao[0]
     _rotulos_guias[0] = ()
     if modo_guias(context.scene) == 'OCULTAS':
@@ -171,8 +170,8 @@ def desenhar_guias(context):
     n, u, ponto = (Vector(s[k]) for k in ('normal', 'u', 'ponto'))
     s0, s1, z0, z1 = s['regiao']['retangulo']
     tamanho_maximo = estilo_cotas(context)['tamanho'] * context.preferences.system.ui_scale
-    # O rotulo tem tamanho FISICO na parede (pedido do usuario): diminui
-    # com o zoom, nunca passa do da cota e some quando ficaria ilegivel.
+    # The label has a PHYSICAL size on the wall, as requested by the user: it shrinks
+    # with zoom, never exceeds the dimension text size, and hides when illegible.
     base = ponto + u * (s0 - ponto.dot(u)) + n * .002
     base.z = z0
     a, b = (view3d_utils.location_3d_to_region_2d(context.region, context.region_data, p)
@@ -216,8 +215,8 @@ def texto_discreto(x, y, texto, tamanho):
 
 
 def atualizar_guia_hover(x, y):
-    """Guia cujo rotulo esta' sob o mouse (x, y da regiao), ou None se
-    fora; redesenha so' quando muda."""
+    """Guide whose label is under the mouse (region x, y), or None outside;
+    redraw only when it changes."""
     r = next((r for r in _rotulos_guias[0]
               if r[0] <= x <= r[0] + r[2] and r[1] <= y <= r[1] + r[3]), None) if x is not None else None
     prop = r[5] if r else None
@@ -227,14 +226,14 @@ def atualizar_guia_hover(x, y):
 
 
 def cursor_aceso(agora=None):
-    """Pisca como o cursor de texto: meio periodo aceso, meio apagado."""
+    """Blink like a text cursor: on for half a period, off for half."""
     return int((time.monotonic() if agora is None else agora) / PISCA_CURSOR_S) % 2 == 0
 
 
 def caixa_editavel(x, y, texto, edicao, tamanho, escala):
-    """Caixa preta da HUD. Em edicao, o texto digitado (inicio de `texto`)
-    ganha realce enquanto estiver todo selecionado, e uma barra PISCA na
-    posicao do cursor: a referencia de onde a tecla entra."""
+    """Black HUD box. While editing, highlight the typed text (the start of `texto`)
+    when fully selected, and BLINK a bar at the cursor position
+    to indicate where typing will insert text."""
     _hud._caixa_texto_hud(x, y, texto, tamanho, escala)
     if edicao is None:
         return
@@ -261,7 +260,7 @@ def caixa_editavel(x, y, texto, edicao, tamanho, escala):
 
 
 def parede(obj):
-    """Parede assumida explicitamente ou que ja' tem modulos associados."""
+    """Wall explicitly adopted or already associated with cabinets."""
     if obj is None:
         return False
     s = _paredes_edicao._sessao[0]
@@ -288,7 +287,7 @@ def ficha(obj, s, caixa=None):
 
 
 def itens_da_face(context, caixas=None):
-    """`caixas` (dict), se dado, recebe a caixa local de cada modulo."""
+    """If provided, the `caixas` dict receives each cabinet's local box."""
     s = _paredes_edicao._sessao[0]
     if not _paredes_edicao.ativa(context):
         return []
@@ -307,9 +306,9 @@ def itens_da_face(context, caixas=None):
 
 
 def _medir_vaos(itens, s):
-    """Cotas do DXF: Anterior/Posterior (`vao_esquerdo`/`vao_direito`)
-    ate' o vizinho na mesma altura ou a ponta da face; Inferior/Superior
-    ate' o modulo embaixo/em cima na mesma faixa, ou o piso/teto da face."""
+    """DXF dimensions: previous/next (`vao_esquerdo`/`vao_direito`) to the
+    neighbor at the same height or the face end; lower/upper to the
+    cabinet below/above in the same span, or the face floor/ceiling."""
     s0, s1, z0, z1 = s['regiao']['retangulo']
     for item in itens:
         topo = item['base'] + item['altura']
@@ -342,12 +341,12 @@ def _intervalos_livres(context, s, base, altura, prof, excluir=()):
 
 def _validar_encaixe(context, s, item, excluir=()):
     if min(item[k] for k in ('largura', 'altura', 'profundidade')) < .02:
-        return 'O modulo deve ter dimensoes de pelo menos 20 mm'
-    # Afastado da parede, o modulo ocupa a profundidade a partir da folga.
+        return "The cabinet dimensions must be at least 20 mm"
+    # Away from the wall, cabinet depth starts after the rear gap.
     faixas = _intervalos_livres(context, s, item['base'], item['altura'],
                                 item['profundidade'] + item.get('afastamento', 0.0), excluir)
     if not any(item['inicio'] >= a - .00005 and item['fim'] <= b + .00005 for a, b in faixas):
-        return 'O modulo nao cabe neste vao sem ultrapassar o limite ou outro objeto'
+        return "The cabinet does not fit in this opening without extending beyond the boundary or overlapping another object"
     return None
 
 
@@ -368,12 +367,12 @@ def _aplicar(context, item, s):
     real = ficha(obj, s)
     if any(abs(real[k] - item[k]) > .00005 for k in ('largura', 'altura', 'profundidade', 'inicio', 'base')
            + (('afastamento',) if 'afastamento' in item else ())):
-        raise ValueError('As dimensoes pedidas nao sao compativeis com os encaixes do modelo')
+        raise ValueError("The requested dimensions are incompatible with the model's joints")
 
 
 def _transacao(context, itens):
     if any(not _paredes_edicao.modulo_editavel(bpy.data.objects.get(item['nome'])) for item in itens):
-        return 'Selecione um modulo editavel'
+        return "Select an editable cabinet"
     backups, vinculos = [], []
     for item in itens:
         obj = bpy.data.objects[item['nome']]
@@ -396,7 +395,7 @@ def _transacao(context, itens):
                         del obj[k]
         return str(erro)
     finally:
-        # Medida pedida no campo nao recebe ima, mesmo vinda de um modal.
+        # A measurement entered in a field is not snapped, even when entered through a modal.
         _movidos[0] = set()
         _paredes._conferidos.clear()
         _paredes_edicao._plano[0] = None
@@ -407,16 +406,16 @@ def _transacao(context, itens):
 
 def editar_modulo(context, nome, propriedade, valor_mm):
     if not _paredes_edicao.ativa(context):
-        return 'Entre na edicao da parede'
+        return "Enter wall editing"
     obj = _paredes.modulo_de(bpy.data.objects.get(nome))
     if not _paredes_edicao.modulo_editavel(obj):
-        return 'Selecione um modulo editavel'
+        return "Select an editable cabinet"
     s = _paredes_edicao._sessao[0]
     item = next((f for f in itens_da_face(context) if obj and f['nome'] == obj.name), None)
     if item is None:
-        return 'O modulo nao esta associado a esta face'
+        return "The cabinet is not attached to this face"
     if not math.isfinite(valor_mm) or valor_mm < 0:
-        return 'Informe uma medida positiva ou zero'
+        return "Enter a positive dimension or zero"
     item = dict(item)
     valor = valor_mm / 1000
     s0, s1, z0, z1 = s['regiao']['retangulo']
@@ -439,11 +438,11 @@ def editar_modulo(context, nome, propriedade, valor_mm):
     elif propriedade == 'afastamento':
         item['afastamento'] = valor
     else:
-        return 'Cota de modulo desconhecida'
+        return "Unknown cabinet dimension"
     item['fim'] = item['inicio'] + item['largura']
     if (propriedade in ('cota_inferior', 'cota_superior') and
             (item['base'] < z0 - 1e-6 or item['base'] + item['altura'] > z1 + 1e-6)):
-        return 'O modulo deve ficar entre o piso e o teto da parede'
+        return "The cabinet must remain between the wall's floor and ceiling"
     erro = _validar_encaixe(context, s, item, (item['nome'],))
     return erro or _transacao(context, [item])
 
@@ -451,7 +450,7 @@ def editar_modulo(context, nome, propriedade, valor_mm):
 def fixar(context, nome, fixa):
     obj = bpy.data.objects.get(nome)
     if not obj or not any(f['nome'] == nome for f in itens_da_face(context)):
-        return 'Modulo nao encontrado nesta parede'
+        return "Cabinet not found on this wall"
     obj[CHAVE_FIXA] = bool(fixa)
     atualizar(context)
     _paredes_edicao._redesenhar()
@@ -462,7 +461,7 @@ def planejar_troca(context, s):
     obj = bpy.data.objects.get(s.get('substituir', ''))
     item = next((f for f in itens_da_face(context) if obj and f['nome'] == obj.name), None)
     if item is None:
-        return {'erro': 'O modulo a substituir nao pertence mais a esta parede'}
+        return {'erro': "The cabinet to be replaced no longer belongs to this wall"}
     erro = _validar_encaixe(context, s, item, (item['nome'],))
     if erro:
         return {'erro': erro}
@@ -476,7 +475,7 @@ def substituir(context):
     if plano.get('erro'):
         return plano['erro']
     if not s.get('modelo'):
-        return 'Escolha o novo modelo na biblioteca'
+        return "Choose the new model from the library"
     item = plano['alvo']
     antigo = bpy.data.objects[item['nome']]
     velhos = [antigo] + list(antigo.children_recursive)
@@ -486,8 +485,8 @@ def substituir(context):
     antes = _paredes_edicao._dados_antes()
     selecao = [o.name for o in context.selected_objects]
     ativo = context.object.name if context.object else ''
-    # o preset entra na raiz da cena; o substituto volta para o comodo do
-    # original, senao sai do orcamento
+    # The preset enters at the scene root; return its replacement to the original
+    # room so it remains included in the estimate.
     comodo = _orcamento._nome_comodo(_orcamento._comodo_do_modulo(antigo))
     try:
         m = s['modelo']
@@ -496,7 +495,7 @@ def substituir(context):
             raise ValueError(erro)
         modulos = [o for o in novos if _chapas.MARCA_CONJUNTO in o]
         if len(modulos) != 1 or raizes != modulos:
-            raise ValueError('O modelo deve conter um unico modulo completo')
+            raise ValueError("The model must contain a single complete cabinet")
         novo = modulos[0]
         alvo = dict(item, nome=novo.name)
         _aplicar(context, alvo, s)
@@ -524,7 +523,7 @@ def substituir(context):
                 obj.select_set(True)
         context.view_layer.objects.active = context.view_layer.objects.get(ativo)
         return str(erro)
-    # O original so' sai depois de o substituto estar validado e associado.
+    # Remove the original only after validating and associating its replacement.
     for obj in reversed(velhos):
         bpy.data.objects.remove(obj, do_unlink=True)
     for nome in colecoes:
@@ -550,10 +549,10 @@ def planejar_redistribuicao(context):
     escolhidos = [f for f in itens if bpy.data.objects[f['nome']].select_get()]
     if len(escolhidos) < 2:
         if ativo is None:
-            return {'erro': 'Selecione um modulo da composicao'}
+            return {'erro': "Select a cabinet in the layout"}
         escolhidos = [f for f in itens if abs(f['base'] - ativo['base']) < .002]
     if not escolhidos:
-        return {'erro': 'Nenhum modulo para distribuir'}
+        return {'erro': "No cabinets to distribute"}
     base = min(f['base'] for f in escolhidos)
     topo = max(f['base'] + f['altura'] for f in escolhidos)
     profundidade = max(f['profundidade'] for f in escolhidos)
@@ -562,16 +561,16 @@ def planejar_redistribuicao(context):
     inicio, fim = min(f['inicio'] for f in escolhidos), max(f['fim'] for f in escolhidos)
     faixa = next(((a, b) for a, b in faixas if a <= inicio + .00005 and b >= fim - .00005), None)
     if faixa is None:
-        return {'erro': 'Os modulos selecionados nao compartilham um vao livre'}
+        return {'erro': "The selected cabinets do not share a clear opening"}
     esquerda, direita, espaco = (s[k] / 1000 for k in ('esquerda', 'direita', 'espacamento'))
     disponivel = faixa[1] - faixa[0] - esquerda - direita - espaco * (len(escolhidos) - 1)
     fixas = sum(f['largura'] for f in escolhidos if f['fixa'])
     livres = sum(not f['fixa'] for f in escolhidos)
     if not livres:
-        return {'erro': 'Libere a largura de pelo menos um modulo'}
+        return {'erro': "Unlock the width of at least one cabinet"}
     largura = (disponivel - fixas) / livres
     if largura < .02:
-        return {'erro': 'As larguras fixas e as folgas nao cabem no vao'}
+        return {'erro': "The fixed widths and clearances do not fit in the opening"}
     posicao, resultado = faixa[0] + esquerda, []
     for item in escolhidos:
         novo = dict(item, largura=item['largura'] if item['fixa'] else largura, inicio=posicao)
@@ -586,7 +585,7 @@ def invalidar_interiores(cena, depsgraph):
     _ambientes.invalidar(cena,depsgraph)
     if _eventos._desfazendo[0] or _paredes_edicao._sessao[0] is None:
         return
-    # Apenas nomes; extrair geometria no depsgraph ou no redraw torna undo inseguro.
+    # Names only; extracting geometry in the depsgraph or redraw makes undo unsafe.
     for atualizacao in depsgraph.updates:
         if atualizacao.is_updated_geometry:
             dado = atualizacao.id
@@ -604,8 +603,8 @@ def _arestas_avaliadas(obj, depsgraph):
         bm.from_mesh(malha)
         bm.normal_update()
         mundo = avaliado.matrix_world
-        # O BMesh nativo distingue quinas de triangulos coplanares; a copia
-        # nunca e' escrita na Mesh do usuario.
+        # Native BMesh distinguishes corners from coplanar triangles; never
+        # write this copy back to the user's Mesh.
         return tuple(tuple(mundo @ v.co) for e in bm.edges
                      if len(e.link_faces) != 2 or e.calc_face_angle(0) > .001
                      for v in e.verts)
@@ -687,9 +686,9 @@ def atualizar(context):
 
 @bpy.app.handlers.persistent
 def acompanhar_arraste(cena, depsgraph):
-    """G nativo: as cotas acompanham o movel a cada passo, nao so' no
-    tique de 0,2 s. So' numeros (caixa guardada + matriz atual); o timer
-    continua dono da lista de modulos, dos interiores e das caixas."""
+    """Native G: dimensions follow the cabinet at each step, not only on the
+    0.2 s tick. Numbers only (cached box + current matrix); the timer
+    still owns the cabinet list, interiors, and boxes."""
     resumo, s = _resumo[0], _paredes_edicao._sessao[0]
     if _eventos._desfazendo[0] or s is None or not resumo:
         return
@@ -699,8 +698,8 @@ def acompanhar_arraste(cena, depsgraph):
                and a.id.name in nomes}
     editado = modulo_em_edicao()
     if editado in nomes and depsgraph.updates:
-        # Resize pela HUD muda a caixa, nao so' a matriz: a largura e a
-        # altura em edicao acompanham o mouse.
+        # HUD resizing changes the box, not just the matrix: the width and
+        # height being edited follow the mouse.
         obj = bpy.data.objects.get(editado)
         caixa = _paredes.caixa_do_modulo(obj) if obj is not None else None
         if caixa is not None:
@@ -709,9 +708,9 @@ def acompanhar_arraste(cena, depsgraph):
     if not movidos:
         return
     if _eventos._transformando():
-        # So' o gesto a' mao (G/R/S nativo) recebe o ima ao soltar; medida
-        # digitada, distribuicao e insercao ficam exatamente como pedidas.
-        # O ponto da face (translate do cursor) redimensiona: nada de ima.
+        # Only direct gestures (native G/R/S) receive snapping on release; typed
+        # measurements, distribution, and insertion remain exactly as requested.
+        # The face point (cursor translate) resizes: do not snap it.
         _movidos[0] |= movidos - {editado}
     itens = []
     for item in resumo['itens']:
@@ -725,22 +724,22 @@ def acompanhar_arraste(cena, depsgraph):
 
 
 def _alvos_do_ima(s, itens, nome, cena):
-    """Bordas a que a caixa do modulo gruda, NO PLANO da parede: pontas,
-    piso e teto da face, bordas dos vizinhos e as guias com snap."""
+    """Edges the cabinet box snaps to IN THE WALL PLANE: face ends,
+    floor, and ceiling; neighbor edges; and snap-enabled guides."""
     s0, s1, z0, z1 = s['regiao']['retangulo']
     xs, zs = [s0, s1], [z0, z1]
     for f in itens:
         if f['nome'] != nome:
             xs += [f['inicio'], f['fim']]
             zs += [f['base'], f['base'] + f['altura']]
-    # 'Visiveis' so' orientam; quem gruda e' o modo 'Com snap'.
+    # 'Visible' guides are reference only; 'With Snapping' enables snapping.
     if modo_guias(cena) == 'SNAP':
         zs += [z0 + g['altura_mm'] / 1000 for g in guias(cena)]
     return xs, zs
 
 
 def _quinas_do_ima(s, itens, nome):
-    """Quinas (x, z) dos vizinhos e da face: alvos do Alt."""
+    """Neighbor and face corners (x, z): Alt targets."""
     s0, s1, z0, z1 = s['regiao']['retangulo']
     caixas = [(s0, s1, z0, z1)] + [(f['inicio'], f['fim'], f['base'], f['base'] + f['altura'])
                                    for f in itens if f['nome'] != nome]
@@ -748,7 +747,7 @@ def _quinas_do_ima(s, itens, nome):
 
 
 def _mais_perto(bordas, alvos, tolerancia):
-    """(deslocamento, alvo) da borda ao alvo mais perto, ou (0, None)."""
+    """(offset, target) from the edge to the nearest target, or (0, None)."""
     melhor = min(((c - p, c) for c in alvos for p in bordas),
                  key=lambda d: abs(d[0]), default=None)
     if melhor is None or abs(melhor[0]) > tolerancia:
@@ -757,25 +756,25 @@ def _mais_perto(bordas, alvos, tolerancia):
 
 
 def _grudar(a, b, alvos, tolerancia):
-    """Deslocamento que leva a borda `a` ou `b` ao alvo mais perto, ou 0."""
+    """Offset moving edge `a` or `b` to the nearest target, or 0."""
     return _mais_perto((a, b), alvos, tolerancia)[0]
 
 
 def quinas_da_ficha(f):
-    """{(i, j): (x, z)} das 4 quinas da caixa no plano: i 0/1 = esquerda/
-    direita, j 0/1 = base/topo."""
+    """{(i, j): (x, z)} for the box's four planar corners: i 0/1 = left/
+    right, j 0/1 = bottom/top."""
     return {(i, j): (f['inicio'] + i * f['largura'], f['base'] + j * f['altura'])
             for i in (0, 1) for j in (0, 1)}
 
 
 def quina_sob(f, x, z, tolerancia):
-    """(i, j) da quina da caixa a ate' `tolerancia` de (x, z), ou None."""
+    """(i, j) of the box corner within `tolerancia` of (x, z), or None."""
     perto = min(quinas_da_ficha(f).items(), key=lambda q: math.dist(q[1], (x, z)))
     return perto[0] if math.dist(perto[1], (x, z)) <= tolerancia else None
 
 
 def _no_plano_da_sessao(event, regiao, rv3d):
-    """(x, z) do mouse no plano da parede, ou None."""
+    """Mouse (x, z) in the wall plane, or None."""
     s = _paredes_edicao._sessao[0]
     xy = (event.mouse_x - regiao.x, event.mouse_y - regiao.y)
     origem = view3d_utils.region_2d_to_origin_3d(regiao, rv3d, xy)
@@ -785,8 +784,8 @@ def _no_plano_da_sessao(event, regiao, rv3d):
 
 
 def atualizar_quina_hover(event, regiao, rv3d):
-    """O observador da parede chama no MOUSEMOVE: acende a quina de modulo
-    perto do mouse (so' contas nas fichas do resumo, nada de malha)."""
+    """Called by the wall observer on MOUSEMOVE: highlight the cabinet corner
+    near the mouse (calculations on summary records only, no mesh access)."""
     resumo, s = _resumo[0], _paredes_edicao._sessao[0]
     achada = None
     mouse = _no_plano_da_sessao(event, regiao, rv3d) if resumo and s else None
@@ -804,9 +803,9 @@ def atualizar_quina_hover(event, regiao, rv3d):
 
 
 def lado_sob(f, x, z, tolerancia):
-    """A lateral da caixa (`ficha`) a ate' `tolerancia` de (x, z) no plano
-    da parede, ou None. Frente e fundo nao contam: na vista de frente
-    sobram esquerda, direita, base e topo."""
+    """Side of the box (`ficha`) within `tolerancia` of (x, z) in the wall plane,
+    or None. Front and back do not count: the front view leaves
+    only left, right, bottom, and top."""
     topo = f['base'] + f['altura']
     candidatos = []
     if f['base'] - tolerancia <= z <= topo + tolerancia:
@@ -819,21 +818,20 @@ def lado_sob(f, x, z, tolerancia):
 
 def posicao_com_ima(f, inicio, base, alvos, lado, tolerancia, quinas=(), mouse=None,
                     laterais=True, tolerancia_quina=None, quina=None):
-    """(inicio, base, linhas) do modulo depois do ima 2D.
+    """(start, base, lines) of the cabinet after 2D snapping.
 
-    A quina-alvo (`quinas`) a ate' `tolerancia_quina` do `mouse` recebe a
-    quina mais perto da caixa, como o snap de vertice -- mas no plano,
-    entao a quina da frente nunca cai na de tras de outro movel. Sem
-    quina perto e com `laterais` (o Alt), `lado` gruda o LADO INTEIRO
-    (pedido do usuario: nao a quina) e deixa o outro eixo livre; None
-    gruda a borda mais perto de cada eixo. `linhas` sao os alvos usados,
-    para o desenho."""
+    A target corner (`quinas`) within `tolerancia_quina` of `mouse` receives
+    the nearest box corner, like vertex snapping, but in the plane, so a front
+    corner never snaps to another cabinet's back corner. With no nearby corner
+    and `laterais` enabled (Alt), `lado` snaps the ENTIRE SIDE, as requested
+    by the user, leaving the other axis free; None snaps the nearest edge on
+    each axis. `linhas` contains the targets used for drawing."""
     largura, altura = f['largura'], f['altura']
     if tolerancia_quina is None:
         tolerancia_quina = tolerancia
     if quina is not None:
-        # quina PEGA (o circulo aceso no G/arraste): e' ela que gruda, na
-        # quina-alvo mais perto DELA, e as laterais dela com o Alt
+        # The GRABBED corner (the lit circle during G/drag) snaps to the
+        # target corner nearest IT, and its sides snap with Alt.
         fonte = (inicio + quina[0] * largura, base + quina[1] * altura)
         alvo = min(quinas, key=lambda q: math.dist(q, fonte), default=None)
         if alvo is not None and math.dist(alvo, fonte) <= tolerancia_quina:
@@ -869,13 +867,13 @@ def posicao_com_ima(f, inicio, base, alvos, lado, tolerancia, quinas=(), mouse=N
 
 
 def encaixar_movidos(context):
-    """Ao soltar o G (timer, sem modal): ima 2D e limite da face.
+    """On G release (timer, no modal): apply 2D snapping and face limits.
 
-    So' no plano da parede: na vista de frente nao se ve profundidade, e
-    o snap 3D grudava a quina da frente na de tras de outro movel (ou num
-    vertice interno, como o do fundo recuado, deixando fresta). Aqui as
-    bordas da CAIXA do modulo grudam nas dos vizinhos, da face e das
-    guias a ate' IMA_PX, e o modulo volta para dentro da face."""
+    Work only in the wall plane: depth is invisible in front view, and
+    3D snapping aligned a front corner with another cabinet's back corner
+    (or an internal vertex, such as a recessed back, leaving a gap). Here,
+    the cabinet BOX edges snap to neighbors, face edges, and guides within
+    IMA_PX, and the cabinet returns inside the face."""
     s = _paredes_edicao._sessao[0]
     if s is None or not _movidos[0] or _eventos._ha_modal_ativo():
         return False
@@ -901,7 +899,7 @@ def encaixar_movidos(context):
         xs, zs = _alvos_do_ima(s, itens, nome, context.scene)
         inicio = f['inicio'] + _grudar(f['inicio'], f['fim'], xs, tolerancia)
         base = f['base'] + _grudar(f['base'], f['base'] + f['altura'], zs, tolerancia)
-        # Associado, o modulo nao sai da face (pedido do usuario).
+        # An associated cabinet cannot leave the face, as requested by the user.
         inicio = max(s0, min(inicio, s1 - f['largura'])) if f['largura'] <= s1 - s0 else s0
         base = max(z0, min(base, z1 - f['altura'])) if f['altura'] <= z1 - z0 else z0
         if abs(inicio - f['inicio']) < 1e-7 and abs(base - f['base']) < 1e-7:
@@ -919,8 +917,8 @@ def encaixar_movidos(context):
 
 
 def modulo_em_edicao():
-    """Nome do modulo cuja geometria a HUD edita agora (ponto da face ou
-    seta da quina), ou None: a 2a etapa das cotas."""
+    """Name of the cabinet whose geometry the HUD is currently editing (face point
+    or corner arrow), or None: the second stage of dimension editing."""
     nativo = _hud_volume._estado[0]
     if nativo is not None:
         return nativo['objeto']
@@ -933,9 +931,9 @@ def modulo_em_edicao():
 
 
 def digitacao_hud():
-    """(propriedade, estado) da medida que se digita apos clicar na bolinha
-    da borda, ou (None, None). O texto entra NO numero da cota verde dela:
-    a caixa da HUD ao lado sobrepunha o rotulo (print do usuario)."""
+    """(property, state) of the measurement typed after clicking an edge dot,
+    or (None, None). Text goes INTO its green dimension value:
+    the adjacent HUD box used to overlap the label (user screenshot)."""
     estado = _hud._edicao_hud[0]
     if not estado or estado.get('texto') is None:
         return None, None
@@ -961,13 +959,13 @@ def esquecer():
         _handler_interior[0] = None
 
 
-# (propriedade, rotulo, curto, coluna) das cotas do DXF, na CRUZ: cada
-# uma do lado do modulo a que se refere; o afastamento (profundidade) no
-# meio. Valores de ate' 5 digitos: a coluna nao cresce alem disso.
-COTAS_EM_CRUZ = ((('cota_superior', 'Superior', 'Sup', 1),),
-                 (('vao_esquerdo', 'Anterior', 'Ant', 0), ('afastamento', 'Afastamento', 'Afast', 1),
-                  ('vao_direito', 'Posterior', 'Post', 2)),
-                 (('cota_inferior', 'Inferior', 'Inf', 1),))
+# (property, label, short label, column) of DXF dimensions in a CROSS: each
+# on its corresponding side of the cabinet; wall offset (depth) in the
+# center. Values up to five digits: the column does not grow beyond that.
+COTAS_EM_CRUZ = ((('cota_superior', "Above", "Above", 1),),
+                 (('vao_esquerdo', "Previous", "Prev", 0), ('afastamento', "Offset", "Offset", 1),
+                  ('vao_direito', "Next", "Next", 2)),
+                 (('cota_inferior', "Below", "Below", 1),))
 LARGURA_CAMPO_COTA = 84
 LARGURA_ROTULO_INTEIRO = 76
 
@@ -982,7 +980,7 @@ def _campos_em_cruz(itens, x, topo, w, ativo):
     for i, (nome, rotulo) in enumerate((('largura', 'A1'), ('altura', 'A2'), ('profundidade', 'A3'))):
         campo(0, i, nome, rotulo, ativo[nome])
     topo -= 43
-    itens.append((x, topo - 22, w, 20, 'Cotas', None))
+    itens.append((x, topo - 22, w, 20, "Dimensions", None))
     topo -= 26
     for linha, cotas in enumerate(COTAS_EM_CRUZ):
         for nome, rotulo, curto, indice in cotas:
@@ -997,14 +995,14 @@ def widgets(context, itens, x, topo, w):
     ativo = selecionado(context, resumo['itens'])
     if not ativo:
         return topo
-    # So' as medidas do selecionado (pedido do usuario): Livre/Fixa por
-    # modulo e os botoes Redistribuir/Trocar/Desassociar sairam do menu.
-    topo = _gaveta._titulo_secao(itens, x, topo, w, 'Composicao')
+    # Only the selected cabinet's measurements, as requested by the user: per-cabinet
+    # Free/Fixed controls and Redistribute/Replace/Disassociate buttons left the menu.
+    topo = _gaveta._titulo_secao(itens, x, topo, w, "Layout")
     return _campos_em_cruz(itens, x, topo, w, ativo) - 12
 
 
 def estilo_cotas(context):
-    """Linha do tema sobre halo opaco: legivel na parede e fora dela."""
+    """Theme-colored line over an opaque halo, readable on and off the wall."""
     cores = context.preferences.themes[0].user_interface.wcol_regular
     return dict(linha=(*cores.text[:3], 1.0), halo=(*cores.inner[:3], 1.0),
                 realce=_hud._cor_realce_hud(),
@@ -1012,8 +1010,8 @@ def estilo_cotas(context):
 
 
 def area_livre(context):
-    """(x0, y0, x1, y1) da regiao fora das faixas sobrepostas (toolbar,
-    cabecalho, sidebar, prateleira): ali a ponta de seta ficava escondida."""
+    """(x0, y0, x1, y1) of the region excluding overlapping strips (toolbar,
+    header, sidebar, shelf), where arrowheads used to be hidden."""
     regiao = context.region
     x0, y0, x1, y1 = 0, 0, regiao.width, regiao.height
     for outra in (context.area.regions if context.area else ()):
@@ -1021,7 +1019,7 @@ def area_livre(context):
             continue
         ox, oy = outra.x - regiao.x, outra.y - regiao.y
         if ox >= x1 or oy >= y1 or ox + outra.width <= x0 or oy + outra.height <= y0:
-            continue        # sem sobreposicao: a regiao ja' a exclui
+            continue        # No overlap: the region already excludes it.
         if outra.alignment == 'LEFT':
             x0 = max(x0, ox + outra.width)
         elif outra.alignment == 'RIGHT':
@@ -1034,9 +1032,9 @@ def area_livre(context):
 
 
 def recortar_cota(a, b, livre, margem):
-    """Pontas da cota trazidas para dentro de `livre` no eixo dela: a
-    distancia ate' a parede fora da tela termina na borda, com a seta
-    inteira a' vista (pedido do usuario). (None, None) se nada aparece."""
+    """Bring dimension ends inside `livre` along its axis: distance to an
+    offscreen wall ends at the border with the whole arrow visible,
+    as requested by the user. (None, None) if nothing is visible."""
     x0, y0, x1, y1 = livre
     i, lo, hi = ((1, y0 + margem, y1 - margem) if abs(b.x - a.x) < abs(b.y - a.y)
                  else (0, x0 + margem, x1 - margem))
@@ -1059,8 +1057,8 @@ def desenhar(context):
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     segmentos, realces, rotulos, textos = [], [], [], []
     ativo = selecionado(context, resumo['itens'])
-    # A1/A2/A3 identificam o volume sempre; durante o resize as distancias
-    # aos vizinhos somem para deixar o valor em edicao livre.
+    # A1/A2/A3 always identify the volume; while resizing, hide distances
+    # to neighbors so the edited value has room.
     editando = ativo is not None and modulo_em_edicao() == ativo['nome']
     digitada = digitacao_hud() if editando else (None, None)
     livre = area_livre(context)
@@ -1069,8 +1067,8 @@ def desenhar(context):
         p.z = z
         return view3d_utils.location_3d_to_region_2d(context.region, context.region_data, p)
     def rotulo(centro, item, prop, valor, lado=0, prefixo=''):
-        """Numero editavel em `centro`; `lado` -1/+1 encosta a' esquerda/
-        direita de uma cota vertical, 0 centra."""
+        """Editable number at `centro`; `lado` -1/+1 aligns to the left/
+        right of a vertical dimension, and 0 centers it."""
         edicao = _edicao[0]
         if not (edicao and edicao['objeto'] == item['nome'] and edicao['propriedade'] == prop):
             edicao = None
@@ -1088,8 +1086,8 @@ def desenhar(context):
             candidatos = [y]
             for r in rotulos:
                 candidatos.extend((r[1] - tamanho - 8, r[1] + r[3] + 8))
-            # Distancias conservam sua referencia; indicadores novos se
-            # afastam dos numeros existentes, inclusive em modulo pequeno.
+            # Distances retain their reference; new indicators move away
+            # from existing numbers, including on small cabinets.
             for candidato in sorted(candidatos, key=lambda v: abs(v - y)):
                 if not livre[1] + 4 <= candidato <= livre[3] - tamanho - 4:
                     continue
@@ -1099,7 +1097,7 @@ def desenhar(context):
                     y = candidato
                     break
         if edicao is not None and edicao is digitada[1]:
-            # O clique DENTRO da caixa posiciona o cursor da HUD (`_clique_na_caixa`).
+            # Clicking INSIDE the box positions the HUD cursor (`_clique_na_caixa`).
             edicao['caixas'] = [(x, y, tamanho, escala)]
         textos.append((x, y, texto, edicao))
         rotulos.append((x - 5, y - 4, largura + 10, tamanho + 8, item['nome'], prop, valor * 1000))
@@ -1126,8 +1124,8 @@ def desenhar(context):
             if a is None or b is None or ativo != item:
                 continue
             if not editando:
-                # Guias de movimento (desenho do usuario): cada distancia
-                # sai do MEIO da sua face e vai ate' o vizinho/ponta/piso/teto.
+                # Movement guides (user drawing): each distance starts at the
+                # CENTER of its face and reaches the neighbor/end/floor/ceiling.
                 meio_x = (item['inicio'] + item['fim']) / 2
                 meio_z = item['base'] + item['altura'] / 2
                 topo_modulo = item['base'] + item['altura']
@@ -1139,21 +1137,21 @@ def desenhar(context):
                      item, 'cota_inferior', item['cota_inferior'], i, curto=True)
                 cota(tela(meio_x, topo_modulo), tela(meio_x, topo_modulo + item['cota_superior']),
                      item, 'cota_superior', item['cota_superior'], i, curto=True)
-                # Profundidade nao tem linha de frente: o afastamento e' um
-                # numero editavel no meio do modulo.
+                # Depth has no front-facing line: wall offset is an editable
+                # number in the cabinet center.
                 meio = tela((item['inicio'] + item['fim']) / 2, item['base'] + item['altura'] / 2)
                 if meio is not None:
-                    rotulo(meio, item, 'afastamento', item['afastamento'], prefixo='Afast. ')
-            # Mesmas propriedades e hit-tests do menu: nenhuma medida paralela.
+                    rotulo(meio, item, 'afastamento', item['afastamento'], prefixo="Offset ")
+            # Same properties and hit tests as the menu: no parallel measurements.
             desloc = Vector((0, -14 * escala))
             cota(a + desloc, b + desloc, item, 'largura', item['largura'], i, prefixo='A1: ')
             topo = tela(item['fim'], item['base'] + item['altura'])
             cota(b + Vector((12 * escala, 0)), topo + Vector((12 * escala, 0)),
                  item, 'altura', item['altura'], i, prefixo='A2: ', fracao=.75)
-            # Na vista frontal a profundidade nao se projeta. Uma chamada
-            # na quina identifica A3 sem fingir uma aresta medida na tela.
+            # Depth does not project in front view. A corner callout
+            # identifies A3 without pretending to measure an onscreen edge.
             rotulo(b + Vector((26, 26)) * escala, item, 'profundidade',
-                   item['profundidade'], lado=1, prefixo='A3 Prof.: ')
+                   item['profundidade'], lado=1, prefixo="A3 Depth: ")
             r = rotulos[-1]
             ponta = Vector((max(r[0], min(b.x, r[0] + r[2])), r[1] + r[3] / 2))
             realces.extend((b, ponta))
@@ -1166,7 +1164,7 @@ def desenhar(context):
                      'direita': ((fim, item['base']), (fim, topo)),
                      'base': ((item['inicio'], item['base']), (fim, item['base'])),
                      'topo': ((item['inicio'], topo), (fim, topo))}
-            # A lateral pega e a linha-alvo de ponta a ponta da face.
+            # The grabbed side and target line across the entire face.
             pares = [lados[movendo['lado']]] if movendo['lado'] else []
             pares += [((v, z0), (v, z1)) if eixo == 'x' else ((s0, v), (s1, v))
                       for eixo, v in movendo['linhas']]
@@ -1174,8 +1172,8 @@ def desenhar(context):
                 a, b = tela(*a), tela(*b)
                 if a is not None and b is not None:
                     realces.extend((a, b))
-        # O circulo do snap de quina (pedido do usuario): na quina sob o
-        # mouse e, movendo, na quina pega (onde ela estiver, grudada ou nao).
+        # Corner snap circle, requested by the user: at the corner under the
+        # mouse and, during movement, at the grabbed corner, wherever it is, snapped or not.
         quina = (movendo or {}).get('quina') if movendo else (
             _quina_hover[0][1] if _quina_hover[0] else None)
         centro = tela(*quina) if quina else None
@@ -1193,7 +1191,7 @@ def desenhar(context):
                 shader.bind()
                 shader.uniform_float('color', cor)
                 batch_for_shader(shader, 'LINES', {'pos': linhas}).draw(shader)
-        # O traco nunca passa sobre o numero nem sobre o cursor de edicao.
+        # Never draw the line over the number or editing cursor.
         for x, y, texto, edicao in textos:
             caixa_editavel(x, y, texto, edicao, tamanho, escala)
     finally:
@@ -1209,7 +1207,7 @@ def cota_sob(x, y):
 
 def widgets_guias(context, itens, x, topo, w):
     cena = context.scene
-    topo = _gaveta._titulo_secao(itens, x, topo, w, 'Guias')
+    topo = _gaveta._titulo_secao(itens, x, topo, w, "Guides")
     topo = _gaveta._linha_escolha_gaveta(itens, x, topo - 25, w, '', CHAVE_GUIAS_MODO,
                                          MODOS_GUIAS, modo_guias(cena),
                                          alvo=ALVO_GUIAS) + 23
@@ -1217,14 +1215,14 @@ def widgets_guias(context, itens, x, topo, w):
                ('medida', 'parede_guia', str(i), g['nome'], g['altura_mm']))
               for i, g in enumerate(guias(cena))]
     topo = _gaveta._campos_em_linhas(context, itens, x, topo, w, campos)
-    itens.append((x, topo - 28, w, 28, 'Restaurar guias padrao',
+    itens.append((x, topo - 28, w, 28, "Restore default guides",
                   ('operador', 'object.cabinet_restaurar_guias_parede')))
     return topo - 46
 
 
 class OBJECT_OT_restaurar_guias_parede(Operator):
     bl_idname = 'object.cabinet_restaurar_guias_parede'
-    bl_label = 'Restaurar guias padrao'
+    bl_label = "Restore default guides"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -1236,7 +1234,7 @@ class OBJECT_OT_restaurar_guias_parede(Operator):
 
 class OBJECT_OT_redistribuir_parede(Operator):
     bl_idname = 'object.cabinet_redistribuir_parede'
-    bl_label = 'Redistribuir composicao'
+    bl_label = "Redistribute layout"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -1251,12 +1249,12 @@ class OBJECT_OT_redistribuir_parede(Operator):
 
 class OBJECT_OT_trocar_modelo_parede(Operator):
     bl_idname = 'object.cabinet_trocar_modelo_parede'
-    bl_label = 'Trocar modelo do modulo'
+    bl_label = "Change cabinet model"
 
     def execute(self, context):
         item = selecionado(context)
         if item is None:
-            self.report({'WARNING'}, 'Selecione um modulo associado a esta parede')
+            self.report({'WARNING'}, "Select a cabinet attached to this wall")
             return {'CANCELLED'}
         s = _paredes_edicao._sessao[0]
         s['substituir'] = item['nome']
@@ -1266,15 +1264,15 @@ class OBJECT_OT_trocar_modelo_parede(Operator):
 
 
 class OBJECT_OT_mover_na_parede(Operator):
-    """Move o modulo no plano da parede: gruda na quina que o mouse passar
-    perto; com Alt segurado, tambem a lateral mais perto do mouse"""
+    """Move the cabinet in the wall plane: snap to corners the mouse approaches;
+    while Alt is held, also snap the side nearest the mouse."""
     bl_idname = 'object.cabinet_mover_na_parede'
-    bl_label = 'Mover na Parede'
+    bl_label = "Move on Wall"
     bl_options = {'REGISTER', 'UNDO'}
 
     modulo: StringProperty(options={'SKIP_SAVE'})
-    # Clique esquerdo num modulo: so' vira movimento depois do limiar de
-    # arraste; antes disso tudo passa (o clique continua selecionando).
+    # Left click on a cabinet becomes movement only after the drag
+    # threshold; until then, pass everything through so clicking still selects.
     arrastar: BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
@@ -1308,7 +1306,7 @@ class OBJECT_OT_mover_na_parede(Operator):
         px = _paredes._px_por_metro(regiao, rv3d, Vector(s['ponto']), Vector(s['u']))
         self._tolerancia = IMA_PX / px if px else 0.0
         self._tolerancia_quina = QUINA_PX / px if px else 0.0
-        # A quina perto do mouse (o circulo aceso) vale mais que a lateral.
+        # The corner near the mouse (the lit circle) takes priority over the side.
         self._quina = quina_sob(f, *mouse, self._tolerancia_quina)
         self._lado = None if self._quina else lado_sob(f, *mouse, LADO_PX / px if px else 0.0)
         itens = itens_da_face(context)
@@ -1330,8 +1328,7 @@ class OBJECT_OT_mover_na_parede(Operator):
         _quina_hover[0] = None
         try:
             context.workspace.status_text_set(
-                'Mover na parede | Mouse perto de uma quina: gruda nela | Segure Alt: laterais'
-                ' | Esc/direito: cancelar')
+                "Move on wall | Mouse near a corner: snaps to it | Hold Alt: sides | Esc/right-click: cancel")
         except Exception:
             pass
         _paredes_edicao._redesenhar()
@@ -1365,8 +1362,8 @@ class OBJECT_OT_mover_na_parede(Operator):
         f = self._ficha
         inicio = f['inicio'] + mouse[0] - self._mouse[0]
         base = f['base'] + mouse[1] - self._mouse[1]
-        # Pedido do usuario: a quina gruda so' de o mouse passar perto dela;
-        # o Alt segurado liga tambem as laterais (solto, elas ficam livres).
+        # At the user's request, approaching a corner with the mouse snaps to it;
+        # holding Alt also enables side snapping (released, the sides remain free).
         inicio, base, linhas = posicao_com_ima(
             f, inicio, base, self._alvos, self._lado, self._tolerancia,
             self._quinas, mouse, laterais=event.alt,
@@ -1374,11 +1371,11 @@ class OBJECT_OT_mover_na_parede(Operator):
         n, u, ponto = (Vector(s[k]) for k in ('normal', 'u', 'ponto'))
         centro = ponto + u * (inicio + f['largura'] / 2 - ponto.dot(u))
         centro.z = base + f['altura'] / 2
-        # As regras da insercao: dentro da face e sem sobrepor vizinho.
+        # Use insertion rules: stay inside the face without overlapping a neighbor.
         costas, erro = _paredes_edicao.encaixar_na_face(context, obj, centro, s, self._caixa)
         if erro:
             try:
-                context.workspace.status_text_set(erro + ' | Esc: cancelar')
+                context.workspace.status_text_set(erro + " | Esc: cancel")
             except Exception:
                 pass
             return
@@ -1400,8 +1397,8 @@ class OBJECT_OT_mover_na_parede(Operator):
             return {'CANCELLED', 'PASS_THROUGH'}
         if not self._arrastou:
             if event.type == 'MOUSEMOVE':
-                # O limiar do Blender: passado ele, o arraste e' daqui. Se
-                # um G/gizmo nativo ja' comecou, ele e' o dono do gesto.
+                # Blender's threshold: once crossed, this code owns the drag. If a
+                # native G/gizmo has already started, it owns the gesture.
                 limiar = context.preferences.inputs.drag_threshold_mouse
                 if (max(abs(event.mouse_x - self._xy[0]), abs(event.mouse_y - self._xy[1])) < limiar
                         or _eventos._transformando()):
@@ -1411,7 +1408,7 @@ class OBJECT_OT_mover_na_parede(Operator):
                 self._mover(context, event)
                 return {'RUNNING_MODAL'}
             if event.type in {'LEFTMOUSE', 'ESC', 'RIGHTMOUSE'}:
-                # soltou sem arrastar: era so' o clique de selecao
+                # Released without dragging: this was only a selection click.
                 return {'CANCELLED', 'PASS_THROUGH'}
             return {'PASS_THROUGH'}
         if event.type in {'MOUSEMOVE', 'LEFT_ALT', 'RIGHT_ALT'}:
@@ -1429,9 +1426,9 @@ class OBJECT_OT_mover_na_parede(Operator):
             self._encerrar(context)
             return {'CANCELLED'}
         if event.type.startswith(('WHEEL', 'TRACKPAD', 'NDOF')):
-            return {'PASS_THROUGH'}      # zoom, como no G nativo
-        # O resto (botao do meio etc.) nao chega ao observador, que sairia
-        # da vista da parede ao girar.
+            return {'PASS_THROUGH'}      # Zoom, as with native G.
+        # Other input (middle button, etc.) does not reach the observer,
+        # which would leave wall view on orbit.
         return {'RUNNING_MODAL'}
 
     def cancel(self, context):
@@ -1441,7 +1438,7 @@ class OBJECT_OT_mover_na_parede(Operator):
 
 class OBJECT_OT_editar_cota_parede(Operator):
     bl_idname = 'object.cabinet_editar_cota_parede'
-    bl_label = 'Editar cota do modulo'
+    bl_label = "Edit cabinet dimension"
     bl_options = {'REGISTER', 'UNDO'}
     objeto: StringProperty(options={'SKIP_SAVE'})
     propriedade: StringProperty(options={'SKIP_SAVE'})
@@ -1462,14 +1459,14 @@ class OBJECT_OT_editar_cota_parede(Operator):
         texto = _opcoes._numero_na_unidade(valor * 1000)
         _edicao[0] = dict(objeto=self.objeto, propriedade=self.propriedade, texto=texto,
                           cursor=len(texto), selecionado=False)
-        # Tique so' para o cursor piscar com o mouse parado; sai no cancel.
+        # Tick only to blink the cursor while the mouse is still; removed on cancel.
         self._tique = context.window_manager.event_timer_add(PISCA_CURSOR_S / 2, window=context.window)
         context.window_manager.modal_handler_add(self)
         _paredes_edicao._redesenhar()
         return {'RUNNING_MODAL'}
 
     def _guia(self):
-        # Rotulo de guia: sem objeto, propriedade 'guia_<indice>'.
+        # Guide label: no object, property 'guia_<indice>'.
         if not self.objeto and self.propriedade.startswith('guia_'):
             return int(self.propriedade[len('guia_'):])
         return None
@@ -1504,7 +1501,7 @@ class OBJECT_OT_editar_cota_parede(Operator):
             return {'CANCELLED'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
             try:
-                # Distancia pode zerar; dimensoes e guias validam no dono.
+                # Distances may be zero; dimensions and guides are validated by their owner.
                 valor = _gaveta_desenho._ler_medida_digitada(estado['texto'], minimo=0) * 1000
                 guia = self._guia()
                 erro = (editar_guia(context, guia, valor) if guia is not None

@@ -1,73 +1,73 @@
-"""Portas parametricas: parametros, vao, cobertura, calculo das folhas,
-vinculo com o modulo, o ima do apanhador e as constantes e contas do
-wizard (pistoes, caixas das dobradicas); o modal mora em `assistente`."""
+"""Parametric doors: parameters, openings, coverage, leaf calculation,
+cabinet links, capture snapping, and wizard constants/calculations
+(pistons and hinge boxes). The modal lives in `assistente`."""
 
 import bpy, bmesh, math
 from bpy.types import Operator
 from mathutils import Matrix, Vector
 from mathutils.interpolate import poly_3d_calc
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _ferragens = _puxadores = None
 _prateleiras = None
 _solda = None
 _frentes = None
 
-# ================================================ PORTAS PARAMETRICAS
+# ================================================ PARAMETRIC DOORS
 LIMITES_FOLHAS = {'GIRO': 2, 'BASCULANTE': 1, 'CORRER': 4, 'ZIGZAG': 8}
 ITENS_ABERTURA = (
-    ('GIRO', "Abrir (giro)", "Uma ou duas folhas"),
-    ('BASCULANTE', "Basculante", "Exatamente uma folha"),
-    ('CORRER', "Correr", "Uma a quatro folhas embutidas"),
-    ('ZIGZAG', "Zig-zag", "Duas a oito folhas articuladas; puxador na ultima"),
+    ('GIRO', "Hinged", "One or two leaves"),
+    ('BASCULANTE', "Lift-up", "Exactly one leaf"),
+    ('CORRER', "Sliding", "One to four inset leaves"),
+    ('ZIGZAG', "Zig-zag", "Two to eight articulated leaves; handle on the last"),
 )
 ITENS_DOBRADICA = (
-    ('ESCOLHER', "Escolha a dobradica...", "Escolha obrigatoria"),
-    ('RETA', "Reta - sobreposta", "Cobre toda a espessura da lateral"),
-    ('CURVA', "Curva - parcialmente sobreposta", "Cobre meia lateral"),
-    ('SUPER_CURVA', "Super curva - embutida", "Dentro do vao"),
+    ('ESCOLHER', "Choose a hinge...", "Selection required"),
+    ('RETA', "Straight - Full Overlay", "Covers the full side thickness"),
+    ('CURVA', "Half Crank - Partial Overlay", "Covers half the side thickness"),
+    ('SUPER_CURVA', "Full Crank - Inset", "Inside the opening"),
 )
-# A gaveta edita os parametros das portas direto, sem popup: por isso
-# eles moram na Scene. O operador recebe tudo pronto e nunca abre
-# dialogo. Rotulos curtos porque cada opcao vira um segmento de botao.
-# A FRENTE nao e' escolha: sai sempre da diagonal (`_frente_automatica`).
-# As espessuras tambem nao: a da lateral e' a do modulo e a da porta
-# se edita no campo E da folha, como a de qualquer chapa.
-# Os EIXOS do vao tambem nao: saem do vinculo (a corrente) -- porta do
-# modulo usa os eixos dele, porta solta usa o mundo (`_referencia_do_par`).
+# The sidebar edits door parameters directly without a popup, so they
+# live on Scene. The operator receives complete values and opens no dialog.
+# Keep labels short because each option becomes a button segment.
+# FRONT is inferred from the diagonal (`_frente_automatica`), not chosen.
+# Thickness is not a choice here either: side thickness comes from the
+# cabinet; door thickness is edited through leaf E, like any other panel.
+# Opening AXES follow the chain link: cabinet doors use cabinet axes,
+# loose doors use world axes (`_referencia_do_par`).
 ESCOLHAS_PORTAS = (
-    ('porta_abertura', 'Abertura', (('GIRO', 'Giro'),
-                                    ('BASCULANTE', 'Basculante'),
-                                    ('CORRER', 'Correr'), ('ZIGZAG', 'Zig-zag'))),
+    ('porta_abertura', "Opening", (('GIRO', "Hinged"),
+                                    ('BASCULANTE', "Lift-up"),
+                                    ('CORRER', "Sliding"), ('ZIGZAG', 'Zig-zag'))),
 )
-# (prop em metros, prop em mm, rotulo, minimo em mm)
+# (property in meters, property in mm, label, minimum in mm).
 MEDIDAS_PORTAS = (
-    ('ui_porta_entre_folhas', 'porta_entre_folhas_mm', 'Entre folhas', 0.0),
-    ('ui_porta_afastamento', 'porta_afastamento_mm', 'Afastamento', 0.0),
+    ('ui_porta_entre_folhas', 'porta_entre_folhas_mm', "Between Leaves", 0.0),
+    ('ui_porta_afastamento', 'porta_afastamento_mm', "Offset", 0.0),
     ('ui_porta_recuo_embutida', 'porta_recuo_embutida_mm',
-     'Recuo da embutida', 0.0),
+     "Inset Recess", 0.0),
     ('ui_porta_recuo_correr', 'porta_recuo_correr_mm',
-     'Recuo para trilhos', 0.1),
+     "Rail Recess", 0.1),
     ('ui_porta_entre_planos', 'porta_entre_planos_mm',
-     'Entre planos', 0.1),
-    # moldura da porta de correr (pedido do usuario: editaveis)
-    ('ui_porta_moldura', 'porta_moldura_mm', 'Espessura', 1.0),
-    ('ui_porta_rodape', 'porta_rodape_mm', 'Rodape', 0.0),
-    ('ui_porta_testeira', 'porta_testeira_mm', 'Testeira', 0.0),
+     "Between Planes", 0.1),
+    # Sliding-door frame: editable as requested.
+    ('ui_porta_moldura', 'porta_moldura_mm', "Thickness", 1.0),
+    ('ui_porta_rodape', 'porta_rodape_mm', "Toe Kick", 0.0),
+    ('ui_porta_testeira', 'porta_testeira_mm', "Fascia", 0.0),
 )
-# padrao das medidas da porta (as que nao comecam em zero)
+# Default door dimensions for values that do not start at zero.
 PADRAO_MEDIDAS_PORTAS = {'porta_entre_folhas_mm': 2.0,
                          'porta_recuo_correr_mm': 30.0,
                          'porta_entre_planos_mm': 2.0,
-                         # moldura: tudo 15 mm (pedido do usuario); rodape
-                         # e testeira do guarda-roupa de exemplo dele
+                         # Frame: all 15 mm as requested; plinth and fascia dimensions
+                         # come from the user's wardrobe example.
                          'porta_moldura_mm': 15.0,
                          'porta_rodape_mm': 100.0,
                          'porta_testeira_mm': 80.0}
 
 
-# Campo da gaveta -> parametro do grupo, para editar uma porta colocada.
+# Sidebar field -> group parameter for editing an installed door.
 _PARAMETRO_DA_MEDIDA_PORTA = dict(
     [(m[0], m[1][len('porta_'):]) for m in MEDIDAS_PORTAS]
     + [('ui_porta_espessura', 'espessura_mm'),
@@ -75,13 +75,13 @@ _PARAMETRO_DA_MEDIDA_PORTA = dict(
 
 
 def _parametros_portas_da_cena(s, numerico=False):
-    """Os mesmos nomes que `_PARAMETROS_PORTAS` espera.
+    """Use the names expected by `_PARAMETROS_PORTAS`.
 
-    As espessuras nao moram mais na Scene: saem do modulo na hora de
-    criar (`_espessura_do_vao`). Aqui vai so' o padrao, para o
-    dicionario continuar completo. No operador elas sao Enum -- ou
-    seja, STRING --, mas `_calcular_folhas_portas` faz conta com elas
-    e quebra com texto: quem for calcular direto pede `numerico=True`.
+    Thickness no longer lives on Scene: resolve it from the cabinet at
+    creation (`_espessura_do_vao`). Supply defaults here to keep the
+    dictionary complete. Operators store thickness as Enum STRINGs,
+    but `_calcular_folhas_portas` performs arithmetic and cannot use text:
+    direct calculation callers request `numerico=True`.
     """
     converter = float if numerico else (lambda v: v)
     padrao = '%d' % ESPESSURA_PADRAO_PORTA
@@ -91,8 +91,8 @@ def _parametros_portas_da_cena(s, numerico=False):
         'dobradica': s.porta_dobradica,
         'espessura_mm': converter(padrao),
         'lateral_mm': converter(padrao),
-        # sem campo (pedido do usuario: sempre zero); so' a porta importada
-        # grava uma, para nascer onde estava (`importacao`)
+        # No field (always zero by request); only imported doors store a value
+        # to preserve their original position (`importacao`).
         'folga_mm': 0.0,
         'entre_folhas_mm': s.porta_entre_folhas_mm,
         'afastamento_mm': s.porta_afastamento_mm,
@@ -104,9 +104,9 @@ def _parametros_portas_da_cena(s, numerico=False):
         'testeira_mm': s.porta_testeira_mm,
         'trilho': s.porta_trilho,
         'folha': s.porta_folha,
-        # Ferragens (wizard de criacao): 0 = automatico pela medida da
-        # folha (`_qtd_dobradicas_padrao`, `_qtd_pistoes_padrao`,
-        # `_pistao_do_vao`); o wizard grava os escolhidos.
+        # Creation-wizard hardware: 0 = automatic from leaf dimensions
+        # (`_qtd_dobradicas_padrao`, `_qtd_pistoes_padrao`,
+        # `_pistao_do_vao`); the wizard stores the selected values.
         'dobradica_lado': 'ESQUERDA',
         'dobradicas_qtd': 0,
         'dobradicas_margem_mm': MARGEM_DOBRADICAS_PADRAO,
@@ -116,17 +116,17 @@ def _parametros_portas_da_cena(s, numerico=False):
 
 
 def _carregar_portas_na_cena(s, grupo):
-    """Traz os parametros de um grupo existente para a gaveta."""
+    """Load an existing group's parameters into the sidebar."""
     guardados = grupo.get('porta_parametros') or {}
     for nome, valor in guardados.items():
         if nome in {'espessura_mm', 'lateral_mm'}:
-            continue    # moram no grupo e no modulo, nao na aba
+            continue    # Stored on the group and cabinet, not the tab.
         elif nome == 'folhas':
             s.porta_folhas = int(valor)
         elif nome in {'abertura', 'dobradica', 'trilho', 'folha'}:
             setattr(s, 'porta_' + nome, valor)
         elif nome in _PARAMETROS_PORTAS and hasattr(s, 'porta_' + nome):
-            # as ferragens do wizard (lado, quantidades) moram so' na porta
+            # Wizard hardware (side/counts) lives only on the door.
             setattr(s, 'porta_' + nome, float(valor))
 
 
@@ -155,11 +155,11 @@ def _folhas_portas(grupo):
 
 
 def _capturar_vertices_portas(context, com_objetos=False):
-    """Le o BMesh vivo, inclusive selecao em duas chapas distintas."""
+    """Read the live BMesh, including selection across two different panels."""
     if context.mode != 'EDIT_MESH':
-        raise ValueError("Entre no Modo Edicao e selecione 2 vertices diagonais")
+        raise ValueError("Enter Edit Mode and select 2 diagonal vertices")
     marcados = []
-    # Nao usar unique_data: instancias da mesma malha tem matrizes distintas.
+    # Do not use unique_data: instances sharing a mesh have different matrices.
     for obj in context.objects_in_mode:
         if obj.type != 'MESH':
             continue
@@ -168,9 +168,9 @@ def _capturar_vertices_portas(context, com_objetos=False):
             if vert.select and not vert.hide:
                 marcados.append((obj, obj.matrix_world @ vert.co))
                 if len(marcados) > 2:
-                    raise ValueError("Selecione exatamente 2 vertices no total")
+                    raise ValueError("Select exactly 2 vertices in total")
     if len(marcados) != 2:
-        raise ValueError("Selecione exatamente 2 vertices no total")
+        raise ValueError("Select exactly 2 vertices in total")
 
     referencia, pai = _referencia_do_par(marcados[0][0], marcados[1][0])
     resultado = marcados[0][1], marcados[1][1], referencia, pai
@@ -178,12 +178,12 @@ def _capturar_vertices_portas(context, com_objetos=False):
 
 
 def _referencia_do_par(obj_a, obj_b):
-    """Orientacao do vao a partir do ancestral comum das duas pecas.
+    """Opening orientation from the two parts' common ancestor.
 
-    E' o ancestral que da' os eixos do modulo; a rotacao individual de
-    uma lateral nao serve, porque o Z local dela e' a espessura.
+    That ancestor supplies cabinet axes. A side panel's individual
+    rotation is unsuitable because its local Z is thickness.
     """
-    # O grupo de portas tem Y=altura; nao e' a base do armario.
+    # Door-group Y is height; it is not the cabinet basis.
     modulo = _modulo_da_chapa(obj_a)
     if modulo is not None and modulo == _modulo_da_chapa(obj_b):
         return modulo.matrix_world.to_3x3().normalized(), modulo
@@ -207,13 +207,12 @@ ESPESSURA_PADRAO_PORTA = 18.0
 
 
 def _frente_automatica(referencia, ponto_a, ponto_b, centro):
-    """Qual face o vao ocupa, deduzida dos dois pontos marcados.
+    """Infer the opening face from the two marked points.
 
-    O eixo que NAO varia entre os dois pontos e' a normal da face --
-    inclusive Z: diagonal puxada sem mudar a altura e' porta deitada
-    (tampa de bau no canto alemao, por exemplo). O lado sai da
-    comparacao com o centro do movel: o vao fica na face voltada para
-    fora, nunca na oposta. Empate fica com Y, depois X: a frente comum.
+    The axis with NO variation is the face normal, including Z: a diagonal
+    at constant height describes a horizontal door, such as a bench lid.
+    Compare against the cabinet center to choose the outward face, never
+    the opposite one. Ties prefer Y, then X, the usual front directions.
     """
     base = referencia.transposed()
     a = base @ Vector(ponto_a)
@@ -230,12 +229,12 @@ def _resolver_frente(frente, referencia, ponto_a, ponto_b, centro):
 
 
 def _largura_do_vao(referencia, ponto_a, ponto_b):
-    """Em porta deitada, por qual eixo corre a LARGURA ('X' ou 'Y').
+    """Width axis ('X' or 'Y') for a horizontal door.
 
-    De pe' a altura e' sempre Z e isto nao importa. Deitada, a largura
-    e' o lado MAIOR da diagonal: e' por ele que as folhas se dividem.
-    O resultado fica gravado no grupo, senao um redimensionamento que
-    invertesse os lados giraria a porta.
+    Upright doors always have height along Z, so this does not matter.
+    For horizontal doors, width follows the LONGER diagonal component,
+    which is the leaf subdivision direction. Store the result on the group
+    so resizing that swaps the longer side does not rotate the door.
     """
     base = referencia.transposed()
     d = base @ (Vector(ponto_b) - Vector(ponto_a))
@@ -243,20 +242,20 @@ def _largura_do_vao(referencia, ponto_a, ponto_b):
 
 
 def _base_da_frente(referencia, frente, largura_em='X'):
-    """Linhas (direita, cima, normal) do vao: X=largura, Y=altura, Z=fora."""
+    """Opening rows (right, up, normal): X=width, Y=height, Z=outward."""
     normal = referencia @ Vector(NORMAIS_FRENTE[frente])
     if frente.endswith('Z'):
         cima = referencia @ Vector((0, 1, 0) if largura_em == 'X'
                                    else (1, 0, 0))
     else:
         cima = referencia @ Vector((0, 0, 1))
-    # Quaternion perde a reflexao do Mirror; a largura segue a mesma paridade.
+    # Quaternion conversion loses Mirror reflection; width must retain parity.
     paridade = -1 if referencia.determinant() < 0 else 1
     return Matrix((cima.cross(normal).normalized() * paridade, cima, normal))
 
 
 def _eixos_da_frente(frente, largura_em='X'):
-    """Indices (largura, altura, normal) nos eixos do modulo."""
+    """Indices (width, height, normal) in cabinet axes."""
     if frente.endswith('Y'):
         return 0, 2, 1
     if frente.endswith('X'):
@@ -265,11 +264,11 @@ def _eixos_da_frente(frente, largura_em='X'):
 
 
 def _espessura_do_vao(modulo, objetos=(), padrao=ESPESSURA_PADRAO_PORTA):
-    """Espessura das chapas que fecham o vao: a da LATERAL.
+    """Thickness of the panels bounding the opening: the SIDE thickness.
 
-    Era um campo da aba que repetia o E do modulo -- e quando os dois
-    discordavam a porta sobrava para fora. Com modulo, vale o dele;
-    sem modulo, a da chapa clicada.
+    This used to duplicate cabinet E in a tab field; disagreement made
+    the door protrude. Use cabinet thickness when linked, otherwise
+    the clicked panel's thickness.
     """
     if modulo is not None:
         caixa = _caixa_do_modulo(modulo)
@@ -282,10 +281,10 @@ def _espessura_do_vao(modulo, objetos=(), padrao=ESPESSURA_PADRAO_PORTA):
 
 
 def _espessura_da_porta_nova(modulo, objetos=(), padrao=ESPESSURA_PADRAO_PORTA):
-    """A porta nasce com a espessura do modulo; depois se edita no E da folha.
+    """New doors inherit cabinet thickness; edit leaf E afterwards.
 
-    Apoiada em outra porta, herda a dela: duas fileiras no mesmo
-    modulo saem com a mesma espessura.
+    When supported by another door, inherit that door's thickness so
+    two rows on the same cabinet start with equal thickness.
     """
     for obj in objetos:
         if obj is not None and _chapas.MARCA_FOLHA in obj:
@@ -294,11 +293,10 @@ def _espessura_da_porta_nova(modulo, objetos=(), padrao=ESPESSURA_PADRAO_PORTA):
 
 
 def _centro_do_movel(obj_a, obj_b):
-    """Ponto interno do movel, para saber que face olha para fora.
+    """Interior cabinet point used to determine which face points outward.
 
-    Nao serve a origem do modulo: ela fica na BASE (ver
-    `reposicionar_origem`), e uma porta na face de baixo sairia
-    apontando para cima.
+    The cabinet origin is unsuitable: it sits at the BASE
+    (`reposicionar_origem`), which would make a bottom door point upward.
     """
     modulo = _modulo_da_chapa(obj_a)
     if modulo is not None:
@@ -316,17 +314,17 @@ def _centro_do_movel(obj_a, obj_b):
 
 
 def _mapear_vao_portas(ponto_a, ponto_b, referencia, frente, largura_em=None):
-    """Base ortonormal: X=largura, Y=altura, Z=fora do movel."""
+    """Orthonormal basis: X=width, Y=height, Z=out of the cabinet."""
     if largura_em is None:
         largura_em = _largura_do_vao(referencia, ponto_a, ponto_b)
     base = _base_da_frente(referencia, frente, largura_em).transposed()
     a = base.transposed() @ Vector(ponto_a)
     b = base.transposed() @ Vector(ponto_b)
     if abs(a.z - b.z) > 0.0001:
-        raise ValueError("Vertices fora do mesmo plano frontal; confira Frente")
+        raise ValueError("Vertices are not in the same front plane; check Front")
     largura, altura = abs(a.x - b.x), abs(a.y - b.y)
     if largura < 0.001 or altura < 0.001:
-        raise ValueError("Os vertices devem formar uma diagonal com largura e altura")
+        raise ValueError("The vertices must form a diagonal with width and height")
     origem = base @ Vector((min(a.x, b.x), min(a.y, b.y),
                              (a.z + b.z) / 2.0))
     matriz = base.to_4x4()
@@ -334,19 +332,19 @@ def _mapear_vao_portas(ponto_a, ponto_b, referencia, frente, largura_em=None):
     return largura * 1000.0, altura * 1000.0, matriz
 
 
-# A folha NUNCA fica rente a' borda do armario (pedidos do usuario, com
-# print): em toda cobertura padrao sobra este respiro. Reta = espessura
-# MENOS ele; Curva = metade menos ele (duas portas dividindo a chapa do
-# meio se encostavam: 18 mm -> 7 mm cada, 4 mm entre as folhas);
-# embutida e correr = a borda ele para DENTRO do vao. A folga (`folga_mm`,
-# sem campo: so' a importada grava) soma por cima. Cobertura fora do
-# padrao (o usuario marcou o canto e confirmou) vale como marcada.
+# Leaves NEVER sit flush with the cabinet edge: all standard coverages
+# retain this clearance. Straight = thickness MINUS clearance;
+# half overlay = half thickness minus clearance (two doors sharing an
+# 18 mm middle panel covered 7 mm each, leaving 4 mm between leaves).
+# Inset/sliding edges sit this far INSIDE the opening. `folga_mm`
+# (no field; stored only for imports) adds to it. Nonstandard coverage
+# explicitly marked and confirmed by the user is kept as marked.
 RESPIRO_PORTA_MM = 2.0
 
 
 def _cobertura_mm(fracao, lateral):
-    """mm que a folha cobre da chapa, pela fracao da espessura (negativo
-    = a borda fica dentro do vao)."""
+    """Panel coverage in mm from the thickness fraction; negative means
+    the edge sits inside the opening."""
     if abs(fracao - 1.0) < 1e-9:
         return lateral - RESPIRO_PORTA_MM
     if abs(fracao - 0.5) < 1e-9:
@@ -363,23 +361,23 @@ def _cobertura_porta(p):
             else _cobertura_mm(fracao, p['lateral_mm']))
 
 
-# Cobertura de cada lado da folha (esq, dir, baixo, cima: mesmo indice de
-# `porta_ancora_*`) em FRACAO da espessura da lateral: 1 = cobre a chapa
-# inteira, 0.5 = metade, 0 = borda no vao. Sai dos 4 cliques do wizard
-# (canto da porta x canto do vao) ou do clique no meio da espessura; lado
-# sem chave cobre o que a dobradica manda. Fracao, nao mm: a porta
-# acompanha a espessura do modulo. Chaves soltas (nao lista: lista vira
-# IDPropertyArray, que nem compara igual), fora de `_PARAMETROS_PORTAS`
-# (sao do vao, nao padrao da cena).
+# Per-side leaf coverage (left, right, bottom, top; same indices as
+# `porta_ancora_*`) in SIDE-THICKNESS FRACTIONS: 1 covers the entire
+# panel, 0.5 half, 0 puts the edge at the opening. Derived from four
+# wizard clicks (door corner versus opening corner) or a thickness midpoint.
+# Missing keys use hinge coverage. Fractions rather than mm make the door
+# follow cabinet thickness. Store separate keys rather than a list:
+# lists become IDPropertyArray, whose equality differs. Keep outside
+# `_PARAMETROS_PORTAS`: these belong to the opening, not scene defaults.
 COBERTURAS_LADOS = ('cobertura_esq_e', 'cobertura_dir_e',
                     'cobertura_baixo_e', 'cobertura_cima_e')
 INDICE_LADO = {'ESQUERDA': 0, 'DIREITA': 1, 'BAIXO': 2, 'CIMA': 3}
-TOL_COBERTURA_MM = 2.0      # reta / meia / embutida: +-2 mm
+TOL_COBERTURA_MM = 2.0      # Full overlay / half overlay / inset: +-2 mm.
 
 
 def _inicios_porta(p):
-    """Quanto cada borda da folha (esq, dir, baixo, cima) entra no vao:
-    folga - cobertura (negativo = cobre a chapa)."""
+    """Each leaf edge's intrusion into the opening (left, right, bottom, top):
+    clearance - coverage; negative values cover the panel."""
     cobertura = _cobertura_porta(p)
     lateral = p['lateral_mm']
     converter = (lambda f, e: f*e) if p.get('respiro_original') else _cobertura_mm
@@ -387,15 +385,15 @@ def _inicios_porta(p):
                                 else cobertura)
                for k in COBERTURAS_LADOS]
     if p.get('abertura') == 'CORRER' and _correr_sobreposta(p):
-        # com moldura a folha cobre a frente do modulo (pedido do usuario):
-        # de pe' no trilho de baixo (`_pe_da_folha_moldura`) ate' o topo
-        # dele; a moldura soma o resto acima (e abaixo, com rodape)
+        # With a frame, the leaf covers the cabinet front as requested:
+        # from the lower track (`_pe_da_folha_moldura`) to cabinet top;
+        # the frame adds space above and, with a plinth, below.
         inicios[2] = _pe_da_folha_moldura(p)
         inicios[3] = -float(lateral)
     elif p.get('abertura') == 'CORRER':
-        # em pe' na guia do trilho de baixo; em cima, entra no canal com
-        # folga para levantar e tirar (o trilho da foto do usuario). O
-        # trilho fica na borda do vao
+        # Stand on the lower track guide; enter the upper channel with enough
+        # clearance to lift out, matching the user's track photo. The track
+        # sits on the opening edge.
         borda = [min(0.0, i) for i in inicios]
         inicios[2] = borda[2] + _ferragens.altura_trilho_baixo()
         inicios[3] = (borda[3] + _ferragens.TRILHO_CIMA_CHAPA_MM
@@ -404,10 +402,9 @@ def _inicios_porta(p):
 
 
 def _correr_sobreposta(p):
-    """Correr que COBRE a chapa em algum lado = porta COM MOLDURA (pedido
-    do usuario: cliques canto de fora -> de dentro, o gesto das portas por
-    cima): folhas e trilhos na FRENTE do modulo, dentro da moldura
-    (`_pecas_moldura`). A que fica no vao, recuada, e' a EMBUTIDA."""
+    """Sliding doors covering a panel on any side require a FRAME: the user's
+    outer-to-inner gesture places leaves/tracks IN FRONT of the cabinet
+    inside `_pecas_moldura`. Recessed doors within the opening are INSET."""
     if p.get('abertura') != 'CORRER':
         return False
     lateral = float(p.get('lateral_mm', ESPESSURA_PADRAO_PORTA))
@@ -415,46 +412,46 @@ def _correr_sobreposta(p):
                for k in COBERTURAS_LADOS if k in p)
 
 
-# ------------------------------------------------ correr COM MOLDURA
-# O guarda-roupa de exemplo do usuario: revestimento nas duas laterais,
-# base do trilho + testeira em cima, base do trilho + rodape embaixo, tudo
-# de `moldura_mm` (15); a moldura SOMA acima e abaixo do modulo e as
-# folhas (18) cobrem a frente inteira dele. Trilhos = os perfis de
-# aluminio do usuario (`_ferragens.perfil_trilho_moldura`), dois canais:
-# uma folha em cada, alternando. Referencial da porta: x no vao, y para
-# cima, z para FORA (0 = frente do modulo).
-TRILHO_MOLDURA_COSTAS_MM = 16.0   # da frente do modulo as costas do trilho
-TRILHO_MOLDURA_FRENTE_MM = 4.0    # da frente do trilho a' testeira
-INSERCAO_CANAL_MM = 15.0          # quanto a folha entra no canal de cima
+# ------------------------------------------------ FRAMED sliding doors
+# User's wardrobe example: cladding on both sides, upper track base
+# plus fascia, lower track base plus plinth, all `moldura_mm` (15).
+# The frame ADDS above/below the cabinet and the 18 mm leaves cover
+# its entire front. Tracks are the user's aluminum profiles
+# (`_ferragens.perfil_trilho_moldura`) with two channels:
+# one leaf per channel, alternating. Door coordinates: x across opening,
+# y up, z OUTWARD (0 = cabinet front).
+TRILHO_MOLDURA_COSTAS_MM = 16.0   # Cabinet front to track rear.
+TRILHO_MOLDURA_FRENTE_MM = 4.0    # Track front to fascia.
+INSERCAO_CANAL_MM = 15.0          # Leaf penetration into the upper channel.
 ESPESSURA_PORTA_MOLDURA_MM = 18.0
-# Resposta do "Porta embutida ou com moldura?" (cliques metade-metade):
-# a cobertura de todos os lados (`_preparar_vao_portas`)
-TIPOS_CORRER = (('EMBUTIDA', 'Porta embutida'),
-                ('MOLDURA', 'Porta com moldura'))
+# Answer to inset or framed installation for mixed midpoint clicks:
+# coverage on all sides (`_preparar_vao_portas`).
+TIPOS_CORRER = (('EMBUTIDA', "Inset Door"),
+                ('MOLDURA', "Framed Door"))
 COBERTURA_DO_TIPO_CORRER = {'EMBUTIDA': 0.0, 'MOLDURA': 1.0}
-# Com moldura, o wizard pergunta a BASE (pedido do usuario): ha' armario
-# de correr que vai direto no chao, sem a chapa frontal de baixo (o
-# rodape). Sem base = rodape 0 (a peca some); depois, o campo Rodape.
-OPCOES_BASE = (('COM', 'Com rodape'), ('SEM', 'Sem rodape'))
-# TIPO DE TRILHO, tambem perguntado (pedido do usuario): PESADO = os perfis
-# de aluminio do guarda-roupa (sobre a base, canal alto em cima); LEVE =
-# o do "Trilho exemplo" -- dois canais FRESADOS nas bases da moldura (em
-# cima da de baixo, embaixo da de cima) com o perfil em U de embutir,
-# aba rente a' chapa. Os canais do leve ficam a 17,3 mm um do outro: a
-# folha de 18 nao cabe, a do leve nasce de 15.
-ITENS_TRILHO = (('PESADO', "Trilho pesado", "Perfis de aluminio"),
-                ('LEVE', "Trilho leve", "Canais fresados na chapa"))
+# For framed doors, the wizard asks about the BASE: some sliding cabinets
+# sit directly on the floor without a lower front panel (plinth).
+# No base means plinth 0, omitting that part; then expose the Plinth field.
+OPCOES_BASE = (('COM', "With Plinth"), ('SEM', "Without Plinth"))
+# Also ask TRACK TYPE: HEAVY uses the wardrobe's aluminum profiles
+# (on the base, tall upper channel); LIGHT uses the track example's
+# two ROUTED channels in the frame bases, on top of the lower base
+# and under the upper one, with inset U profiles flush with the panel.
+# Light-track channels are 17.3 mm apart: an 18 mm leaf cannot fit,
+# so light-track leaves start at 15 mm.
+ITENS_TRILHO = (('PESADO', "Heavy Track", "Aluminum profiles"),
+                ('LEVE', "Light Track", "Grooves milled into the panel"))
 OPCOES_TRILHO = tuple((k, t) for k, t, _d in ITENS_TRILHO)
 ESPESSURA_PORTA_TRILHO = {'PESADO': ESPESSURA_PORTA_MOLDURA_MM, 'LEVE': 15.0}
-FOLGA_TOPO_TRILHO_LEVE_MM = 5.0   # da folha a' base de cima: levantar e tirar
-# FOLHA da porta de correr (pedido do usuario: a "diferenciada" do
-# despenseiro do DXF vira estilo NOSSO): chapa de MDF ou QUADRO de
-# aluminio -- perfil de 23 mm de fundo e 10 de face em volta de um painel
-# de 5 mm (vidro, espelho, MDF) a 6 mm da frente, entrando 5 no perfil
-# (medidas do DXF). O trilho continua o do add-on.
-ITENS_FOLHA_CORRER = (('CHAPA', "Chapa", "Folha de MDF"),
-                      ('QUADRO', "Quadro de aluminio",
-                       "Perfil de aluminio em volta de um painel fino"))
+FOLGA_TOPO_TRILHO_LEVE_MM = 5.0   # Leaf to upper base: clearance to lift out.
+# Sliding-door LEAF: adapt the distinctive DXF pantry door to our style.
+# Use MDF panels or an ALUMINUM FRAME: 23 mm deep, 10 mm face width,
+# surrounding a 5 mm infill panel (glass, mirror, MDF) 6 mm behind
+# the front and penetrating 5 mm into the profile (DXF dimensions).
+# Retain the add-on's track.
+ITENS_FOLHA_CORRER = (('CHAPA', "Panel", "MDF leaf"),
+                      ('QUADRO', "Aluminum Frame",
+                       "Aluminum profile surrounding a thin panel"))
 OPCOES_FOLHA_CORRER = tuple((k, t) for k, t, _d in ITENS_FOLHA_CORRER)
 ESPESSURA_QUADRO_MM = 23.0
 FACE_QUADRO_MM = 10.0
@@ -474,13 +471,13 @@ def _trilho_leve(p):
 
 
 def _perfil_trilho(p, lado='CIMA'):
-    """O perfil (`_ferragens.perfil_trilho_moldura`) do tipo de trilho:
-    no leve, o mesmo U em cima e embaixo."""
+    """Track-type profile (`_ferragens.perfil_trilho_moldura`):
+    light tracks use the same U profile at top and bottom."""
     return _ferragens.perfil_trilho_moldura('LEVE' if _trilho_leve(p) else lado)
 
 
 def _canais_moldura(p):
-    """(costas, frente): meio dos canais, a partir das costas do trilho."""
+    """(rear, front): channel centers measured from the track rear."""
     if _trilho_leve(p):
         return tuple(_perfil_trilho(p)['canais_mm'])
     return _ferragens.CANAIS_TRILHO_MOLDURA_MM
@@ -503,9 +500,9 @@ def _material_solido(nome, cor):
 
 
 def _vestir_folha(folha, p):
-    """Quadro de aluminio liga a malha do quadro (`_chapas._malha_quadro`)
-    e os 2 materiais dela; chapa volta a' caixa. Sem `_ocupado` aqui:
-    sao ID props, nao props com update."""
+    """Aluminum frames enable `_chapas._malha_quadro` and its two materials;
+    panel leaves revert to a box. No `_ocupado` here: these are ID
+    properties, not properties with update callbacks."""
     if _folha_quadro(p):
         folha['chapa_quadro_mm'] = float(p.get('quadro_perfil_mm', FACE_QUADRO_MM))
         folha['chapa_painel_mm'] = float(p.get('quadro_painel_mm', PAINEL_QUADRO_MM))
@@ -513,7 +510,7 @@ def _vestir_folha(folha, p):
         folha['chapa_painel_entra_mm'] = PAINEL_ENTRA_MM
         mats = folha.data.materials
         if len(mats) < 2:
-            # pintura do usuario (slot do objeto) fica no 1o: o perfil
+            # Keep the user's object-slot finish in slot 1: the profile.
             while len(mats) < 2:
                 mats.append(None)
             mats[0] = mats[0] or _material_solido(NOME_MATERIAL_QUADRO,
@@ -525,7 +522,7 @@ def _vestir_folha(folha, p):
                       'chapa_painel_entra_mm'):
             if chave in folha:
                 del folha[chave]
-        folha.data.clear_geometry()          # nasce caixa de novo
+        folha.data.clear_geometry()          # Start as a box again.
         mats = folha.data.materials
         while len(mats) > 1:
             mats.pop()
@@ -534,39 +531,38 @@ def _vestir_folha(folha, p):
 
 
 def _avanco_moldura(p):
-    """Da frente do modulo a' face da testeira (mm)."""
+    """Cabinet front to fascia face, in mm."""
     return (TRILHO_MOLDURA_COSTAS_MM + _perfil_trilho(p)['profundidade_mm']
             + TRILHO_MOLDURA_FRENTE_MM + _moldura_mm(p))
 
 
 def _sem_base(p):
-    """Rodape zerado = a moldura vai direto no chao (pergunta do wizard)."""
+    """Zero plinth means the frame sits directly on the floor (wizard choice)."""
     return float(p.get('rodape_mm', PADRAO_MEDIDAS_PORTAS['porta_rodape_mm'])) <= 0.0
 
 
 def _topo_base_baixo(p):
-    """y (mm, referencial da porta) do TOPO da base de baixo, onde o
-    trilho assenta. A base encosta no fundo do modulo (y = -lateral), sem
-    fresta (print do usuario: sobrava um vao de 6 mm entre ela e o
-    modulo): com rodape, ela fica logo ABAIXO dele e o rodape desce; sem
-    base, ela fica no chao, no nivel do fundo do modulo."""
+    """Door-space y in mm of the lower base TOP, where the track rests.
+    The base meets the cabinet bottom (y = -lateral) without the former
+    6 mm gap. With a plinth, the base sits immediately BELOW the cabinet
+    and the plinth extends down; without a base, it sits on the floor
+    at cabinet-bottom level."""
     lateral = float(p['lateral_mm'])
     return -lateral + (_moldura_mm(p) if _sem_base(p) else 0.0)
 
 
 def _pe_da_folha_moldura(p):
-    """y do pe' da folha com moldura: em cima do trilho de baixo (no
-    leve, sobre a aba do U, rente a' chapa)."""
+    """Framed leaf's bottom y: on the lower track, or on the light U-profile
+    flange flush with the panel."""
     sobre = (_perfil_trilho(p)['aba_mm'] if _trilho_leve(p)
              else _ferragens.perfil_trilho_moldura('BAIXO')['altura_mm'])
     return _topo_base_baixo(p) + sobre
 
 
 def _alturas_moldura(p, altura):
-    """(y do trilho de cima, y da base de cima, y da base de baixo, y da
-    face de baixo da base de baixo), em mm no referencial da porta. No
-    leve o trilho de cima e' EMBUTIDO na base de cima: os dois y sao a
-    face de baixo dela, uma folga acima do topo da folha."""
+    """(upper-track y, upper-base y, lower-base y, lower-base underside y),
+    in door-space mm. The light upper track is INSET into the upper base:
+    both y values are its underside, a clearance above the leaf top."""
     lateral = float(p['lateral_mm'])
     if _trilho_leve(p):
         trilho_cima = base_cima = altura + lateral + FOLGA_TOPO_TRILHO_LEVE_MM
@@ -579,10 +575,10 @@ def _alturas_moldura(p, altura):
 
 
 def _canais_das_bases(p):
-    """{peca: (x locais mm, largura, fundo, lado)} dos canais fresados nas
-    bases da moldura do trilho LEVE (`_chapas._malha_com_canais`): em cima
-    da de baixo (lado +1), embaixo da de cima (-1). x local da base = z da
-    porta menos o meio do avanco (eixo 1 de `EIXOS_PECA_MOLDURA`)."""
+    """Return {part: (local x mm, width, depth, side)} for routed LIGHT-track
+    frame-base channels (`_chapas._malha_com_canais`): above the lower base
+    (side +1), below the upper (-1). Base local x = door z minus half
+    the projection (axis 1 of `EIXOS_PECA_MOLDURA`)."""
     if not _trilho_leve(p):
         return {}
     leve = _perfil_trilho(p)
@@ -592,20 +588,19 @@ def _canais_das_bases(p):
     return {'BASE_BAIXO': dados + (1,), 'BASE_CIMA': dados + (-1,)}
 
 
-# (colunas X, Y, Z locais no referencial da porta) pelo eixo da espessura:
-# a chapa e' X = largura, Y = comprimento, Z = espessura (invariante 1)
+# Local X/Y/Z columns in door coordinates, indexed by thickness axis:
+# panel X=width, Y=length, Z=thickness (invariant 1).
 EIXOS_PECA_MOLDURA = {
-    0: ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),   # lateral: fundo x altura
-    1: ((0, 0, 1), (1, 0, 0), (0, 1, 0)),    # base: fundo x largura
-    2: ((1, 0, 0), (0, 1, 0), (0, 0, 1)),    # testeira/rodape: de frente
+    0: ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),   # Side: depth x height.
+    1: ((0, 0, 1), (1, 0, 0), (0, 1, 0)),    # Base: depth x width.
+    2: ((1, 0, 0), (0, 1, 0), (0, 0, 1)),    # Fascia/plinth: front-facing.
 }
 
 
 def _pecas_moldura(p, largura, altura, profundidade=0.0):
-    """[(id, nome, caixa (x0, x1, y0, y1, z0, z1) mm, eixo da espessura)]
-    da moldura; vazia fora da porta de correr com moldura. `profundidade`
-    = a do modulo: o revestimento das laterais vai das costas dele a'
-    frente da moldura."""
+    """Return [(id, name, box (x0, x1, y0, y1, z0, z1) mm, thickness axis)]
+    for the frame; empty for other door types. `profundidade` is cabinet
+    depth: side cladding extends from its rear to the frame front."""
     if not _correr_sobreposta(p):
         return []
     lateral, t = float(p['lateral_mm']), _moldura_mm(p)
@@ -614,44 +609,44 @@ def _pecas_moldura(p, largura, altura, profundidade=0.0):
     teto = base_cima + t
     piso = fundo_baixo - float(p.get('rodape_mm', 0.0))
     x0, x1 = -lateral, largura + lateral
-    # o trilho LEVE nao tem fechamento frontal em cima (print do usuario):
-    # a folha corre a' vista ate' a base de cima
+    # The LIGHT track has no upper front closure, matching the user's image:
+    # the leaf remains exposed up to the upper base.
     testeira = 0.0 if _trilho_leve(p) else float(p.get('testeira_mm', 0.0))
     pecas = [
-        ('LATERAL_ESQ', 'Moldura Lateral Esquerda',
+        ('LATERAL_ESQ', "Left Side Frame",
          (x0 - t, x0, piso, teto, -profundidade, avanco), 0),
-        ('LATERAL_DIR', 'Moldura Lateral Direita',
+        ('LATERAL_DIR', "Right Side Frame",
          (x1, x1 + t, piso, teto, -profundidade, avanco), 0),
-        ('BASE_CIMA', 'Moldura Base Superior',
+        ('BASE_CIMA', "Upper Frame Base",
          (x0, x1, base_cima, teto, 0.0, avanco), 1),
-        ('TESTEIRA', 'Moldura Testeira',
+        ('TESTEIRA', "Frame Fascia",
          (x0, x1, base_cima - testeira, base_cima, avanco - t, avanco), 2),
-        ('BASE_BAIXO', 'Moldura Base Inferior',
+        ('BASE_BAIXO', "Lower Frame Base",
          (x0, x1, fundo_baixo, base_baixo, 0.0, avanco), 1),
-        ('RODAPE', 'Moldura Rodape',
+        ('RODAPE', "Frame Plinth",
          (x0, x1, piso, fundo_baixo, avanco - t, avanco), 2),
     ]
-    # rodape/testeira zerados: a peca nao existe
+    # Zero plinth/fascia: omit the part.
     return [peca for peca in pecas
             if min(peca[2][1] - peca[2][0], peca[2][3] - peca[2][2],
                    peca[2][5] - peca[2][4]) > 0.5]
 
 
 def _matriz_peca_moldura(caixa, eixo):
-    """(matriz_basis em m, (largura, comprimento, espessura) mm)."""
+    """Return (matrix_basis in m, (width, length, thickness) in mm)."""
     x0, x1, y0, y1, z0, z1 = caixa
     medidas = (x1 - x0, y1 - y0, z1 - z0)
     colunas = [Vector(c) for c in EIXOS_PECA_MOLDURA[eixo]]
-    rotacao = Matrix(colunas).transposed()        # vetores como COLUNAS
+    rotacao = Matrix(colunas).transposed()        # Vectors are COLUMNS.
     centro = Vector(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)) / 1000.0
     dims = tuple(abs(c.dot(Vector(medidas))) for c in colunas)
     return Matrix.Translation(centro) @ rotacao.to_4x4(), dims
 
 
 def _montar_moldura(grupo, pecas, canais=None):
-    """Cria/atualiza/remove as chapas da moldura (com `_ocupado`), pelo
-    id da peca, como as folhas. `canais` = os fresados das bases do trilho
-    leve (`_canais_das_bases`). Devolve as que ficaram."""
+    """Create/update/remove frame panels by part ID, as with leaves, under
+    `_ocupado`. `canais` supplies light-track base grooves
+    (`_canais_das_bases`). Return the remaining parts."""
     canais = canais or {}
     existentes = {}
     for o in list(grupo.children):
@@ -692,12 +687,12 @@ CHAVES_CANAIS = ('chapa_canais', 'chapa_canal_largura', 'chapa_canal_fundo',
 
 
 def _gravar_canais(obj, dados):
-    """Canais fresados ao longo do comprimento da chapa (os da base do
-    trilho leve), que `_chapas._malha_com_canais` corta na malha; None tira."""
+    """Lengthwise panel grooves for light-track bases, cut into the mesh
+    by `_chapas._malha_com_canais`; None removes them."""
     if dados is None:
         if 'chapa_canais' in obj:
-            # voltou ao pesado: malha vazia nasce caixa de novo (a com
-            # canais seria "modelada" e esticada com os canais junto)
+            # Back to heavy tracks: an empty mesh becomes a box again. Otherwise
+            # the grooved mesh would count as modeled and stretch its grooves too.
             obj.data.clear_geometry()
         for chave in CHAVES_CANAIS:
             if chave in obj:
@@ -722,21 +717,21 @@ def _moldura_da_porta(grupo):
 
 
 def _espessura_da_moldura_mudou(peca, espessura):
-    """O E de UMA peca vale para a moldura inteira (como a folha)."""
+    """ONE frame part's E applies to the entire frame, as for leaves."""
     grupo = peca.parent
     if (grupo is None or _chapas.MARCA_PORTAS not in grupo
             or not grupo.get('porta_parametros')):
         return False
     erro = _editar_parametro_porta(bpy.context, grupo, 'moldura_mm', espessura)
     if erro:
-        print("[Archy Builder] espessura da moldura:", erro)
+        print("[Archy Builder] frame thickness:", erro)
         return False
     return True
 
 
 def _encaixar_cobertura(mm, lateral):
-    """Cobertura medida (mm) -> fracao da espessura, presa em reta (1),
-    meia (0.5) ou embutida (0) quando estiver a TOL_COBERTURA_MM delas."""
+    """Measured coverage (mm) -> thickness fraction, snapping to full (1),
+    half (0.5) or inset (0) within TOL_COBERTURA_MM."""
     for fracao in (1.0, 0.5, 0.0):
         if abs(mm - fracao * lateral) <= TOL_COBERTURA_MM:
             return fracao
@@ -744,8 +739,8 @@ def _encaixar_cobertura(mm, lateral):
 
 
 def _coberturas_dos_cantos(bordas, vaos, lateral):
-    """{chave: fracao} de cada lado: dos cantos da PORTA (cliques 1 e 4)
-    ate' os do VAO (2 e 3), em mm no referencial da porta."""
+    """Per-side {key: fraction}: from DOOR corners (clicks 1 and 4)
+    to OPENING corners (2 and 3), in door-space mm."""
     bx, by = [p.x for p in bordas], [p.y for p in bordas]
     vx, vy = [p.x for p in vaos], [p.y for p in vaos]
     mm = (min(vx) - min(bx), max(bx) - max(vx),
@@ -755,10 +750,9 @@ def _coberturas_dos_cantos(bordas, vaos, lateral):
 
 
 def _espelhar_margem(bordas, vaos):
-    """Clique 1 e 2 no MESMO ponto (ou 3 e 4): a margem do outro par vale
-    tambem para este, contada para DENTRO a partir do clique (pedido do
-    usuario). Devolve (vaos, quais foram espelhados). Os dois pares sem
-    margem: nada muda (o vao sai da conversao de sempre)."""
+    """Clicks 1 and 2 at the SAME point (or 3 and 4): use the other pair's
+    margin INWARD from that click, as requested. Return (openings, mirrored
+    sides). If neither pair has a margin, keep the usual conversion."""
     tolerancia = _modulos.TOL_BORDA * 1000.0
     margens = [Vector(((v - b).x, (v - b).y)) for b, v in zip(bordas, vaos)]
     zeros = [m.length <= tolerancia for m in margens]
@@ -775,36 +769,35 @@ def _espelhar_margem(bordas, vaos):
 
 
 def _lados_fora_do_padrao(coberturas):
-    """Lados cuja cobertura nao e' reta, meia nem embutida: o wizard
-    pergunta se as medidas estao corretas."""
+    """Sides with neither full, half nor inset coverage: the wizard
+    asks whether the dimensions are correct."""
     return [k for k in COBERTURAS_LADOS
             if k in coberturas and coberturas[k] not in (0.0, 0.5, 1.0)]
 
 
 def _porta_embutida(coberturas):
-    """Nenhum lado cobre a chapa: a porta fica DENTRO do vao."""
+    """No side covers a panel: the door sits INSIDE the opening."""
     return bool(coberturas) and all(f <= 0.0 for f in coberturas.values())
 
 
-NOME_DOBRADICA = {'RETA': 'Reta', 'CURVA': 'Curva',
-                  'SUPER_CURVA': 'Super Curva'}
+NOME_DOBRADICA = {'RETA': "Full Overlay", 'CURVA': "Half Crank",
+                  'SUPER_CURVA': "Full Crank"}
 
 
 def _dobradica_da_cobertura(fracao, embutida=False):
-    """A dobradica sai da cobertura do lado dela (pedido do usuario; nao
-    se escolhe por enquanto): espessura inteira = Reta, metade = Curva,
-    porta dentro do vao = Super Curva."""
+    """Infer the hinge from its side's coverage, as requested: full thickness
+    = straight/full-overlay, half = half-overlay, inside = inset hinge."""
     if embutida:
         return 'SUPER_CURVA'
     return 'RETA' if fracao >= 0.75 else 'CURVA'
 
 
 def _meias_do_vao(a, b, base, objetos, pontos):
-    """Ponto marcado no meio da espessura de uma chapa (o ima oferece o
-    meio das arestas de espessura): o vao vai ate' a face da chapa que
-    olha para o outro ponto, e aquele lado cobre so' meia espessura.
+    """A point marked at panel thickness midpoint (offered by edge-midpoint
+    snapping) extends the opening to the face toward the other point,
+    with half-thickness coverage on that side.
 
-    Ajusta `pontos` (mm, no referencial `base`) e devolve os lados (bits).
+    Adjust `pontos` (mm in the `base` frame) and return side bits.
     """
     meias = 0
     originais = (Vector(a), Vector(b))
@@ -821,7 +814,7 @@ def _meias_do_vao(a, b, base, objetos, pontos):
         espessura = base @ (obj.matrix_world.to_3x3() @ Vector((0, 0, 1)))
         eixo = 0 if abs(espessura.x) >= abs(espessura.y) else 1
         if abs(espessura.normalized()[eixo]) < 0.9:
-            continue        # espessura fora do plano da porta
+            continue        # Thickness outside the door plane.
         alvo = (base @ originais[1 - i])[eixo] * 1000.0
         sinal = 1 if alvo > pontos[i][eixo] else -1
         pontos[i][eixo] = ((base @ originais[i])[eixo]
@@ -833,16 +826,16 @@ def _meias_do_vao(a, b, base, objetos, pontos):
 def _preparar_vao_portas(a, b, referencia, frente, parametros,
                          modulo=None, objetos=(None, None), portas=None,
                          forcar=''):
-    """Converte cantos externos e encontros com portas em vao interno.
+    """Convert external corners and door contacts to an internal opening.
 
-    `portas`: os cantos da PORTA (cliques 1 e 4 do wizard; a e b sao os
-    do vao). Devolve (vao, pontos em mundo, apoios, coberturas por lado).
-    `forcar` = resposta do "embutida ou com moldura?" (`TIPOS_CORRER`):
-    o vao e' o de DENTRO do modulo (o canto clicado por fora volta para
-    dentro da chapa) e a cobertura de todos os lados e' a da resposta.
+    `portas`: DOOR corners (wizard clicks 1 and 4; a and b bound the
+    opening). Return (opening, world points, supports, per-side coverages).
+    `forcar` is the inset/frame answer (`TIPOS_CORRER`): use the cabinet's
+    INTERNAL opening, returning outer clicks inside the panel, and apply
+    the answer's coverage to every side.
 
-    O calculador recebe sempre o vao livre. Normalizar ANTES dele evita
-    somar a cobertura duas vezes e serve tanto ao gesto quanto ao execute.
+    The calculator always receives free opening space. Normalize BEFORE
+    calculation to avoid double coverage in both gestures and execute.
     """
     largura_em = _largura_do_vao(referencia, a, b)
     base = _base_da_frente(referencia, frente, largura_em)
@@ -852,8 +845,8 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
     if portas is not None:
         bordas = [base @ Vector(p) * 1000.0 for p in portas]
         if forcada is None or modulo is None:
-            # sem modulo nao ha' chapa para achar o canto de dentro: o
-            # par do mesmo ponto copia a margem do outro, como sempre
+            # No cabinet means no panel for finding the inner corner:
+            # a coincident pair copies the other pair's margin as usual.
             pontos, espelhados = _espelhar_margem(bordas, pontos)
     originais = [p.copy() for p in pontos]
     tolerancia = _modulos.TOL_BORDA * 1000.0
@@ -870,7 +863,7 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
             hi = max(p[eixo] for p in cantos)
             for ponto, espelhado in zip(pontos, espelhados):
                 if espelhado:
-                    continue        # ja' veio exato da margem do outro par
+                    continue        # Already exact from the other pair's margin.
                 if abs(ponto[eixo] - lo) <= tolerancia:
                     ponto[eixo] = lo + E
                 elif abs(ponto[eixo] - hi) <= tolerancia:
@@ -885,8 +878,8 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
                   for v in obj.data.vertices]
         if not cantos:
             continue
-        # A face da folha esta' a uma espessura do vao. Usa o plano
-        # original para nao criar a proxima porta um degrau a frente.
+        # The leaf face is one thickness away from the opening. Use the original
+        # plane to avoid placing the next door one step farther forward.
         pontos[i].z = (base @ grupo.matrix_world.translation).z * 1000.0
         for eixo in (0, 1):
             lo = min(p[eixo] for p in cantos)
@@ -901,12 +894,12 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
                       + max(parametros['entre_folhas_mm'], parametros['folga_mm'])
                       - parametros['folga_mm'])
             pontos[i][eixo] = borda + sinal * ajuste
-            # Indice do limite no referencial da porta (X esq/dir, Y baixo/cima).
+            # Boundary index in door coordinates (X left/right, Y bottom/top).
             ancoras[2 * eixo + (0 if sinal > 0 else 1)] = obj
     mundo = [base.transposed() @ (p / 1000.0) for p in pontos]
     if any((pontos[1][i] - pontos[0][i]) * (originais[1][i] - originais[0][i]) <= 0
            for i in (0, 1)):
-        raise ValueError("As bordas e folgas nao deixam espaco para o vao")
+        raise ValueError("Edges and gaps leave no room for the opening")
     vao = _mapear_vao_portas(*mundo, referencia, frente, largura_em)
     if bordas is not None:
         coberturas = _coberturas_dos_cantos(bordas, pontos,
@@ -914,7 +907,7 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
         if forcada is not None:
             coberturas = {k: forcada for k in COBERTURAS_LADOS}
         for indice in ancoras:
-            # encostado em outra porta: quem manda e' o apoio
+            # Touching another door: the support governs.
             coberturas.pop(COBERTURAS_LADOS[indice], None)
     elif _cobertura_porta(parametros) > 0:
         coberturas = {COBERTURAS_LADOS[i]: 0.5 for i in range(4)
@@ -924,15 +917,15 @@ def _preparar_vao_portas(a, b, referencia, frente, parametros,
     return vao, mundo, ancoras, coberturas
 
 
-# Porta de correr (pedido do usuario): cada folha no SEU trilho -- uma,
-# duas, tres ou quatro, todas correm o vao inteiro, uma por cima da
-# outra. Sem largura digitada, a folha unica tem METADE do vao (sobra
-# para onde correr) e as varias o cobrem, cruzando
-# `SOBREPOSICAO_CORRER_MM` com a vizinha. A largura digitada
-# (`CHAVE_LARGURA_CORRER`, chave solta como as coberturas: e' desta
-# porta, nao padrao da cena) vale para todas e nunca passa do vao. Nao ha'
-# campo de sobreposicao: com a largura e as folhas espalhadas no vao ela
-# e' consequencia, (n x largura - vao) / (n - 1) -- o usuario a recusou.
+# Sliding doors: each leaf has its OWN track. One to four leaves travel
+# the entire opening and pass over one another. Without explicit width,
+# a single leaf has HALF opening width to leave travel room;
+# multiple leaves cover the opening with neighboring overlap
+# `SOBREPOSICAO_CORRER_MM`. Explicit width
+# (`CHAVE_LARGURA_CORRER`, a separate key like coverage, belonging to this
+# door rather than scene defaults) applies to all and never exceeds
+# the opening. No overlap field: width and distribution determine it
+# as (n x width - opening) / (n - 1), as requested.
 CHAVE_LARGURA_CORRER = 'largura_folha_mm'
 SOBREPOSICAO_CORRER_MM = 20.0
 
@@ -947,53 +940,53 @@ def _largura_folha_correr(p, util, n):
 
 
 def _plano_correr(p, e, indice, n=1):
-    """Centro (z, mm) da folha `indice` de correr: um trilho por folha,
-    a 1a na frente. O recuo mede a FACE mais externa, assim nem meia
-    espessura invade o espaco reservado ao trilho. Sobreposta: na frente
-    do modulo, a de tras encostada na parede do trilho (que encosta nele)."""
+    """Sliding leaf `indice` center z in mm: one track per leaf, first in
+    front. Setback measures the OUTERMOST FACE so even half a thickness
+    cannot enter track space. Overlay doors sit in front of the cabinet,
+    with the rear leaf against the track wall touching the cabinet."""
     passo = e + float(p['entre_planos_mm'])
     if _correr_sobreposta(p):
-        # com moldura: no meio de um dos DOIS canais do trilho do usuario,
-        # a 1a na frente e as outras alternando
+        # Framed: centered in one of the user's TWO track channels;
+        # first leaf in front, others alternating.
         costas, frente = _canais_moldura(p)
         return TRILHO_MOLDURA_COSTAS_MM + (frente if indice % 2 == 0 else costas)
     return -float(p['recuo_correr_mm']) - e / 2.0 - indice * passo
 
 
 def _calcular_folhas_portas(largura, altura, parametros):
-    """Retorna (L, A, E, centro_mm) por folha; nenhuma ferragem e' criada."""
+    """Return (L, A, E, center_mm) per leaf; create no hardware."""
     p = parametros
     abertura, n = p['abertura'], p['folhas']
     if abertura not in LIMITES_FOLHAS or not (2 if abertura == 'ZIGZAG' else 1) <= n <= LIMITES_FOLHAS[abertura]:
-        raise ValueError("Quantidade de folhas invalida para esta abertura")
-    # .get: porta antiga (e dicionario de teste) nao tem as ferragens
+        raise ValueError("Invalid leaf count for this opening")
+    # .get supports old doors and test dictionaries lacking hardware fields.
     numericos = [largura, altura] + [float(p.get(k, 0.0)) for k in
                                     _PARAMETROS_PORTAS if k.endswith('_mm')]
     if not all(math.isfinite(v) and v >= 0 for v in numericos):
-        raise ValueError("As medidas devem ser finitas e nao negativas")
+        raise ValueError("Measurements must be finite and nonnegative")
     e, lateral = p['espessura_mm'], p['lateral_mm']
     if not (e > 0 and lateral > 0):
-        raise ValueError("A espessura deve ser maior que zero")
+        raise ValueError("Thickness must be greater than zero")
     correr = abertura == 'CORRER'
     if not correr and p['dobradica'] not in {'RETA', 'CURVA', 'SUPER_CURVA'}:
-        raise ValueError("Escolha a dobradica: reta, curva ou super curva")
+        raise ValueError("Choose a hinge: straight, half crank, or full crank")
     esq, dir_, baixo, cima = _inicios_porta(p)
     util = largura - esq - dir_
     a = altura - baixo - cima
     if correr:
         if p['recuo_correr_mm'] <= 0:
-            raise ValueError("Portas de correr exigem recuo positivo para os trilhos")
+            raise ValueError("Sliding doors require a positive rail recess")
         l = _largura_folha_correr(p, util, n)
-        # as folhas se espalham pelo vao, a 1a encostada a' esquerda e a
-        # ultima a' direita (a unica fica a' esquerda: corre para a outra)
+        # Spread leaves across the opening, first at the left and last at the
+        # right; a single leaf stays left and travels toward the other side.
         if l > util + 1e-6:
-            raise ValueError("Vao estreito demais para as folhas")
+            raise ValueError("Opening too narrow for the leaves")
         passo = (util - l) / (n - 1) if n > 1 else 0.0
     else:
         l = (util - (n - 1) * p['entre_folhas_mm']) / n
         passo = l + p['entre_folhas_mm']
     if l < 1.0 or a < 1.0:
-        raise ValueError("Folgas maiores que o vao disponivel")
+        raise ValueError("Gaps exceed the available opening")
     saida = []
     for i in range(n):
         if correr:
@@ -1012,13 +1005,13 @@ def _calcular_folhas_portas(largura, altura, parametros):
     return saida
 
 
-# ============================== VINCULO DA PORTA COM O MODULO (cenario 2)
-# Quando o primeiro clique cai numa CHAPA, o vao pertence ao modulo que
-# a contem. Guardar o vao em milimetros absolutos quebraria o vinculo no
-# primeiro redimensionamento; por isso as quatro folgas ate' as faces do
-# modulo sao guardadas em ESPESSURAS. Assim a porta acompanha tanto a
-# largura/altura do modulo quanto a espessura das chapas, que e'
-# exatamente o que delimita o vao.
+# ============================== DOOR-TO-CABINET LINK (scenario 2)
+# When the first click hits a PANEL, the opening belongs to its cabinet.
+# Absolute mm would break that link on the first resize, so store
+# the four clearances to cabinet faces in THICKNESS UNITS.
+# The door then follows both cabinet width/height and panel thickness,
+# which together define
+# the opening.
 CHAVE_MODULO_PORTA = "porta_modulo"
 CHAVE_FOLGAS_PORTA = "porta_folgas_em_e"
 CHAVE_RECUO_PORTA = "porta_recuo_frente_mm"
@@ -1026,8 +1019,8 @@ CHAVE_VAO_ORIENTADO = "porta_vao_orientado"
 
 
 def gravar_vao_orientado(grupo, conj):
-    """Tres cantos nos eixos do modulo conservam a face de canto. As
-    folgas X/Y usuais nao representam uma porta diagonal ou perpendicular.
+    """Three corners in cabinet axes preserve corner faces. Ordinary X/Y
+    clearances cannot represent diagonal or perpendicular doors.
     """
     lo, hi = _limites_locais_modulo(conj)
     inversa = conj.matrix_world.inverted()
@@ -1040,8 +1033,8 @@ def gravar_vao_orientado(grupo, conj):
         if chave.startswith(('porta_vao_face_', 'porta_vao_apoio_', 'porta_vao_vertice_',
                              'porta_vao_offset_', 'porta_vao_assinatura_')):
             del grupo[chave]
-    # A quina interna pode andar (R/angulo) sem mudar a caixa externa.
-    # Apoio em vertices reais evita deixar a porta no plano antigo.
+    # The inner corner can move (R/angle) without changing the outer box.
+    # Support on actual vertices keeps the door off its obsolete plane.
     for i, ponto in enumerate(pontos):
         mundo = conj.matrix_world @ (ponto / 1000)
         candidatos = []
@@ -1053,9 +1046,9 @@ def gravar_vao_orientado(grupo, conj):
             distancia = (obj.matrix_world @ perto - mundo).length * 1000
             if distancia >= 60:
                 continue
-            # Nos cantos do vao o topo/base tambem toca o ponto. A
-            # lateral/ripa define a largura parcial, nao a interpolacao
-            # de um ponto solto no meio do tampo que atravessa a caixa.
+            # The top/base also touches opening corners. The side/strip determines
+            # partial width, rather than interpolation from an arbitrary point
+            # in the middle of a top spanning the box.
             lateral = abs(_chapas._eixos(obj)[2].dot(grupo.matrix_world.to_3x3().col[0])) > .5
             candidatos.append((not lateral, distancia, obj, perto, face, local))
         if not candidatos:
@@ -1076,9 +1069,9 @@ def gravar_vao_orientado(grupo, conj):
 
 
 def preparar_referencias_vaos(conj):
-    """Migra uma vez ANTES de redimensionar. Porta parcial acompanha
-    ripa/divisoria reais, em vez de guardar distancia ate' a caixa toda.
-    Nenhuma busca de malha no redraw ou no slider de abertura.
+    """Migrate once BEFORE resizing. Partial doors follow actual strips/
+    partitions rather than distances to the entire box. No mesh search
+    during redraw or opening-slider interaction.
     """
     for grupo in _portas_do_conjunto(conj):
         folgas = grupo.get(CHAVE_FOLGAS_PORTA, ())
@@ -1142,7 +1135,7 @@ def _vao_orientado(grupo, conj):
     y = Vector((0, 0, y.z))
     L, A = x.length, y.length
     if min(L, A) < 1:
-        raise ValueError('O vao orientado nao tem espaco para a porta')
+        raise ValueError("The oriented opening has no room for the door")
     x.normalize()
     y.normalize()
     matriz = Matrix((x, y, x.cross(y))).transposed().to_4x4()
@@ -1151,8 +1144,8 @@ def _vao_orientado(grupo, conj):
 
 
 def preparar_deformacao_vaos(conj, desloc):
-    """Transporta os tres pontos do vao FECHADO pelo mesmo mapa da
-    carcaca. O envelope nao muda quando apenas um braco do L anda.
+    """Transport the CLOSED opening's three points through the body's map.
+    Moving only one L-shaped arm leaves the envelope unchanged.
     """
     planos=[]
     inv=conj.matrix_world.inverted()
@@ -1170,8 +1163,8 @@ def preparar_deformacao_vaos(conj, desloc):
 
 
 def aplicar_deformacao_vaos(conj, planos):
-    """Grava o vao transportado sem ancoras antigas puxando-o de volta.
-    Fracoes do envelope continuam atendendo largura/altura gerais.
+    """Store the transported opening without old anchors pulling it back.
+    Envelope fractions still support overall width/height changes.
     """
     if not planos:return
     lo,hi=_limites_locais_modulo(conj)
@@ -1188,11 +1181,11 @@ def aplicar_deformacao_vaos(conj, planos):
 
 
 def vincular_folha_de_apoio(grupo, folha, conj):
-    """Folha articulada de canto segue a porta que sustenta a dobradica.
-    O vao continua vinculado ao modulo para o redimensionamento.
+    """A hinged corner leaf follows the door supporting its hinge.
+    The opening stays linked to the cabinet for resizing.
     """
     if folha in grupo.children_recursive:
-        raise ValueError('Ciclo entre portas de apoio')
+        raise ValueError("Cycle between supporting doors")
     gravar_vao_orientado(grupo, conj)
     fechada = grupo.matrix_world.copy()
     grupo['porta_apoio_folha'] = folha
@@ -1202,9 +1195,9 @@ def vincular_folha_de_apoio(grupo, folha, conj):
     bpy.context.view_layer.update()
 
 
-# Enquanto o apanhador roda, o botao da aba fica aceso. Sem isso o
-# usuario nao tem como saber que a ferramenta esta' esperando os dois
-# cliques na viewport.
+# Keep the tab button lit while capture runs so the user knows
+# the tool is waiting for two
+# viewport clicks.
 _apanhando_vao = [False]
 
 
@@ -1219,11 +1212,11 @@ def _marcar_apanhando(ligado):
 
 
 def _motivo_portas(s):
-    """O que impede de criar a porta agora, ou '' se nada impede.
+    """Return why door creation is blocked, or '' if allowed.
 
-    O operador recusa parametros invalidos, mas o aviso dele nao chega
-    a quem esta' olhando a gaveta -- clicar parecia nao fazer nada.
-    Aqui o proprio botao passa a dizer o que falta.
+    The operator rejects invalid parameters, but its report does not
+    reach someone watching the sidebar, making clicks seem ineffective.
+    The button itself now explains what is missing.
     """
     try:
         _calcular_folhas_portas(1000.0, 1000.0,
@@ -1234,7 +1227,7 @@ def _motivo_portas(s):
 
 
 def _modulo_da_chapa(obj):
-    """Conjunto que contem esta chapa, subindo pelos pais."""
+    """Find the assembly containing this panel by walking its parents."""
     if obj is None or _chapas.MARCA_CHAPA not in obj:
         return None
     pai = obj.parent
@@ -1246,7 +1239,7 @@ def _modulo_da_chapa(obj):
 
 
 def _caixa_do_modulo(conj):
-    """(L, A, P, E) em mm do modulo, ou None se faltar medida."""
+    """Cabinet (L, A, P, E) in mm, or None if a dimension is missing."""
     try:
         limites = _limites_locais_modulo(conj)
         if limites is not None:
@@ -1261,7 +1254,7 @@ def _caixa_do_modulo(conj):
 
 
 def _limites_locais_modulo(conj):
-    """Caixa das chapas, sem portas; campos antigos podem estar defasados."""
+    """Panel box without doors; old fields may be stale."""
     inversa = conj.matrix_world.inverted()
     pontos = [inversa @ (o.matrix_world @ v.co) * 1000
               for o in _modulos._chapas_do_conjunto(conj)
@@ -1273,17 +1266,16 @@ def _limites_locais_modulo(conj):
 
 
 def _local_no_modulo(conj, ponto):
-    """Ponto de mundo nos eixos do modulo, em mm."""
+    """World point expressed on cabinet axes, in mm."""
     return conj.matrix_world.inverted() @ Vector(ponto) * 1000.0
 
 
 def _folgas_do_vao(conj, ponto_a, ponto_b, frente, largura_em='X'):
-    """Folgas (esq, dir, baixo, cima) em ESPESSURAS mais o recuo em mm.
+    """Clearances (left, right, bottom, top) in THICKNESS UNITS plus setback mm.
 
-    O Empty do conjunto fica no centro X/Y e na base Z (ver
-    `reposicionar_origem`), entao a caixa local vai de -L/2 a L/2 em X,
-    de -P/2 a P/2 em Y e de 0 a A em Z. "Baixo/cima" sao os lados do
-    eixo da ALTURA da porta -- numa tampa deitada, a profundidade.
+    The assembly Empty is at XY center and Z base (`reposicionar_origem`),
+    so its local box spans -L/2..L/2 on X, -P/2..P/2 on Y and 0..A on Z.
+    Bottom/top refer to door HEIGHT: depth for a horizontal lid.
     """
     caixa = _caixa_do_modulo(conj)
     if caixa is None:
@@ -1305,7 +1297,7 @@ def _folgas_do_vao(conj, ponto_a, ponto_b, frente, largura_em='X'):
 
 
 def _vao_do_modulo(conj, folgas, recuo, frente, largura_em='X'):
-    """Refaz (largura, altura, matriz) do vao a partir do modulo de hoje."""
+    """Rebuild opening (width, height, matrix) from the current cabinet."""
     caixa = _caixa_do_modulo(conj)
     if caixa is None:
         return None
@@ -1328,24 +1320,23 @@ def _vao_do_modulo(conj, folgas, recuo, frente, largura_em='X'):
 
 
 def _portas_do_conjunto(conj):
-    """Grupos de porta vinculados a este modulo."""
+    """Door groups linked to this cabinet."""
     grupos=[]
     for o in bpy.data.objects:
         if _chapas.MARCA_PORTAS not in o:continue
         pai=o.parent
         while pai is not None and _chapas.MARCA_CONJUNTO not in pai:pai=pai.parent
-        # Strings nao recebem .001 no append; a hierarquia e' a fonte
-        # inclusive para cadeias apoiadas em outra folha.
+        # Strings do not acquire .001 on append; hierarchy is authoritative,
+        # including chains supported on another leaf.
         if pai==conj or (pai is None and o.get(CHAVE_MODULO_PORTA)==conj.name):grupos.append(o)
     return grupos
 
 
 def porta_no_modulo(conj, folhas=1, abertura='GIRO', **extras):
-    """Porta RETA cobrindo a frente inteira do modulo, pelos mesmos 4
-    cliques do wizard (cantos de fora = porta, de dentro = vao) -- o
-    caminho que os armarios nativos da biblioteca usam. `extras` vao
-    direto ao `cabinet_portas` (ex.: dobradica_lado, pistoes_qtd).
-    Devolve o grupo da porta."""
+    """Full-front STRAIGHT/full-overlay door via the same four wizard clicks
+    (outer corners = door, inner corners = opening), used by native library
+    cabinets. Pass `extras` directly to `cabinet_portas`, e.g.
+    dobradica_lado or pistoes_qtd. Return the door group."""
     L, A, P, E = _caixa_do_modulo(conj)
     y = -P / 2.0
     cantos = [(-L / 2, y, A), (-L / 2 + E, y, A - E), (L / 2 - E, y, E), (L / 2, y, 0)]
@@ -1366,12 +1357,12 @@ def porta_no_modulo(conj, folhas=1, abertura='GIRO', **extras):
         pai_nome=conj.name, modulo_nome=conj.name, objeto_a_nome=esquerda.name,
         frente='NEG_Y', folga_mm=0, **opcoes)
     if 'FINISHED' not in resultado:
-        raise RuntimeError("porta do modulo %s nao saiu" % conj.name)
+        raise RuntimeError("door for cabinet %s could not be created" % conj.name)
     return _portas_do_conjunto(conj)[-1]
 
 
 def _vao_com_ancoras(grupo, vao, parametros):
-    """Atualiza limites apoiados em folhas ja' existentes, sem acumular folga."""
+    """Update boundaries supported by existing leaves without accumulating gaps."""
     largura, altura, matriz = vao
     inversa = matriz.inverted()
     limites = [0.0, largura, 0.0, altura]
@@ -1382,7 +1373,7 @@ def _vao_com_ancoras(grupo, vao, parametros):
         folha = grupo.get('porta_ancora_%d' % indice)
         if not isinstance(folha, bpy.types.Object) or folha.type != 'MESH':
             continue
-        # fechada: a porta de apoio aberta nao muda o vao desta
+        # Closed pose: opening the support door must not change this opening.
         fechada = _ferragens._matriz_fechada(folha)
         valores = [(inversa @ (fechada @ v.co))[indice // 2] * 1000
                    for v in folha.data.vertices]
@@ -1392,15 +1383,15 @@ def _vao_com_ancoras(grupo, vao, parametros):
     matriz = matriz @ Matrix.Translation(Vector((limites[0], limites[2], 0)) / 1000)
     largura, altura = limites[1] - limites[0], limites[3] - limites[2]
     if largura < 1 or altura < 1:
-        raise ValueError("A porta de apoio nao deixa espaco para o vao")
+        raise ValueError("The supporting door leaves no room for the opening")
     return largura, altura, matriz
 
 
 def _porta_reta_sem_mudanca(grupo, p, largura, altura, matriz):
-    """Compara os dados ja' montados; nao reconstrui Mesh nem cache persistente.
+    """Compare assembled data without rebuilding Mesh or persistent caches.
 
-    Somente a Reta de giro nao depende do ray cast dos apoios obliquos.
-    As outras tipologias conservam a atualizacao completa.
+    Only straight swing hinges are independent of oblique-support ray casts.
+    Other types retain the complete update.
     """
     if (p.get('abertura') != 'GIRO' or p.get('folha', 'CHAPA') != 'CHAPA'
             or not _ferragens._usa_rig(p) or not grupo.get('porta_ferragens_encaixe')
@@ -1439,22 +1430,22 @@ def _porta_reta_sem_mudanca(grupo, p, largura, altura, matriz):
 
 
 def atualizar_do_conjunto(conj):
-    """Refaz as folhas depois que o modulo mudou de medida.
+    """Rebuild leaves after cabinet dimensions change.
 
-    Chamado DEPOIS de `redimensionar_grupo` / `aplicar_espessura_grupo`,
-    nunca durante: as folhas leem as medidas ja' aplicadas.
+    Call AFTER `redimensionar_grupo` / `aplicar_espessura_grupo`, never
+    during them: leaves read dimensions already applied.
     """
     if conj is None or _chapas.MARCA_CONJUNTO not in conj:
         return
     pendentes = _portas_do_conjunto(conj)
     ordenados = []
-    # Apoios primeiro: nomes alfabeticos nao representam a dependencia.
+    # Supports first: alphabetical names do not represent dependencies.
     while pendentes:
         livres = [g for g in pendentes if not any(
             _grupo_portas(f) in pendentes for f in
             [g.get('porta_ancora_%d' % i) for i in range(4)] + [g.get('porta_apoio_folha')])]
         if not livres:
-            print("[Archy Builder] ciclo entre portas de apoio")
+            print("[Archy Builder] cycle between supporting doors")
             break
         ordenados.extend(livres)
         pendentes = [g for g in pendentes if g not in livres]
@@ -1465,8 +1456,8 @@ def atualizar_do_conjunto(conj):
             continue
         frente = grupo.get('porta_frente', 'NEG_Y')
         largura_em = grupo.get('porta_largura_em', 'X')
-        # A lateral E' a chapa do modulo: guardar a de quando a porta
-        # nasceu fazia a porta reta sobrar para fora ao afinar o modulo.
+        # Side thickness IS cabinet-panel thickness: retaining its creation value
+        # made full-overlay doors protrude when the cabinet became thinner.
         parametros = _copiar_parametros(parametros)
         parametros['lateral_mm'] = _espessura_do_vao(
             conj, padrao=parametros.get('lateral_mm', ESPESSURA_PADRAO_PORTA))
@@ -1486,17 +1477,17 @@ def atualizar_do_conjunto(conj):
             _aplicar_portas(bpy.context, grupo, matriz, conj,
                             largura, altura, dict(parametros))
         except (ValueError, KeyError, TypeError) as e:
-            print("[Archy Builder] porta vinculada:", e)
+            print("[Archy Builder] linked door:", e)
 
 
 def atualizar_portas_do_conjunto(conj, sistemas=True):
-    """Compatibilidade da API antiga; coordenacao pertence ao modulo."""
+    """Legacy API compatibility; the cabinet owns coordination."""
     return _modulos.atualizar_sistemas_do_conjunto(conj, internos=sistemas)
 
 
 def preferir_esquerda_no_modulo(context, conj):
-    """Reverte tambem a ordem das cadeias COPLANARES, sem alterar as
-    folhas fechadas. Uma cadeia de canto conserva seus apoios geometricos.
+    """Reverse COPLANAR chain order too, without changing closed leaves.
+    Corner chains retain their geometric supports.
     """
     grupos=_portas_do_conjunto(conj)
     alteradas=[]
@@ -1557,9 +1548,9 @@ def preferir_esquerda_no_modulo(context, conj):
 
 
 def preferir_abertura_esquerda(context, grupo):
-    """Padrao da biblioteca/importacao. Folhas duplas conservam as duas
-    laterais externas; articuladas conservam a junta com a folha de apoio.
-    So' inverter quando TODAS as dobradicas encontram apoio real na caixa.
+    """Library/import default: double leaves retain both external sides;
+    articulated leaves retain the joint to the support leaf. Reverse only
+    when ALL hinges have actual body support.
     """
     p = _copiar_parametros(grupo.get('porta_parametros') or {})
     if (p.get('abertura') not in ('GIRO','ZIGZAG') or p.get('dobradica_lado')!='DIREITA'
@@ -1653,14 +1644,14 @@ def _ancestrais_porta(grupo):
 
 
 def espelhar_porta(context, grupo, indices=None):
-    """Muda o sentido do giro sem espelhar a madeira nem deslocar o vao."""
+    """Reverse swing direction without mirroring wood or moving the opening."""
     p = _copiar_parametros(grupo.get('porta_parametros') or {})
     if p.get('abertura') not in LIMITES_FOLHAS:
-        return 'Porta sem abertura para espelhar'
+        return "Door has no opening motion to mirror"
     folhas = _folhas_portas(grupo)
     escolhidas = set(range(len(folhas))) if indices is None else set(indices)
     if not escolhidas or not escolhidas <= set(range(len(folhas))):
-        return 'Folha de porta nao encontrada'
+        return "Door leaf not found"
     inverter = {'ESQUERDA': 'DIREITA', 'DIREITA': 'ESQUERDA'}
     if p['abertura'] == 'BASCULANTE':
         p['basculante_invertida'] = not p.get('basculante_invertida', False)
@@ -1670,8 +1661,8 @@ def espelhar_porta(context, grupo, indices=None):
             espelhadas[str(i)] = not espelhadas.get(str(i), False)
         p['correr_espelhadas'] = espelhadas
     elif p['abertura'] == 'ZIGZAG':
-        # Uma junta isolada nao muda o sentido da cadeia. Inverter a
-        # ordem dos indices conserva cada folha FECHADA no mesmo lugar.
+        # A single joint does not reverse the chain. Reversing index order
+        # keeps each CLOSED leaf in the same place.
         p['dobradica_lado'] = inverter[p.get('dobradica_lado', 'ESQUERDA')]
         for folha in folhas:
             folha['porta_indice'] = len(folhas) - 1 - int(folha['porta_indice'])
@@ -1709,9 +1700,9 @@ def espelhar_porta(context, grupo, indices=None):
 
 
 class OBJECT_OT_espelhar_porta(Operator):
-    """Inverte a abertura da porta ou folha selecionada"""
+    """Reverse the selected door's or leaf's opening direction."""
     bl_idname = 'object.cabinet_espelhar_porta'
-    bl_label = 'Espelhar Porta'
+    bl_label = "Mirror Door"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -1736,7 +1727,7 @@ def menu_contexto_porta(self, context):
 
 
 def _reaplicar_portas(context, grupo, parametros):
-    """Refaz as folhas no vao que o grupo ja' tem, respeitando apoios."""
+    """Rebuild leaves in the group's existing opening, respecting supports."""
     largura, altura, matriz = _vao_com_ancoras(
         grupo, (grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'],
                 grupo.matrix_world.copy()), parametros)
@@ -1745,8 +1736,8 @@ def _reaplicar_portas(context, grupo, parametros):
 
 
 def adotar_contorno_modelado(context, grupo, pontos):
-    """Reancora a folha curva na tangente da dobradica apos editar R.
-    Conserva cada vertice deformado e a abertura, sem achatar a flecha.
+    """Reanchor a curved leaf at the hinge tangent after editing R.
+    Keep every deformed vertex and the opening, without flattening sag.
     """
     if len(_folhas_portas(grupo))==1:
         if _reancorar_perfil_modelado(context,grupo,pontos):
@@ -1805,7 +1796,7 @@ def _reancorar_perfil_modelado(context,grupo,pontos):
     _aplicar_portas(context,grupo,matriz,grupo.parent,L,A,p)
     context.view_layer.update()
     inv=_ferragens._matriz_fechada(folha).inverted()
-    # Conservar TODOS os vertices e faces, inclusive recortes manuais.
+    # Preserve ALL vertices and faces, including manual cutouts.
     for v,ponto in zip(folha.data.vertices,pontos):v.co=inv@ponto
     folha.data.update()
     folha['porta_linha_frente']=[list(inv@v) for v in linha]
@@ -1825,11 +1816,11 @@ def _reancorar_perfil_modelado(context,grupo,pontos):
 
 
 def _refazer_porta(context, grupo, parametros):
-    """Grava parametros novos numa porta JA' colocada e refaz as folhas.
+    """Write new parameters to an INSTALLED door and rebuild its leaves.
 
-    Devolve '' ou o motivo da recusa. Valida ANTES de gravar: valor
-    recusado nao pode deixar a porta pela metade. Vinculada a um modulo,
-    refaz pelo modulo, que tambem refaz as portas apoiadas nesta.
+    Return '' or a rejection reason. Validate BEFORE writing: rejection
+    must not leave a half-updated door. For linked doors, rebuild through
+    the cabinet, which also updates doors supported on this one.
     """
     try:
         _calcular_folhas_portas(float(grupo['porta_vao_largura_mm']),
@@ -1851,10 +1842,10 @@ def _refazer_porta(context, grupo, parametros):
 
 
 def _editar_parametro_porta(context, grupo, nome, valor):
-    """Muda UM parametro de uma porta colocada (aba Portas, nivel porta)."""
+    """Change ONE installed-door parameter at door level in the Doors tab."""
     guardados = grupo.get('porta_parametros') if grupo is not None else None
     if not guardados or nome not in _PARAMETROS_PORTAS + (CHAVE_LARGURA_CORRER,):
-        return 'Porta sem parametros para editar'
+        return "Door has no editable parameters"
     parametros = _copiar_parametros(guardados)
     if nome in {'espessura_mm', 'moldura_mm'}:
         valor = _chapas._espessura_livre(valor)
@@ -1867,10 +1858,10 @@ def _editar_parametro_porta(context, grupo, nome, valor):
         parametros.pop('correr_espelhadas', None)
         parametros.pop('basculante_invertida', None)
     if nome in {'dobradicas_qtd', 'dobradicas_margem_mm', 'dobradica_lado', 'folhas', 'abertura'}:
-        # A escolha manual substitui o arranjo medido do DXF.
+        # A manual choice replaces the measured DXF arrangement.
         parametros.pop('dobradicas_referencia', None)
     if nome in {'abertura', 'folhas'}:
-        # outra tipologia: a largura volta a' do padrao dela
+        # Different type: restore that type's default width.
         parametros.pop(CHAVE_LARGURA_CORRER, None)
     if nome == 'abertura':
         if valor != 'GIRO':
@@ -1882,10 +1873,10 @@ def _editar_parametro_porta(context, grupo, nome, valor):
         if valor == 'ZIGZAG':
             parametros['folhas'] = max(2, parametros['folhas'])
     if nome == 'trilho':
-        # outro trilho, outra folha: a de 18 nao cabe nos canais do leve
+        # Different track, different leaf: 18 mm cannot fit light-track channels.
         parametros['espessura_mm'] = _espessura_porta_do_trilho(parametros)
     if nome == 'folha' or (nome == 'trilho' and _folha_quadro(parametros)):
-        # o quadro tem o fundo do perfil; a chapa volta a' do trilho
+        # Frames use profile depth; panels return to track-specific thickness.
         parametros['espessura_mm'] = (
             ESPESSURA_QUADRO_MM if _folha_quadro(parametros)
             else _espessura_porta_do_trilho(parametros) if _correr_sobreposta(parametros)
@@ -1894,45 +1885,45 @@ def _editar_parametro_porta(context, grupo, nome, valor):
 
 
 def _espessura_da_folha_mudou(folha, espessura):
-    """O E de UMA folha vale para a porta inteira.
+    """ONE leaf's E applies to the entire door.
 
-    Uma porta nao tem folhas de espessuras diferentes. Sem propagar, as
-    outras folhas ficavam com a antiga e o proximo redimensionamento
-    devolvia o valor guardado.
+    A door cannot have leaves with different thicknesses. Without propagation,
+    other leaves kept their old thickness and the next resize restored
+    the saved value.
     """
     grupo = _grupo_portas(folha)
     if grupo is None or not grupo.get('porta_parametros'):
         return False
     erro = _editar_parametro_porta(bpy.context, grupo, 'espessura_mm', espessura)
     if erro:
-        print("[Archy Builder] espessura da porta:", erro)
+        print("[Archy Builder] door thickness:", erro)
         return False
     return True
 
 
 def _nome_da_porta(p):
-    """Nome do grupo da porta pelo modelo (pedido do usuario)."""
+    """Door-group name from its model, as requested."""
     abertura = p.get('abertura', 'GIRO')
     if abertura == 'ZIGZAG':
-        return "Porta Zig-zag"
+        return "Folding Door"
     if abertura == 'CORRER':
-        return "Porta de Correr"
+        return "Sliding Door"
     if abertura == 'BASCULANTE':
-        return "Porta Basculante"
-    folhas = "Dupla" if int(p.get('folhas', 1)) > 1 else "Unica"
+        return "Lift-Up Door"
+    folhas = "Double" if int(p.get('folhas', 1)) > 1 else "Single"
     if p.get('dobradica') == 'SUPER_CURVA':
-        return "Porta Embutida " + folhas
-    return "Porta " + folhas
+        return folhas + " Inset Door"
+    return folhas + " Door"
 
 
 def _sem_sufixo(nome):
-    """"Porta Dupla.001" -> "Porta Dupla" (o .NNN do Blender)."""
+    """"Double Door.001" -> "Double Door" (Blender's .NNN suffix)."""
     base, ponto, fim = nome.rpartition('.')
     return base if ponto and len(fim) == 3 and fim.isdigit() else nome
 
 
 def _renomear_porta(grupo, p):
-    """O nome segue o modelo -- a nao ser que o usuario o tenha trocado."""
+    """Follow the model name unless the user has renamed the group."""
     novo = _nome_da_porta(p)
     anterior = grupo.get('porta_nome_auto')
     if anterior is None or _sem_sufixo(grupo.name) == anterior:
@@ -1943,35 +1934,35 @@ def _renomear_porta(grupo, p):
 
 def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
                     parametros, frente='', largura_em=''):
-    """Valida antes de alterar a cena; reutiliza folhas e seus materiais."""
-    # dict(IDPropertyGroup) e' uma copia RASA. Ao substituir a prop, o
-    # Blender libera os arrays/grupos antigos; ler a referencia de
-    # dobradicas depois disso derrubava o 5.2 no redimensionamento.
+    """Validate before scene mutation; reuse leaves and their materials."""
+    # dict(IDPropertyGroup) is a SHALLOW copy. Replacing the property frees
+    # old arrays/groups; subsequently reading the old hinge reference
+    # crashed Blender 5.2 during resize.
     parametros = _copiar_parametros(parametros)
     calculadas = _calcular_folhas_portas(largura, altura, parametros)
     antigas = _folhas_portas(grupo) if grupo is not None else []
     abertura_anterior = grupo.get('porta_parametros', {}).get('abertura') if grupo is not None else None
     fracao_zigzag = antigas[0].get(_ferragens.CHAVE_ABERTURA, 0) if antigas else 0
     if any(o.type != 'MESH' or o.mode != 'OBJECT' for o in antigas):
-        raise ValueError("Saia do Modo Edicao das portas antes de reconfigurar")
+        raise ValueError("Leave door Edit Mode before reconfiguring")
     ocupado_antes = _chapas._ocupado[0]
     _chapas._ocupado[0] = True
     try:
         if grupo is None:
             grupo = bpy.data.objects.new(_nome_da_porta(parametros), None)
             grupo['porta_nome_auto'] = grupo.name
-            # dentro do grupo (Collection) do armario, junto das chapas
+            # Inside the cabinet's Collection, alongside its panels.
             colecao = (pai.users_collection[0] if pai is not None
                        and pai.users_collection else context.collection)
             colecao.objects.link(grupo)
             grupo[_chapas.MARCA_PORTAS] = 1
             _chapas._ocultar_empty(grupo)
             grupo.parent = pai
-            # As medidas sao de mundo, mesmo quando o pai tem escala.
+            # Dimensions are world-space even when the parent is scaled.
             if pai is not None:
                 grupo.matrix_parent_inverse = pai.matrix_world.inverted()
-        # O vao se desloca ao redimensionar: atualizar so' as dimensoes
-        # deixava a origem antiga e a porta escapava da borda do modulo.
+        # The opening moves during resize: updating dimensions alone left
+        # the old origin and made the door drift past the cabinet edge.
         grupo.matrix_world = matriz
         _renomear_porta(grupo, parametros)
         grupo['porta_parametros'] = dict(parametros)
@@ -1990,21 +1981,21 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
                 antigo = (folha.chapa_largura_mm, folha.chapa_comprimento_mm,
                           folha.chapa_espessura_mm)
                 if folha.get('porta_curva_modelada'):
-                    # A madeira curva passa da largura nominal nas quinas:
-                    # o resize mede a variacao das medidas, nao a malha.
+                    # Curved wood extends beyond nominal width at corners:
+                    # resize measures dimension changes, not the mesh.
                     _chapas.guardar_referencia_malha(folha, antigo[0] / 1000,
                                                      antigo[1] / 1000)
             else:
-                malha = bpy.data.meshes.new("Folha %02d" % (i + 1))
-                folha = bpy.data.objects.new("Folha %02d" % (i + 1), malha)
+                malha = bpy.data.meshes.new("Leaf %02d" % (i + 1))
+                folha = bpy.data.objects.new("Leaf %02d" % (i + 1), malha)
                 grupo.users_collection[0].objects.link(folha)
                 folha[_chapas.MARCA_CHAPA] = 1
                 folha[_chapas.MARCA_FOLHA] = 1
-            _ferragens._padronizar_nome(folha, "Folha %02d" % (i + 1))
+            _ferragens._padronizar_nome(folha, "Leaf %02d" % (i + 1))
             folha['porta_indice'] = i
             folha.parent = grupo
             folha.matrix_parent_inverse = Matrix.Identity(4)
-            # a abertura sobrevive a redimensionar (Fase 3)
+            # Opening survives resize (Phase 3).
             folha[_ferragens.CHAVE_CENTRO_FOLHA] = tuple(centro)
             if parametros.get('abertura') == 'ZIGZAG':
                 folha[_ferragens.CHAVE_ABERTURA] = fracao_zigzag
@@ -2018,9 +2009,9 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
             _vestir_folha(folha, parametros)
             if antigo is not None:
                 _ajustar_puxadores(folha, antigo, (l, a, e))
-        # Apenas folhas geradas que deixaram de existir na nova tipologia.
-        # O puxador delas nao some junto: fica solto no lugar e depois
-        # passa para a folha que sobrou mais perto.
+        # Only generated leaves omitted by the new type.
+        # Their handles remain loose in place, then transfer to
+        # the nearest surviving leaf.
         orfaos = []
         for folha in antigas[len(calculadas):]:
             for pux in [c for c in folha.children if _chapas.MARCA_PUXADOR in c]:
@@ -2050,8 +2041,8 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
         _chapas.gerar_malha_chapa(folha)
     context.view_layer.update()
     if modulo is not None:
-        # a moldura e' parte da caixa do armario (pedido do usuario): as
-        # medidas do modulo passam a conta-la (ou deixam, se ela saiu)
+        # The frame is part of the cabinet box: include it in cabinet
+        # dimensions, or stop including it when removed.
         _modulos.sincronizar_medidas_conjunto(modulo)
     refazer = set()
     for pux in orfaos:
@@ -2059,14 +2050,14 @@ def _aplicar_portas(context, grupo, matriz, pai, largura, altura,
         if (folha is not None and _puxadores._eh_puxador_parametrico(pux)
                 and pux['puxador_tipo'] == 'PERFIL'
                 and pux.get('puxador_borda') in _puxadores._rebaixos_da_chapa(folha)):
-            # a folha que fica ja' tem perfil nessa borda: sobraria dobrado
+            # The surviving leaf already has a profile on this edge: avoid doubling it.
             bpy.data.objects.remove(pux, do_unlink=True)
             continue
         _ligar_puxador(pux, folha)
         if folha is not None and _puxadores._eh_puxador_parametrico(pux):
             refazer.add(folha.name)
     for nome in refazer:
-        # parametrico vai para a mesma borda/fracao da folha nova
+        # Parametric handles use the same edge/fraction on the new leaf.
         _chapas.gerar_malha_chapa(bpy.data.objects[nome])
     if parametros.get('abertura') == 'ZIGZAG':
         _puxadores.puxador_terminal(context, grupo)
@@ -2097,11 +2088,11 @@ def _folha_mais_proxima(obj, folhas):
 
 
 def _ligar_puxador(pux, folha):
-    """Pendura o puxador na folha SEM tira-lo do lugar.
+    """Parent the handle to the leaf WITHOUT moving it.
 
-    A inversa fica identidade: assim `matrix_basis` E' a posicao do
-    puxador no referencial da folha (X largura, Y altura, Z espessura,
-    origem no centro), que e' onde `_ajustar_puxadores` faz as contas.
+    Keep the inverse identity so `matrix_basis` IS the handle's position
+    in leaf coordinates (X width, Y height, Z thickness, centered origin),
+    where `_ajustar_puxadores` performs its calculations.
     """
     if folha is None:
         return
@@ -2112,13 +2103,12 @@ def _ligar_puxador(pux, folha):
 
 
 def _ajustar_puxadores(folha, antigo, novo):
-    """A folha mudou de (L, A, E) antigo para novo: o puxador acompanha.
+    """The leaf changed from old to new (L, A, E): make its handle follow.
 
-    Eixo TRAVADO: mesma medida, mesma distancia ate' a borda da folha
-    de que estava mais perto. DESTRAVADO: estica junto com a folha,
-    proporcional a partir do centro dela (o puxador distorce).
-    Parametrico (`puxador_tipo`) fica de fora: `posicionar_puxador` o
-    refaz pelas props da folha, no gancho de `gerar_malha_chapa`.
+    LOCKED axis: keep size and distance to the nearest leaf edge.
+    UNLOCKED: stretch proportionally from the leaf center (distorting
+    the handle). Exclude parametric `puxador_tipo`: `posicionar_puxador`
+    rebuilds it from leaf properties in the `gerar_malha_chapa` hook.
     """
     for pux in [c for c in folha.children if _chapas.MARCA_PUXADOR in c
                 and not _puxadores._eh_puxador_parametrico(c)]:
@@ -2143,7 +2133,7 @@ def _ajustar_puxadores(folha, antigo, novo):
 
 
 def _limitar_folhas_cena(self, context):
-    """Abertura nova pode nao aceitar a quantidade de folhas atual."""
+    """The new opening type may reject the current leaf count."""
     limite = LIMITES_FOLHAS.get(self.porta_abertura, 1)
     if self.porta_folhas > limite:
         self.porta_folhas = limite
@@ -2159,13 +2149,13 @@ def _limitar_folhas_portas(self, context):
         self.folhas = 2
 
 
-# ==================================== APANHADOR DO VAO DAS PORTAS
-# Marcar o vao exigia entrar em Modo Edicao e selecionar 2 vertices em
-# duas chapas diferentes. No apanhador (`cabinet_apanhar_vao`, modulo
-# `assistente`) o usuario fica em Modo Objeto: o snap NATIVO do Blender
-# leva o cursor ao vertice, o primeiro clique fixa um canto e a previa
-# das folhas acompanha o cursor ate' o segundo.
-RAIO_IMA_PX = 28.0          # alcance, em pixels, para escolher uma borda do wizard
+# ==================================== DOOR OPENING CAPTURE
+# Marking an opening required Edit Mode and two vertices on different
+# panels. The capture tool (`cabinet_apanhar_vao`, in `assistente`)
+# keeps the user in Object Mode: Blender's NATIVE snap moves the cursor
+# to a vertex, the first click fixes a corner, and the leaf preview
+# follows the cursor until the second click.
+RAIO_IMA_PX = 28.0          # Pixel reach for choosing a wizard edge.
 
 ARESTAS_CAIXA = (
     (0, 1), (1, 3), (3, 2), (2, 0),
@@ -2174,43 +2164,43 @@ ARESTAS_CAIXA = (
 )
 
 
-# ---- WIZARD DE CRIACAO (backlog do usuario, Epico 1)
-# 4 cliques (desenho do usuario): 1 = canto da PORTA, 2 = canto do VAO,
-# 3 = canto oposto do vao, 4 = canto oposto da porta. Os fios 1-2 e 3-4
-# (laranja) sao a cobertura de cada lado; 2-3 (branco), o vao. Dai' saem
-# a folha, o vao e a dobradica (automatica: espessura inteira = Reta,
-# metade = Curva, dentro do vao = Super Curva). Cobertura fora disso
-# pergunta "As medidas estao corretas?". Depois, na ordem que a aba
-# tambem segue: FOLHAS (1 | 2), TIPO (so' o que nao se deduz: Giro |
-# Basculante, ou Giro | Correr na embutida), BORDA das dobradicas
-# (clique; nao se pergunta no basculante, sempre CIMA, nem com 2 folhas),
-# QUANTIDADE (scroll), MARGEM (mouse em Y) e, no basculante, PISTOES:
-# quantidade (scroll) e posicao, que nasce AUTOMATICA e o mouse em Y so'
-# sobe (descer passa do curso do pistao). As caixas sao
-# desenhadas pelo proprio modal (nao popup_menu): o soltar do clique nao
-# responde sozinho e o teste clica nelas. O modal e as caixas moram em
-# `assistente`; aqui ficam as constantes e as contas que ele usa.
-OPCOES_CONFIRMAR = (('SIM', 'Sim, criar assim'), ('NAO', 'Nao, marcar de novo'))
-OPCOES_FOLHAS = tuple((str(n), '%d folha%s' % (n, '' if n == 1 else 's')) for n in range(1, 9))
-# botao da gaveta que confirma a etapa do wizard (valor = a etapa)
+# ---- CREATION WIZARD (user backlog, Epic 1)
+# Four clicks from the user's sketch: 1 = DOOR corner, 2 = OPENING corner,
+# 3 = opposite opening corner, 4 = opposite door corner. Orange lines 1-2
+# and 3-4 show coverage; white 2-3 shows the opening. These determine
+# leaf, opening and automatic hinge: full thickness = straight,
+# half = half-overlay, inside = inset. Other coverage asks whether
+# dimensions are correct. Continue in the same order as the tab:
+# LEAVES (1 | 2), TYPE (only what cannot be inferred: swing | lift-up,
+# or swing | sliding for inset), hinge EDGE
+# (click; omitted for lift-up, always TOP, and for two leaves),
+# COUNT (scroll), MARGIN (mouse Y), then lift-up PISTONS:
+# count (scroll) and AUTOMATIC initial position, adjustable only upward
+# by mouse Y because lowering exceeds piston travel. The modal draws
+# its own choice boxes rather than popup_menu, so opening-click release
+# cannot answer them and tests can click them. The modal/boxes live in
+# `assistente`; their constants and calculations remain here.
+OPCOES_CONFIRMAR = (('SIM', "Yes, Create This"), ('NAO', "No, Mark Again"))
+OPCOES_FOLHAS = tuple((str(n), "%d door panel%s" % (n, '' if n == 1 else 's')) for n in range(1, 9))
+# Sidebar button confirming the wizard step (value = step).
 CONFIRMAR_ETAPA = 'confirmar_etapa'
-# por cima: o correr vem COM MOLDURA (pedido do usuario: o gesto de fora
-# para dentro e' o da porta que avanca na frente do modulo)
-TIPOS_SOBREPOSTA = (('GIRO', 'Giro'), ('BASCULANTE', 'Basculante'),
-                    ('CORRER', 'Correr'), ('ZIGZAG', 'Zig-zag'))
-TIPOS_EMBUTIDA = (('GIRO', 'Giro (Super Curva)'), ('CORRER', 'Correr'), ('ZIGZAG', 'Zig-zag'))
+# Overlay: sliding doors use a FRAME; the outer-to-inner gesture
+# places the door in front of the cabinet, as requested.
+TIPOS_SOBREPOSTA = (('GIRO', "Hinged"), ('BASCULANTE', "Lift-up"),
+                    ('CORRER', "Sliding"), ('ZIGZAG', 'Zig-zag'))
+TIPOS_EMBUTIDA = (('GIRO', "Hinged (Full Crank)"), ('CORRER', "Sliding"), ('ZIGZAG', 'Zig-zag'))
 COR_FIO_VAO = (1.0, 1.0, 1.0, 1.0)
-COR_BORDA_EIXO = (0.25, 0.85, 0.3, 1.0)       # verde
-MARGEM_DOBRADICAS_PADRAO = 100.0   # mm da quina: pratica de marcenaria
+COR_BORDA_EIXO = (0.25, 0.85, 0.3, 1.0)       # Green.
+MARGEM_DOBRADICAS_PADRAO = 100.0   # mm from the corner: woodworking practice.
 LIMITES_DOBRADICAS = (2, 6)
 LIMITES_PISTOES = (1, 2)
-_assistente_porta = [None]          # estado do wizard (o teste le daqui)
-# alvo da 'escolha' da aba Portas que responde ao wizard (a copia da caixa)
+_assistente_porta = [None]          # Wizard state read by tests.
+# Doors-tab choice target answering the wizard, mirroring its choice box.
 ALVO_ASSISTENTE = '@assistente'
 
 
 def _qtd_dobradicas_padrao(comprimento_mm):
-    """Pela altura da folha (pratica de marcenaria; o scroll muda)."""
+    """Default from leaf height (woodworking practice); scroll adjusts it."""
     for teto, n in ((900, 2), (1600, 3), (2000, 4)):
         if comprimento_mm <= teto:
             return n
@@ -2218,47 +2208,46 @@ def _qtd_dobradicas_padrao(comprimento_mm):
 
 
 def _parametros_do_wizard(w):
-    """Os parametros da porta que o wizard vai criar: os da previa (vao,
-    coberturas, espessuras) com as respostas dadas ate' aqui."""
+    """Parameters for the wizard's door: preview opening, coverage and
+    thickness, combined with answers given so far."""
     return dict(w.get('parametros') or {}, **w.get('escolhas', {}))
 
 
 def _qtd_pistoes_padrao(largura_mm):
-    """Um em cada lateral com folha larga; um so' em aereo pequeno."""
+    """One on each side of wide leaves; only one for small wall cabinets."""
     return 2 if largura_mm > 600 else 1
 
 
-# Pistoes a gas de movel de verdade: (aberto centro a centro, diametro do
-# corpo, diametro da haste), em mm. 155/195 = Metrol NS-FF-6-60/-80 (15x6);
-# 245 = o "10 polegadas" de armario (100 N, 18x8); 290-450 = serie 8 mm da
-# Metrol (18x8). Regra do usuario para a conta: porta 100% aberta = pistao
-# no DOBRO do fechado (o curso real fica entre 60 e 90% do fechado).
+# Actual furniture gas pistons: (open center-to-center, body diameter,
+# rod diameter), in mm. 155/195 = Metrol NS-FF-6-60/-80 (15x6);
+# 245 = cabinet "10 inch" (100 N, 18x8); 290-450 = Metrol 8 mm series
+# (18x8). User's calculation rule: fully open door = DOUBLE closed
+# piston length (actual travel is 60-90% of closed length).
 PISTOES_CATALOGO = ((155.0, 15.0, 6.0), (195.0, 15.0, 6.0),
                     (245.0, 18.0, 8.0), (290.0, 18.0, 8.0),
                     (350.0, 18.0, 8.0), (410.0, 18.0, 8.0),
                     (450.0, 18.0, 8.0))
-RAZAO_PISTAO = 2.0               # aberto / fechado
-PISTAO_RECUO_MM = 50.0           # eixo da fixacao da lateral atras da folha
-PISTAO_SUPORTE_MM = 10.0         # pino da folha: altura do suporte
-PISTAO_SUPORTE_LADO_MM = 24.0    # largura/altura das plaquinhas
-PISTAO_DA_DOBRADICA_MIN_MM = 30.0  # o suporte da folha nao sobe mais que isto
-PISTAO_FRACAO_DO_VAO = 2.0 / 3.0   # fixacao da lateral no 2/3 de cima do vao
+RAZAO_PISTAO = 2.0               # Open / closed.
+PISTAO_RECUO_MM = 50.0           # Side mounting axis behind the leaf.
+PISTAO_SUPORTE_MM = 10.0         # Leaf pin: bracket height.
+PISTAO_SUPORTE_LADO_MM = 24.0    # Plate width/height.
+PISTAO_DA_DOBRADICA_MIN_MM = 30.0  # Maximum upward travel of the leaf bracket.
+PISTAO_FRACAO_DO_VAO = 2.0 / 3.0   # Side mounting in the upper two-thirds of the opening.
 
 
 def _geometria_pistao(aberto, folha, cob_topo, abrir, offset=0.0):
-    """Onde vai UM pistao de `aberto` mm no basculante.
+    """Position ONE `aberto` mm piston on a lift-up door.
 
-    No corte da lateral: `d` = quanto o suporte da folha desce do topo
-    dela, `vs` = quanto a fixacao da lateral desce do mesmo topo (`recuo`
-    atras das costas). Fechado o pistao mede aberto/RAZAO (dai' vs = d +
-    k); `abrir` leva o ponto da folha fechada a' folha ABERTA -- giro no
-    eixo ou o movimento do rig da dobradica reta (`_matriz_abertura`) --
-    e o `d` e' o que faz o pistao medir `aberto` la' (busca binaria: o
-    alcance cresce com d).
+    In side section: `d` is leaf-bracket drop from leaf top, `vs` is
+    side-mount drop from that same top (`recuo` behind the rear face).
+    Closed length is aberto/RAZAO (hence vs = d + k). `abrir` maps the
+    closed leaf point to its OPEN pose, either axis rotation or straight-
+    hinge rig motion (`_matriz_abertura`). Binary search finds `d` giving
+    length `aberto` there, since reach increases with d.
 
-    `offset` (mm do TOPO DO VAO ate' a fixacao da lateral, 0 =
-    automatico) e' a posicao manual: o fechado continua o mesmo e so'
-    vale ate' onde o pistao alcanca aberto (o automatico e' o maximo).
+    `offset` is manual side-mount position in mm from OPENING TOP
+    (0 = automatic). Closed length stays fixed; accept only positions
+    reachable when open (automatic is the maximum).
     """
     _l, a, _e, centro = folha
     topo, costas = centro[1] + a / 2.0, centro[2] - _e / 2.0
@@ -2291,17 +2280,17 @@ def _geometria_pistao(aberto, folha, cob_topo, abrir, offset=0.0):
     return {'aberto': aberto, 'fechado': fechado, 'd': d, 'vs': vs,
             'offset': vs - cob_topo, 'offset_max': d_max + k - cob_topo,
             'offset_min': PISTAO_DA_DOBRADICA_MIN_MM + k - cob_topo,
-            # quanto o pistao mede com a porta aberta (= `aberto` no automatico)
+            # Piston length with the door open (= `aberto` in automatic mode).
             'alcance': alcance(d), 'abrir': abrir}
 
 
 def _pistao_do_vao(altura, folha, offset=0.0, p=None):
-    """Escolhe o pistao do catalogo e o posiciona. `folha` = (l, a, e,
-    centro) FECHADA, no referencial do vao (topo do vao em y = `altura`).
+    """Choose and position a catalog piston. `folha` = CLOSED (l, a, e,
+    center) in opening coordinates (opening top y = `altura`).
 
-    O MAIOR que cabe (mais braco para a porta) com a fixacao da lateral
-    nos 2/3 de cima do vao e o suporte da folha dentro dela; vao baixo
-    demais fica com o menor. `p` (parametros) diz como a folha abre."""
+    Use the LARGEST fitting piston for better leverage, with the side
+    mount in the upper two-thirds and the leaf bracket within the leaf.
+    Very low openings use the smallest. `p` specifies leaf opening motion."""
     _l, a, e, centro = folha
     cob_topo = centro[1] + a / 2.0 - altura
     parametros = dict(p or {})
@@ -2325,7 +2314,7 @@ def _pistao_do_vao(altura, folha, offset=0.0, p=None):
 
 
 def _pontas_pistao(g, x, folha):
-    """(lateral, folha fechada, folha aberta) em mm, referencial do vao."""
+    """(side, closed leaf, open leaf) in opening-space mm."""
     _l, a, e, centro = folha
     topo, costas = centro[1] + a / 2.0, centro[2] - e / 2.0
     na_folha = Vector((x, topo - g['d'], costas - PISTAO_SUPORTE_MM))
@@ -2334,8 +2323,8 @@ def _pontas_pistao(g, x, folha):
 
 
 def _posicoes_ferragens(comprimento, qtd, margem):
-    """Distancias (mm, do inicio do eixo) de `qtd` ferragens em segmentos
-    iguais, as das pontas a `margem` das quinas."""
+    """Distances in mm from the axis start for `qtd` equally spaced hardware
+    items, with end items `margem` from the corners."""
     if qtd <= 0:
         return []
     if qtd == 1:
@@ -2346,15 +2335,14 @@ def _posicoes_ferragens(comprimento, qtd, margem):
 
 
 def _arestas_da_porta(largura, altura, coberturas, lateral, tipo):
-    """Onde podem ir as dobradicas, no referencial do vao (mm; x = largura,
-    y = altura): ESQUERDA/DIREITA no giro, CIMA no basculante.
+    """Hinge positions in opening-space mm (x width, y height): LEFT/RIGHT
+    for swing doors, TOP for lift-up.
 
-    A linha fica na FACE INTERNA da chapa daquele lado (a borda do vao,
-    lado de dentro da espessura marcada nos cliques 1-2), nao na borda da
-    folha: e' ali que o corpo da dobradica se prende (pedido do usuario,
-    com print). O comprimento e' o da FOLHA (as margens contam das quinas
-    dela). `dentro` aponta para o interior do movel; `cobertura` (mm) e'
-    quanto a folha passa da linha para fora -- o caneco fica na folha."""
+    The line lies on the side panel's INNER FACE at the opening boundary
+    (inner side of the thickness marked by clicks 1-2), not the leaf edge:
+    this is where the hinge body attaches. Length follows the LEAF, with
+    margins from its corners. `dentro` points into the cabinet; `cobertura`
+    is leaf projection beyond the line in mm, keeping the cup in the leaf."""
     cob = [_cobertura_mm(float(coberturas.get(k, 0.0)), lateral)
            for k in COBERTURAS_LADOS]
     x0, x1 = -cob[0], largura + cob[1]
@@ -2372,54 +2360,54 @@ def _arestas_da_porta(largura, altura, coberturas, lateral, tipo):
             for lado in usados]
 
 
-# Volume de uma dobradica de caneco de 35 mm (padrao das ocultas; ver o
-# plano das portas): o CORPO (calco + braco) preso na face interna da
-# lateral, atras da folha, e o CANECO furado nas costas da folha. Medidas
-# aproximadas -- servem para ver o espaco ocupado, nao para usinar.
-DOBRADICA_ALTURA_MM = 50.0     # ao longo da borda
-DOBRADICA_AVANCO_MM = 22.0     # da face interna para dentro do movel
-DOBRADICA_FUNDO_MM = 70.0      # das costas da folha para tras
+# 35 mm concealed cup-hinge volume (see the door plan): BODY (mounting
+# plate + arm) on the side panel's inner face behind the leaf, and CUP
+# bored into the leaf's rear. Approximate dimensions for occupied-space
+# visualization, not machining.
+DOBRADICA_ALTURA_MM = 50.0     # Along the edge.
+DOBRADICA_AVANCO_MM = 22.0     # From the inner face into the cabinet.
+DOBRADICA_FUNDO_MM = 70.0      # Rearward from the leaf's rear face.
 CANECO_DIAMETRO_MM = 35.0
-CANECO_FUNDO_MM = 12.0         # furo na folha (~11,5-13 mm)
-# o que o copo (aba + cabeca do braco) sobe das costas da folha: todo
-# dentro do furo ele sumia na malha da porta (print do usuario)
+CANECO_FUNDO_MM = 12.0         # Leaf bore (~11.5-13 mm).
+# Cup flange/arm-head protrusion from the leaf rear: fully inside
+# the bore, it disappeared into the door mesh in the user's image.
 CANECO_ABA_MM = 4.0
-CANECO_BORDA_MM = 5.0          # da borda da folha ao furo (centro ~22,5)
-# Duas dobradicas nunca se sobrepoem (relato do usuario: a margem ia ate'
-# o meio da borda e empilhava todas): de centro a centro, o corpo e mais
-# esta folga; e a da ponta fica inteira na folha.
+CANECO_BORDA_MM = 5.0          # Leaf edge to bore (center ~22.5).
+# Hinges must never overlap: a margin reaching edge center used to stack
+# them all. Center spacing must include the body plus this clearance,
+# and end hinges must remain entirely within the leaf.
 FOLGA_ENTRE_DOBRADICAS_MM = 10.0
 PASSO_MIN_DOBRADICAS_MM = DOBRADICA_ALTURA_MM + FOLGA_ENTRE_DOBRADICAS_MM
 MARGEM_MIN_DOBRADICAS_MM = DOBRADICA_ALTURA_MM / 2.0
 
 
 def _ajustar_dobradicas(comprimento, qtd, margem):
-    """(qtd, margem) que cabem numa borda de `comprimento` mm: a margem
-    entre a dobradica inteira na folha e o maximo que ainda deixa
-    `PASSO_MIN_DOBRADICAS_MM` entre vizinhas; a quantidade, ate' onde
-    cabe (nunca abaixo do minimo de LIMITES_DOBRADICAS)."""
+    """Return (count, margin) fitting an edge `comprimento` mm long. Margin
+    keeps the entire hinge on the leaf and maintains at least
+    `PASSO_MIN_DOBRADICAS_MM` between neighbors. Clamp count to capacity,
+    never below the LIMITES_DOBRADICAS minimum."""
     util = comprimento - 2.0 * MARGEM_MIN_DOBRADICAS_MM
     cabem = int(max(0.0, util) // PASSO_MIN_DOBRADICAS_MM) + 1
     qtd = max(LIMITES_DOBRADICAS[0], min(LIMITES_DOBRADICAS[1], cabem, int(qtd)))
     maximo = (comprimento - (qtd - 1) * PASSO_MIN_DOBRADICAS_MM) / 2.0
-    # porta pequena demais para `qtd`: a ponta ainda manda (nada fora da folha)
+    # Door too small for `qtd`: endpoints still govern; nothing outside the leaf.
     margem = max(MARGEM_MIN_DOBRADICAS_MM, min(float(margem), maximo))
     return qtd, min(margem, comprimento / 2.0)
 
 
 def _caixa_da_ferragem(centro, eixo, dentro, faixa_u, faixa_v, faixa_z):
-    """8 cantos (mm) na ordem das caixas da previa (ARESTAS_CAIXA)."""
+    """Eight corners in mm, ordered like preview boxes (ARESTAS_CAIXA)."""
     return [Vector((*(centro + eixo * u + dentro * v), z))
             for u in faixa_u for v in faixa_v for z in faixa_z]
 
 
 def _caixas_dobradicas(aresta, distancias, costas_mm):
-    """[(corpo, caneco)] por dobradica: as caixas (mm, referencial do vao)
-    do espaco que cada uma ocupa. `costas_mm` = z das costas da folha."""
+    """Return [(body, cup)] per hinge: occupied-space boxes in opening mm.
+    `costas_mm` is the leaf rear-face z."""
     a, b = aresta['a'], aresta['b']
     eixo = (b - a).normalized() if (b - a).length else Vector((0, 1))
     dentro = aresta['dentro']
-    borda = -float(aresta.get('cobertura', 0.0))     # borda da folha
+    borda = -float(aresta.get('cobertura', 0.0))     # Leaf edge.
     meia, raio = DOBRADICA_ALTURA_MM / 2.0, CANECO_DIAMETRO_MM / 2.0
     caixas = []
     for d in distancias:
@@ -2436,8 +2424,8 @@ def _caixas_dobradicas(aresta, distancias, costas_mm):
     return caixas
 
 
-# props da Scene que a aba Portas usa para a PROXIMA porta (o arraste da
-# HUD guarda e devolve todas no Esc)
+# Scene properties used by the Doors tab for the NEXT door;
+# HUD dragging saves all of them and restores them on Esc.
 _PROPS_PORTAS_CENA = (
     "porta_abertura", "porta_dobradica", "porta_folhas", "porta_associar",
     "porta_trilho", "porta_folha",

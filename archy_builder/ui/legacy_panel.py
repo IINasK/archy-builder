@@ -1,14 +1,14 @@
-"""Painel N legado (fora de CLASSES de proposito)."""
+"""Legacy N-panel (deliberately excluded from CLASSES)."""
 
 import bpy, os
 from bpy.types import Panel
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = _modulos = _biblioteca = _portas = _gaveta = None
 
 class VIEW3D_PT_archy_builder(Panel):
-    # O cabecalho e' a barra de abas; nao repetir um titulo ao lado dela.
+    # The header is the tab bar; do not repeat a title beside it.
     bl_label = ""
     bl_idname = "VIEW3D_PT_archy_builder"
     bl_space_type = 'VIEW_3D'
@@ -35,26 +35,26 @@ class VIEW3D_PT_archy_builder(Panel):
 
     def desenhar_portas(self, context, layout):
         caixa = layout.box()
-        caixa.label(text="Portas parametricas")
+        caixa.label(text="Parametric Doors")
         grupo = _portas._grupo_portas(context.object)
         if grupo is not None and context.mode == 'OBJECT':
-            op = caixa.operator("object.cabinet_portas", text="Configurar Portas",
+            op = caixa.operator("object.cabinet_portas", text="Configure Doors",
                                 icon='PREFERENCES')
             op.editar = True
         else:
-            caixa.label(text="2 vertices diagonais do vao interno")
+            caixa.label(text="2 diagonal vertices of the internal opening")
             linha = caixa.row()
             linha.enabled = context.mode == 'EDIT_MESH'
-            op = linha.operator("object.cabinet_portas", text="Criar Portas",
+            op = linha.operator("object.cabinet_portas", text="Create Doors",
                                 icon='MESH_CUBE')
             op.editar = False
             if context.mode != 'EDIT_MESH':
-                caixa.label(text="Selecione as chapas e entre em Edicao")
+                caixa.label(text="Select the panels and enter Edit Mode")
 
-    # ------------------------------------------------------- MEDIDAS
+    # ------------------------------------------------------- DIMENSIONS
     def _abas_modo(self, layout, ativo):
         linha = layout.row(align=True)
-        for modo, texto in (('INDIVIDUAL', "Individual"), ('GRUPO', "Grupo")):
+        for modo, texto in (('INDIVIDUAL', "Individual"), ('GRUPO', "Group")):
             op = linha.operator(
                 "object.cabinet_modo_medidas", text=texto,
                 depress=(ativo == modo))
@@ -72,7 +72,8 @@ class VIEW3D_PT_archy_builder(Panel):
                 _biblioteca.MEDIDAS_LARGURA_COLUNA_UNICA_PX)
 
     def _escala_wireframe(self, context):
-        """Escala responsiva com limites para nao sumir nem dominar o painel."""
+        """Responsive scale with limits so the preview neither disappears nor dominates
+        the panel."""
         disponivel = max(0.0, self._largura_logica(context) - 24.0)
         escala = disponivel / 20.0
         maximo = (_biblioteca.WIREFRAME_ESCALA_ESTREITA_MAX_UI
@@ -82,34 +83,34 @@ class VIEW3D_PT_archy_builder(Panel):
                    min(maximo, escala))
 
     def _corpo_medidas(self, caixa, context, separador=0.4):
-        """Retorna controles e area visual, em linha ou empilhados."""
+        """Return controls and visual area, side by side or stacked."""
         estreito = self._painel_estreito(context)
         corpo = (caixa.column(align=True) if estreito
                  else caixa.row(align=False))
         if not estreito:
-            # Afasta os controles da quina do box sem deslocar o preview.
+            # Inset controls from the box corner without shifting the preview.
             corpo.separator(factor=0.35)
         campos = corpo.column(align=True)
-        # No modo estreito, toda a grade precisa usar o centro do box. Manter
-        # este contêiner em LEFT faz o Blender compactar a largura útil pelo
-        # tamanho natural dos widgets, deixando uma sobra maior à direita.
+        # In narrow mode the whole grid must use the box center. Keeping this container
+        # LEFT-aligned makes Blender compact usable width to the widgets' natural size,
+        # leaving more empty space on the right.
         campos.alignment = 'CENTER' if estreito else 'LEFT'
         if not estreito:
-            # Reserva somente o necessario para rotulos e caixas. Uma coluna
-            # maior comprime o preview na area direita antes da quebra.
+            # Reserve only the space labels and fields require. A wider column squeezes
+            # the preview on the right before wrapping.
             campos.ui_units_x = _biblioteca.MEDIDAS_LARGURA_CONTROLES_UI
         campos.separator(factor=0.15 if estreito else separador)
         return campos, corpo, estreito
 
     def _grade_medidas(self, layout, estreito, coluna_unica, desenhadores):
-        """Quebra a grade em duas colunas ou uma coluna no limite estreito."""
+        """Wrap the grid into two columns, or one below the narrow-width threshold."""
         if not estreito:
             for desenhar in desenhadores:
                 desenhar(layout)
             return
 
         def desenhar_no_centro(desenhar, ocupacao=0.5):
-            """Cria uma faixa central com margens laterais simetricas."""
+            """Create a central strip with symmetric side margins."""
             margem = (1.0 - ocupacao) * 0.5
             externo = layout.split(factor=margem)
             externo.column()
@@ -130,11 +131,10 @@ class VIEW3D_PT_archy_builder(Panel):
         for inicio in range(0, len(desenhadores), 2):
             par = desenhadores[inicio:inicio + 2]
             if len(par) == 2:
-                # Sem largura fixa: as duas celulas dividem o espaco por
-                # igual e o centro nao deriva para a esquerda ao comprimir.
-                # `split` garante duas metades reais do espaco disponivel.
-                # Duas `column` dentro de uma `row` podem ser compactadas pelo
-                # Blender conforme a largura natural dos campos.
+                # No fixed width: both cells share space equally and the center does not
+                # drift left when compressed. `split` guarantees two actual halves of
+                # the available space. Blender may compact two `column` layouts in a
+                # `row` according to the fields' natural widths.
                 linha = layout.split(factor=0.5, align=False)
                 for desenhar in par:
                     celula = linha.column(align=True)
@@ -144,7 +144,7 @@ class VIEW3D_PT_archy_builder(Panel):
                 desenhar_no_centro(par[0])
 
     def _visual_wireframe(self, layout, context, modo, medidas):
-        """Desenha o preview responsivo entre os limites visualmente uteis."""
+        """Draw a responsive preview within visually useful bounds."""
         coluna = layout.column(align=False)
         coluna.alignment = 'CENTER'
         icone = _biblioteca._icone_wireframe(context, modo, *medidas)
@@ -157,7 +157,7 @@ class VIEW3D_PT_archy_builder(Panel):
             coluna.label(text="", icon='MESH_CUBE')
 
     def _campo_medida(self, layout, dados, propriedade, texto):
-        """Rotulo completo acima e campo compacto logo abaixo."""
+        """Full label above, compact field immediately below."""
         alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
         bloco = layout.column(align=True)
         bloco.alignment = alinhamento
@@ -169,7 +169,7 @@ class VIEW3D_PT_archy_builder(Panel):
         valor.prop(dados, propriedade, text="")
 
     def _rotulo_medida(self, layout, texto, valor_mm):
-        """Versao so'-leitura do campo: selecao livre nao tem prop."""
+        """Read-only field variant: an arbitrary selection has no property."""
         alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
         bloco = layout.column(align=True)
         bloco.alignment = alinhamento
@@ -181,7 +181,7 @@ class VIEW3D_PT_archy_builder(Panel):
         v.label(text="%.1f mm" % valor_mm)
 
     def _campo_dimensao_objeto(self, layout, obj, indice, texto):
-        """Dimensao nativa editavel; aceita mm, cm e m como o Blender."""
+        """Editable native dimension; accepts mm, cm and m like Blender."""
         alinhamento = ('CENTER' if layout.alignment == 'CENTER' else 'LEFT')
         bloco = layout.column(align=True)
         bloco.alignment = alinhamento
@@ -193,60 +193,58 @@ class VIEW3D_PT_archy_builder(Panel):
         valor.prop(obj, "dimensions", index=indice, text="")
 
     def _medidas_da_selecao(self, context, layout):
-        """Caixa de QUALQUER selecao -- cubo, carro, curvas, o que for."""
+        """Bounding box of ANY selection: cube, car, curves, anything."""
         m = _modulos.medir_selecao(context)
         if m is None:
-            layout.label(text="Selecione uma chapa, um modulo ou "
-                              "qualquer objeto", icon='INFO')
+            layout.label(text="Select a panel, cabinet, or any object", icon='INFO')
             return
         largura, altura, profundidade, quantos = m
         b = layout.box()
-        b.label(text="Selecao (%d objeto%s)"
+        b.label(text="Selection (%d object%s)"
                      % (quantos, "" if quantos == 1 else "s"),
                 icon='SHADING_BBOX')
-        # Tres medidas ocupam menos altura que o preview maximo; a margem
-        # superior maior centraliza o bloco e o afasta da quina do box.
+        # Three dimensions take less height than the maximum preview; a larger top
+        # margin centers the block and moves it away from the box corner.
         campos, visual, estreito = self._corpo_medidas(
             b, context, separador=1.2)
         volumes = [o for o in context.selected_objects
                    if o.type in _modulos.TIPOS_COM_VOLUME]
         if quantos == 1 and len(volumes) == 1:
             obj = volumes[0]
-            # Convencao do add-on: largura=X, altura=Z, profundidade=Y.
+            # Add-on convention: width=X, height=Z, depth=Y.
             self._grade_medidas(
                 campos, estreito, self._painel_muito_estreito(context), [
                 lambda lay: self._campo_dimensao_objeto(
-                    lay, obj, 0, "Largura"),
+                    lay, obj, 0, "Width"),
                 lambda lay: self._campo_dimensao_objeto(
-                    lay, obj, 2, "Altura"),
+                    lay, obj, 2, "Height"),
                 lambda lay: self._campo_dimensao_objeto(
-                    lay, obj, 1, "Profundidade"),
+                    lay, obj, 1, "Depth"),
             ])
             largura = obj.dimensions.x * 1000.0
             altura = obj.dimensions.z * 1000.0
             profundidade = obj.dimensions.y * 1000.0
         else:
-            # A caixa conjunta de varios objetos nao tem uma unica escala
-            # segura para editar; nesse caso as medidas continuam informativas.
+            # The combined box of multiple objects has no single safe editable scale;
+            # dimensions remain informational in that case.
             self._grade_medidas(
                 campos, estreito, self._painel_muito_estreito(context), [
-                lambda lay: self._rotulo_medida(lay, "Largura", largura),
-                lambda lay: self._rotulo_medida(lay, "Altura", altura),
+                lambda lay: self._rotulo_medida(lay, "Width", largura),
+                lambda lay: self._rotulo_medida(lay, "Height", altura),
                 lambda lay: self._rotulo_medida(
-                    lay, "Profundidade", profundidade),
+                    lay, "Depth", profundidade),
             ])
         self._visual_wireframe(visual, context, 'LIVRE',
                                (largura, altura, profundidade))
 
-        # Este bloco so' aparece quando o objeto NAO tem a assinatura do
-        # add-on -- e' por isso que ele mostra Altura no lugar de
-        # Espessura. Em vez de deixar o usuario adivinhando, diz o
-        # motivo e oferece a conversao.
+        # This block only appears when the object lacks the add-on signature; that is
+        # why it shows Height instead of Thickness. Explain the reason and offer
+        # conversion instead of leaving the user guessing.
         if (quantos == 1 and len(volumes) == 1
                 and volumes[0].type == 'MESH'
                 and _chapas.MARCA_CHAPA not in volumes[0]):
             aviso = b.column(align=True)
-            aviso.label(text="Objeto sem assinatura de chapa",
+            aviso.label(text="Object has no panel signature",
                         icon='INFO')
             aviso.operator("object.cabinet_marcar", icon='MOD_SOLIDIFY')
 
@@ -261,27 +259,27 @@ class VIEW3D_PT_archy_builder(Panel):
         portas = _portas._grupo_portas(obj)
         if portas is not None:
             caixa = layout.box()
-            caixa.label(text="Vao: %.1f x %.1f mm" %
+            caixa.label(text="Opening: %.1f x %.1f mm" %
                         (portas['porta_vao_largura_mm'], portas['porta_vao_altura_mm']))
-            caixa.label(text="%d folha(s)" % len(_portas._folhas_portas(portas)))
-            caixa.label(text="Use o botao Portas no topo do painel")
+            caixa.label(text="%d door panel(s)" % len(_portas._folhas_portas(portas)))
+            caixa.label(text="Use the Doors button at the top of the panel")
             return
 
         if obj is not None and _chapas.MARCA_CONJUNTO in obj:
             self._abas_modo(layout, 'GRUPO')
             b = layout.box()
-            b.label(text="Modulo (%d pecas)" % len(_modulos._chapas_do_conjunto(obj)), icon='MOD_BUILD')
+            b.label(text="Cabinet (%d components)" % len(_modulos._chapas_do_conjunto(obj)), icon='MOD_BUILD')
             campos, visual, estreito = self._corpo_medidas(b, context)
             self._grade_medidas(
                 campos, estreito, self._painel_muito_estreito(context), [
                 lambda lay: self._campo_medida(
-                    lay, obj, "ui_conj_largura", "Largura"),
+                    lay, obj, "ui_conj_largura", "Width"),
                 lambda lay: self._campo_medida(
-                    lay, obj, "ui_conj_altura", "Altura"),
+                    lay, obj, "ui_conj_altura", "Height"),
                 lambda lay: self._campo_medida(
-                    lay, obj, "ui_conj_profundidade", "Profundidade"),
+                    lay, obj, "ui_conj_profundidade", "Depth"),
                 lambda lay: self._campo_medida(
-                    lay, obj, "ui_conj_espessura", "Espessura"),
+                    lay, obj, "ui_conj_espessura", "Thickness"),
             ])
             self._lista_espessuras(campos, centralizar=estreito)
             self._visual_wireframe(
@@ -300,11 +298,11 @@ class VIEW3D_PT_archy_builder(Panel):
                 self._grade_medidas(
                     campos, estreito, self._painel_muito_estreito(context), [
                     lambda lay: self._campo_medida(
-                        lay, obj, "ui_chapa_largura", "Largura"),
+                        lay, obj, "ui_chapa_largura", "Width"),
                     lambda lay: self._campo_medida(
-                        lay, obj, "ui_chapa_comprimento", "Comprimento"),
+                        lay, obj, "ui_chapa_comprimento", "Length"),
                     lambda lay: self._campo_medida(
-                        lay, obj, "ui_chapa_espessura", "Espessura"),
+                        lay, obj, "ui_chapa_espessura", "Thickness"),
                 ])
                 self._lista_espessuras(campos, centralizar=estreito)
                 self._visual_wireframe(
@@ -312,19 +310,19 @@ class VIEW3D_PT_archy_builder(Panel):
                     (obj.chapa_largura_mm, obj.chapa_espessura_mm,
                      obj.chapa_comprimento_mm))
             else:
-                b.label(text="Grupo: %d peca(s)" % len(_modulos.grupo_de(obj)), icon='MOD_BUILD')
+                b.label(text="Group: %d component(s)" % len(_modulos.grupo_de(obj)), icon='MOD_BUILD')
                 sc = context.scene
                 campos, visual, estreito = self._corpo_medidas(b, context)
                 self._grade_medidas(
                     campos, estreito, self._painel_muito_estreito(context), [
                     lambda lay: self._campo_medida(
-                        lay, sc, "ui_grupo_largura", "Largura"),
+                        lay, sc, "ui_grupo_largura", "Width"),
                     lambda lay: self._campo_medida(
-                        lay, sc, "ui_grupo_altura", "Altura"),
+                        lay, sc, "ui_grupo_altura", "Height"),
                     lambda lay: self._campo_medida(
-                        lay, sc, "ui_grupo_profundidade", "Profundidade"),
+                        lay, sc, "ui_grupo_profundidade", "Depth"),
                     lambda lay: self._campo_medida(
-                        lay, sc, "ui_grupo_espessura", "Espessura"),
+                        lay, sc, "ui_grupo_espessura", "Thickness"),
                 ])
                 self._lista_espessuras(campos, centralizar=estreito)
                 self._visual_wireframe(
@@ -335,47 +333,46 @@ class VIEW3D_PT_archy_builder(Panel):
 
         layout.separator()
         c = layout.column(align=True)
-        c.label(text="Montagem:")
-        # (idname, rotulo inteiro, rotulo curto, icone). O curto e' um
-        # nome ESCOLHIDO, nao o inteiro truncado -- cortar seria o mesmo
-        # defeito que a cascata acima evita.
+        c.label(text="Assembly:")
+        # (idname, full label, short label, icon). The short label is a CHOSEN name, not
+        # a truncated full label; truncation would repeat the defect avoided by the
+        # cascade above.
         botoes = (
-            ("object.cabinet_agrupar", "Agrupar Conjunto", "Agrupar",
+            ("object.cabinet_agrupar", "Group Assembly", "Group",
              'OUTLINER_OB_EMPTY'),
-            ("object.cabinet_detectar_adjacencia", "Detectar Adjacencia",
-             "Adjacencia", 'SNAP_ON'),
-            ("object.cabinet_normalizar", "Recalcular Chapas", "Recalcular",
+            ("object.cabinet_detectar_adjacencia", "Detect Adjacency",
+             "Adjacency", 'SNAP_ON'),
+            ("object.cabinet_normalizar", "Recalculate Panels", "Recalculate",
              'FILE_REFRESH'),
         )
         largura = _gaveta._largura_painel(context)
         if sum(_gaveta._px_botao(b[2]) for b in botoes) <= largura:
-            alvo, i_rotulo = c.row(align=True), 2      # lado a lado
+            alvo, i_rotulo = c.row(align=True), 2      # Side by side.
         else:
-            alvo, i_rotulo = c.column(align=True), 1   # empilhado
+            alvo, i_rotulo = c.column(align=True), 1   # Stacked.
         for botao in botoes:
             alvo.operator(botao[0], text=botao[i_rotulo], icon=botao[3])
 
-    # ---------------------------------------------------- BIBLIOTECA
-    # Cascata HORIZONTAL: cada nivel e' uma linha de botoes. O nivel
-    # selecionado fica azul (depress=True, o destaque nativo do Blender).
+    # ---------------------------------------------------- LIBRARY
+    # HORIZONTAL cascade: each level is a row of buttons. The selected level turns blue
+    # (depress=True, Blender's native highlight).
     def _linha_niveis(self, context, layout, nivel, valores, itens, sel,
                       pai=None):
         if not valores:
             return
         if nivel > 1:
             layout.separator(type='LINE')
-        # O bpy corta o rotulo pela DIREITA, comendo justamente o "(N)".
-        # Por isso a conta e' preservada e o NOME e' encurtado aqui.
+        # bpy truncates labels on the RIGHT, removing the '(N)' count. Preserve the
+        # count and shorten the NAME here.
         #
-        # Antes de encurtar, porem, vale QUEBRAR A LINHA: espremer cinco
-        # botoes numa sidebar estreita sobrava uma letra para cada um
-        # ("P (0)" para Portas e Puxadores). A grade da mais largura a
-        # cada botao e so' entao o nome e' resumido.
+        # Try WRAPPING first: squeezing five buttons into a narrow sidebar left one
+        # letter per label ('P (0)' for both Doors and Handles). The grid gives each
+        # button more width before shortening the name.
         disponivel = _gaveta._largura_painel(context) - 16.0
-        # O numero de colunas so' cresce enquanto o nome INTEIRO ainda
-        # couber. Repartir por quantos cabem deixava o texto encolher ao
-        # alargar a sidebar (mais colunas, cada uma mais estreita).
-        maior = max(len(v) for v in valores) + 5      # folga do " (NN)"
+        # Increase the column count only while the FULL name still fits. Dividing by the
+        # number that fit made text shrink as the sidebar widened (more columns, each
+        # narrower).
+        maior = max(len(v) for v in valores) + 5      # Allowance for ' (NN)'.
         ideal = max(_gaveta.PX_MIN_NIVEL, maior * _gaveta.PX_CARACTERE + _gaveta.PX_FOLGA_BOTAO)
         colunas = max(1, min(len(valores), int(disponivel // ideal)))
         cabe = int((disponivel / colunas - _gaveta.PX_FOLGA_BOTAO) / _gaveta.PX_CARACTERE)
@@ -403,10 +400,10 @@ class VIEW3D_PT_archy_builder(Panel):
         cab = layout.row(align=True)
         cab.prop(s, "chapa_bib_aberta",
                  icon='TRIA_DOWN' if s.chapa_bib_aberta else 'TRIA_RIGHT',
-                 text="Biblioteca (%d)" % len(itens), toggle=True)
+                 text="Library (%d)" % len(itens), toggle=True)
         cab.operator("object.cabinet_abrir_biblioteca", text="",
                      icon='FILE_FOLDER')
-        # o "+" adiciona a selecao atual a biblioteca
+        # The '+' adds the current selection to the library.
         cab.operator("object.cabinet_salvar_biblioteca", text="", icon='ADD')
         if not s.chapa_bib_aberta:
             return
@@ -439,19 +436,17 @@ class VIEW3D_PT_archy_builder(Panel):
 
         lista = layout.box()
         trilha = " > ".join(x for x in (s.chapa_n1, s.chapa_n2, s.chapa_n3) if x)
-        # a trilha ("Armarios > Sala > Inferiores") saiu: os proprios
-        # botoes da cascata, em azul, ja' dizem onde se esta'
+        # The breadcrumb ('Cabinets > Living Room > Base Units') was removed: the blue
+        # cascade buttons already indicate the current location.
         self._barra_tamanho(context, lista, s)
         if not daqui:
-            lista.label(text="nenhum modelo aqui", icon='INFO')
+            lista.label(text="no models here", icon='INFO')
             return
 
-        # columns=0 faz o grid_flow calcular sozinho quantas colunas cabem
-        # na largura atual do painel -- e' o mecanismo responsivo nativo.
-        # As colunas so' precisam ser fixas no modo mosaico, onde a
-        # largura do bloco define o tamanho da celula. Na foto normal
-        # `columns=0` deixa o bpy distribuir, que e' o comportamento
-        # responsivo nativo.
+        # columns=0 lets grid_flow calculate how many columns fit the current panel
+        # width: native responsive behavior. Fixed columns are only needed in mosaic
+        # mode, where block width defines cell size. For a normal image, `columns=0`
+        # lets bpy distribute space using its native responsive layout.
         if _biblioteca._foto_clicavel_ligada():
             colunas, _larg = _biblioteca._metrica_blocos(context, s.chapa_tam_bloco)
         else:
@@ -465,10 +460,9 @@ class VIEW3D_PT_archy_builder(Panel):
             travado = _biblioteca.item_bloqueado(it)
             bloco = grade.column(align=True)
 
-            # A foto e' um MOSAICO de botoes (ver FOTO CLICAVEL em
-            # `biblioteca`): assim
-            # ela cresce com o tamanho escolhido E aciona o posicionador
-            # em qualquer ponto, nao so' pelo nome.
+            # The image is a MOSAIC of buttons (see CLICKABLE IMAGE in `biblioteca`): it
+            # scales with the selected size AND launches the placement tool from any
+            # point, not only from the name.
             if icone and _biblioteca._foto_clicavel_ligada():
                 self._foto_clicavel(context, bloco, it, icone)
             elif icone:
@@ -479,13 +473,12 @@ class VIEW3D_PT_archy_builder(Panel):
                 vazio.scale_y = float(s.chapa_tam_bloco) * 0.5
                 vazio.label(text="", icon='IMAGE_DATA')
 
-            # Duas linhas em vez de uma: no bloco estreito tudo junto
-            # cortava o cadeado, e sem ele um preset travado nao teria
-            # como ser destravado.
+            # Two rows instead of one: putting everything together in a narrow block
+            # clipped the lock, leaving no way to unlock a locked preset.
             acoes = bloco.column(align=True)
 
-            # O nome chama o POSICIONADOR, igual a foto: o preset gruda
-            # no cursor e o proximo clique na viewport confirma.
+            # The name launches the PLACEMENT TOOL like the image: the preset follows
+            # the cursor and the next viewport click confirms.
             op = acoes.operator("object.cabinet_arrastar_preset",
                                 text=it["nome"])
             op.pasta = it["pasta"]
@@ -493,14 +486,14 @@ class VIEW3D_PT_archy_builder(Panel):
             op.tipo = it.get("tipo", "modulo")
 
             botoes = acoes.row(align=True)
-            # a seta insere direto no cursor 3D, sem posicionar
+            # The arrow inserts directly at the 3D cursor without placement.
             oi = botoes.operator("object.cabinet_inserir_preset",
                                  text="", icon='IMPORT')
             oi.pasta = it["pasta"]
             oi.arquivo = it["arquivo"]
             oi.tipo = it.get("tipo", "modulo")
 
-            # o lapis some com o cadeado fechado, o cadeado NUNCA some
+            # The pencil disappears when locked; the lock NEVER disappears.
             editar = botoes.row(align=True)
             editar.enabled = not travado
             oe = editar.operator(
@@ -510,30 +503,28 @@ class VIEW3D_PT_archy_builder(Panel):
             self._cadeado(botoes, it, travado)
 
     def _foto_clicavel(self, context, layout, it, icone):
-        """Mosaico de botoes com a foto: clicar em qualquer ponto
-        aciona o posicionador, igual ao nome."""
+        """Button mosaic displaying the image: clicking anywhere launches placement,
+        just like clicking the name."""
         s = context.scene
         png = os.path.splitext(it["arquivo"])[0] + ".png"
-        # o ladrilho tem tamanho FIXO: quem varia e' a quantidade deles
+        # Tile size is FIXED; only the tile count varies.
         _col, largura_bloco = _biblioteca._metrica_blocos(context, s.chapa_tam_bloco)
         lado = max(2, int(round(
             (largura_bloco - _biblioteca.PADDING_BLOCO) / _biblioteca.PX_ALVO_CELULA)))
         tiles = _biblioteca._tiles_foto(it["pasta"], png, lado)
         if not tiles:
-            # sem os ladrilhos a foto ainda aparece, so' que nao clicavel
+            # Without tiles, the image still appears but is not clickable.
             layout.template_icon(icon_value=icone,
                                  scale=float(s.chapa_tam_bloco))
             return
 
-        # Celula maior que o icone deixa fresta e o mosaico vira
-        # xadrez. `ui_units_x` fixa a largura da linha em unidades de
-        # UI (20 px cada), entao cada ladrilho recebe exatamente o
-        # tamanho do icone -- sem precisar saber quantas colunas a
-        # grade de blocos resolveu usar. scale_y fecha a fresta de cima.
-        # A celula vale largura_do_bloco/lado. Se ela sobrar sobre o
-        # icone de 16 px, fica uma fresta por coluna e a foto ganha
-        # listras. scale_x encolhe a celula ate' o icone -- e quando a
-        # celula fica MENOR que ele, o icone acompanha, sem fresta.
+        # Cells larger than icons leave gaps, turning the mosaic into a checkerboard.
+        # `ui_units_x` fixes row width in UI units (20 px each), giving every tile
+        # exactly the icon size without needing the block grid's column count. scale_y
+        # closes the top gap. Cell width is block width/side count. If it exceeds the 16
+        # px icon, each column leaves a gap and the image becomes striped. scale_x
+        # shrinks the cell to the icon; when the cell becomes SMALLER, the icon shrinks
+        # with it, leaving no gap.
         grade = layout.column(align=True)
         grade.scale_y = _biblioteca.PX_TILE_FOTO / 20.0
         for linha_tiles in tiles:
@@ -547,14 +538,12 @@ class VIEW3D_PT_archy_builder(Panel):
                 op.tipo = it.get("tipo", "modulo")
 
     def _barra_tamanho(self, context, layout, s):
-        """Barra compacta de fatias clicaveis (ver BARRA DE TAMANHO em
-        `biblioteca`).
+        """Compact bar of clickable slices (see SIZE BAR in `biblioteca`).
 
-        A largura e' RESERVADA por um split em vez de deixada ao
-        alinhamento: com `alignment='RIGHT'` o botao assume uma largura
-        natural bem maior que o icone e o trilho sai tracejado, e
-        comprimir o bastante para fechar os vaos borrava o desenho.
-        """
+        RESERVE width with a split instead of relying on alignment: with
+        `alignment='RIGHT'`, the button's natural width greatly exceeds the icon
+        width and the track becomes dashed. Compressing enough to close the gaps
+        blurred the drawing."""
         prop = bpy.types.Scene.bl_rna.properties["chapa_tam_bloco"]
         menor, maior = prop.hard_min, prop.hard_max
         ultimo = maior - menor
@@ -563,7 +552,7 @@ class VIEW3D_PT_archy_builder(Panel):
         fatias, _celula, _c = _biblioteca._metrica_barra(context)
         util = _biblioteca.PX_FATIA_BARRA * fatias
         largura = max(1.0, _gaveta._largura_painel(context))
-        # o que sobra a esquerda e' so' vao: joga a barra no canto
+        # The remaining space on the left is empty: push the bar into the corner.
         fracao = max(0.02, min(0.92, 1.0 - (util + _biblioteca.PX_BOTAO_BIBLIOTECA)
                                / largura))
         div = layout.split(factor=fracao)
@@ -581,7 +570,7 @@ class VIEW3D_PT_archy_builder(Panel):
                          icon='ASSET_MANAGER')
 
     def _cadeado(self, linha, it, travado):
-        """Cadeado clicavel, alternando entre os dois sprites."""
+        """Clickable lock toggling between the two sprites."""
         oc = linha.operator("object.cabinet_bloqueio", text="",
                             icon='LOCKED' if travado else 'UNLOCKED',
                             depress=travado)

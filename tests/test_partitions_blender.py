@@ -1,4 +1,4 @@
-"""Divisorias: divisao de vao, madeira nativa e sistemas independentes."""
+"""Partitions: opening segmentation, native wood and independent systems."""
 import os
 import sys
 import tempfile
@@ -104,7 +104,7 @@ class TestDivisorias(unittest.TestCase):
         self.lo, self.hi = G._limites(self.conj)
 
     def sistemas(self):
-        # Maleiro no alto, tres gavetas embaixo; vao total da caixa.
+        # Upper storage compartment, three drawers below; full carcass opening.
         g = G.criar_gavetas(bpy.context, self.conj, (18, 18, 18, 582, 0),
             dict(quantidade=3, profundidade_mm=500, cobertura='EMBUTIDA', puxador='SEM'))
         p = P.criar_prateleiras(bpy.context, self.conj, (18, 18, 18, 18, 0),
@@ -207,7 +207,7 @@ class TestDivisorias(unittest.TestCase):
 
     def test_gavetas_continuam_validando_travessia_antes_de_mutar(self):
         self.sistemas(); nomes=set(bpy.data.objects.keys())
-        with self.assertRaisesRegex(ValueError,'profundidade'):
+        with self.assertRaisesRegex(ValueError,'depth'):
             D.criar_divisorias(bpy.context,self.conj,(18,18,18,18,0),dict(profundidade_mm=300))
         self.assertEqual(set(bpy.data.objects.keys()),nomes)
 
@@ -287,8 +287,8 @@ class TestDivisorias(unittest.TestCase):
         for nome, coords in geometrias.items():
             self.assertEqual([tuple(v.co) for v in bpy.data.objects[nome].data.vertices], coords)
 
-    # Regressao (era BUG, corrigido na 302): com duas divisorias a 1a ja'
-    # tinha partido quando a 2a recusava, e a copia ficava orfa na cena.
+    # Regression, fixed in v302: with two partitions, the first had already split
+    # when the second was rejected, leaving an orphan copy in the scene.
     def test_segunda_divisoria_recusada_nao_deixa_copia(self):
         self.criar()
         D.criar_divisorias(bpy.context, self.conj, (18, 18, 18, 650, 0),
@@ -453,7 +453,7 @@ class TestDivisorias(unittest.TestCase):
             self.assertTrue(all(w[0] + w[2] <= min(largura - 12, 552) + .01 for w in campos))
 
     def test_clique_simples_isola_grupo_e_duplo_isola_divisoria(self):
-        # Regressao v282: clique e HUD devem conservar o mesmo escopo.
+        # Regression v282: clicking and HUD must retain the same scope.
         grupo = self.criar(2)
         chapa = D.pecas(grupo)[1]
         addon.hud._selecionar_chapa_hud(bpy.context, chapa)
@@ -546,4 +546,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_divisorias_') as pasta:
         finally:
             addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de divisorias')
+    raise RuntimeError("Partition tests failed")

@@ -1,6 +1,6 @@
-"""Chapa: marcadores, malha (bmesh), espessura livre, normalizacao,
-o handler do depsgraph, a geometria em mundo, a deteccao da
-adjacencia (solda) entre chapas e os operadores de criar/marcar chapa."""
+"""Panels: markers, BMesh geometry, free thickness, normalization,
+depsgraph handler, world geometry, panel adjacency/welding and
+operators for creating/marking panels."""
 
 import bpy, bmesh, math, uuid
 from bpy.props import BoolProperty
@@ -8,8 +8,8 @@ from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _modulos = None
 _eventos = None
 _portas = None
@@ -20,54 +20,54 @@ _solda = None
 _frentes = None
 _formas = None
 
-# Espessuras CONVENCIONAIS: so' opcoes/padrao (enum das portas). Nao
-# limitam mais o campo (pedido do usuario): qualquer espessura vale, e
-# acima de ESPESSURA_ALERTA_MM a gaveta pinta o campo de vermelho.
+# CONVENTIONAL thicknesses are only options/defaults for door enums.
+# They no longer constrain the field: any thickness is valid, and
+# the sidebar marks values above ESPESSURA_ALERTA_MM in red.
 ESPESSURAS_PERMITIDAS = [15.0, 18.0, 20.0, 30.0]
 ESPESSURA_ALERTA_MM = 60.0
 
 
 def _espessura_livre(valor):
-    """A espessura que o usuario pediu: positiva e sem ruido de float."""
+    """Requested thickness: positive and free of floating-point noise."""
     return round(max(1.0, float(valor)), 2)
 
 
 def _espessura_em_alerta(valor):
     return float(valor) > ESPESSURA_ALERTA_MM + 1e-6
 
-# Marcador ID. ATENCAO: propriedades criadas com bpy.props em
-# bpy.types.Object sao RNA e NAO aparecem em `"x" in obj`.
-# Os nomes das propriedades internas (chapa_*, eh_chapa, adj_*) sao
-# deliberadamente mantidos do nome antigo do add-on: eles estao gravados
-# dentro dos .blend dos presets. Renomea-los invalidaria toda a
-# biblioteca ja' salva.
+# ID marker. WARNING: bpy.props properties on bpy.types.Object are RNA
+# and do NOT appear in `"x" in obj`.
+# Internal property names (chapa_*, eh_chapa, adj_*) deliberately retain
+# their legacy names: preset .blend files already store them.
+# Renaming would invalidate the entire
+# saved library.
 MARCA_CHAPA = "eh_chapa"
 MARCA_CONJUNTO = "eh_conjunto_chapa"
 MARCA_PORTAS = "eh_grupo_portas"
 MARCA_FOLHA = "eh_folha_porta"
-# Peca da MOLDURA da porta de correr (revestimento das laterais, bases do
-# trilho, testeira e rodape): chapa de verdade, filha do grupo da porta e
-# refeita com ela, como a folha (`_portas._pecas_moldura`).
+# Sliding-door FRAME part (side cladding, track bases, fascia and plinth):
+# an actual panel parented to the door group and rebuilt with it,
+# like a leaf (`_portas._pecas_moldura`).
 MARCA_MOLDURA = "eh_moldura_porta"
-# FUNDO do modulo (chapa de 5 mm em canal, recuada): peca DEPENDENTE --
-# refeita pela caixa do modulo (`_modulos.ajustar_fundo`), fora da
-# adjacencia, da proporcao do redimensionar e da espessura do modulo.
+# Cabinet BACK (setback 5 mm panel in grooves): DEPENDENT part rebuilt
+# from the cabinet box (`_modulos.ajustar_fundo`), outside adjacency,
+# proportional resizing and cabinet thickness.
 MARCA_FUNDO = "eh_fundo_modulo"
-# TRAVESSA (frente/tras) no lugar do tampo dos modulos de bancada: tambem
-# dependente -- refeita pela caixa, com a largura que tiver (`ajustar_travessas`)
+# Front/rear CROSSPIECES replace countertop-cabinet tops: dependent too,
+# rebuilt from the box while retaining width (`ajustar_travessas`).
 MARCA_TRAVESSA = "eh_travessa_modulo"
 
 
 def eh_dependente(obj):
-    """Fundo ou travessa: segue a caixa do modulo, fora da adjacencia."""
+    """Back or crosspiece: follows the cabinet box, outside adjacency."""
     return MARCA_FUNDO in obj or MARCA_TRAVESSA in obj
-# Objetos de fora que entram no modulo/porta sem virar chapa (IMPORTACAO).
+# External objects entering cabinets/doors without becoming panels (IMPORT).
 MARCA_ACESSORIO = "eh_acessorio"
 MARCA_PUXADOR = "eh_puxador"
-# Empties de amarracao (modulo, grupo de portas, ponta do pistao) ficam na
-# cena: o parentesco do Blender e' o que move o armario inteiro, salva o
-# preset e faz a porta seguir o modulo. Mas ninguem precisa ve-los
-# (pedido do usuario: poluiam a vista): tamanho minimo do Blender.
+# Attachment Empties (cabinet, door group, piston end) remain in the scene:
+# native parenting moves the entire cabinet, saves presets and makes doors
+# follow the cabinet. Keep them at Blender's minimum display size
+# to avoid clutter, as requested.
 TAMANHO_EMPTY_OCULTO = 0.0001
 
 
@@ -77,20 +77,20 @@ def _ocultar_empty(obj):
         obj.empty_display_size = TAMANHO_EMPTY_OCULTO
 
 
-CHAVE_TRAVAS_PUXADOR = "puxador_travas"     # [L, A, P]: 1 = travado
+CHAVE_TRAVAS_PUXADOR = "puxador_travas"     # [L, A, P]: 1 = locked.
 
 _ocupado = [False]
-_havia_modal = [False]   # lembra se um operador modal estava ativo
+_havia_modal = [False]   # Remember whether a modal operator was active.
 CHAVE_ESPESSURA = 'cabinet_secao_espessura'
 ATR_COTA_ARESTA = 'cabinet_cota_aresta'
 
 
 def _secao_espessura(malha):
-    """Pareia as duas peles pelo eixo transversal local, fora do redraw.
+    """Pair skins along the local transverse axis, outside redraw.
 
-    Uma dobra desloca a linha media, mas nao aumenta a distancia entre
-    vertices correspondentes. So' uma secao completa e uniforme decide E;
-    recortes ambiguos conservam a medida nominal, nunca o volume envolvente.
+    A bend moves the middle line without increasing corresponding-vertex
+    distance. Only complete, uniform sections determine E; ambiguous cuts
+    retain nominal thickness, never the bounding volume.
     """
     if malha.is_editmode or len(malha.vertices)<6:return None
     arvore=KDTree(len(malha.vertices))
@@ -116,10 +116,10 @@ def _secao_espessura(malha):
 
 
 def _bordas_da_secao(malha, secao):
-    """Bordas das duas peles; arestas internas da triangulacao nao sao cotas.
+    """Edges of both skins; internal triangulation edges are not dimensions.
 
-    O atributo acompanha a edicao/undo nativos. Indices de vertices servem
-    so' nesta consulta, nunca como identidade guardada pela HUD/menu.
+    The attribute follows native editing/undo. Vertex indices exist only
+    for this query, never as identities stored by HUD/menu.
     """
     grupos=secao['grupos'];lados=secao['lados'];contagens={-1:{},1:{}}
     for face in malha.polygons:
@@ -151,7 +151,7 @@ def _bordas_da_secao(malha, secao):
 
 
 def preparar_espessura(obj, digital=None):
-    """Cache numerico compartilhado por medicao, resize e HUD."""
+    """Numeric cache shared by measurement, resize and HUD."""
     if obj.type!='MESH' or obj.data.is_editmode:return None
     digital=digital or _frentes._digital(obj.data)
     antigo=obj.data.get(CHAVE_ESPESSURA)
@@ -176,8 +176,8 @@ def preparar_espessura(obj, digital=None):
             a=list(secao['pares'][a][1]),b=list(secao['pares'][b][1]))
     dado['quinas']=quinas
     if secao is None and not obj.get('chapa_rebaixos'):
-        # Peles editadas separadamente nao podem ser extrudadas pelo mesmo perfil.
-        # A topologia nativa conserva cada borda, inclusive o verso diferente.
+        # Independently edited skins cannot be extruded from a common profile.
+        # Native topology retains each edge, including a different rear skin.
         bm=bmesh.new()
         try:
             bm.from_mesh(obj.data);bm.normal_update();bm.edges.index_update()
@@ -201,7 +201,7 @@ def preparar_espessura(obj, digital=None):
         dado['arestas']=arestas
     centros=[(Vector(a)+Vector(b))/2 for a,b in secao['pares']] if secao else []
     desvio=(max(p.z for p in centros)-min(p.z for p in centros))*1000 if centros else 0.
-    # Uma projecao fora da espessura e' uma medida independente da madeira.
+    # Projection beyond thickness is a separate wood dimension.
     dado['deslocamento_mm']=desvio
     if centros:
         apoio=max(centros,key=lambda p:(p.x,-p.y)).copy()
@@ -219,20 +219,20 @@ def _terminar_edicao_secao(obj):
 
 
 def definir_aresta(obj, uid, valor_mm, lado='min'):
-    """Uma ponta anda na direcao real da aresta; as duas peles andam juntas."""
-    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    """Move an endpoint along its actual edge; both skins move together."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError("Exit Edit Mode")
     secao=_secao_espessura(obj.data)
     if not secao:
         atributo=obj.data.attributes.get(ATR_COTA_ARESTA)
         aresta=next((e for e in obj.data.edges if atributo and atributo.data[e.index].value==int(uid)),None)
-        if aresta is None:raise ValueError('A aresta nao existe mais')
+        if aresta is None:raise ValueError("The edge no longer exists")
         a,b=aresta.vertices if lado=='min' else tuple(aresta.vertices)[::-1]
         vetor=obj.data.vertices[b].co-obj.data.vertices[a].co
-        if vetor.length<1e-8:raise ValueError('Aresta sem comprimento')
+        if vetor.length<1e-8:raise ValueError("Edge has no length")
         if obj.data.users>1:obj.data=obj.data.copy()
         delta=vetor.normalized()*(max(1.,float(valor_mm))/1000-vetor.length)
-        # O par topologico conserva o afastamento entre as peles mesmo
-        # quando um canto foi editado sem mover o seu correspondente.
+        # The topological pair retains skin separation even when a corner
+        # was edited without moving its counterpart.
         pares=[j for e in obj.data.edges if b in e.vertices for j in e.vertices
             if j not in (a,b) and abs(abs(obj.data.vertices[j].co.z-obj.data.vertices[b].co.z)*1000
                 -obj.chapa_espessura_mm)<.01]
@@ -242,11 +242,11 @@ def definir_aresta(obj, uid, valor_mm, lado='min'):
         return
     bordas=_bordas_da_secao(obj.data,secao)
     par=bordas.get(str(uid))
-    if par is None:raise ValueError('A aresta nao existe mais')
+    if par is None:raise ValueError("The edge no longer exists")
     a,b=par if lado=='min' else par[::-1]
     pa,pb=(Vector(secao['pares'][i][0]) for i in (a,b))
     vetor=pb-pa
-    if vetor.length<1e-8:raise ValueError('Aresta sem comprimento')
+    if vetor.length<1e-8:raise ValueError("Edge has no length")
     delta=vetor.normalized()*(max(1.,float(valor_mm))/1000-vetor.length)
     if obj.data.users>1:obj.data=obj.data.copy()
     for v,g in zip(obj.data.vertices,secao['grupos']):
@@ -255,19 +255,19 @@ def definir_aresta(obj, uid, valor_mm, lado='min'):
 
 
 def definir_angulo_arestas(obj, face, valor):
-    """Gira uma borda no plano das duas bordas reais, conservando E."""
-    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    """Rotate an edge in the plane of the two actual edges, preserving E."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError("Exit Edit Mode")
     secao=_secao_espessura(obj.data)
-    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    if not secao:raise ValueError("The panel does not define two corresponding skins")
     bordas=_bordas_da_secao(obj.data,secao)
     ea,eb=(bordas.get(str(uid)) for uid in face)
     comuns=set(ea or ())&set(eb or ())
-    if len(comuns)!=1:raise ValueError('A quina nao existe mais')
+    if len(comuns)!=1:raise ValueError("The corner no longer exists")
     canto=comuns.pop();a=next(i for i in ea if i!=canto);b=next(i for i in eb if i!=canto)
     p,pa,pb=(Vector(secao['pares'][i][0]) for i in (canto,a,b))
     base=(pa-p).normalized();vetor=pb-p
     normal=vetor-base*vetor.dot(base)
-    if normal.length<1e-8:raise ValueError('A quina nao define um plano de giro')
+    if normal.length<1e-8:raise ValueError("The corner does not define a rotation plane")
     angulo=math.radians(max(.1,min(179.9,float(valor))))
     delta=p+(base*math.cos(angulo)+normal.normalized()*math.sin(angulo))*vetor.length-pb
     if obj.data.users>1:obj.data=obj.data.copy()
@@ -277,14 +277,14 @@ def definir_angulo_arestas(obj, face, valor):
 
 
 def definir_deslocamento(obj, valor_mm, lado='min'):
-    """Muda a flecha da linha media; cada par conserva sua propria E."""
-    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError('Saia do modo de edicao')
+    """Change middle-line sagitta; each pair retains its own E."""
+    if obj.mode=='EDIT' or obj.data.is_editmode:raise ValueError("Exit Edit Mode")
     secao=_secao_espessura(obj.data)
-    if not secao:raise ValueError('A chapa nao define duas peles correspondentes')
+    if not secao:raise ValueError("The panel does not define two corresponding skins")
     esp=secao['espessura_mm']/1000
     meios=[v.co.z-lado_v*esp/2 for v,lado_v in zip(obj.data.vertices,secao['lados'])]
     lo,hi=min(meios),max(meios)
-    if hi-lo<1e-8:raise ValueError('A chapa nao tem deslocamento transversal')
+    if hi-lo<1e-8:raise ValueError("The panel has no transverse displacement")
     fixo=hi if lado=='max' else lo
     fator=max(0.,float(valor_mm))/1000/(hi-lo)
     if obj.data.users>1:obj.data=obj.data.copy()
@@ -297,12 +297,12 @@ def definir_deslocamento(obj, valor_mm, lado='min'):
 
 
 def _malha_e_caixa(malha):
-    """A malha ainda e' a caixa que o add-on gera: 8 vertices, um em
-    cada canto da propria caixa. Qualquer recorte, chanfro, furo ou
-    vertice fora do canto faz dela uma malha MODELADA."""
+    """Is the mesh still the add-on's box: eight vertices, one at each
+    corner of its own bounds? Any cutout, chamfer, bore or vertex away
+    from a corner makes it a MODELED mesh."""
     vertices = malha.vertices
     if len(vertices) == 0:
-        return True             # malha nova: nasce caixa
+        return True             # New mesh: start as a box.
     if len(vertices) != 8:
         return False
     lo = [min(v.co[i] for v in vertices) for i in range(3)]
@@ -339,10 +339,10 @@ def _nova_referencia(obj, **extra):
 
 
 def guardar_referencia_malha(obj, largura, comprimento):
-    """Fixa a malha atual como referencia do esticar, com a largura e o
-    comprimento (m) que ela representa. Chamar ANTES de trocar as medidas:
-    a madeira da porta curva passa da largura nominal (quinas reais), e
-    medir pela malha a encolhia no primeiro resize, sem volta."""
+    """Set the current mesh as stretch reference with the width/length in m
+    it represents. Call BEFORE changing dimensions: curved-door wood
+    extends beyond nominal width at actual corners, so mesh-based
+    measurement irreversibly shrank it on the first resize."""
     estado=obj.get('chapa_edicao')
     if estado and estado['ultimo']==_digital_malha(obj.data):
         return
@@ -350,19 +350,19 @@ def guardar_referencia_malha(obj, largura, comprimento):
 
 
 def _esticar_malha(obj, medidas):
-    """Leva a malha MODELADA as medidas (m) sem apagar nada: cada
-    vertice anda junto com a face do lado em que esta' (acima do meio,
-    a face maxima; abaixo, a minima). Recortes e furos mantem o tamanho
-    e a distancia ate' a borda mais proxima."""
+    """Resize a MODELED mesh to dimensions in m without deleting anything:
+    vertices follow their nearest side face, maximum above the midpoint
+    and minimum below. Cutouts/bores retain their size and distance
+    from the nearest edge."""
     _frentes.preparar(obj)
     estado=obj.get('chapa_edicao')
     if not estado or estado['ultimo']!=_digital_malha(obj.data):
         estado=_nova_referencia(obj)
-    # Sem nominal guardado, a malha vale o que mede (caso geral).
+    # Without a stored nominal size, use measured mesh dimensions (general case).
     nominal=estado.get('nominal')
     _frentes.copiar_rotulos(obj.data,estado['malha'])
-    # Nao recalcular de que lado o vertice esta' depois de cruzar o meio:
-    # a referencia nativa conserva furos, recortes e indices no retorno.
+    # Do not recalculate vertex sides after crossing the midpoint:
+    # the native reference preserves bores, cutouts and indices on restoration.
     bm=bmesh.new()
     try:
         bm.from_mesh(estado['malha'])
@@ -388,10 +388,9 @@ def _esticar_malha(obj, medidas):
 
 
 def _malha_com_canais(obj, L, C, E):
-    """A chapa (m) com canais FRESADOS ao longo do comprimento (Y local),
-    na face de cima (Z+, `chapa_canal_lado` 1) ou de baixo (-1): a base do
-    trilho leve, como o "Trilho exemplo" do usuario. Secao no plano X/Z
-    com os entalhes, extrudada em Y."""
+    """Panel in m with ROUTED local-Y grooves on the top face
+    (Z+, `chapa_canal_lado` 1) or underside (-1), as in the user's
+    light-track base. Extrude the notched X/Z section along Y."""
     hx, hy, hz = L / 2.0, C / 2.0, E / 2.0
     largura = float(obj.get('chapa_canal_largura', 0.0)) / 1000.0
     fundo = min(float(obj.get('chapa_canal_fundo', 0.0)) / 1000.0, E * 0.9)
@@ -405,7 +404,7 @@ def _malha_com_canais(obj, L, C, E):
         contorno += [(a, face), (a, face - lado * fundo),
                      (b, face - lado * fundo), (b, face)]
     contorno += [(hx, face), (hx, -face), (-hx, -face)]
-    # pontos repetidos (canal na quina) deixariam face degenerada
+    # Repeated points at corner grooves would create degenerate faces.
     secao = [p for i, p in enumerate(contorno)
              if (Vector(p) - Vector(contorno[i - 1])).length > 1e-7]
     bm = bmesh.new()
@@ -432,11 +431,11 @@ def _caixa_bm(bm, x0, x1, y0, y1, z0, z1, material=0):
 
 
 def _malha_quadro(obj, L, C, E):
-    """Folha de correr QUADRO DE ALUMINIO (a do despenseiro do DXF):
-    perfil de `chapa_quadro_mm` de face em volta (material 0) e o painel
-    fino (vidro/espelho/MDF, material 1) a `chapa_painel_frente_mm` da
-    face de fora (Z+), entrando `chapa_painel_entra_mm` no perfil. Refeita
-    a cada medida, como a dos canais: nao e' caixa, nem foi modelada."""
+    """ALUMINUM-FRAME sliding leaf from the DXF pantry: perimeter profile
+    with face width `chapa_quadro_mm` (material 0), thin glass/mirror/MDF
+    infill (material 1) `chapa_painel_frente_mm` behind outer Z+ face,
+    penetrating `chapa_painel_entra_mm` into the profile. Rebuild per size
+    like grooves: neither a box nor manually modeled geometry."""
     hx, hy, hz = L / 2.0, C / 2.0, E / 2.0
     q = min(float(obj['chapa_quadro_mm']) / 1000.0, hx * 0.45, hy * 0.45)
     p = min(float(obj.get('chapa_painel_mm', 5.0)) / 1000.0, E)
@@ -444,7 +443,7 @@ def _malha_quadro(obj, L, C, E):
     entra = min(float(obj.get('chapa_painel_entra_mm', 5.0)) / 1000.0, q)
     bm = bmesh.new()
     try:
-        # o perfil em 4 barras: as de pe' inteiras, as deitadas entre elas
+        # Four profile bars: full-height verticals, horizontals between them.
         for x0, x1, y0, y1 in ((-hx, -hx + q, -hy, hy), (hx - q, hx, -hy, hy),
                                (-hx + q, hx - q, -hy, -hy + q),
                                (-hx + q, hx - q, hy - q, hy)):
@@ -462,13 +461,13 @@ SEGMENTOS_ARCO_CHAPA = 16
 
 
 def _malha_arco(obj, L, C, E):
-    """Chapa CURVADA em arco (frente de gaveta de canto do DXF): a
-    corda e' a largura, a flecha `chapa_arco_mm` vai para Z+ (fora) e as
-    pontas ficam onde a chapa reta estaria. Espessura concentrica; secao
-    no plano X/Z puxada em Y (comprimento)."""
+    """Arc-CURVED panel from the DXF corner drawer front: width is the chord,
+    `chapa_arco_mm` sagitta points toward Z+ (outward), and endpoints
+    remain on the straight panel plane. Concentric thickness; extrude
+    the X/Z section along Y (length)."""
     f = float(obj['chapa_arco_mm']) / 1000.0
     meia = L / 2.0
-    f = min(f, meia)                          # no maximo meio circulo
+    f = min(f, meia)                          # At most a semicircle.
     raio = (meia * meia + f * f) / (2.0 * f)
     alfa = math.asin(min(1.0, meia / raio))
     centro_z = E / 2.0 + f - raio
@@ -485,9 +484,9 @@ def _malha_arco(obj, L, C, E):
         for i in range(m):
             j = (i + 1) % m
             face = bm.faces.new((pontas[0][i], pontas[0][j], pontas[1][j], pontas[1][i]))
-            # os dois arcos lisos; as pontas (i = n e i = m-1) retas
+            # Both arcs smooth; endpoints (i = n and i = m-1) flat.
             face.smooth = i != n and i != m - 1
-        # tampas em quadrados (a secao em arco nao e' convexa)
+        # Quad caps because the arc section is not convex.
         for lado in pontas:
             for k in range(n):
                 quad = (lado[k], lado[k + 1], lado[m - 2 - k], lado[m - 1 - k])
@@ -500,12 +499,12 @@ def _malha_arco(obj, L, C, E):
 
 
 def gerar_malha_chapa(obj):
-    """Malha REAL via bmesh -> editavel em Edit Mode.
-    X local = largura | Y local = comprimento | Z local = ESPESSURA.
+    """Actual BMesh mesh, editable in Edit Mode.
+    Local X=width, Y=length, Z=THICKNESS.
 
-    Nao existe mais "Auto-regenerar" (pedido do usuario: toda mudanca
-    na chapa e' para ficar). Caixa padrao e' refeita; malha modelada no
-    Modo Edicao e' ESTICADA (`_esticar_malha`), nunca substituida."""
+    Auto-regeneration is retired: all panel edits must persist. Rebuild
+    standard boxes; STRETCH Edit-Mode-modeled meshes with `_esticar_malha`,
+    never replace them."""
     if (obj is None or obj.type != 'MESH' or obj.mode == 'EDIT'
             or obj.data.is_editmode):
         return
@@ -514,22 +513,22 @@ def gerar_malha_chapa(obj):
     E = obj.chapa_espessura_mm / 1000.0
     if obj.get('chapa_canais') or obj.get('chapa_quadro_mm') or obj.get('chapa_arco_mm'):
         if obj.get('chapa_canais'):
-            # base do trilho leve: refeita COM os canais (nao e' caixa, mas
-            # tambem nao foi modelada -- esticar levaria os canais junto)
+            # Rebuild light-track bases WITH grooves: neither boxes nor modeled
+            # meshes, since stretching would move grooves too.
             _malha_com_canais(obj, L, C, E)
         elif obj.get('chapa_quadro_mm'):
             _malha_quadro(obj, L, C, E)
         else:
             _malha_arco(obj, L, C, E)
         _frentes.preparar(obj)
-        # o perfil numa folha Quadro/Arco tambem acompanha a malha nova
+        # Profiles on frame/arc leaves also follow the new mesh.
         for filho in obj.children:
             if _puxadores._eh_puxador_parametrico(filho):
                 _puxadores.posicionar_puxador(filho)
         return
     if not _malha_e_caixa(obj.data):
-        # Na folha curva o Z da malha e' a FLECHA do arco, nao a
-        # espessura da madeira. Reaplicar parametros nao pode achata-la.
+        # On curved leaves, mesh Z measures arc SAGITTA rather than wood
+        # thickness. Reapplying parameters must not flatten it.
         profundidade = (max(v.co.z for v in obj.data.vertices)-min(v.co.z for v in obj.data.vertices)
                         if obj.get('porta_curva_modelada') else E)
         _esticar_malha(obj, (L, C, profundidade))
@@ -539,8 +538,8 @@ def gerar_malha_chapa(obj):
                 _puxadores.posicionar_puxador(filho)
         return
     bm = bmesh.new()
-    # A caixa foi reconstruida: seus indices de faces pertencem a outra
-    # topologia. A superficie sera reconhecida geometricamente uma vez.
+    # The box was rebuilt: its face indices belong to another topology.
+    # Recognize the surface geometrically once.
     for chave in (_frentes.ATR_FACE,_frentes.ATR_BORDA):
         atributo = obj.data.attributes.get(chave)
         if atributo is not None:
@@ -550,8 +549,8 @@ def gerar_malha_chapa(obj):
         v.co.x *= L
         v.co.y *= C
         v.co.z *= E
-    # Perfil filho: a faixa dele sai da MALHA, as props seguem nominais
-    # (medida da porta, adjacencia e HUD leem as props, nao a malha).
+    # Child profile: remove its strip from the MESH; keep nominal properties
+    # because door size, adjacency and HUD read properties, not mesh geometry.
     rebaixos = _puxadores._rebaixos_da_chapa(obj)
     for borda, corte in rebaixos.items():
         eixo = 0 if borda.startswith('X') else 1
@@ -570,7 +569,7 @@ def gerar_malha_chapa(obj):
     elif 'chapa_rebaixos' in obj:
         del obj['chapa_rebaixos']
     _frentes.preparar(obj, forcar=True)
-    # puxadores parametricos acompanham a chapa nova
+    # Parametric handles follow the new panel.
     for filho in obj.children:
         if _puxadores._eh_puxador_parametrico(filho):
             _puxadores.posicionar_puxador(filho)
@@ -583,9 +582,9 @@ def _upd_chapa(self, context):
 
 
 def _espessura_da_malha(obj):
-    """Espessura REAL da malha, em mm. Quando o callback de update roda a
-    PROP ja' foi trocada mas a malha ainda e' a antiga -- e' dela que sai
-    a medida velha, necessaria para saber para que lado engrossar."""
+    """ACTUAL mesh thickness in mm. The update callback sees an already
+    changed PROPERTY but the old mesh, which supplies previous thickness
+    needed to determine inward growth direction."""
     if obj is None or obj.type != 'MESH' or not obj.data.vertices:
         return None
     secao=_secao_espessura(obj.data)
@@ -593,16 +592,15 @@ def _espessura_da_malha(obj):
     if not _malha_e_caixa(obj.data):
         ref=obj.data.get(_frentes.CHAVE)
         return float(ref['espessura'])*1000 if ref and ref.get('espessura') else None
-    # sem multiplicar por scale.z: por invariante a escala em Z e'
-    # descartada, entao a malha local e' o valor antigo da prop
+    # Do not multiply by scale.z: Z scale is discarded by invariant,
+    # so the local mesh represents the old property value.
     zs = [v.co.z for v in obj.data.vertices]
     return (max(zs) - min(zs)) * 1000.0
 
 
 def _upd_espessura(self, context):
-    """Grava a espessura LIVRE (`_espessura_livre`, sem arredondar) e
-    engrossa a chapa para DENTRO do movel
-    (ver `_modulos.aplicar_espessura_chapa`)."""
+    """Store FREE thickness (`_espessura_livre`, without rounding) and
+    thicken the panel INWARD (`_modulos.aplicar_espessura_chapa`)."""
     if _ocupado[0]:
         return
     val = self.chapa_espessura_mm
@@ -614,12 +612,12 @@ def _upd_espessura(self, context):
             self.chapa_espessura_mm = alvo
         finally:
             _ocupado[0] = False
-    # Folha de porta nao engrossa para dentro do modulo: a porta inteira
-    # e' refeita com a espessura nova (ver `_portas._espessura_da_folha_mudou`).
+    # Door leaves do not thicken into the cabinet: rebuild the entire door
+    # at the new thickness (`_portas._espessura_da_folha_mudou`).
     if MARCA_FOLHA in self and _portas._espessura_da_folha_mudou(self, alvo):
         return
-    # Peca da moldura: o E vale para a moldura inteira (pedido do usuario:
-    # editavel), gravado na porta, que refaz as seis pecas
+    # Frame part: E applies to the whole editable frame, stored on the door,
+    # which rebuilds all six parts.
     if MARCA_MOLDURA in self and _portas._espessura_da_moldura_mudou(self, alvo):
         return
     if (MARCA_CHAPA not in self
@@ -629,17 +627,16 @@ def _upd_espessura(self, context):
     _modulos.aplicar_espessura_chapa(self, alvo, e_velha)
 
 
-# ===================================================== NORMALIZACAO
+# ===================================================== NORMALIZATION
 def normalizar_chapas(objs=None):
-    """Converte a escala acumulada em cada chapa em MEDIDA (mm) e zera
-    a escala de volta para 1.
+    """Convert accumulated panel scale into DIMENSIONS in mm and reset scale
+    to 1.
 
-    REGRA CENTRAL: o componente Z local (espessura) e' DESCARTADO, nao
-    convertido. Como Z local e' sempre a espessura -- esteja a peca
-    deitada ou em pe' -- a espessura fica imune a escala em QUALQUER
-    eixo do mundo.
+    CENTRAL RULE: DISCARD local Z scale (thickness), do not convert it.
+    Local Z is always thickness, upright or horizontal, so thickness
+    remains immune to scaling along ANY world axis.
 
-    Devolve a lista de pecas ajustadas.
+    Return adjusted parts.
     """
     if objs is None:
         objs = bpy.data.objects
@@ -654,8 +651,8 @@ def normalizar_chapas(objs=None):
                 break
             pai = pai.parent
         if pai is not None:
-            # Escala do modulo com internos ainda aguarda o timer. Nao
-            # incorporar a escala herdada em cada chapa antes do encaixe.
+            # Cabinet scaling with internals still awaits the timer. Do not absorb
+            # inherited scale into individual panels before refitting.
             continue
         sx, sy, sz = obj.scale
         if abs(sx - 1) < 1e-6 and abs(sy - 1) < 1e-6 and abs(sz - 1) < 1e-6:
@@ -669,7 +666,7 @@ def normalizar_chapas(objs=None):
         for obj, sx, sy, sz in alvos:
             obj.chapa_largura_mm = obj.chapa_largura_mm * sx
             obj.chapa_comprimento_mm = obj.chapa_comprimento_mm * sy
-            # sz (espessura) deliberadamente IGNORADO
+            # Deliberately IGNORE sz (thickness).
             obj.scale = (1.0, 1.0, 1.0)
     finally:
         _ocupado[0] = False
@@ -677,21 +674,21 @@ def normalizar_chapas(objs=None):
     for obj, _sx, _sy, _sz in alvos:
         gerar_malha_chapa(obj)
 
-    # fecha os vaos abertos pela aritmetica da escala
+    # Close gaps introduced by scale arithmetic.
     try:
         aplicar_adjacencia()
     except Exception as e:
-        print("[Archy Builder] adjacencia:", e)
+        print("[Archy Builder] adjacency:", e)
 
     return [o for o, _a, _b, _c in alvos]
 
 
-# Chapas que estavam em Modo Edicao no ultimo tique do timer (por nome)
+# Panel names in Edit Mode on the previous timer tick.
 _chapas_em_edicao = set()
 
 
 def preparar_uvs_chapa(obj):
-    """Mapa metrico inicial: uma unidade UV por metro, sem alterar mapas existentes."""
+    """Initial metric map: one UV unit per meter, retaining existing maps."""
     if (obj.type != 'MESH' or MARCA_CHAPA not in obj or obj.data.is_editmode
             or obj.data.uv_layers):
         return False
@@ -709,13 +706,12 @@ def preparar_uvs_chapa(obj):
 
 
 def absorver_edicoes_de_malha():
-    """Chapa que acabou de SAIR do Modo Edicao: a malha que o usuario
-    mexeu vira medida (`absorver_malha_editada`).
+    """Panels just EXITED from Edit Mode: absorb user mesh edits into
+    dimensions (`absorver_malha_editada`).
 
-    A HUD, a gaveta e a adjacencia leem as PROPS, nao a malha. Esticar
-    um lado no Modo Edicao deixava o contorno da HUD com a medida velha
-    (print do usuario). Chapas comuns usam so' a transicao; molduras
-    tambem recuperam medidas antigas divergentes pela caixa nativa.
+    HUD, sidebar and adjacency read PROPERTIES, not the mesh; stretching
+    an edge left HUD outlines stale. Ordinary panels use only the mode
+    transition; frames also recover old mismatches from native bounds.
     """
     agora, saidas = set(), []
     for obj in bpy.data.objects:
@@ -729,8 +725,8 @@ def absorver_edicoes_de_malha():
         elif (MARCA_MOLDURA in obj and not obj.get('chapa_rebaixos')
                 and obj.data.vertices and not obj.data.is_editmode
                 and all(abs(s-1)<1e-6 for s in obj.scale)):
-            # Cenas ja' editadas perderam a transicao do Tab. A caixa
-            # nativa permite reconhecer a divergencia sem reler a malha.
+            # Already edited scenes lost the Tab transition; native bounds detect
+            # the mismatch without rereading the mesh.
             lo,hi=(Vector(obj.bound_box[i]) for i in (0,6))
             tamanho=(hi-lo)*1000
             if (abs(tamanho.x-obj.chapa_largura_mm)>.01
@@ -741,8 +737,8 @@ def absorver_edicoes_de_malha():
     _chapas_em_edicao.clear()
     _chapas_em_edicao.update(agora)
     if saidas:
-        # Mover vertices internos nao muda necessariamente L/A/E nem
-        # a contagem de vertices que participa da assinatura da planta.
+        # Moving internal vertices need not change L/A/E or the vertex count
+        # used in the plan signature.
         _formas.esquecer()
     for obj in saidas:
         try:
@@ -752,19 +748,19 @@ def absorver_edicoes_de_malha():
             absorver_malha_editada(obj)
             _frentes.preparar(obj)
             for filho in obj.children:
-                # No Tab do grupo a geometria do puxador ja' acompanhou
-                # o gesto nativo. Recria-la anulava o movimento confirmado.
+                # In group Tab, handle geometry already followed the native gesture.
+                # Recreating it would undo the confirmed movement.
                 if (_puxadores._eh_puxador_parametrico(filho)
                         and filho.name not in anteriores):
                     _puxadores.posicionar_puxador(filho)
         except Exception as e:
-            print("[Archy Builder] absorver edicao:", e)
+            print("[Archy Builder] absorb edit:", e)
 
 
 def _alinhar_plano_da_chapa(obj):
-    """Reexpressa uma chapa plana no seu plano real, sem mudar MUNDO.
-    AABB Z de uma chapa inclinada por Tab nao e' sua espessura. Somente
-    duas superficies paralelas permitem essa troca de referencial.
+    """Reexpress a flat panel in its actual plane without changing WORLD
+    geometry. A Tab-tilted panel's AABB Z is not thickness. Require two
+    parallel surfaces before changing the frame.
     """
     malha=obj.data
     if not malha.polygons:return False
@@ -793,12 +789,12 @@ def _alinhar_plano_da_chapa(obj):
 
 
 def absorver_malha_editada(obj, reorientar=True):
-    """Caixa local da malha -> largura/comprimento/espessura; a origem
-    volta ao centro da caixa SEM a peca sair do lugar no mundo.
+    """Local mesh bounds -> width/length/thickness; recenter the origin
+    WITHOUT moving the part in world space.
 
-    Folha de porta fica de fora (edita-se pelo grupo), e chapa com perfil
-    tambem: a faixa do perfil e' cortada de proposito so' na malha.
-    Devolve True se mudou algo.
+    Exclude door leaves (edited through their group) and profiled panels,
+    whose profile strip is deliberately removed only from mesh geometry.
+    Return True if anything changed.
     """
     if (obj.mode == 'EDIT' or obj.data.is_editmode or
             MARCA_FOLHA in obj or obj.get('chapa_rebaixos')
@@ -823,8 +819,8 @@ def absorver_malha_editada(obj, reorientar=True):
             and centro.length < 1e-7):
         return False
     if centro.length >= 1e-7:
-        # Filhos (puxador importado, acessorio) ficam onde estavam; o
-        # parametrico e' refeito pelas props em gerar_malha_chapa.
+        # Children (imported handles, accessories) retain their position;
+        # parametric handles rebuild from properties in gerar_malha_chapa.
         filhos = {f:f.matrix_world.copy() for o in usuarios for f in o.children}
         mundos = {o:o.matrix_world.copy() for o in usuarios}
         obj.data.transform(Matrix.Translation(-centro))
@@ -841,41 +837,39 @@ def absorver_malha_editada(obj, reorientar=True):
             o.chapa_espessura_mm = espessura
     finally:
         _ocupado[0] = False
-    # A geometria ja' e' a que o usuario confirmou no Edit Mode.
-    # Esse caminho nao pode reconstruir buffers que o undo nativo ainda
-    # conserva. Absorver so' atualiza medidas/referencias.
+    # Geometry already matches the user's confirmed Edit Mode result.
+    # This path must not rebuild buffers still retained by native undo.
+    # Absorption only updates measurements/references.
     _frentes.invalidar(obj)
     obj.data.update()
     return True
 
 
-# ============================= HANDLER: age SO' depois do modal acabar
+# ============================= HANDLER: act ONLY after the modal finishes
 @bpy.app.handlers.persistent
 def ao_atualizar_depsgraph(scene, depsgraph):
-    """A chapa deforma normalmente durante o arraste do S (a ferramenta
-    nativa do Blender trabalha sem interferencia). Assim que o operador
-    modal termina -- Enter, clique ou Esc -- este handler detecta a
-    transicao e recalcula todas as chapas de uma vez.
+    """Let the panel deform normally during native S dragging. When the
+    modal finishes with Enter, click or Esc, detect the transition and
+    recalculate all panels together.
 
-    Mexer na escala DURANTE o modal nao funciona: o operador guarda a
-    escala inicial em cache e reaplica o fator a cada movimento do
-    mouse, entao qualquer correcao feita no meio do arraste e'
-    sobrescrita no quadro seguinte.
+    Changing scale DURING the modal does not work: the operator caches
+    initial scale and reapplies its factor on every mouse move, overwriting
+    any mid-drag correction on the next frame.
     """
     if _ocupado[0] or _eventos._desfazendo[0]:
-        # logo apos um undo os dados acabaram de voltar (ver
-        # `_eventos._depois_de_desfazer`): nada a recalcular, e mexer aqui derrubava
+        # Immediately after undo, data has just been restored
+        # (`_eventos._depois_de_desfazer`): no recalculation; mutation here crashed.
         return
     for atualizacao in depsgraph.updates if depsgraph is not None else ():
         dado = atualizacao.id
         if (isinstance(dado, bpy.types.Object) and dado.type == 'MESH'
                 and MARCA_CHAPA in dado and atualizacao.is_updated_geometry):
             _frentes.invalidar(dado.original, conferir=True)
-    # trocar a selecao tambem passa por aqui: o contorno acompanha na
-    # hora, sem esperar o timer
+    # Selection changes also pass here: update the outline immediately
+    # rather than waiting for the timer.
     _eventos.sincronizar_contornos()
-    # apagou/duplicou algo: as ferragens das portas se conferem depois
-    # (num timer: remover objeto dentro do handler do depsgraph nao)
+    # After deletion/duplication, check door hardware later in a timer;
+    # never remove objects inside the depsgraph handler.
     contagem = (len(bpy.data.objects), tuple((s.name, len(s.objects)) for s in bpy.data.scenes))
     anterior = _ferragens._contagem_objetos[0]
     if contagem != anterior:
@@ -884,51 +878,51 @@ def ao_atualizar_depsgraph(scene, depsgraph):
         _ferragens._contagem_objetos[0] = contagem
         if not bpy.app.timers.is_registered(_ferragens._conferir_ferragens):
             bpy.app.timers.register(_ferragens._conferir_ferragens, first_interval=0.0)
-        # Ctrl+D numa chapa: a copia sai com identidade propria e sem as
-        # soldas da original (pedido do usuario)
+        # Ctrl+D on a panel: give the copy its own identity without the
+        # original's welds, as requested.
         if surgiu and not bpy.app.timers.is_registered(_separar_copias_no_timer):
             bpy.app.timers.register(_separar_copias_no_timer, first_interval=0.0)
 
     modal_ativo = _eventos._ha_modal_ativo()
 
     if modal_ativo:
-        _havia_modal[0] = True     # arraste em andamento: nao tocar
+        _havia_modal[0] = True     # Drag in progress: do not touch.
         return
 
-    # o modal acabou, ou nunca houve (escala por script/painel): recalcula tudo
+    # Modal finished or absent (script/panel scaling): recalculate everything.
     _havia_modal[0] = False
     _modulos.absorver_conjuntos()
     normalizar_chapas()
 
 
 
-# ===================================================== ADJACENCIA
-# Guarda, para cada ponta da chapa (X- X+ Y- Y+), qual peca vizinha ela
-# encosta e qual era a folga no momento da deteccao. Depois de qualquer
-# recalculo, a chapa e' esticada/encurtada para reencontrar a mesma
-# folga -- fechando o vao que a aritmetica da escala abre.
+# ===================================================== ADJACENCY
+# For each panel end (X- X+ Y- Y+), store its touching neighbor and
+# the detected gap. After recalculation, stretch/shorten the panel
+# to restore that gap, closing spaces introduced by
+# scale arithmetic.
 #
-# O vao aparece porque, ao escalar por F, a POSICAO das laterais e' multi-
-# plicada por F mas a ESPESSURA delas nao. Por lado: vao = (E/2)*(F-1).
+# Scaling by F multiplies side-panel POSITION by F but not THICKNESS.
+# Per-side gap = (E/2)*(F-1).
 PONTAS = ("x_neg", "x_pos", "y_neg", "y_pos")
-TOL_ENCOSTE = 0.06   # 60mm: distancia maxima para considerar vizinhanca
+TOL_ENCOSTE = 0.06   # 60 mm: maximum neighborhood distance.
 
 
 def _garantir_uid(obj):
-    """Identificador estavel da chapa. Necessario porque a adjacencia
-    guardada por NOME quebra ao trazer um modulo da biblioteca: os nomes
-    ganham sufixo (.001) e os vinculos apontariam para a peca errada."""
+    """Stable panel identity. Name-based adjacency breaks when inserting
+    library cabinets: names gain .001 suffixes and links would target
+    the wrong part."""
     if not obj.get("chapa_uid"):
         obj["chapa_uid"] = uuid.uuid4().hex[:12]
     return obj["chapa_uid"]
 
 
 def _resolver_vizinho(C, uid, nome):
-    """Procura o vizinho primeiro entre os IRMAOS (mesmo pai), para que
-    copias de um mesmo modulo nao se confundam entre si."""
+    """Find neighbors among SIBLINGS (same parent) first so copies of the
+    same cabinet cannot be confused."""
     if uid:
-        # O nome so' atesta um irmao com aquele UID; evita buscar a cena
-        # de novo por junta e nao troca a identidade pela copia mais proxima.
+        # The name only disambiguates a sibling with that UID, avoiding another
+        # scene search per joint without substituting the nearest copy's identity.
         gravado = bpy.data.objects.get(nome) if nome else None
         if (gravado is not None and gravado.parent == C.parent
                 and gravado.get("chapa_uid") == uid):
@@ -945,10 +939,9 @@ def _resolver_vizinho(C, uid, nome):
 
 
 def _eixos(obj):
-    """Eixos locais expressos em MUNDO. Usar rotation_euler (local) aqui
-    quebrava assim que o Empty pai saia da origem: o espaco de
-    referencia deixava de coincidir com o mundo e o teste de 'face
-    encostada no limite' parava de reconhecer as pecas."""
+    """Local axes expressed in WORLD space. Using local rotation_euler broke
+    when the parent Empty left the origin: its frame no longer matched
+    world space, and face-on-boundary tests stopped recognizing parts."""
     m = obj.matrix_world.to_3x3()
     return m.col[0].normalized(), m.col[1].normalized(), m.col[2].normalized()
 
@@ -958,7 +951,7 @@ def _centro(obj):
 
 
 def _definir_centro(obj, novo):
-    """Grava um centro de MUNDO respeitando pai e matrix_parent_inverse."""
+    """Set a WORLD center respecting parent and matrix_parent_inverse."""
     if obj.parent is not None:
         base = obj.parent.matrix_world @ obj.matrix_parent_inverse
         obj.location = base.inverted() @ novo
@@ -993,16 +986,16 @@ def _sobrepoe(a, b, folga=1e-4):
     return (a[0] < b[1] + folga) and (b[0] < a[1] + folga)
 
 
-# Conexao AUTOMATICA (botao Corrente, "conectar por distancia") so' ate'
-# aqui (pedido do usuario). Mais longe ja' e' "selecionar vertice". O
-# detectar_adjacencia (agrupar o modulo) segue com o TOL_ENCOSTE.
+# AUTOMATIC distance connection (Chain button) reaches only this far.
+# Beyond it, use vertex selection. Cabinet-grouping detectar_adjacencia
+# still uses TOL_ENCOSTE.
 ALCANCE_CONEXAO_AUTOMATICA = 0.005
 
 
 def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
-    """(vizinho, folga, face) mais proximo da ponta eixo/lado de C entre
-    os `candidatos`, ou None. Mesma regra do detectar_adjacencia; o
-    `alcance` (m) troca o TOL_ENCOSTE."""
+    """Nearest (neighbor, gap, face) to C's axis/side end among `candidatos`,
+    or None. Same rules as detectar_adjacencia; `alcance` in m replaces
+    TOL_ENCOSTE."""
     limite = TOL_ENCOSTE if alcance is None else alcance
     ex, ey, ez = _eixos(C)
     hx, hy, _hz = _meias(C)
@@ -1013,19 +1006,19 @@ def _melhor_vizinho(C, eixo, lado, candidatos, alcance=None):
     for N in candidatos:
         if N is C or N.type != 'MESH' or MARCA_CHAPA not in N:
             continue
-        # so' considera vizinho que se sobrepoe nas outras direcoes
-        # Quinas/arestas coincidentes nao sao uma face de apoio. A regra
-        # inclusiva criava ate' quatro soldas para a mesma quina.
+        # Consider only neighbors overlapping in other directions.
+        # Coincident corners/edges are not support faces. Inclusive tests
+        # created up to four welds for the same corner.
         modulo = C.parent is not None and MARCA_CONJUNTO in C.parent
         if not all((min(_faixa(C, w)[1], _faixa(N, w)[1]) -
                     max(_faixa(C, w)[0], _faixa(N, w)[0]) > 1e-5) if modulo else
                    _sobrepoe(_faixa(C, w), _faixa(N, w)) for w in perp):
             continue
-        faces = _faixa(N, u)   # (min, max) do vizinho na direcao u
-        # Ancora na face do vizinho MAIS PROXIMA da ponta.
-        # Usar sempre a face distante embutia a espessura
-        # antiga na folga: ao trocar a espessura, a peca era
-        # empurrada para fora e o modulo crescia sozinho.
+        faces = _faixa(N, u)   # Neighbor (min, max) in direction u.
+        # Anchor to the neighbor face NEAREST the endpoint.
+        # Always using the far face embedded old thickness
+        # in the gap; changing thickness then pushed the part
+        # outward and grew the cabinet spontaneously.
         i_face = 0 if abs(faces[0] - ponta) <= abs(faces[1] - ponta) else 1
         folga = (faces[i_face] - ponta) if lado == "pos" else (ponta - faces[i_face])
         if folga < -limite or folga > limite + 1e-9:
@@ -1049,7 +1042,7 @@ def _gravar_ligacao(C, eixo, lado, N, folga, face):
     restricoes = _solda._restricoes_da_ligacao(C, ponta, N) if existente else []
     for sufixo in ('_ancoras','_origens','_manual','_direcoes'):
         if f"adj_{eixo}_{lado}{sufixo}" in C:
-            del C[f"adj_{eixo}_{lado}{sufixo}"]   # solda nova: nao herda a origem anterior
+            del C[f"adj_{eixo}_{lado}{sufixo}"]   # New weld: do not inherit the previous origin.
     C[f"adj_{eixo}_{lado}"] = N.name
     C[f"adj_{eixo}_{lado}_uid"] = _garantir_uid(N)
     C[f"adj_{eixo}_{lado}_folga"] = float(folga)
@@ -1059,15 +1052,15 @@ def _gravar_ligacao(C, eixo, lado, N, folga, face):
 
 
 def detectar_adjacencia(objs):
-    """Para cada ponta de cada chapa, acha a peca vizinha mais proxima
-    naquela direcao e memoriza a folga atual."""
+    """For each panel end, find its nearest neighbor in that direction
+    and store the current gap."""
     chapas = sorted((o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
                      and not eh_dependente(o)), key=lambda o: o.name)
     for c in chapas:
         _garantir_uid(c)
     n = 0
     for C in chapas:
-        _limpar_pontas(C)  # UID antigo tambem precisa sair: nome vazio nao desliga.
+        _limpar_pontas(C)  # Clear the old UID too: an empty name does not disconnect.
     for C in chapas:
         for eixo in ("x", "y"):
             for lado in ("pos", "neg"):
@@ -1078,8 +1071,8 @@ def detectar_adjacencia(objs):
 
 
 def otimizar_adjacencia(objs):
-    """Revalida soldas automaticas da montagem; conserva ancoras manuais.
-    Usado ao migrar presets, nunca no desenho nem durante um arraste.
+    """Revalidate automatic assembly welds; preserve manual anchors.
+    Used in preset migration, never drawing or dragging.
     """
     chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o]
     candidatas = [o for o in chapas if not eh_dependente(o)]
@@ -1093,8 +1086,8 @@ def otimizar_adjacencia(objs):
             eixo, lado = ponta.split('_')
             achado = None if eh_dependente(C) else _melhor_vizinho(C, eixo, lado, candidatas)
             planos.append((C, ponta, achado))
-    # Limpar depois de planejar TODOS os objetos evita apagar uma aresta
-    # que acabou de receber os encaixes do outro extremo.
+    # Plan ALL objects before clearing, or another endpoint's newly assigned
+    # fittings could be erased.
     for C, ponta, _achado in planos:
         _limpar_ponta(C, ponta)
     for C, ponta, achado in sorted(planos, key=lambda p: (p[0].name, p[1])):
@@ -1106,11 +1099,10 @@ def otimizar_adjacencia(objs):
 
 
 def associar_por_distancia(C, vizinhos, alcance=None):
-    """Liga UMA peca aos vizinhos ao alcance, sem recalcular as outras
-    ligacoes deles (detectar_adjacencia zera tudo de quem recebe e
-    perderia, por exemplo, a ligacao de um modulo com o vizinho de fora).
-    As pontas de C sao refeitas; nos vizinhos, so' pontas VAZIAS ganham
-    ligacao com C. Devolve quantas pontas ligou."""
+    """Connect ONE part to reachable neighbors without recalculating their
+    other links: detectar_adjacencia clears all recipient links, losing
+    connections such as a cabinet's external neighbor. Rebuild C's ends;
+    only EMPTY neighbor ends gain links to C. Return connected-end count."""
     vizinhos = [v for v in vizinhos if v is not C and MARCA_CHAPA in v
                 and not eh_dependente(v)]
     _garantir_uid(C)
@@ -1132,7 +1124,7 @@ def associar_por_distancia(C, vizinhos, alcance=None):
 
 
 def _limpar_ponta(C, ponta):
-    """Tira a solda de UMA ponta (ela deixa de puxar vizinho)."""
+    """Remove ONE endpoint's weld so it no longer pulls its neighbor."""
     C[f"adj_{ponta}"] = ""
     C[f"adj_{ponta}_folga"] = 0.0
     for sufixo in ("_uid", "_face", "_ancoras", "_origens", "_manual", "_direcoes", "_restricoes"):
@@ -1146,9 +1138,9 @@ def _limpar_pontas(C):
 
 
 def _copias_com_mesmo_uid(objs=None):
-    """{(pai, uid): [chapas]} dos IRMAOS que dividem a identidade -- o
-    rastro do Ctrl+D numa chapa (a copia leva o `chapa_uid` e as soldas
-    da original). Modulo duplicado inteiro nao entra: o pai e' outro."""
+    """Return {(parent, uid): [panels]} for SIBLINGS sharing identity, left
+    by Ctrl+D copying `chapa_uid` and welds. Exclude whole-cabinet
+    duplicates because their parent differs."""
     grupos = {}
     for o in (bpy.data.objects if objs is None else objs):
         uid = o.get("chapa_uid")
@@ -1158,8 +1150,8 @@ def _copias_com_mesmo_uid(objs=None):
 
 
 def _original_entre(copias):
-    """A que fica com a identidade: a que NAO esta' selecionada (o Ctrl+D
-    seleciona so' as copias) ou, empatando, o nome sem sufixo maior."""
+    """Identity keeper: the UNSELECTED part (Ctrl+D selects only copies),
+    then on ties prefer the name without the larger suffix."""
     def chave(o):
         try:
             selecionada = o.select_get()
@@ -1170,10 +1162,9 @@ def _original_entre(copias):
 
 
 def separar_copias(objs=None):
-    """Cada copia ganha identidade propria e sai SEM as soldas da original
-    (pedido do usuario: as ligacoes ficavam apontando para os vizinhos da
-    outra e a chapa esticava errado). Quem soldava na original continua
-    soldado nela. Devolve as copias separadas."""
+    """Give each copy a new identity WITHOUT original welds: old links
+    targeted the original's neighbors and stretched incorrectly. Links
+    to the original remain attached to it. Return separated copies."""
     separadas = []
     for copias in _copias_com_mesmo_uid(objs).values():
         original = _original_entre(copias)
@@ -1187,23 +1178,22 @@ def separar_copias(objs=None):
 
 
 def _separar_copias_no_timer():
-    """Timer do Ctrl+D (registrado pelo handler quando surge objeto):
-    mexer em ID prop dentro do handler do depsgraph nao."""
+    """Ctrl+D timer, scheduled by the handler on object creation: do not
+    mutate ID properties inside the depsgraph handler."""
     try:
         if not _eventos._desfazendo[0]:
             separar_copias()
     except Exception as erro:
-        print("[Archy Builder] separar copias:", erro)
+        print("[Archy Builder] separate copies:", erro)
     return None
 
 
 def recalcular_ancoragem(chapas):
-    """Refaz as soldas das `chapas` pelo lugar onde estao AGORA (comando
-    "Recalcular ancoragem", pedido do usuario): copia separada da
-    original, pontas zeradas e religadas a quem encosta (ate'
-    ALCANCE_CONEXAO_AUTOMATICA) entre as irmas e as outras escolhidas.
-    Nos vizinhos que ficam de fora, so' pontas vazias ou que apontavam
-    para uma das refeitas ganham ligacao. Devolve quantas pontas ligou."""
+    """Rebuild `chapas` welds at their CURRENT positions for Recalculate
+    Anchoring: separate copies, clear ends, reconnect touching siblings
+    and selected parts within ALCANCE_CONEXAO_AUTOMATICA. For other
+    neighbors, connect only empty ends or ends pointing to rebuilt parts.
+    Return connected-end count."""
     chapas = [c for c in chapas if c.type == 'MESH' and MARCA_CHAPA in c
               and MARCA_FOLHA not in c and MARCA_MOLDURA not in c]
     if not chapas:
@@ -1242,14 +1232,14 @@ def recalcular_ancoragem(chapas):
                 if achado is not None:
                     n += int(_gravar_ligacao(V, eixo, lado, *achado))
                 elif atual is not None:
-                    # apontava para uma refeita que nao encosta mais
+                    # Previously pointed to a rebuilt part that no longer touches.
                     _limpar_ponta(V, ponta)
     return n
 
 
 def _chapas_candidatas(C, candidatos=None):
-    """As outras chapas da cena, ou so' as `candidatos` (os alvos
-    selecionados antes da peca de fora)."""
+    """Other scene panels, or only `candidatos` targets selected before
+    the external part."""
     fonte = bpy.data.objects if candidatos is None else candidatos
     return [o for o in fonte
             if o is not C and o.type == 'MESH' and MARCA_CHAPA in o]
@@ -1257,8 +1247,8 @@ def _chapas_candidatas(C, candidatos=None):
 
 def _vizinhos_por_distancia(C, alcance=ALCANCE_CONEXAO_AUTOMATICA,
                             candidatos=None):
-    """Chapas que ficariam ligadas a C por distancia (sem gravar nada):
-    as que as pontas de C alcancam e as que alcancam C."""
+    """Panels that would connect to C by distance, without writing:
+    those reached by C's ends and those whose ends reach C."""
     outras = _chapas_candidatas(C, candidatos)
     achados = set()
     for eixo in ("x", "y"):
@@ -1276,8 +1266,8 @@ def _vizinhos_por_distancia(C, alcance=ALCANCE_CONEXAO_AUTOMATICA,
 
 
 def aplicar_adjacencia(objs=None):
-    """Estica/encurta cada chapa nos eixos de largura e comprimento
-    para reencontrar a folga memorizada com seus vizinhos."""
+    """Stretch/shorten each panel along width/length to restore stored
+    neighbor gaps."""
     if objs is None:
         objs = bpy.data.objects
     chapas = [o for o in objs if o.type == 'MESH' and MARCA_CHAPA in o
@@ -1289,9 +1279,9 @@ def aplicar_adjacencia(objs=None):
         for C in chapas:
             ex, ey, ez = _eixos(C)
             mudou = False
-            # Centro mantido AQUI entre os eixos: relido de matrix_world, o
-            # passo em Y perdia o deslocamento do X (matriz defasada, sem
-            # view_layer.update -- que nao pode rodar dentro do handler).
+            # Keep center HERE between axes: rereading stale matrix_world for Y
+            # lost X displacement, since view_layer.update
+            # cannot run inside the handler.
             centro = _centro(C)
             for eixo, u in (("x", ex), ("y", ey)):
                 hx, hy, hz = _meias(C)
@@ -1302,7 +1292,7 @@ def aplicar_adjacencia(objs=None):
 
                 N, fp, folga_pos = restricoes[C].get(eixo+'_pos', (None, 0, 0.))
                 if N is not None and N.parent!=C.parent and (N.get('eh_prateleira') or N.get('gaveta_peca')):
-                    N = None   # antiga chapa integrada nao puxa mais a caixa
+                    N = None   # Former integrated panel no longer pulls the cabinet body.
                 if N is not None:
                     alvo_pos = _faixa(N, u)[fp] - folga_pos
                 N, fn, folga_neg = restricoes[C].get(eixo+'_neg', (None, 1, 0.))
@@ -1336,19 +1326,19 @@ def aplicar_adjacencia(objs=None):
 
 
 class OBJECT_OT_normalizar(Operator):
-    """Recalcula as chapas selecionadas a partir da escala aplicada"""
+    """Recalculate selected panels from their applied scale."""
     bl_idname = "object.cabinet_normalizar"
-    bl_label = "Recalcular Chapas"
+    bl_label = "Recalculate Panels"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         alvo = context.selected_objects or bpy.data.objects
         ajustadas = normalizar_chapas(alvo)
-        self.report({'INFO'}, "%d chapa(s) recalculada(s)" % len(ajustadas))
+        self.report({'INFO'}, "%d panel(s) recalculated" % len(ajustadas))
         return {'FINISHED'}
 
 
-# ================================================== CRIACAO DE OBJETOS
+# ================================================== OBJECT CREATION
 def nova_chapa(nome, larg, comp, esp, loc_mm, rot_graus, context):
     malha = bpy.data.meshes.new(nome)
     obj = bpy.data.objects.new(nome, malha)
@@ -1368,13 +1358,13 @@ def nova_chapa(nome, larg, comp, esp, loc_mm, rot_graus, context):
 
 
 class OBJECT_OT_criar_chapa(Operator):
-    """Cria uma chapa avulsa (600 x 400 x 18mm)"""
+    """Create a loose panel (600 x 400 x 18 mm)."""
     bl_idname = "object.cabinet_criar"
-    bl_label = "Criar Chapa"
+    bl_label = "Create Panel"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        obj = nova_chapa("Chapa", 600.0, 400.0, 18.0, (0, 0, 0), (0, 0, 0), context)
+        obj = nova_chapa("Panel", 600.0, 400.0, 18.0, (0, 0, 0), (0, 0, 0), context)
         for o in context.selected_objects:
             o.select_set(False)
         obj.select_set(True)
@@ -1383,9 +1373,9 @@ class OBJECT_OT_criar_chapa(Operator):
 
 
 class OBJECT_OT_criar_nicho(Operator):
-    """Cria um nicho sem fundo: 2 laterais + tampo + base"""
+    """Create a backless cabinet: two sides, top and base."""
     bl_idname = "object.cabinet_criar_nicho"
-    bl_label = "Criar Nicho (sem fundo)"
+    bl_label = "Create Niche (No Back)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -1395,7 +1385,7 @@ class OBJECT_OT_criar_nicho(Operator):
             ("Lateral_Esq", A, P, E, (-(L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
             ("Lateral_Dir", A, P, E, ((L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
             ("Base",        li, P, E, (0, 0, E / 2), (0, 0, 0)),
-            ("Tampo",       li, P, E, (0, 0, A - E / 2), (0, 0, 0)),
+            ("Top",       li, P, E, (0, 0, A - E / 2), (0, 0, 0)),
         ]
         for o in context.selected_objects:
             o.select_set(False)
@@ -1407,9 +1397,9 @@ class OBJECT_OT_criar_nicho(Operator):
 
 
 class OBJECT_OT_marcar_como_chapa(Operator):
-    """Converte o objeto selecionado em chapa G3"""
+    """Convert the selected object into a G3 panel."""
     bl_idname = "object.cabinet_marcar"
-    bl_label = "Marcar como Chapa"
+    bl_label = "Mark as Panel"
     bl_options = {'REGISTER', 'UNDO'}
 
     alternar: BoolProperty(default=False, options={'SKIP_SAVE'})
@@ -1422,10 +1412,10 @@ class OBJECT_OT_marcar_como_chapa(Operator):
         obj = context.object
         if self.alternar and MARCA_CHAPA in obj:
             if MARCA_FOLHA in obj:
-                self.report({'WARNING'}, 'Folha parametrica: edite pelo grupo de portas')
+                self.report({'WARNING'}, "Parametric leaf: edit through the door group")
                 return {'CANCELLED'}
-            # A conversao explicita preserva a malha e a hierarquia. Limpar
-            # referencias evita que a adjacencia use a chapa ja' desativada.
+            # Explicit conversion preserves mesh and hierarchy. Clear references
+            # so adjacency cannot use the deactivated panel.
             for chapa in bpy.data.objects:
                 if MARCA_CHAPA not in chapa:
                     continue
@@ -1444,10 +1434,10 @@ class OBJECT_OT_marcar_como_chapa(Operator):
             finally:
                 _ocupado[0] = False
             return {'FINISHED'}
-        # A medida sai da FORMA da peca (`converter_em_chapa`), nao de
-        # `obj.dimensions` em eixos de mundo: assim uma lateral em pe'
-        # vira chapa com a espessura certa e sem sair do lugar. Vale para
-        # toda a selecao -- um armario importado tem dezenas de pecas.
+        # Measure the part's SHAPE (`converter_em_chapa`), not world-axis
+        # `obj.dimensions`, so upright sides acquire the correct thickness
+        # without movement. Apply to the entire selection:
+        # imported cabinets contain dozens of parts.
         alvos = [o for o in context.selected_objects
                  if o.type == 'MESH' and MARCA_CHAPA not in o
                  and MARCA_PUXADOR not in o]
@@ -1455,13 +1445,13 @@ class OBJECT_OT_marcar_como_chapa(Operator):
             alvos.append(obj)
         convertidas = [o for o in alvos if _importacao.converter_em_chapa(o) is not None]
         if not convertidas:
-            self.report({'WARNING'}, "Nada com volume para converter")
+            self.report({'WARNING'}, "Nothing with volume to convert")
             return {'CANCELLED'}
         if len(convertidas) == 1:
             c = convertidas[0]
-            self.report({'INFO'}, "Chapa %.0f x %.0f x %.0f mm"
+            self.report({'INFO'}, "Panel %.0f x %.0f x %.0f mm"
                         % (c.chapa_largura_mm, c.chapa_comprimento_mm,
                            c.chapa_espessura_mm))
         else:
-            self.report({'INFO'}, "%d chapas convertidas" % len(convertidas))
+            self.report({'INFO'}, "%d panels converted" % len(convertidas))
         return {'FINISHED'}

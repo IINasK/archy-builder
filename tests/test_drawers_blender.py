@@ -1,14 +1,8 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_drawers_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_drawers_blender.py
 
-Gavetas do movel (pedido do usuario): grupo de gavetas num vao do modulo
--- frente, caixa e trilho (blocagem em tamanho real, telescopico de
-padrao) --, a aba propria, a selecao como a da porta (clique = todas,
-duplo = uma; so' elas com linha na HUD), o slider de abertura, os 3
-pontos com Alt e a quantidade/profundidade/trilho editaveis.
+Furniture drawers, as requested: a group in a cabinet opening, with fronts, boxes and full-size rail blockouts (telescopic by default); its own tab; door-like selection (click all, double-click one, only selected drawers outlined in the HUD); opening slider; three Alt points; editable count, depth and rails.
 
-O assistente (cliques, scroll, Alt) e o arraste do slider, com eventos de
-verdade, estao em `gui_interaction.py`.
-"""
+The wizard's real click, scroll and Alt events, plus slider dragging, are tested in gui_interaction.py."""
 import os
 import math
 import sys
@@ -29,8 +23,8 @@ G = addon.gavetas
 
 class TestGavetas(unittest.TestCase):
     def substituir_macro(self, chamada):
-        # bpy.ops cria proxies a cada acesso; substituir o alias do dono
-        # evita iniciar um transform interativo num Blender sem janela.
+        # bpy.ops creates proxies on each access; replacing the owner's alias avoids
+        # starting an interactive transform in a windowless Blender process.
         return patch.object(G, 'bpy', SimpleNamespace(data=bpy.data, app=bpy.app, types=bpy.types,
             context=bpy.context, ops=SimpleNamespace(object=SimpleNamespace(
                 cabinet_marcar_ponto_vao=chamada))))
@@ -50,8 +44,8 @@ class TestGavetas(unittest.TestCase):
         self.addCleanup(op.cancel, bpy.context)
         return op
 
-    # Regressao (era BUG, corrigido na 377): o grupo so' era descoberto
-    # depois do primeiro ponto, e outro modulo/teto podia capturar o snap.
+    # Regression, fixed in v377: the group was discovered only after the first point,
+    # allowing another cabinet or ceiling to capture snapping.
     def test_criar_trava_modulo_selecionado_antes_do_primeiro_snap(self):
         grupo = self.gavetas(quantidade=1)
         self.conj.select_set(True)
@@ -115,7 +109,7 @@ class TestGavetas(unittest.TestCase):
         self.assertFalse(G.evento_de_navegacao(contexto,evento))
         self.assertEqual(combinar.call_count,7)
 
-    # Regressao (era BUG, corrigido na 380): B era consumido entre cliques.
+    # Regression, fixed in v380: B was consumed between clicks.
     def test_b_ativa_snap_nativo_nos_tres_pontos_sem_confirmar_ao_soltar_tecla(self):
         self.conj.select_set(True)
         bpy.context.view_layer.objects.active = self.conj
@@ -274,7 +268,7 @@ class TestGavetas(unittest.TestCase):
 
     def test_segundo_clique_modal_recupera_modulo_do_estado(self):
         w=G.AssistenteDoVao()
-        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=['Tampo'],
+        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=["Top"],
             limites=G._limites(self.conj),p=dict(G.PARAMETROS_PADRAO),etapa='CANTO2',
             ponto_confirmado=(Vector((.382,-.280,.018)),'Base'))
         w._ir=lambda e:w._w.__setitem__('etapa',e)
@@ -305,7 +299,7 @@ class TestGavetas(unittest.TestCase):
 
     def test_erro_modal_libera_assistente_e_cursor(self):
         w=G.AssistenteDoVao()
-        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=['Tampo'],
+        w._w=dict(modulo=self.conj.name,pontos=[Vector((-.382,-.280,.682))],nomes=["Top"],
             p=dict(G.PARAMETROS_PADRAO),etapa='CANTO2',ponto_confirmado=(Vector((.382,-.280,.018)),'Base'))
         w._handler=None;w._handler_2d=None;w._timer=None
         w._area=SimpleNamespace(header_text_set=lambda t:None,tag_redraw=lambda:None)
@@ -330,7 +324,7 @@ class TestGavetas(unittest.TestCase):
         return w
 
     def test_assistente_deduz_frente_lateral_e_a_preserva_ao_editar(self):
-        # Simula preset com eixos do Empty diferentes da abertura real.
+        # Simulate a preset whose Empty axes differ from the actual opening.
         rot=Matrix.Rotation(1.57079632679,4,'Z')
         for o in self.conj.children:o.matrix_world=rot@o.matrix_world
         bpy.context.view_layer.update()
@@ -434,8 +428,8 @@ class TestGavetas(unittest.TestCase):
         camada = bpy.context.view_layer
         camada.active_layer_collection = camada.layer_collection
         G.esquecer()
-        # balcao 800 x 700 x 560, chapa 18: o vao de dentro e' 764 x 664
-        self.conj = addon.modulos.criar_armario(bpy.context, 'Balcao', 800, 700, 560,
+        # Base cabinet 800 x 700 x 560, 18 mm panels: inner opening 764 x 664.
+        self.conj = addon.modulos.criar_armario(bpy.context, "Base Cabinet", 800, 700, 560,
                                                 fundo=False)
         bpy.context.view_layer.update()
 
@@ -451,10 +445,10 @@ class TestGavetas(unittest.TestCase):
     def test_calculo_telescopico_e_oculto(self):
         p = dict(G.PARAMETROS_PADRAO, quantidade=3, profundidade_mm=560.0)
         dados = G.calcular(764.0, 664.0, p)
-        self.assertEqual(dados['trilho_mm'], 550)       # 560 - 10 de folga
+        self.assertEqual(dados['trilho_mm'], 550)       # 560 minus 10 mm clearance.
         alturas = [f['frente'][5] - f['frente'][4] for f in dados['gavetas']]
         self.assertAlmostEqual(max(alturas) - min(alturas), 0.0, places=6)
-        # sobreposta cobre a lateral menos a folga frontal: 18 - 2
+        # Overlay covers the side panel minus front clearance: 18 - 2.
         self.assertAlmostEqual(dados['gavetas'][0]['frente'][0], -16.0)
         fundo = dados['gavetas'][0]['caixa'][0][2]
         self.assertAlmostEqual(fundo[1] - fundo[0], 764.0 - 2 * 12.7, places=3)
@@ -463,11 +457,11 @@ class TestGavetas(unittest.TestCase):
         self.assertAlmostEqual(fundo[1] - fundo[0], 764.0 - 10.0, places=3)
         with self.assertRaises(ValueError):
             G.calcular(764.0, 664.0, dict(p, quantidade=10, entre_gavetas_mm=40))
-        with self.assertRaisesRegex(ValueError, 'menor trilho'):
+        with self.assertRaisesRegex(ValueError, 'shortest concealed rail'):
             G.calcular(764.0, 664.0, dict(p, profundidade_mm=200.0))
         limite = dict(p,quantidade=1,trilho='TELESCOPICO',coberturas_mm=[10,10,10,5])
         self.assertEqual(len(G.calcular(764,79.99994,limite)['gavetas']),1)
-        with self.assertRaisesRegex(ValueError,'altura para a caixa'):
+        with self.assertRaisesRegex(ValueError,'height for the box'):
             G.calcular(764,79.9,limite)
 
     def test_sistemas_em_montagem_antiga_sobrevivem_a_reinsercao(self):
@@ -510,7 +504,7 @@ class TestGavetas(unittest.TestCase):
         for g in gavetas:
             self.assertEqual(len(self.pecas(g, 'FRENTE')), 1)
             self.assertEqual(len(self.pecas(g, 'LATERAL')), 2)
-            self.assertEqual(len(self.pecas(g, 'TRILHO')), 2)        # os moveis
+            self.assertEqual(len(self.pecas(g, 'TRILHO')), 2)        # The moving parts.
             frente = self.pecas(g, 'FRENTE')[0]
             self.assertTrue(any(addon.chapas.MARCA_PUXADOR in f for f in frente.children))
         self.assertEqual(len([o for o in grupo.children if o.get(G.MARCA_PECA) == 'TRILHO']), 6)
@@ -530,7 +524,7 @@ class TestGavetas(unittest.TestCase):
         bpy.context.view_layer.update()
         self.assertAlmostEqual(frente.matrix_world.translation.y - y0, -0.55, places=5)
         fixo = next(o for o in grupo.children if o.get(G.MARCA_PECA) == 'TRILHO')
-        self.assertEqual(fixo.parent, grupo)        # o fixo nao sai com ela
+        self.assertEqual(fixo.parent, grupo)        # The fixed part does not move with it.
 
     def test_editar_refaz_e_guarda_abertura_e_puxador(self):
         grupo = self.gavetas()
@@ -544,14 +538,14 @@ class TestGavetas(unittest.TestCase):
         self.assertIsNone(G.editar(bpy.context, grupo, 'trilho', 'OCULTO'))
         fundo = self.pecas(G.gavetas_do_grupo(grupo)[0], 'FUNDO')[0]
         self.assertAlmostEqual(fundo.chapa_largura_mm, 764.0 - 10.0, places=2)
-        # nao cabe: devolve o erro e fica como estava
+        # It does not fit: return the error and preserve the previous state.
         erro = G.editar(bpy.context, grupo, 'profundidade_mm', 150.0)
-        self.assertIn('menor trilho', erro)
+        self.assertIn('shortest concealed rail', erro)
         self.assertEqual(G.parametros(grupo)['profundidade_mm'], 560.0)
         self.assertEqual(len(G.gavetas_do_grupo(grupo)), 2)
 
     def test_modulo_que_muda_de_medida_preserva_as_gavetas(self):
-        # Regressao (era BUG, corrigido na 219): a caixa esticava as gavetas.
+        # Regression, fixed in v219: the box stretched the drawers.
         grupo = self.gavetas()
         gaveta = G.gavetas_do_grupo(grupo)[0]
         G.definir_abertura(gaveta, 0.4)
@@ -660,7 +654,7 @@ class TestGavetas(unittest.TestCase):
         self.assertAlmostEqual(G.parametros(grupo)['profundidade_mm'],560,delta=.05)
 
     def test_esticar_para_baixo_leva_gavetas_sem_deformar_e_esc_devolve(self):
-        # Regressao (era BUG, corrigido na 220): a base descia sozinha.
+        # Regression, fixed in v220: the base moved down by itself.
         grupo = G.criar_gavetas(bpy.context, self.conj, (18, 18, 18, 382, 0),
                                dict(quantidade=3, profundidade_mm=560.0))
         gaveta = G.gavetas_do_grupo(grupo)[0]
@@ -711,7 +705,7 @@ class TestGavetas(unittest.TestCase):
             self.assertAlmostEqual(a, b, places=2)
 
     def test_modulo_selecionado_absorve_gavetas_sem_segunda_ancora(self):
-        # Regressao (era BUG, corrigido na 219): filhos viravam multiselecao.
+        # Regression, fixed in v219: children became a multiselection.
         grupo = self.gavetas()
         for o in [self.conj, *self.conj.children_recursive]:
             o.select_set(True)
@@ -767,7 +761,7 @@ class TestGavetas(unittest.TestCase):
         self.assertEqual(grupo[G.CHAVE_TRILHO_MM], 350.0)
 
     def test_cancelar_redimensionamento_direto_devolve_medidas_e_selecao(self):
-        # Regressao (era BUG, corrigido na 221): Esc nao devolvia as medidas.
+        # Regression, fixed in v221: Esc did not restore dimensions.
         grupo = self.gavetas()
         G.selecionar(bpy.context, grupo, 'GRUPO')
         G.definir_abertura(G.gavetas_do_grupo(grupo)[0], 0.4)
@@ -790,7 +784,7 @@ class TestGavetas(unittest.TestCase):
                 self.assertAlmostEqual(G.gavetas_do_grupo(grupo)[0][G.CHAVE_ABERTURA], 0.4)
 
     def test_profundidade_editada_pelas_costas_mantem_costas_paradas(self):
-        # Regressao (era BUG, corrigido na 221): P ignorava a quina escolhida.
+        # Regression, fixed in v221: P ignored the selected corner.
         grupo = self.gavetas()
         bpy.context.view_layer.update()
         costas = G.pontos_editaveis(grupo)[2].copy()
@@ -800,7 +794,7 @@ class TestGavetas(unittest.TestCase):
         self.assertAlmostEqual(G.medidas(grupo)[2], 460.0)
 
     def test_redimensionar_preserva_selecao_individual_da_gaveta(self):
-        # Regressao (era BUG, corrigido na 221): a gaveta ativa era apagada.
+        # Regression, fixed in v221: the active drawer was deleted.
         grupo = self.gavetas()
         G.selecionar(bpy.context, G.gavetas_do_grupo(grupo)[1], 'GAVETA')
         self.assertIsNone(G.aplicar(bpy.context, grupo, ('A',), 600.0, 'min'))
@@ -808,7 +802,7 @@ class TestGavetas(unittest.TestCase):
         self.assertEqual(G.gavetas_com_slider(bpy.context), [G.gavetas_do_grupo(grupo)[1]])
 
     def test_parametros_copiados_e_profundidade_invalida_nao_corrompem_proporcoes(self):
-        # Regressao (era BUG, corrigido na 221): array RNA liberado no rollback.
+        # Regression, fixed in v221: rollback accessed a freed RNA array.
         grupo = self.gavetas(proporcoes=[2.0, 1.0, 1.0])
         p = G.parametros(grupo)
         self.assertIsInstance(p['proporcoes'], list)
@@ -820,7 +814,7 @@ class TestGavetas(unittest.TestCase):
         self.assertEqual(p['proporcoes'], [2.0, 1.0, 1.0])
 
     def test_esc_apos_renomear_mover_e_crescer_modulo_nao_desloca_gavetas(self):
-        # Regressao (era BUG, corrigido na 222): Esc duplicava a translacao.
+        # Regression, fixed in v222: Esc duplicated translation.
         grupo = self.gavetas()
         self.conj.location = (6.7, -1.25, 0.3)
         addon.modulos.nomear_grupo(self.conj, 'Balcao 800x800x560')
@@ -831,7 +825,7 @@ class TestGavetas(unittest.TestCase):
         medidas = G.medidas(grupo)
         alvo = dict(objeto=grupo, tipo='gavetas', face=('A',), lado='max')
         backup = addon.hud._estado_arraste_hud(bpy.context, alvo)
-        # Entrar e Esc SEM mover, como no relato.
+        # Enter and press Esc without moving, as reported.
         addon.hud._restaurar_arraste_hud(bpy.context, backup)
         bpy.context.view_layer.update()
         self.assertLess((grupo.matrix_world.translation - antes.translation).length, 1e-5)
@@ -841,10 +835,10 @@ class TestGavetas(unittest.TestCase):
         self.assertEqual(grupo[G.CHAVE_MODULO], self.conj.name)
 
     def test_pai_real_prevalece_sobre_nome_antigo_de_outro_modulo(self):
-        # Regressao (era BUG, corrigido na 222): preset resolvia o modulo errado.
+        # Regression, fixed in v222: a preset resolved the wrong cabinet.
         grupo = self.gavetas()
         self.conj.name = 'Balcao renomeado no Outliner'
-        addon.modulos.criar_armario(bpy.context, 'Balcao', 500, 600, 400)
+        addon.modulos.criar_armario(bpy.context, "Base Cabinet", 500, 600, 400)
         self.assertIs(G.modulo_do_grupo(grupo), self.conj)
 
     def test_tres_pontos_com_alt_refazem_o_vao(self):
@@ -871,7 +865,7 @@ class TestGavetas(unittest.TestCase):
         self.assertIsNone(G.trocar_puxador(bpy.context, 'BORDA'))
         tipos = {g.get(G.CHAVE_PUXADOR) for g in G.gavetas_do_grupo(grupo)}
         self.assertEqual(tipos, {'BORDA'})
-        # o material das frentes: a pintura pega frentes e caixas
+        # Front material: painting applies to fronts and boxes.
         pecas = addon.materiais.pecas_dos_alvos([grupo])
         self.assertEqual(len(pecas), 3 * 6)
 
@@ -892,7 +886,7 @@ class TestGavetas(unittest.TestCase):
         medidas = {a[2] for a in acoes if a[0] == 'medida' and a[1] == 'gavetas'}
         self.assertTrue({'largura', 'altura', 'profundidade_mm', 'folga_frontal_mm',
                          'entre_gavetas_mm', 'recuo_mm'} <= medidas, medidas)
-        # os campos chegam nas gavetas pelos mesmos caminhos da porta
+        # Fields reach drawers through the same paths as doors.
         ev = addon.gaveta_eventos
         self.assertIsNone(ev.aplicar_medida(bpy.context, 'gavetas', grupo.name,
                                             'recuo_mm', 0.02))
@@ -900,7 +894,7 @@ class TestGavetas(unittest.TestCase):
         self.assertIsNone(ev._aplicar_contador(
             bpy.context, ('contador', 'gavetas_quantidade', 3, 1, 10, grupo.name), 4))
         self.assertEqual(len(G.gavetas_do_grupo(grupo)), 4)
-        # os operadores registrados (eventos de verdade no gui_interacao)
+        # Registered operators; real events are covered in gui_interacao.
         for nome in ('OBJECT_OT_criar_gavetas', 'OBJECT_OT_abrir_gaveta',
                      'OBJECT_OT_arrastar_ponto_gaveta', 'VIEW3D_GT_slider_gaveta',
                      'VIEW3D_GGT_slider_gaveta'):
@@ -954,8 +948,8 @@ class TestGavetas(unittest.TestCase):
                  patch.object(G, 'slider_sob_mouse', return_value=None):
                 return S.OBJECT_OT_selecionar._invoke(op, ctx, evento)
 
-        # Pedido do usuario: o clique simples vale pela frente (as gavetas);
-        # a edicao do puxador so' no DUPLO clique.
+        # User request: a single click acts on the front and selects drawers;
+        # handle editing requires a double click.
         self.assertEqual(clicar(puxadores[0]), {'FINISHED'})
         self.assertEqual(bpy.context.view_layer.objects.active, grupo)
         self.assertFalse(any(p.select_get() for p in puxadores))
@@ -1002,8 +996,8 @@ class TestGavetas(unittest.TestCase):
         self.assertEqual(bpy.ops.object.cabinet_confirmar_ancora_gaveta(), {'CANCELLED'})
 
     def test_frente_curva_e_alturas_em_proporcao(self):
-        # Promob: o gaveteiro de canto tem frente em ARCO e frentes de
-        # alturas diferentes -- as nossas gavetas ganham as duas coisas
+        # Promob's corner drawer unit has curved fronts and unequal front heights;
+        # our drawers gain both features.
         grupo = self.gavetas(frente_curva_mm=60.0, proporcoes=[2.0, 1.0, 1.0],
                              puxador='NENHUM')
         frentes = [G.frente_da_gaveta(g) for g in G.gavetas_do_grupo(grupo)]
@@ -1011,22 +1005,22 @@ class TestGavetas(unittest.TestCase):
         self.assertAlmostEqual(alturas[0] / alturas[1], 2.0, places=3)
         self.assertAlmostEqual(alturas[1], alturas[2], places=3)
         frente = frentes[0]
-        # a malha do arco (`_chapas._malha_arco`): a corda e' a largura da
-        # frente reta e a flecha vai para FORA (Z+ local = -Y do modulo)
+        # Arc mesh (_chapas._malha_arco): the chord is the straight front width,
+        # and the sagitta points outward (local +Z = cabinet -Y).
         self.assertGreater(len(frente.data.vertices), 8)
         zs = [v.co.z * 1000.0 for v in frente.data.vertices]
         xs = [v.co.x * 1000.0 for v in frente.data.vertices]
         self.assertAlmostEqual(max(zs), 18.0 / 2 + 60.0, places=2)
         self.assertAlmostEqual(max(xs) - min(xs), frente.chapa_largura_mm, places=2)
-        # outra quantidade: as proporcoes saem (alturas iguais)
+        # Changing count discards the proportions and restores equal heights.
         self.assertIsNone(G.editar(bpy.context, grupo, 'quantidade', 2))
         self.assertNotIn('proporcoes', grupo[G.CHAVE_PARAMETROS])
         a, b = [G.frente_da_gaveta(g).chapa_comprimento_mm for g in G.gavetas_do_grupo(grupo)]
         self.assertAlmostEqual(a, b, places=3)
-        # curva 0 = reta de novo (a caixa padrao)
+        # Curve 0 restores a straight front with the default box.
         self.assertIsNone(G.editar(bpy.context, grupo, 'frente_curva_mm', 0.0))
         self.assertEqual(len(G.frente_da_gaveta(G.gavetas_do_grupo(grupo)[0]).data.vertices), 8)
-        # o campo "Curva" esta' na secao Frente da aba
+        # The Curve field appears in the tab's Front section.
         G.selecionar(bpy.context, grupo, 'GRUPO')
         bpy.context.scene.cabinet_aba = 'GAVETAS'
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]
@@ -1164,7 +1158,7 @@ class TestGavetas(unittest.TestCase):
         for largura in (180,320,540):
             widgets=addon.gaveta._widgets_gaveta(bpy.context,largura,1600)
             botao,=[v for v in widgets if v[5]==('operador','object.cabinet_normalizar_gavetas')]
-            self.assertEqual(botao[4],'Normalizar alturas')
+            self.assertEqual(botao[4],"Normalize Heights")
             for campo in [v for v in widgets if v[5] and v[5][0]=='medida']:
                 sobrepoe=(botao[0]<campo[0]+campo[2] and campo[0]<botao[0]+botao[2]
                           and botao[1]<campo[1]+campo[3] and campo[1]<botao[1]+botao[3])
@@ -1211,4 +1205,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestGavetas)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de gavetas')
+    raise RuntimeError("Drawer tests failed")

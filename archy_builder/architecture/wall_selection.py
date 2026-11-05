@@ -1,4 +1,4 @@
-"""Regioes de parede escolhidas na malha nativa ou delimitadas no plano."""
+"""Wall regions selected on the native mesh or bounded in the plane."""
 import math
 import bpy
 import bmesh
@@ -30,7 +30,7 @@ def triangulos_reais(malha, faces, mundo):
 
 def automatica(context,obj,ponto,normal,face):
     if not _paredes_edicao.superficie(obj) or abs(normal.z)>.001:
-        raise ValueError('Aponte para uma superficie vertical')
+        raise ValueError("Point to a vertical surface")
     mundo=obj.matrix_world
     malha=obj.evaluated_get(context.evaluated_depsgraph_get()).data
     chave=(obj.name,malha.as_pointer(),len(malha.vertices),len(malha.polygons),_paredes._assinatura(mundo))
@@ -40,11 +40,11 @@ def automatica(context,obj,ponto,normal,face):
             return Vector(regiao['plano']),Vector(regiao['normal']),dict(regiao,face=face)
     eixos=_paredes.eixos_da_parede(normal)
     if eixos is None:
-        raise ValueError('Aponte para uma superficie vertical')
+        raise ValueError("Point to a vertical surface")
     regiao=_paredes._calcular_regiao(malha,mundo,ponto,normal,face,eixos[1],
                                     orientacao_min=ORIENTACAO_MIN,conferir_vertices=True)
     if not regiao:
-        raise ValueError('Nao foi encontrada uma regiao plana conectada')
+        raise ValueError("No connected planar region found")
     regiao['triangulos']=triangulos_reais(malha,regiao['faces'],mundo)
     regiao['delimitada']=True
     conhecidas.append(regiao)
@@ -55,16 +55,16 @@ def automatica(context,obj,ponto,normal,face):
 
 def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
     if context.mode!='EDIT_MESH' or obj is None or obj.type!='MESH':
-        raise ValueError('Selecione vertices de uma parede em Edit Mode')
+        raise ValueError("Select wall vertices in Edit Mode")
     editados=[o for o in context.objects_in_mode_unique_data if o.type=='MESH']
     if len(editados)!=1:
-        raise ValueError('Selecione vertices de uma unica malha')
+        raise ValueError("Select vertices from a single mesh")
     bm=bmesh.from_edit_mesh(obj.data)
     bm.verts.ensure_lookup_table()
     bm.faces.index_update()
     vertices={v for v in bm.verts if v.select and not v.hide}
     if len(vertices)<3:
-        raise ValueError('Selecione pelo menos tres vertices conectados')
+        raise ValueError("Select at least three connected vertices")
     visitados={next(iter(vertices))}
     fronteira=list(visitados)
     while fronteira:
@@ -75,20 +75,20 @@ def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
                 visitados.add(outro)
                 fronteira.append(outro)
     if visitados!=vertices and not aceitar_ilhas:
-        raise ValueError('Os vertices selecionados devem estar conectados entre si')
+        raise ValueError("The selected vertices must be connected to each other")
     faces=[f for f in bm.faces if not f.hide and (not somente_faces or f.select)
            and all(v in vertices for v in f.verts)]
     if not faces or set(v for f in faces for v in f.verts)!=vertices:
-        raise ValueError('A selecao deve delimitar faces, sem vertices soltos')
+        raise ValueError("The selection must enclose faces, with no loose vertices")
     rot=obj.matrix_world.to_3x3().inverted_safe().transposed()
     normal=(rot @ max(faces,key=lambda f:f.calc_area()).normal).normalized()
     if abs(normal.z)>.001 or _paredes.eixos_da_parede(normal) is None:
-        raise ValueError('A selecao deve formar uma parede vertical')
+        raise ValueError("The selection must form a vertical wall")
     ponto=obj.matrix_world @ next(iter(vertices)).co
     if any((rot @ f.normal).normalized().dot(normal)<ORIENTACAO_MIN for f in faces):
-        raise ValueError('As faces devem ter a mesma orientacao (tolerancia de 1 grau)')
+        raise ValueError("The faces must have the same orientation (1 degree tolerance)")
     if any(abs((obj.matrix_world @ v.co-ponto).dot(normal))>_paredes.TOLERANCIA_PLANO_M for v in vertices):
-        raise ValueError('Os vertices devem estar no mesmo plano (tolerancia de 2 mm)')
+        raise ValueError("The vertices must lie in the same plane (2 mm tolerance)")
     ids={f.index for f in faces}
     ligadas={faces[0]}
     pendentes=list(ligadas)
@@ -99,7 +99,7 @@ def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
                     ligadas.add(vizinha)
                     pendentes.append(vizinha)
     if len(ligadas)!=len(faces) and not aceitar_ilhas:
-        raise ValueError('As faces selecionadas devem compartilhar arestas')
+        raise ValueError("The selected faces must share edges")
     trios=[tuple(obj.matrix_world @ l.vert.co) for tri in bm.calc_loop_triangles() if tri[0].face.index in ids for l in tri]
     contorno=[(obj.matrix_world @ e.verts[0].co,obj.matrix_world @ e.verts[1].co)
               for e in bm.edges if sum(f.index in ids for f in e.link_faces)==1]
@@ -109,7 +109,7 @@ def dos_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
 def regiao_dos_triangulos(triangulos,contorno,ponto,normal,face,faces,eixos=None):
     t=np.asarray(triangulos,dtype=np.float64).reshape(-1,3)
     if len(t)<3:
-        raise ValueError('A area escolhida nao cobre a parede')
+        raise ValueError("The chosen area does not cover the wall")
     u,v = (np.array(e) for e in (eixos or (_paredes.eixos_da_parede(normal)[1], (0,0,1))))
     x,y = t@u,t@v
     return dict(face=int(face),faces=frozenset(faces),plano=tuple(ponto),normal=tuple(normal),
@@ -126,24 +126,24 @@ def _triangulos_do_poligono(pontos):
     if len(p)>1 and (p[0]-p[-1]).length<1e-7:
         p.pop()
     if len(p)<3:
-        raise ValueError('Marque pelo menos tres pontas')
+        raise ValueError("Mark at least three corners")
     if any((b-a).length<1e-6 for a,b in zip(p,p[1:]+p[:1])):
-        raise ValueError('A area tem pontos repetidos')
+        raise ValueError("The area has duplicate points")
     for i in range(len(p)):
         for j in range(i+1,len(p)):
             if j in (i,(i+1)%len(p)) or i==(j+1)%len(p):
                 continue
             if intersect_line_line_2d(p[i],p[(i+1)%len(p)],p[j],p[(j+1)%len(p)]) is not None:
-                raise ValueError('As linhas da area nao podem se cruzar')
+                raise ValueError("The area boundary lines must not cross")
     indices=tessellate_polygon([[Vector((v.x,v.y,0)) for v in p]])
     trios=np.array([[tuple(p[int(i)]) for i in tri] for tri in indices],dtype=np.float64).reshape(-1,3,2)
     if not len(trios) or np.sum(np.abs(_cruz(trios[:,1]-trios[:,0],trios[:,2]-trios[:,0])))<1e-8:
-        raise ValueError('A area deve ter largura e altura')
+        raise ValueError("The area must have width and height")
     return trios
 
 
 def _intervalos_segmento(a,b,triangulos):
-    """Recorte convexo em lote; a uniao evita costuras das triangulacoes."""
+    """Batch convex clipping; union prevents seams from triangulation."""
     if not len(triangulos):
         return []
     tris=np.array(triangulos,dtype=np.float64)
@@ -170,9 +170,9 @@ def _intervalos_segmento(a,b,triangulos):
 
 
 def recortar(regiao,pontos,normal,eixos=None):
-    """Intersecciona a area marcada com a superficie REAL, incluindo buracos."""
+    """Intersect the marked area with the ACTUAL surface, including holes."""
     if len(pontos)<3:
-        raise ValueError('Marque pelo menos tres pontas')
+        raise ValueError("Mark at least three corners")
     if eixos is None:
         n,u=_paredes.eixos_da_parede(normal)
         v=(0,0,1)
@@ -182,7 +182,7 @@ def recortar(regiao,pontos,normal,eixos=None):
     u,v,n,plano = (np.array(e) for e in (u,v,n,regiao['plano']))
     pontos=np.array(pontos,dtype=np.float64)
     if np.max(np.abs((pontos-plano)@n))>_paredes.TOLERANCIA_PLANO_M:
-        raise ValueError('Marque a area no mesmo plano da parede')
+        raise ValueError("Mark the area in the same plane as the wall")
     poligono=np.stack((pontos@u,pontos@v),axis=1)
     recortes=_triangulos_do_poligono(poligono)
     origem=np.array(regiao['triangulos']).reshape(-1,3,3)
@@ -214,7 +214,7 @@ def recortar(regiao,pontos,normal,eixos=None):
                 if abs(_cruz(tri[1]-tri[0],tri[2]-tri[0]))>1e-10:
                     saida.append(tri)
     if not saida:
-        raise ValueError('A area marcada nao cobre a parede')
+        raise ValueError("The marked area does not cover the wall")
     def mundo(pt):
         return tuple(plano+u*(pt[0]-plano@u)+v*(pt[1]-plano@v))
     contorno=[]
@@ -225,8 +225,8 @@ def recortar(regiao,pontos,normal,eixos=None):
     for pa,pb in zip(poligono,np.roll(poligono,-1,axis=0)):
         for x,y in _intervalos_segmento(pa,pb,tris):
             contorno.append((mundo(pa+(pb-pa)*x),mundo(pa+(pb-pa)*y)))
-    # Bordas da area e da parede podem coincidir; unir impede duplicar
-    # cruzamentos e transformar um vao valido em vazio nas cotas.
+    # Area and wall edges may coincide; merging prevents duplicate
+    # crossings from turning a valid opening into an empty dimension span.
     linhas={}
     for a,b in contorno:
         a=np.array((np.dot(a,u),np.dot(a,v)));b=np.array((np.dot(b,u),np.dot(b,v)))
@@ -255,12 +255,12 @@ def ponto_na_regiao(regiao,ponto,u):
 
 
 def modulo_na_regiao(modulo,regiao,normal):
-    # Amostrar alturas perdia paredes giradas por ruido nos cruzamentos.
+    # Sampling heights lost rotated walls due to noise at crossings.
     return fracao_visivel(modulo, regiao, normal) > 1e-8
 
 
 def fracao_visivel(modulo, regiao, normal):
-    """Area frontal do envelope dentro da superficie real, descontando buracos."""
+    """Front envelope area inside the actual surface, excluding holes."""
     caixa = _paredes.caixa_do_modulo(modulo)
     if caixa is None:
         return 0.0
@@ -288,7 +288,7 @@ def fracao_visivel(modulo, regiao, normal):
 
 
 def recortar_modulos(context, modulos, regiao, normal):
-    """Copia avaliada e Boolean nativo: nunca corta a modelagem do usuario."""
+    """Evaluated copy and native Boolean: never cut the user's modeled geometry."""
     editaveis, bloqueados, exibicoes = set(), set(), set()
     inativos = []
     for modulo in modulos:
@@ -298,14 +298,14 @@ def recortar_modulos(context, modulos, regiao, normal):
             inativos.append(modulo)
     if not inativos:
         return editaveis, bloqueados, exibicoes
-    # O volume e' construido uma vez e atende concavidades e aberturas.
+    # Build the volume once to handle concavities and openings.
     fonte = bpy.data.objects[_paredes_edicao._sessao[0]['parede']]
     volume = criar_exibicao(context, fonte, regiao)
     del volume[MARCA_EXIBICAO]
     volume[MARCA_MODULO_RECORTADO] = True
     planos = [abs((o.matrix_world @ Vector(p) - Vector(regiao['plano'])).dot(normal))
               for m in inativos for o in m.children_recursive if o.type == 'MESH' for p in o.bound_box]
-    solido = volume.modifiers.new('Volume do recorte', 'SOLIDIFY')
+    solido = volume.modifiers.new("Cutout volume", 'SOLIDIFY')
     solido.thickness = max(planos, default=1) * 2 + 2
     solido.offset = 0
     volume.hide_set(True)
@@ -327,17 +327,17 @@ def recortar_modulos(context, modulos, regiao, normal):
                     bmesh.ops.transform(bm, verts=list(set(bm.verts) - anteriores), matrix=obj.matrix_world)
                 finally:
                     avaliado.to_mesh_clear()
-            dados = bpy.data.meshes.new('Modulo recortado 2D')
+            dados = bpy.data.meshes.new("2D clipped cabinet")
             bm.to_mesh(dados)
         finally:
             bm.free()
-        obj = bpy.data.objects.new('Modulo recortado 2D', dados)
+        obj = bpy.data.objects.new("2D clipped cabinet", dados)
         context.scene.collection.objects.link(obj)
         obj[MARCA_MODULO_RECORTADO] = True
         obj.hide_select = True
         obj.hide_render = True
         obj.color = (cinza, cinza, cinza, 1)
-        corte = obj.modifiers.new('Recorte temporario', 'BOOLEAN')
+        corte = obj.modifiers.new("Temporary cutout", 'BOOLEAN')
         corte.operation = 'INTERSECT'; corte.solver = 'EXACT'; corte.use_self = True
         corte.object = volume
         context.view_layer.update()
@@ -369,9 +369,9 @@ def criar_exibicao(context,parede,regiao):
                     pass
         bm.normal_update()
         bmesh.ops.dissolve_limit(bm,angle_limit=1e-5,verts=list(bm.verts),edges=list(bm.edges),use_dissolve_boundaries=False)
-        malha=bpy.data.meshes.new('Regiao da parede 2D')
+        malha=bpy.data.meshes.new("2D wall region")
         bm.to_mesh(malha)
-        obj=bpy.data.objects.new('Regiao da parede 2D',malha)
+        obj=bpy.data.objects.new("2D wall region",malha)
         context.scene.collection.objects.link(obj)
         obj[MARCA_EXIBICAO]=True
         obj['parede_origem_nome']=parede.name

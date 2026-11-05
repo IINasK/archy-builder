@@ -1,12 +1,12 @@
-"""Gaveta: eventos -- cliques, edicao de medidas, abrir/fechar a area --
-e o grupo de gizmos (alca, icones e hover) que dispara o desenho."""
+"""Sidebar events: clicks, dimension editing, opening/closing the area, and the gizmo
+group (handle, icons and hover) that triggers drawing."""
 
 import bpy
 from bpy.props import FloatProperty, StringProperty
 from bpy.types import Gizmo, GizmoGroup, Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _alvenaria = None
 _instalacoes = _esquadrias = None
@@ -39,9 +39,9 @@ _paredes = None
 _ambientes = None
 
 def _gaveta_sob_evento(context, event):
-    """(area, regiao) da gaveta se o mouse do evento esta' nela, senao
-    None. Para os modais (wizard, posicionador): a gaveta continua sendo
-    da gaveta enquanto eles rodam."""
+    """Sidebar (area, region) if the event mouse is inside it, otherwise None. For
+    modals (wizard, placement): the sidebar retains control of its area while they
+    run."""
     areas = (_gaveta._area_gaveta(context.screen),
              _biblioteca_faixa.area_da_faixa(context.screen)) if context.screen else ()
     for area in areas:
@@ -62,9 +62,9 @@ def _limite_duplo_clique(context):
 
 
 def _objeto_sob_mouse(context, event):
-    """NOME do objeto sob o mouse numa viewport que nao e' a gaveta (o
-    mesmo raio do clique da HUD), ou ''. Nome, nunca o objeto: quem chama
-    e' modal (ver `_larga_dados_ao_terminar`)."""
+    """NAME of the object under the mouse in a viewport outside the sidebar (same ray
+    as a HUD click), or ''. Return a name, never an object: the caller is modal (see
+    `_larga_dados_ao_terminar`)."""
     for area in context.screen.areas:
         if area.type != 'VIEW_3D' or _gaveta._eh_area_gaveta_bruto(area):
             continue
@@ -80,7 +80,7 @@ def _objeto_sob_mouse(context, event):
 
 
 def _acao_da_gaveta(context, event, area, regiao):
-    """A acao do widget da gaveta sob o mouse (o mesmo hit-test dela)."""
+    """Action of the sidebar widget under the mouse, using the sidebar's hit-test."""
     x, y = event.mouse_x - regiao.x, event.mouse_y - regiao.y
     with context.temp_override(area=area, region=regiao):
         for wx, wy, w, h, _rotulo, acao in _gaveta._widgets_interativos(context):
@@ -92,15 +92,15 @@ def _acao_da_gaveta(context, event, area, regiao):
 
 
 class OBJECT_OT_editar_medida_gaveta(Operator):
-    """Edita uma medida usando a mesma propriedade parametrica do painel N."""
+    """Edit a dimension through the same parametric property as the N-panel."""
     bl_idname = 'object.cabinet_editar_medida_gaveta'
-    bl_label = 'Editar Medida'
+    bl_label = "Edit Measurement"
     bl_options = {'REGISTER', 'UNDO'}
 
     dono: StringProperty(options={'SKIP_SAVE'})
     objeto: StringProperty(options={'SKIP_SAVE'})
     propriedade: StringProperty(options={'SKIP_SAVE'})
-    valor: FloatProperty(name='Medida', subtype='DISTANCE', unit='LENGTH',
+    valor: FloatProperty(name="Measurement", subtype='DISTANCE', unit='LENGTH',
                          min=0.0, options={'SKIP_SAVE'})
 
     def invoke(self, context, event):
@@ -143,7 +143,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
                               if self.dono in {'opcao', 'contador'} else
                               _gaveta_desenho._ler_medida_digitada(
                                   self._estado['texto'],
-                                  # o mesmo piso do arraste: curva/folga aceitam 0
+                                  # Same minimum as dragging: curvature/gaps accept 0.
                                   0.0 if self.dono in DONOS_DE_PARAMETRO else 0.001))
             except (ValueError, TypeError) as e:
                 self.report({'WARNING'}, str(e))
@@ -159,8 +159,8 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         return {'RUNNING_MODAL'}
 
     def _clique_no_campo(self, context, event):
-        """Clique DENTRO do campo em edicao: so' move o cursor (fora dele,
-        confirma). As posicoes saem do mesmo calculo do desenho."""
+        """A click INSIDE the field being edited only moves the cursor (outside
+        confirms). Positions use the same calculation as drawing."""
         estado = self._estado
         mx, my = event.mouse_region_x, event.mouse_region_y
         try:
@@ -170,7 +170,7 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         for x, y, w, h, _r, acao in widgets:
             if not acao or not (x <= mx <= x + w and y <= my <= y + h):
                 continue
-            # o campo de contador (Folhas) se desenha como o de medida
+            # The counter field (Leaves) is drawn like a dimension field.
             campo = acao[0] == 'medida' or _gaveta_desenho._eh_campo_contador(acao)
             if not (acao[0] == 'medida' and acao[2] == estado['propriedade']
                     or acao[0] in {'faixa', 'contador'}
@@ -195,36 +195,36 @@ class OBJECT_OT_editar_medida_gaveta(Operator):
         if erro:
             self.report({'WARNING'}, erro)
             return {'CANCELLED'}
-        # A previa pertence ao undo da criacao, nao a cada valor digitado.
+        # The preview belongs to creation's undo step, not to each typed value.
         if self.dono=='solda_criacao':return {'CANCELLED'}
         return {'FINISHED'}
 
 
 def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
-    """Grava `valor` (METROS) no dono da medida; devolve o erro ou None.
-    Serve a' digitacao e ao ARRASTE do campo (pedido do usuario: arrastar
-    de lado muda o valor) -- que nao pode empilhar um undo por pixel."""
+    """Write `valor` (METERS) to the dimension's owner; return an error or None. Used
+    by typing and field DRAGGING (user request: sideways dragging changes the
+    value), which must not create an undo step per pixel."""
     if dono=='solda_criacao':return _solda.editar_criacao_solda(valor,indice=int(propriedade) if propriedade.isdigit() else None)
     if dono=='solda':return _solda.editar_distancia_solda(objeto,propriedade,valor)
     if dono == 'instalacao':
         grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
-        return _instalacoes.editar_cota(grupo, propriedade, valor) if grupo else 'Instalacao nao encontrada'
+        return _instalacoes.editar_cota(grupo, propriedade, valor) if grupo else "Installation not found"
     if dono == 'instalacao_tamanho':
         grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
-        return _instalacoes.editar_medida(grupo, int(propriedade), valor) if grupo else 'Instalacao nao encontrada'
+        return _instalacoes.editar_medida(grupo, int(propriedade), valor) if grupo else "Installation not found"
     if dono == 'forro':
         grupo = _alvenaria.grupo_de(bpy.data.objects.get(objeto))
-        return _iluminacao.editar_forro(grupo, propriedade, valor) if grupo else 'Forro nao encontrado'
+        return _iluminacao.editar_forro(grupo, propriedade, valor) if grupo else "Ceiling not found"
     if dono == 'parede_modulo':
         return _paredes_composicao.editar_modulo(context, objeto, propriedade, valor * 1000)
     if dono == 'parede_guia':
         return _paredes_composicao.editar_guia(context, int(propriedade), valor * 1000)
     if dono in {'livre', 'objeto', 'cota'} and _paredes_composicao.parede(bpy.data.objects.get(objeto)):
-        return 'As medidas da parede sao editadas apenas pelas ferramentas nativas do Blender'
+        return "Wall dimensions can only be edited with Blender's native tools"
     if dono == 'paredes':
         return _paredes_edicao.editar_parametro(propriedade, valor * 1000)
     if dono == 'opcao':
-        # Faixa da engrenagem: numero puro, preso ao minimo e maximo
+        # Options slider: plain number clamped to minimum and maximum.
         minimo, maximo, _passo = _opcoes.FAIXAS_OPCOES[propriedade]
         valor = max(minimo, min(maximo, valor))
         _opcoes._definir_opcao(propriedade, int(round(valor))
@@ -232,21 +232,20 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
         return None
     if dono=='cota':
         alvo=bpy.data.objects.get(objeto)
-        if alvo is None:return 'Objeto da cota nao encontrado'
+        if alvo is None:return "Dimension object not found"
         try:_hud._aplicar_valor_hud(context,_hud.alvo_cota(alvo,propriedade),valor*1000)
         except (ValueError,TypeError,KeyError) as erro:return str(erro)
         return None
     if dono == 'contador':
-        # campo de contador digitado (Folhas da porta): numero inteiro;
-        # `objeto` = o alvo do contador
+        # Typed counter field (door Leaves): integer; `objeto` is the counter's target.
         return _aplicar_contador(context, ('contador', propriedade, None,
                                            None, None, objeto),
                                  int(round(valor)))
     if dono == 'puxador' and propriedade.startswith('puxp_'):
-        # parametrico: grava o estado e deixa a chapa reposicionar
+        # Parametric: write state and let the panel reposition itself.
         pux = bpy.data.objects.get(objeto)
         if not _puxadores._eh_puxador_parametrico(pux):
-            return 'Puxador nao encontrado'
+            return "Handle not found"
         pux['puxador_%s_mm' % propriedade[len('puxp_'):]] = valor * 1000.0
         _puxadores.posicionar_puxador(pux)
         return None
@@ -259,8 +258,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
             return str(erro)
         return None
     if dono == 'assistente':
-        # criando a porta: vai para o estado do wizard
-        # FloatProperty e' float de 32 bits: 0.08 m voltava 79.9999982
+        # Door creation: write to wizard state. FloatProperty is 32-bit: 0.08 m came
+        # back as 79.9999982.
         _assistente._editar_assistente(propriedade, round(valor * 1000.0, 3))
         _eventos._redesenhar_viewports(context)
         return None
@@ -268,13 +267,13 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
         return _ferragens._editar_ferragens_selecionadas(
             context, propriedade, round(valor * 1000.0, 3)) or None
     if dono == 'forma':
-        # modulo em L/diagonal/curvo: 'P1:2' -> ('P1', 2)
+        # L/diagonal/curved cabinet: 'P1:2' -> ('P1', 2).
         conj = bpy.data.objects.get(objeto)
         if conj is None or conj.type!='MESH':
-            return 'Selecione uma chapa individual para editar seu formato'
+            return "Select an individual panel to edit its shape"
         letra, canto = propriedade.split(':')
         if _formas.forma_do_modulo(conj) is None:
-            return 'O modulo nao tem mais esse formato'
+            return "The cabinet no longer has this shape"
         _formas.aplicar(context, conj, (letra, int(canto)), valor * 1000.0)
         return None
     if dono == 'area_criacao':
@@ -289,7 +288,8 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
         sistema = {'gavetas': _gavetas, 'prateleiras': _prateleiras, 'divisorias': _divisorias}[dono]
         grupo = sistema.grupo_de(bpy.data.objects.get(objeto))
         if grupo is None:
-            return '%s nao encontradas' % dono.capitalize()
+            return "%s not found" % {'gavetas':'Drawer group', 'prateleiras':'Shelf group',
+                                     'divisorias':'Partition group'}[dono]
         if dono=='gavetas' and propriedade.startswith('individual_'):
             _prefixo,indice,nome=propriedade.split('_',2)
             return _gavetas.editar_individual(context,grupo,int(indice),nome,valor*1000,previa=previa)
@@ -298,38 +298,38 @@ def aplicar_medida(context, dono, objeto, propriedade, valor, previa=False):
                                                     else 'A',), valor * 1000.0)
         return sistema.editar(context, grupo, propriedade, valor * 1000.0)
     if dono == 'porta':
-        # Porta colocada: a medida e' um parametro do GRUPO, nao uma
-        # propriedade de objeto ou da cena.
+        # Placed door: the dimension is a GROUP parameter, not an object or scene
+        # property.
         grupo = _portas._grupo_portas(bpy.data.objects.get(objeto))
         nome = _portas._PARAMETRO_DA_MEDIDA_PORTA.get(propriedade)
         if grupo is None or not nome:
-            return 'Porta da medida nao encontrada'
+            return "Measurement door not found"
         return _portas._editar_parametro_porta(context, grupo, nome,
                                                valor * 1000.0) or None
     alvo = (context.scene if dono == 'cena'
             else bpy.data.objects.get(objeto))
     if alvo is None:
-        return 'Alvo da medida nao encontrado'
+        return "Measurement target not found"
     if dono == 'livre' and propriedade.startswith('dimensions_'):
         dimensoes = list(alvo.dimensions)
         dimensoes[int(propriedade[-1])] = valor
         alvo.dimensions = dimensoes
         return None
     if not hasattr(alvo, propriedade):
-        return 'Propriedade da medida nao encontrada'
+        return "Measurement property not found"
     setattr(alvo, propriedade, valor)
     return None
 
 
-# ---- ARRASTAR um campo de valor (pedido do usuario): clicar e arrastar
-# de lado muda o numero -- direita aumenta, esquerda diminui -- como os
-# campos do Blender. Sem arrastar, o clique abre a digitacao como antes.
-# Shift = fino, Ctrl = grosso. Um undo so', no fim; Esc devolve.
-METROS_POR_PX = 0.001            # 1 mm por pixel
+# ---- DRAG a value field (user request): click and drag sideways to change the number,
+# right to increase and left to decrease, like Blender fields. Without dragging,
+# clicking opens text entry as before. Shift = fine, Ctrl = coarse. One undo step at the
+# end; Esc restores.
+METROS_POR_PX = 0.001            # 1 mm per pixel.
 FATOR_FINO, FATOR_GROSSO = 0.1, 10.0
-PX_POR_UNIDADE_CONTADOR = 24     # contador (dobradicas, pistoes)
-# medidas que podem chegar a zero (afastamentos, folgas); o resto
-# (largura, espessura...) para em 1 mm
+PX_POR_UNIDADE_CONTADOR = 24     # Counter (hinges, gas struts).
+# Dimensions allowed to reach zero (offsets, gaps); others (width, thickness...) stop at
+# 1 mm.
 DONOS_DE_PARAMETRO = {'assistente', 'ferragens', 'porta', 'opcao', 'gavetas',
                       'prateleiras', 'divisorias', 'fundos', 'paredes', 'parede_modulo',
                       'solda_criacao', 'solda', 'instalacao'}
@@ -341,9 +341,8 @@ def _passo_do_arraste(event):
 
 
 def _aplicar_contador(context, acao, valor):
-    """Contador da gaveta (quantidade de dobradicas/pistoes): o wizard ou
-    as ferragens selecionadas; com o NOME de um grupo de portas no alvo,
-    as folhas daquela porta. Devolve o erro ou None."""
+    """Sidebar counter (hinge/gas-strut count): the wizard or selected hardware; with a
+    door group's NAME as target, that door's leaves. Return an error or None."""
     prop, alvo = acao[1], acao[5]
     if prop == _paredes_edicao.ALVO_QUANTIDADE:
         return _paredes_edicao.editar_parametro('quantidade', valor)
@@ -355,7 +354,7 @@ def _aplicar_contador(context, acao, valor):
         erro = None
     elif prop.startswith('forma_angulo_') and grupo is not None:
         if grupo.type!='MESH':
-            return 'Selecione uma chapa individual para editar seu formato'
+            return "Select an individual panel to edit its shape"
         _formas.aplicar(context, grupo, ('ANG', int(prop.rsplit('_', 1)[1])),
                         float(valor))
         erro = None
@@ -366,12 +365,12 @@ def _aplicar_contador(context, acao, valor):
     elif grupo is not None and _prateleiras.MARCA_PRATELEIRA in grupo:
         erro = _prateleiras.editar_quantidade_local(context, _prateleiras.grupo_de(grupo), grupo, valor)
     elif grupo is not None:
-        # digitado pode vir qualquer numero: o limite e' o da abertura
+        # Typed input can be any number: the opening determines the limit.
         parametros = dict(grupo.get('porta_parametros') or {})
         limite = _portas.LIMITES_FOLHAS.get(parametros.get('abertura'), 1)
         minimo = 2 if parametros.get('abertura') == 'ZIGZAG' else 1
         if prop == 'porta_folhas' and not minimo <= valor <= limite:
-            return 'Esta abertura aceita de %d a %d folha(s)' % (minimo, limite)
+            return "This opening supports %d to %d door panels" % (minimo, limite)
         erro = _portas._editar_parametro_porta(
             context, grupo, prop[len('porta_'):], valor) or None
     else:
@@ -386,16 +385,16 @@ def _eh_modelo_do_criador(it):
 
 
 def _modelo_do_criador(op, context, it, indice):
-    """Clique num modelo do criador na biblioteca (foto ou icone). O de
-    PUXADOR, na foto ou no Inserir do clique direito, abre o "Criar Puxador" com ele --
-    funcional, nao so' o 3D (o arrasto nativo do Asset Browser traz so' o
-    3D): devolve 'CRIAR' e quem chama abre no SOLTAR. O de fabrica e'
-    protegido: "Edit." e cadeado so' avisam. O do usuario edita e trava
-    como qualquer item."""
+    """Click a creator model in the library (image or icon). A HANDLE model, through
+    its image or right-click Insert, opens Create Handle with that model, fully
+    functional rather than only its 3D geometry (native Asset Browser dragging
+    brings only 3D). Return 'CRIAR'; the caller opens on RELEASE. Factory models are
+    protected: Edit and lock only notify. User models can be edited and locked like
+    any item."""
     fabrica = it.get('fabrica')
     if indice != 0:
         if fabrica:
-            op.report({'INFO'}, "Modelo de fabrica: protegido")
+            op.report({'INFO'}, "Factory model: protected")
         elif indice == 1:
             if not _biblioteca.item_bloqueado(it):
                 _editor.executar(context, 'object.cabinet_editar_modelo',
@@ -405,7 +404,7 @@ def _modelo_do_criador(op, context, it, indice):
                                             arquivo=it['arquivo'])
         return None
     if fabrica == 'dobradica':
-        op.report({'INFO'}, "A dobradica entra com a porta: Criar Portas")
+        op.report({'INFO'}, "Hinges are added with doors: Create Doors")
         return None
     if fabrica:
         _puxadores.escolher_modelo(context.scene, it['valor'])
@@ -416,9 +415,9 @@ def _modelo_do_criador(op, context, it, indice):
 
 
 class OBJECT_OT_interagir_gaveta(Operator):
-    """Recebe clique e arraste diretamente na interface independente."""
+    """Receive clicks and drags directly in the standalone interface."""
     bl_idname = "object.cabinet_interagir_gaveta"
-    bl_label = "Interagir com Gaveta Archy Builder"
+    bl_label = "Interact with Archy Builder Sidebar"
     dica: StringProperty(options={'SKIP_SAVE'})
 
     @classmethod
@@ -430,7 +429,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return _gaveta._eh_area_gaveta(context)
 
     def _botao_direito(self, context, event):
-        """Foto/nome do modulo: menu no soltar; material: pintura rapida."""
+        """Cabinet image/name: menu on release; material: quick painting."""
         x, y = event.mouse_region_x, event.mouse_region_y
         acao = next((a for wx, wy, w, h, _r, a in _gaveta._widgets_interativos(context)
                      if a and a[0] in ('material', 'preset')
@@ -442,7 +441,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             context.window_manager.modal_handler_add(self)
             return {'RUNNING_MODAL'}
         if not _materiais.perguntar_pintar(context, acao[1]):
-            self.report({'WARNING'}, "Nenhum modulo na cena para pintar")
+            self.report({'WARNING'}, "No cabinets in the scene to paint")
         context.area.tag_redraw()
         return {'FINISHED'}
 
@@ -463,7 +462,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if obj:
                         passo = .05 if event.type == 'WHEELUPMOUSE' else -.05
                         _esquadrias.abrir(obj, acao[3], acao[4]+passo)
-                        bpy.ops.ed.undo_push(message='Abertura da esquadria')
+                        bpy.ops.ed.undo_push(message="Open Architectural Opening")
                         _eventos._redesenhar_viewports(context)
                     return {'FINISHED'}
                 if (acao and acao[0] in {'navegar', 'rolar_nivel'}
@@ -477,8 +476,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         int(context.screen.get(chave, 0)) + passo))
                     context.area.tag_redraw()
                     return {'FINISHED'}
-            # Rola o painel que esta' sob o mouse: a aba em cima da
-            # divisoria, a biblioteca embaixo.
+            # Scroll the panel under the mouse: tab above the divider, library below.
             if not _gaveta.ALTURA_RODAPE_GAVETA < event.mouse_region_y < context.region.height - 48:
                 return {'FINISHED'}
             limites = _gaveta._limites_rolagem_gaveta(
@@ -497,9 +495,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
         x, y = event.mouse_region_x, event.mouse_region_y
         for wx, wy, w, h, _rotulo, acao in _gaveta._widgets_interativos(context):
             if acao and acao[0] == 'pergunta':
-                # a caixa preta vem ANTES das respostas (fica por baixo no
-                # desenho) e as contem: no clique ela nao pode engolir o
-                # "Sim"/"Nao" -- quem atende sao os botoes
+                # The black box precedes the answers (drawn beneath them) and contains
+                # them: it must not swallow Yes/No clicks; the buttons handle those.
                 continue
             dentro = wx <= x <= wx + w and wy <= y <= wy + h
             if acao and acao[0] == 'slider':
@@ -507,8 +504,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 dentro = tx - 6 <= x <= tx + tw + 6 and abs(y - ty) <= h / 2
             if not dentro:
                 continue
-            # Lista suspensa aberta fecha com qualquer clique que nao
-            # seja no proprio campo (a escolha grava e fecha junto)
+            # An open dropdown closes on any click outside its own field (choosing an
+            # item saves and closes it too).
             if not (acao and acao[0] == 'suspenso'):
                 _gaveta._fechar_suspenso(context)
             if acao is None:
@@ -545,7 +542,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 else:
                     _gaveta._aplicar_cor_opcao(acao[1], acao[3])
             elif acao[0] == 'cor':
-                # quadro ou matiz: a cor segue o mouse enquanto segura
+                # Color square or hue: color follows the mouse while held.
                 self._cor = {'acao': acao, 'ret': (wx, wy, w, h),
                              'original': (_opcoes._opcao(acao[1]), {
                                  n: _opcoes._opcao(n) for n in _gaveta.OPCAO_DO_ESPECIAL.values()})}
@@ -571,18 +568,19 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 context.screen[acao[1]] = max(0, min(acao[3],
                     int(context.screen.get(acao[1], 0)) + acao[2]))
             elif acao[0] == 'nivel':
-                # linha da lista suspensa da cascata (ja' fechada acima);
-                # a escolhida de novo nao fecha o nivel, como no DXF
+                # Cascade dropdown row (already closed above); choosing the current item
+                # again does not close the level, as in the DXF.
                 if not acao[3]:
                     if isinstance(acao[1], tuple) and acao[1][0] == _instalacoes.ALVO:
                         _instalacoes.definir_categoria(context, acao[1][1], acao[2])
                     else:
                         bpy.ops.object.cabinet_navegar(nivel=acao[1], valor=acao[2])
             elif acao[0] == 'modo':
-                pass        # indicador: um objeto = individual, mais = grupo
+                pass        # Indicator: one object = individual, more = group.
             elif acao[0] == 'medida':
                 if acao[2]:
-                    # arrastar muda o valor; soltar sem arrastar digita
+                    # Dragging changes the value; releasing without dragging opens
+                    # typing.
                     self._campo = {
                         'acao': acao, 'x0': x, 'arrastou': False,
                         'objeto': context.object.name if context.object else ''}
@@ -622,7 +620,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if acao[1] == 'tipo_instalacao':
                         context.screen[_instalacoes.CHAVE_TIPO_MENU] = acao[2]
                     elif acao[1] == 'modelo_instalacao':
-                        # O arraste nasce no editor de origem, como o preset da biblioteca.
+                        # Dragging starts in the originating editor, like a library
+                        # preset.
                         bpy.ops.object.cabinet_instalar('INVOKE_DEFAULT', modelo=acao[2], arrastar=True)
                     elif acao[1] == 'acao_instalacao':
                         _editor.executar(context, 'object.cabinet_acao_instalacao', acao=acao[2])
@@ -664,7 +663,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         obj = context.object
                         fundo = obj if obj is not None and _chapas.MARCA_FUNDO in obj else None
                         _fundos.editar(context, fundo, acao[1], acao[2])
-                        bpy.ops.ed.undo_push(message='Editar fundo')
+                        bpy.ops.ed.undo_push(message="Edit Back")
                     except ValueError as erro:
                         self.report({'WARNING'},str(erro))
                 elif acao[1] == _paredes_composicao.CHAVE_FIXA:
@@ -672,42 +671,42 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if erro:
                         self.report({'WARNING'}, erro)
                     else:
-                        bpy.ops.ed.undo_push(message='Fixar largura do modulo')
+                        bpy.ops.ed.undo_push(message="Fix Cabinet Width")
                 elif not acao[4] or (len(acao) > 5
                                    and acao[5] == _portas.ALVO_ASSISTENTE):
-                    pass        # a fila do wizard e' atendida pelo modal dele
+                    pass        # The wizard row is handled by its own modal operator.
                 elif len(acao) > 5 and acao[5] == _paredes_composicao.ALVO_GUIAS:
                     erro = _paredes_composicao.definir_modo_guias(context, acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
                     else:
-                        bpy.ops.ed.undo_push(message='Guias da parede')
+                        bpy.ops.ed.undo_push(message="Wall guides")
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_FERRAGENS:
                     erro = _ferragens._editar_ferragens_selecionadas(
                         context, acao[1], acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
-                    bpy.ops.ed.undo_push(message='Editar ferragens')
+                    bpy.ops.ed.undo_push(message="Edit Hardware")
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_PUXADOR_GAVETAS:
                     erro = _gavetas.trocar_puxador(context, acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
-                    bpy.ops.ed.undo_push(message='Puxador das gavetas')
+                    bpy.ops.ed.undo_push(message="Drawer Handles")
                 elif grupo is not None and _gavetas.MARCA_GRUPO in grupo:
                     erro = _gavetas.editar(context, grupo, acao[1], acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
                     else:
-                        bpy.ops.ed.undo_push(message='Editar gavetas')
+                        bpy.ops.ed.undo_push(message="Edit Drawers")
                 elif grupo is not None and _prateleiras.MARCA_GRUPO in grupo:
                     erro = _prateleiras.editar(context, grupo, acao[1], acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
                     else:
-                        bpy.ops.ed.undo_push(message='Editar prateleiras')
+                        bpy.ops.ed.undo_push(message="Edit Shelves")
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_PUXADOR:
                     _puxadores._trocar_modelo_puxador(_gaveta._selecionado(context), acao[2])
-                    bpy.ops.ed.undo_push(message='Trocar modelo do puxador')
+                    bpy.ops.ed.undo_push(message="Change Handle Model")
                 elif len(acao) > 5 and acao[5] == _gaveta.ALVO_PREFERENCIAS:
                     _opcoes._definir_opcao(acao[1], acao[2])
                 elif len(acao) > 5 and acao[5] == _orcamento.ALVO_COMODO:
@@ -719,13 +718,13 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     else:
                         bpy.ops.object.cabinet_definir_comodo(nome=acao[2])
                 elif grupo is not None:
-                    # Porta ja' colocada: muda ela, na hora
+                    # Already placed door: change it immediately.
                     erro = _portas._editar_parametro_porta(
                         context, grupo, acao[1][len('porta_'):], acao[2])
                     if erro:
                         self.report({'WARNING'}, erro)
                     else:
-                        bpy.ops.ed.undo_push(message='Editar porta')
+                        bpy.ops.ed.undo_push(message="Edit Door")
                 else:
                     setattr(context.scene, acao[1], acao[2])
             elif acao[0] == 'cadeado':
@@ -734,9 +733,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     travas = list(pux.get(_chapas.CHAVE_TRAVAS_PUXADOR, (1, 1, 1)))
                     travas[acao[2]] = 0 if travas[acao[2]] else 1
                     pux[_chapas.CHAVE_TRAVAS_PUXADOR] = travas
-                    bpy.ops.ed.undo_push(message='Cadeado do puxador')
+                    bpy.ops.ed.undo_push(message="Handle Lock")
             elif acao[0] == 'criar_puxador':
-                if not acao[2]:         # ja' posicionando: Esc cancela
+                if not acao[2]:         # Already placing: Esc cancels.
                     _editor.executar(context, 'object.cabinet_posicionar_puxador')
             elif acao[0] in {'gavetas', 'prateleiras', 'divisorias'}:
                 if not acao[2]:
@@ -749,24 +748,24 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 if acao[3]:
                     self.report({'WARNING'}, acao[3])
                 elif acao[2] or acao[1]:
-                    # ja' marcando o vao, ou porta selecionada: criar
-                    # outra porta e' a partir do modulo (clique simples)
+                    # Already marking the opening, or door selected: creating another
+                    # door starts from the cabinet (single click).
                     pass
                 else:
                     _editor.executar(context, 'object.cabinet_apanhar_vao')
             elif acao[0] == 'preset' and _eh_modelo_do_criador(acao[1]):
                 if _modelo_do_criador(self, context, acao[1], 0):
-                    # abre modal: no SOLTAR, como `_solda.OPERADORES_NO_SOLTAR`
+                    # Open modal on RELEASE, like `_solda.OPERADORES_NO_SOLTAR`.
                     self._no_soltar = 'object.cabinet_posicionar_puxador'
                     context.window_manager.modal_handler_add(self)
                     return {'RUNNING_MODAL'}
             elif acao[0] == 'biblioteca':
-                # Modulos | Materiais: a outra biblioteca comeca do topo
+                # Cabinets | Materials: start the other library at the top.
                 context.scene.cabinet_bib_modo = acao[1]
                 context.screen[_gaveta._CHAVE_ROLAGEM_BIB] = 0
             elif acao[0] == 'material':
-                # um clique NAO pinta (pedido do usuario: evita o clique
-                # errado); duplo = a selecao, arrastar = onde soltar
+                # A single click does NOT paint (user request: prevent accidental
+                # clicks); double click paints selection, dragging paints at release.
                 chave = acao[1]['chave']
                 if _materiais.duplo_clique_na_esfera(
                         chave, event.mouse_x, event.mouse_y,
@@ -780,8 +779,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     context.window_manager.modal_handler_add(self)
                     return {'RUNNING_MODAL'}
             elif acao[0] == 'material_item' and acao[2] == 0:
-                # o dialogo abre no SOLTAR: no PRESS o release do mesmo
-                # clique cairia nele
+                # Open the dialog on RELEASE: opening on PRESS would deliver that same
+                # click's release to it.
                 self._no_soltar = 'object.cabinet_editar_material'
                 self._props_no_soltar = {'chave': acao[1]['chave']}
                 context.window_manager.modal_handler_add(self)
@@ -805,12 +804,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
             elif acao[0] == 'resposta':
                 bpy.ops.object.cabinet_responder_pergunta(opcao=acao[1])
             elif _operador_apagado(acao):
-                pass            # apagado: a selecao nao serve, nada a fazer
+                pass            # Disabled: selection is unsuitable; nothing to do.
             elif acao[1] in _solda.OPERADORES_NO_SOLTAR:
-                # Dispara no SOLTAR, como botao do Blender: o pop-up que
-                # ele abre ("tem certeza?") nasceria sob o mouse e o
-                # RELEASE deste mesmo clique ja' escolheria a 1a opcao
-                # (visto no teste de interface: desagregava sem perguntar).
+                # Trigger on RELEASE, like a Blender button: its confirmation popup
+                # would open under the mouse and that same click's RELEASE would select
+                # the first option (observed in the UI test: detaching without asking).
                 self._no_soltar = acao[1]
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
@@ -824,7 +822,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     _perguntas._na_gaveta[0] = False
             context.area.tag_redraw()
             return {'FINISHED'}
-        _gaveta._fechar_suspenso(context)       # clique no vazio tambem fecha
+        _gaveta._fechar_suspenso(context)       # Clicking empty space also closes it.
         return {'FINISHED'}
 
     def _atualizar(self, context, x):
@@ -837,7 +835,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 _eventos._redesenhar_viewports(context)
             return
         if getattr(self, '_slider', None) == 'retratos':
-            # tamanho de TODOS os retratos (puxador, abertura, dobradica)
+            # Size of ALL images (handle, opening, hinge).
             menor, maior = _gaveta.LARGURA_RETRATO_MIN, _gaveta.LARGURA_RETRATO_MAX
             context.scene.cabinet_tam_retrato = menor + round(fracao * (maior - menor))
         else:
@@ -868,7 +866,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
         context.area.tag_redraw()
 
     def _modal_campo(self, context, event):
-        """Arraste de um campo de valor ('medida') ou do contador."""
+        """Drag a value field ('medida') or counter."""
         campo = self._campo
         acao = campo['acao']
         contador = acao[0] == 'contador'
@@ -888,8 +886,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     else:
                         _aplicar_contador(context, acao, valor)
             else:
-                # conta desde o CLIQUE (o limiar nao come pixels); trocar
-                # Shift/Ctrl no meio rebaseia ali, sem pular
+                # Measure from the CLICK (the threshold consumes no pixels); changing
+                # Shift/Ctrl midway rebases there without jumping.
                 if 'passo' not in campo:
                     campo.update(base=acao[4] / 1000.0, x_base=campo['x0'],
                                  passo=_passo_do_arraste(event))
@@ -909,7 +907,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             _prateleiras._quantidade_previa[0] = None
-            # o wizard nao vai para o undo: so' o que ja' esta' na cena
+            # Wizard state does not enter undo; only objects already in the scene do.
             no_wizard = acao[0] == 'medida' and acao[1] in {'assistente', 'paredes','solda_criacao'} or (
                 contador and (acao[5] == _portas.ALVO_ASSISTENTE
                               or acao[1] == _paredes_edicao.ALVO_QUANTIDADE))
@@ -922,15 +920,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     grupo=bpy.data.objects.get(campo['objeto'])
                     if grupo is not None:_gavetas.montar(grupo)
                 if not no_wizard:
-                    bpy.ops.ed.undo_push(message='Arrastar medida')
+                    bpy.ops.ed.undo_push(message="Drag Measurement")
             elif _gaveta_desenho._eh_campo_contador(acao):
-                # campo de contador (Folhas): o clique digita, como as
-                # medidas -- qualquer numero; quem limita e' quem grava
+                # Counter field (Leaves): clicking opens typing, as with dimensions. Any
+                # number is accepted; the writer enforces limits.
                 bpy.ops.object.cabinet_editar_medida_gaveta(
                     'INVOKE_DEFAULT', dono='contador', objeto=acao[5],
                     propriedade=acao[1], valor=float(acao[2]))
             elif contador:
-                # clique: a metade direita soma um, a esquerda tira
+                # Click: the right half adds one, the left subtracts one.
                 passo = 1 if event.mouse_region_x >= campo['meio'] else -1
                 valor = max(acao[3], min(acao[4], acao[2] + passo))
                 if valor != acao[2]:
@@ -938,7 +936,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if erro:
                         self.report({'WARNING'}, erro)
                     elif not no_wizard:
-                        bpy.ops.ed.undo_push(message='Editar ferragens')
+                        bpy.ops.ed.undo_push(message="Edit Hardware")
             else:
                 bpy.ops.object.cabinet_editar_medida_gaveta(
                     'INVOKE_DEFAULT', dono=acao[1], objeto=campo['objeto'],
@@ -947,7 +945,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             _prateleiras._quantidade_previa[0] = None
-            if campo['arrastou']:       # devolve o valor de antes
+            if campo['arrastou']:       # Restore the previous value.
                 if 'backup_cota' in campo:
                     _hud.restaurar_cota(context,campo['backup_cota'],campo['objeto'])
                 elif 'backup_gavetas' in campo:
@@ -967,7 +965,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return {'RUNNING_MODAL'}
 
     def _modal_opcao(self, context, event):
-        """Arraste da faixa ou do seletor de cor do painel de opcoes."""
+        """Drag an options-panel slider or color picker."""
         faixa = getattr(self, '_faixa', None)
         if event.type == 'MOUSEMOVE':
             if faixa is None:
@@ -984,7 +982,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             if faixa is not None and not faixa['arrastou']:
-                # clique sem arrastar: digita o valor, como nas medidas
+                # Click without dragging: type a value, as with dimensions.
                 bpy.ops.object.cabinet_editar_medida_gaveta(
                     'INVOKE_DEFAULT', dono='opcao',
                     propriedade=faixa['acao'][1],
@@ -1005,15 +1003,15 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return {'RUNNING_MODAL'}
 
     def _modal_divisa(self, context, event):
-        """Arraste da divisoria aba | biblioteca (sobe ou desce)."""
+        """Drag the tab | library divider up or down."""
         if event.type == 'MOUSEMOVE':
             context.screen[_gaveta._CHAVE_DIVISA] = _gaveta._fracao_divisa(
                 context.region.height, event.mouse_region_y)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            # grava a posicao JA' limitada: assim a fracao nao fica
-            # alem do minimo e o proximo arraste nao "pula"
+            # Store the ALREADY clamped position so the fraction stays within the
+            # minimum and the next drag does not jump.
             altura = context.region.height
             context.screen[_gaveta._CHAVE_DIVISA] = _gaveta._fracao_divisa(
                 altura, _gaveta._divisa_gaveta(context, altura))
@@ -1028,8 +1026,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
         return {'RUNNING_MODAL'}
 
     def _modal_material(self, context, event):
-        """Esfera arrastada da gaveta: o pincel segue o mouse e, ao soltar
-        numa viewport, pinta o que esta' embaixo (`pecas_do_solte`)."""
+        """Sphere dragged from the sidebar: the brush follows the mouse; release in a
+        viewport paints what is underneath (`pecas_do_solte`)."""
         estado = self._material
         if event.type == 'MOUSEMOVE':
             if not estado['arrastou']:
@@ -1039,12 +1037,11 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 if dx * dx + dy * dy <= raio * raio:
                     return {'RUNNING_MODAL'}
                 estado['arrastou'] = True
-                _materiais._clique_esfera[0] = None     # arraste nao e' 1o clique
+                _materiais._clique_esfera[0] = None     # A drag is not a first click.
                 context.window.cursor_modal_set('PAINT_BRUSH')
                 try:
                     context.workspace.status_text_set(
-                        "%s | Solte sobre um modulo, porta ou peca | "
-                        "Botao direito: cancelar" % estado['nome'])
+                        "%s | Drop onto a cabinet, door, or component | Right click: cancel" % estado['nome'])
                 except Exception:
                     pass
             return {'RUNNING_MODAL'}
@@ -1057,7 +1054,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
                         chave=estado['chave'], alvo=alvo)
                 elif _gaveta_sob_evento(context, event) is None:
                     self.report({'WARNING'},
-                                "Solte o material sobre um modulo, porta ou peca")
+                                "Drop the material onto a cabinet, door, or component")
             context.area.tag_redraw()
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
@@ -1089,7 +1086,8 @@ class OBJECT_OT_interagir_gaveta(Operator):
             return self._modal_material(context, event)
         if hasattr(self, '_no_soltar'):
             if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-                _perguntas._na_gaveta[0] = True     # pergunta que nascer vem na gaveta
+                _perguntas._na_gaveta[0] = True     # Any resulting question appears in
+                                                    # the sidebar.
                 try:
                     _editor.executar(context, self._no_soltar, **getattr(self, '_props_no_soltar', {}))
                 except Exception as e:
@@ -1132,7 +1130,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
             self._atualizar(context, event.mouse_region_x)
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             if getattr(self, '_slider', None) == 'instalacao':
-                bpy.ops.ed.undo_push(message='Abertura da esquadria')
+                bpy.ops.ed.undo_push(message="Open Architectural Opening")
             return {'FINISHED'}
         if event.type in {'ESC', 'RIGHTMOUSE'}:
             if getattr(self, '_slider', None) == 'instalacao':
@@ -1146,9 +1144,9 @@ class OBJECT_OT_interagir_gaveta(Operator):
 
 
 class OBJECT_OT_opcoes_gaveta(Operator):
-    """Opcoes: unidade padrao, linhas e rotulos das medidas"""
+    """Options: default unit, dimension lines and labels."""
     bl_idname = "object.cabinet_opcoes_gaveta"
-    bl_label = "Opcoes do Archy Builder"
+    bl_label = "Archy Builder Options"
 
     def execute(self, context):
         tela = context.screen
@@ -1163,9 +1161,9 @@ class OBJECT_OT_opcoes_gaveta(Operator):
 
 
 class OBJECT_OT_alternar_gaveta(Operator):
-    """Abre ou fecha a area exclusiva do addon a esquerda da viewport"""
+    """Open or close the add-on's dedicated area left of the viewport."""
     bl_idname = "object.cabinet_alternar_gaveta"
-    bl_label = "Alternar Gaveta Archy Builder"
+    bl_label = "Toggle Archy Builder Sidebar"
 
     @classmethod
     def poll(cls, context):
@@ -1178,7 +1176,7 @@ class OBJECT_OT_alternar_gaveta(Operator):
             _biblioteca_faixa.fechar(context.window, screen)
             return {'FINISHED'}
         if _biblioteca_faixa.acoplada(screen):
-            # biblioteca dentro do menu: abre/fecha so' a area do menu
+            # Library inside the menu: open/close only the menu area.
             if _gaveta._area_gaveta(screen) is not None:
                 _biblioteca_faixa.fechar(context.window, screen)
             else:
@@ -1196,15 +1194,15 @@ def _poll_operador(idname):
 
 
 def _operador_apagado(acao):
-    """Botao de TEXTO cujo operador recusa a selecao atual: sai cinza,
-    sem brilho e sem clique. (Botao de icone ja' esmaece pelo gizmo.)"""
+    """TEXT button whose operator rejects the current selection: gray, no glow and no
+    click. Icon buttons are already dimmed by their gizmos."""
     return bool(acao and acao[0] == 'operador'
                 and (not _icone_acao_gaveta(acao) or _icone_ao_lado(acao))
                 and not _poll_operador(acao[1]))
 
 
-# O texto explica a acao; o gizmo so' desenha o icone a' esquerda.
-# O clique inteiro continua na gaveta para respeitar o soltar do mouse.
+# Text explains the action; the gizmo draws only the icon on the left. The entire click
+# remains with the sidebar to respect mouse release.
 ICONES_AO_LADO = {'object.cabinet_apanhar_vao': 'PIVOT_BOUNDBOX',
                   'object.cabinet_alternar_partes': 'HIDE_OFF',
                   'object.cabinet_editar_grupo_visual': 'GREASEPENCIL',
@@ -1219,8 +1217,7 @@ def _icone_ao_lado(acao):
 
 
 def _centro_icone(x, y, w, h, acao):
-    """Onde o gizmo do icone fica: no meio do botao, ou na ponta
-    esquerda do botao de texto com icone."""
+    """Icon gizmo position: button center, or left end of a text button with an icon."""
     compacto = acao and acao[0] == 'operador' and acao[1] in {
         'object.cabinet_alternar_partes', 'object.cabinet_editar_grupo_visual'}
     return (x + h / 2 + 2 if _icone_ao_lado(acao) and not compacto else x + w / 2), y + h / 2
@@ -1236,8 +1233,8 @@ def _icone_acao_gaveta(acao):
     if _icone_ao_lado(acao):
         return ICONES_AO_LADO[acao[1]]
     if acao[0] == 'escolha' and acao[1] == _portas.CONFIRMAR_ETAPA:
-        # o "aceitar" verde: o visto PRONTO do Blender (o desenhado a' mao
-        # saia serrilhado, pedido do usuario)
+        # Green acceptance control: Blender's READY-MADE checkmark (the hand-drawn one
+        # was jagged; user request).
         return 'CHECKMARK'
     if acao[0] == 'operador':
         if acao[1] == 'object.cabinet_portas_internos':
@@ -1266,7 +1263,8 @@ def _icone_acao_gaveta(acao):
 
 
 class VIEW3D_GT_alca_gaveta(Gizmo):
-    """Hit-test da alca; o desenho unico fica no callback POST_PIXEL."""
+    """Handle hit-test; the single drawing implementation lives in the POST_PIXEL
+    callback."""
     bl_idname = 'VIEW3D_GT_alca_gaveta'
 
     def draw(self, context):
@@ -1279,7 +1277,7 @@ class VIEW3D_GT_alca_gaveta(Gizmo):
 
 
 class _GizmosGaveta:
-    """Mesmo pool nativo de botoes/campos nos editores e na alca da cena."""
+    """Same native button/field pool in editors and the scene handle."""
     def setup(self, context):
         self.botoes = []
         self.campos = []
@@ -1290,29 +1288,27 @@ class _GizmosGaveta:
         self.alca = alca
 
     def _preparar_hover(self, context, acesos_por_icone):
-        """Um gizmo invisivel por widget clicavel, so' para ter hover.
+        """One invisible gizmo per clickable widget, solely for hover.
 
-        Vale para QUALQUER botao da gaveta, nao so' os campos de
-        medida: o retangulo sob o mouse acende com o mesmo glow da
-        alca. `acesos_por_icone` traz os widgets cujo gizmo de icone ja'
-        esta' destacado, porque nesses o disco do icone fica fora do
-        hit-test daqui (para nao roubar o tooltip dele).
-        """
-        # A faixa de 48 px do topo pertence ao cabecalho; so' as abas
-        # sao clicaveis ali. Mesmo criterio do operador de clique.
+        Applies to ANY sidebar button, not only dimension fields: the rectangle
+        under the mouse uses the same glow as the handle. `acesos_por_icone`
+        contains widgets whose icon gizmo is already highlighted, because the icon
+        disc is excluded from this hit-test to preserve its tooltip."""
+        # The top 48 px strip belongs to the header; only tabs are clickable there. Same
+        # criterion as the click operator.
         alvos = [v for v in _gaveta._widgets_interativos(context)
                  if _gaveta_desenho._chave_widget(v[5]) and v[1] >= 0]
         while len(self.campos) < len(alvos):
             campo = self.gizmos.new('VIEW3D_GT_campo_gaveta')
-            # O clique cai no mesmo operador que a keymap ja' dispara
-            # para a area inteira, entao clicar continua igual.
+            # Clicks invoke the same operator the keymap already uses for the whole
+            # area, preserving click behavior.
             self.operadores_campos.append(campo.target_set_operator('object.cabinet_interagir_gaveta'))
             campo.use_tooltip = False
             self.campos.append(campo)
 
         escala = max(1.0, context.preferences.system.ui_scale)
-        # Duas areas usam este grupo: apagar tudo aqui invalidava os
-        # hit-tests do menu sempre que a faixa era redesenhada.
+        # Two areas use this group: clearing everything here invalidated menu hit-tests
+        # whenever the strip redrew.
         for campo in self.campos:
             _hud._campos_gaveta.pop(campo.as_pointer(), None)
         acesos = set(acesos_por_icone)
@@ -1333,9 +1329,8 @@ class _GizmosGaveta:
                 acesos.add(_gaveta_desenho._chave_widget(acao))
 
         _biblioteca_faixa.realces_das_categorias(alvos, acesos)
-        # Edicao aberta manda mais que o mouse: com o campo em foco o
-        # usuario ja' esta' digitando aquela medida, ainda que o cursor
-        # tenha saido de cima dele.
+        # An active edit takes precedence over the mouse: a focused field means the user
+        # is typing that dimension even if the pointer has moved away.
         medida_ativa = next(
             (v[5][3] for v in alvos if v[5][0] == 'medida'
              and _gaveta_desenho._chave_widget(v[5]) in acesos), None)
@@ -1354,9 +1349,9 @@ class _GizmosGaveta:
             chave = _gaveta_desenho._chave_widget(acao)
             _gaveta._realcar(context, chave, chave in acesos)
         _hud._definir_realce_medida(medida_ativa)
-        # Perto da divisoria o cursor vira a seta de redimensionar, como
-        # na fronteira entre areas do Blender. So' na TRANSICAO: trocar a
-        # cada redesenho brigaria com o cursor de quem mais o define.
+        # Near the divider, use the resize-arrow cursor like Blender area boundaries.
+        # Change it only on TRANSITION: setting it on every redraw would fight other
+        # cursor owners.
         sobre = 'divisa' in acesos
         if sobre != _gaveta._cursor_divisa[0]:
             _gaveta._cursor_divisa[0] = sobre
@@ -1387,8 +1382,8 @@ class _GizmosGaveta:
                 chave = (icone, indice)
                 botao = self.botoes_por_icone.get(chave)
                 if botao is None:
-                    # Button2D fixa o icone no primeiro desenho nativo.
-                    # Outro simbolo exige outro gizmo, sem liberar o antigo.
+                    # Button2D fixes its icon on the first native draw. A different
+                    # symbol requires another gizmo without freeing the old one.
                     botao = self.gizmos.new('GIZMO_GT_button_2d')
                     botao.icon = icone
                     botao.draw_options = set()
@@ -1400,9 +1395,9 @@ class _GizmosGaveta:
                 if botao.is_highlight:
                     acesos_por_icone.add(_gaveta_desenho._chave_widget(acao))
                 botao.color = cores.text
-                # Corrente sem nada para ligar fica apagada: o poll do
-                # operador e' o mesmo criterio que ele usa ao rodar.
-                # Resetar sem solda fora da origem fica apagado
+                # A chain with nothing to connect stays disabled: operator poll uses the
+                # same criterion as execution. Reset stays disabled when no weld is
+                # displaced from its original position.
                 apagado = (acao[0] == 'operador' and (
                     _gaveta._no_cabecalho(acao) and not _poll_operador(acao[1])
                     or acao[1] == _solda.OP_RESETAR_DISTANCIA and not acao[2])
@@ -1413,17 +1408,18 @@ class _GizmosGaveta:
                 botao.hide_select = False
                 botao.scale_basis = min(11, min(w, h) / (2 * max(1.0, context.preferences.system.ui_scale))) if _biblioteca_faixa.eh_faixa(context) else 11
                 ao_lado = _icone_ao_lado(acao)
-                # o texto ao lado ja' diz o que e': sem o tooltip do
-                # operador da gaveta, que nao diria nada
+                # Adjacent text already explains the action; omit the sidebar operator's
+                # uninformative tooltip.
                 botao.use_tooltip = not ao_lado
                 cx, cy = _centro_icone(x, y, w, h, acao)
                 botao.matrix_basis[0][3] = cx
                 botao.matrix_basis[1][3] = cy
                 if _editor.eh_editor(context.area) or ao_lado or (acao[0] == 'operador'
                                and acao[1] in _solda.OPERADORES_NO_SOLTAR):
-                    # o gizmo dispara no PRESS; a gaveta espera o soltar.
-                    # Com texto ao lado, o clique no icone e' o do botao
-                    # inteiro (o wizard e' modal: pelo gizmo prendia a gaveta)
+                    # The gizmo triggers on PRESS; the sidebar waits for release. With
+                    # adjacent text, an icon click belongs to the whole button
+                    # (launching the modal wizard through the gizmo used to trap the
+                    # sidebar).
                     botao.target_set_operator('object.cabinet_interagir_gaveta')
                 elif acao[0] == 'operador':
                     botao.target_set_operator(acao[1])
@@ -1438,7 +1434,7 @@ class _GizmosGaveta:
 
 class VIEW3D_GGT_cabinet_gaveta(_GizmosGaveta, GizmoGroup):
     bl_idname = 'VIEW3D_GGT_cabinet_gaveta'
-    bl_label = 'Alca Archy Builder'
+    bl_label = "Archy Builder Grip"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE'}

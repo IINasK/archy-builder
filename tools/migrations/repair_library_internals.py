@@ -1,7 +1,7 @@
 """Repair cabinet internals in external copies and publish only verified files.
 
-Supply --fontes DIRECTORY explicitly for preparation.
---aplicar uses the source paths recorded in the existing manifest.
+Supply --sources DIRECTORY explicitly for preparation.
+--apply uses the source paths recorded in the existing manifest.
 """
 import argparse
 import itertools
@@ -44,14 +44,14 @@ def tornar_estrutural(obj, conj):
 
 
 def _reparar_topologia_uma_vez(obj):
-    """Solda costuras coincidentes e elimina faces duplicadas, sem preencher recortes."""
+    """Weld coincident seams and remove duplicate faces without filling cutouts."""
     bm = bmesh.new()
     try:
         bm.from_mesh(obj.data)
         contagem = (len(bm.verts), len(bm.edges), len(bm.faces),sum(len(f.verts) for f in bm.faces))
         bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=.000001)
-        # DXF triangulado pode apoiar dois segmentos num lado unico da
-        # face vizinha. Dividir o lado solda a costura sem tapar o recorte.
+        # Triangulated DXF may place two segments against a single neighboring
+        # face edge. Splitting that edge welds the seam without filling the cutout.
         bordas=[v for v in bm.verts if any(e.is_boundary for e in v.link_edges)]
         for vertice in bordas:
             for aresta in list(bm.edges):
@@ -77,8 +77,8 @@ def _reparar_topologia_uma_vez(obj):
         internas=[f for f in bm.faces if all(len(e.link_faces)>2 for e in f.edges)]
         if internas:
             bmesh.ops.delete(bm,geom=internas,context='FACES_ONLY')
-        # Duas falhas triangulares podem compartilhar apenas uma quina;
-        # o preenchedor nativo nao encontra um loop unico nessa bifurcacao.
+        # Two triangular gaps may share only one corner; the native filler
+        # cannot find a single loop at that fork.
         z0,z1=min(v.co.z for v in bm.verts),max(v.co.z for v in bm.verts)
         for v in list(bm.verts):
             vizinhos=[e.other_vert(v) for e in v.link_edges if e.is_boundary]
@@ -126,8 +126,8 @@ def _reparar_topologia_uma_vez(obj):
                 if outra is None:continue
                 arestas=list(face.edges)+list(outra.edges)
                 usadas.update((id(face),id(outra)))
-                # Um recorte atraves da chapa continua VAZIO: unir as
-                # bordas das duas peles repoe so' suas paredes ausentes.
+                # A cutout through the panel stays EMPTY: joining the boundaries
+                # of both skins restores only its missing walls.
                 bmesh.ops.delete(bm,geom=[face,outra],context='FACES_ONLY')
                 bmesh.ops.bridge_loops(bm,edges=arestas)
             restantes=[f for f in grandes if id(f) not in usadas]
@@ -151,7 +151,7 @@ def reparar_topologia(obj):
 
 
 def recortar(obj, obstaculo):
-    """Diferenca nativa apenas no trecho invadido, mantendo o ID da Mesh original."""
+    """Native difference only in the intruding section, preserving the original Mesh ID."""
     copia = obj.copy()
     copia.data = obj.data.copy()
     copia.modifiers.clear()
@@ -166,9 +166,9 @@ def recortar(obj, obstaculo):
         bmesh.ops.recalc_face_normals(bm_ferramenta,faces=list(bm_ferramenta.faces))
         bm_ferramenta.to_mesh(ferramenta.data)
     finally:bm_ferramenta.free()
-    folga=ferramenta.modifiers.new('Folga do recorte','DISPLACE')
+    folga=ferramenta.modifiers.new("Cutout Clearance",'DISPLACE')
     folga.direction='NORMAL';folga.strength=.0002;folga.mid_level=0.
-    modificador = copia.modifiers.new('Recorte da interferencia', 'BOOLEAN')
+    modificador = copia.modifiers.new("Intersection Cutout", 'BOOLEAN')
     modificador.operation = 'DIFFERENCE'
     modificador.solver = 'EXACT'
     modificador.object = ferramenta
@@ -180,7 +180,7 @@ def recortar(obj, obstaculo):
         try:
             bm.from_mesh(mesh)
             if not bm.faces:
-                raise RuntimeError('O recorte removeria a peca inteira: '+obj.name)
+                raise RuntimeError("The cutout would remove the entire component: "+obj.name)
             bm.to_mesh(obj.data)
             obj.data.update()
         finally:
@@ -197,7 +197,7 @@ def recortar(obj, obstaculo):
 
 
 def restaurar_laterais(conj, dados_fonte):
-    """Os dois presets sem laterais foram reconhecidos como tres gaveteiros."""
+    """The two presets without sides were recognized as three drawer units."""
     addon = _base.addon
     if dados_fonte is None:
         return []
@@ -219,7 +219,7 @@ def restaurar_laterais(conj, dados_fonte):
                       and abs(normal.dot(Vector(p['normal'])))>.995]
         distancia,nome = min(candidatos)
         if distancia > 35:
-            raise RuntimeError('Lateral nao identificada no DXF: '+grupo.name)
+            raise RuntimeError("Side not identified in DXF: "+grupo.name)
         slots=[(s.link,s.material) for s in frente.material_slots]
         uid=frente.get('chapa_uid')
         for obj in list(reversed(grupo.children_recursive)):
@@ -286,14 +286,14 @@ def adotar_gavetas_internas(conj, nome):
                     and c.y>=a.y-11 and d.y<=b.y+14 and d.z-c.z>60):
                 laterais.append((obj,c,d))
         if len(laterais)!=4:
-            raise RuntimeError('Caixa interna incompleta: '+fundo.name)
+            raise RuntimeError("Incomplete internal box: "+fundo.name)
         frente=min(laterais,key=lambda q:q[1].y)
         conjuntos.append(dict(fundo=fundo,pecas=laterais,frente=frente))
     conjuntos.sort(key=lambda q:q['frente'][1].z)
     f0,a0,b0=conjuntos[0]['frente']
     z0=a0.z;z1=max(limites(o,inv)[0].z for o in corpo
                    if abs(limites(o,inv)[0].z-757.94098)<.1)
-    # A moldura original tem faces internas a 13 mm da frente de cada lado.
+    # The original frame has inner faces 13 mm from the front on each side.
     x0,x1=a0.x-13,b0.x+13
     lo,hi=addon.gavetas._limites(conj)
     p=dict(quantidade=len(conjuntos),cobertura='EMBUTIDA',puxador='NENHUM',
@@ -454,7 +454,7 @@ def acertar_vao_prateleiras(grupo):
         if b.z <= caixas[0][1].z+.1:z0=max(z0,b.z)
         if a.z >= caixas[-1][2].z-.1:z1=min(z1,a.z)
     if z1-z0 < .1:
-        raise RuntimeError('Vao sem altura: '+grupo.name)
+        raise RuntimeError("Opening has no height: "+grupo.name)
     matrizes = {p:p.matrix_world.copy() for p in ps}
     grupo[addon.prateleiras.CHAVE_MARGENS] = [x0-baixo.x,cima.x-x1,z0-baixo.z,cima.z-z1,y0-baixo.y]
     grupo.matrix_parent_inverse = Matrix.Identity(4)
@@ -523,10 +523,10 @@ def conferir_edicao_prateleiras(conj):
     for p in ps:
         pontos,uid=antes[p.name]
         if len(pontos)!=len(p.data.vertices) or p.get('chapa_uid')!=uid:
-            raise RuntimeError('A edicao trocou a identidade da prateleira: '+p.name)
+            raise RuntimeError("Editing changed the shelf's identity: "+p.name)
         erro=max(((p.matrix_world@v.co)-a).length*1000 for a,v in zip(pontos,p.data.vertices))
         if erro>.01:
-            raise RuntimeError('A edicao deslocou a prateleira: %s (%g mm)'%(p.name,erro))
+            raise RuntimeError("Editing moved the shelf: %s (%g mm)"%(p.name,erro))
 
 
 def corrigir_modulo(nome, objetos, dados_fonte=None):
@@ -546,7 +546,7 @@ def corrigir_modulo(nome, objetos, dados_fonte=None):
                         if o.type=='MESH' and o.get('eh_chapa') and reparar_topologia(o)]
     acoes['frentes']=ajustar_frentes(conj)
     acoes['profundidades']=limitar_profundidades(conj)
-    # Recortar apenas prateleiras que realmente atravessam outra peca.
+    # Trim only shelves that actually cross another component.
     antes=_auditoria.auditar_modulo(list(bpy.data.objects))
     acoes['recortes']=[]
     for colisao in antes['colisoes_de_pecas']:
@@ -574,14 +574,14 @@ def conferir_auditoria(resultado,nome):
     problemas={k:resultado[k] for k in ('sobreposicoes_de_envelopes','colisoes_de_pecas','malhas_nao_fechadas') if resultado[k]}
     grupos=[g for g in resultado['grupos'] if g['pecas_fora_do_vao'] or g['desvio_referencial_mm']>.25]
     if problemas or grupos:
-        raise RuntimeError('Preset ainda tem interferencias: '+nome+' '+json.dumps(dict(problemas=problemas,grupos=grupos),ensure_ascii=True))
+        raise RuntimeError("Preset still has intersections: "+nome+' '+json.dumps(dict(problemas=problemas,grupos=grupos),ensure_ascii=True))
 
 
 def preparar(biblioteca,fontes,destino):
     _base.validar_destino(str(biblioteca),str(destino))
     biblioteca,fontes,destino=[Path(p).resolve() for p in (biblioteca,fontes,destino)]
     if destino.exists():
-        raise ValueError('O destino de preparo ja existe; use uma pasta nova')
+        raise ValueError("Staging destination already exists; use a new folder")
     destino.mkdir(parents=True)
     antes=_auditoria.auditar(biblioteca,destino/'auditoria_antes')
     itens=json.loads((biblioteca/'indice.json').read_text(encoding='utf-8'))
@@ -589,8 +589,8 @@ def preparar(biblioteca,fontes,destino):
                   and (m['sobreposicoes_de_envelopes'] or m['colisoes_de_pecas'] or m['malhas_nao_fechadas'])}
     originais,novos=destino/'originais',destino/'novos'
     originais.mkdir();novos.mkdir()
-    # A copia completa permite repetir a varredura tambem nos presets
-    # que nao mudaram, sem qualquer escrita na biblioteca de trabalho.
+    # The full copy permits repeating the scan on unchanged presets too,
+    # without writing to the working library.
     for arq in biblioteca.iterdir():
         if arq.is_file() and not arq.name.endswith(('.blend1','.blend2')):
             shutil.copy2(arq,novos/arq.name)
@@ -600,15 +600,15 @@ def preparar(biblioteca,fontes,destino):
                    fontes={},arquivos=[],modulos=[],publicado=False)
     for nome in nomes_backup:
         if _base.digital(biblioteca/nome)!=_base.digital(originais/nome):
-            raise RuntimeError('Original mudou durante o backup: '+nome)
+            raise RuntimeError("Original changed during backup: "+nome)
     addon=_base.addon
     addon.opcoes._pasta_addon=lambda:str(destino/'guarda')
     addon.biblioteca.pasta_biblioteca=lambda:str(destino/'guarda')
     addon.register();addon.chapas._ocupado[0]=True
     try:
         referencias={}
-        for nome,caminho in [('Gaveteiro_19_400x186x550.blend','Cozinha/Bifond/Gaveteiros.dxf'),
-                             ('Mesas_de_Cabeceira_Quarto_04_470x487x400.blend','Quartos/Mesas de Cabeceira/Mesas de Cabeceira.dxf')]:
+        for nome,caminho in [('Gaveteiro_19_400x186x550.blend',"Kitchen/Bifond/Gaveteiros.dxf"),
+                             ('Mesas_de_Cabeceira_Quarto_04_470x487x400.blend',"Bedrooms/Bedside Tables/Mesas de Cabeceira.dxf")]:
             if nome in selecionados:
                 fonte=fontes/caminho
                 manifesto['fontes'][str(fonte)]=_base.digital(fonte)
@@ -622,7 +622,7 @@ def preparar(biblioteca,fontes,destino):
             conferir_auditoria(resultado,nome)
             colecoes,objetos=list(bpy.data.collections),list(bpy.data.objects)
             if catalogos!={c.name:c.asset_data.catalog_id for c in colecoes if c.asset_data}:
-                raise RuntimeError('Catalogos mudaram: '+nome)
+                raise RuntimeError("Catalogs changed: "+nome)
             addon.ferragens.ocultar_pecas_do_rig()
             bpy.context.view_layer.update()
             esperado=_base.estado(colecoes,objetos)
@@ -645,7 +645,7 @@ def preparar(biblioteca,fontes,destino):
                 manifesto['arquivos'].append(dict(nome=n,original=_base.digital(originais/n),novo=_base.digital(novos/n)))
             manifesto['modulos'].append(dict(arquivo=nome,acoes=acoes,auditoria=resultado))
             (destino/'manifesto.json').write_text(json.dumps(manifesto,ensure_ascii=False,indent=2),encoding='utf-8')
-            print('[internos corrigidos]',len(manifesto['modulos']),'/',len(selecionados),nome,flush=True)
+            print("[internals repaired]",len(manifesto['modulos']),'/',len(selecionados),nome,flush=True)
     finally:
         _base.limpar();addon.chapas._ocupado[0]=False;addon.unregister()
     (novos/'indice.json').write_text(json.dumps(itens,ensure_ascii=False,indent=1)+'\n',encoding='utf-8',newline='\n')
@@ -655,7 +655,7 @@ def preparar(biblioteca,fontes,destino):
     for m in depois['modulos']:
         if m['arquivo'] in selecionados:conferir_auditoria(m,m['arquivo'])
     if depois['resumo']['modulos_com_colisao'] or depois['resumo']['modulos_com_sobreposicao']:
-        raise RuntimeError('A varredura completa ainda tem interferencias')
+        raise RuntimeError("Full scan still finds intersections")
     manifesto['verificado']=True
     manifesto['resumo_depois']=depois['resumo']
     (destino/'manifesto.json').write_text(json.dumps(manifesto,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -665,19 +665,19 @@ def preparar(biblioteca,fontes,destino):
 def publicar(destino):
     manifesto=json.loads((Path(destino)/'manifesto.json').read_text(encoding='utf-8'))
     if not manifesto.get('verificado'):
-        raise RuntimeError('Preparo sem validacao completa')
+        raise RuntimeError("Staging lacks full validation")
     _publicacao.publicar(str(destino))
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--biblioteca',default=str(RAIZ/'archy_builder/biblioteca'))
-    parser.add_argument('--fontes',help='Source DXF directory; required for preparation')
-    parser.add_argument('--destino',required=True)
-    parser.add_argument('--aplicar',action='store_true')
+    parser.add_argument('--library', default=str(RAIZ / "archy_builder/assets/library"), dest='biblioteca', metavar='LIBRARY')
+    parser.add_argument('--sources', help='Source DXF directory; required for preparation', dest='fontes', metavar='SOURCES')
+    parser.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    parser.add_argument('--apply', action='store_true', dest='aplicar')
     args=parser.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
     if not args.aplicar and not args.fontes:
-        parser.error('--fontes is required for preparation; provide the source DXF directory')
+        parser.error('--sources is required for preparation; provide the source DXF directory')
     if args.aplicar:publicar(args.destino)
     else:preparar(args.biblioteca,args.fontes,args.destino)
 

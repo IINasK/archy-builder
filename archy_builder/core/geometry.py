@@ -1,29 +1,29 @@
-"""Geometria das pecas: a AREA de chapa e a borda para o orcamento.
+"""Part geometry: panel AREA and edge length for estimates.
 
-O detector de angulos (quinas, extremidades e centros de curva) servia ao
-ima em Python; com o snap NATIVO do Blender (v304) ficou sem uso e saiu na
-v309, a pedido do usuario.
+The angle detector (corners, endpoints and curve centers) served Python
+snapping. Native Blender snap in v304 made it unused; it was removed
+in v309 at the user's request.
 """
 
 import bmesh
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = None
 
 
 # ============================================================ AREA
 def medidas_da_chapa(obj):
-    """(area m2, borda m) da peca pela MALHA: area = volume / espessura
-    (vale para recorte, chanfro e curva: a area desenvolvida), borda =
-    a area das laterais / espessura (o comprimento da fita de borda)."""
+    """Mesh-based (area m2, edge m): area = volume / thickness, giving
+    developed area for notches/chamfers/curves. Edge length = side-face
+    area / thickness, the required edge-band length."""
     if obj is None or obj.type != 'MESH' or not len(obj.data.polygons):
         return 0.0, 0.0
     espessura = float(getattr(obj, 'chapa_espessura_mm', 0.0) or 0.0) / 1000.0
     bm = bmesh.new()
     try:
-        bm.from_mesh(obj.data)        # chapa nao tem escala (invariante 1)
+        bm.from_mesh(obj.data)        # Panels have no scale (invariant 1).
         volume = abs(bm.calc_volume(signed=True))
         total = sum(f.calc_area() for f in bm.faces)
     finally:
@@ -36,9 +36,9 @@ def medidas_da_chapa(obj):
 
 
 def areas(objs):
-    """Resumo de area das CHAPAS de `objs` (e dos filhos: portas,
-    gavetas): {'pecas': [(nome, material, espessura, m2, borda m)],
-    'por_material': {(material, espessura): m2}, 'total_m2', 'borda_m'}."""
+    """Panel-area summary for `objs` and children such as doors/drawers:
+    {'pecas': [(name, material, thickness, m2, edge m)],
+    'por_material': {(material, thickness): m2}, 'total_m2', 'borda_m'}."""
     vistos, pecas = set(), []
     for obj in objs:
         for o in [obj] + list(obj.children_recursive):
@@ -57,9 +57,9 @@ def areas(objs):
 
 
 class OBJECT_OT_calcular_areas(Operator):
-    """Area de chapa (m2) e comprimento de borda (m) dos modulos selecionados"""
+    """Panel area in m2 and edge length in m for selected cabinets."""
     bl_idname = 'object.cabinet_calcular_areas'
-    bl_label = 'Calcular Areas'
+    bl_label = "Calculate Areas"
     bl_options = {'REGISTER'}
 
     @classmethod
@@ -73,10 +73,10 @@ class OBJECT_OT_calcular_areas(Operator):
             alvos.append(conj or obj)
         r = areas(alvos)
         if not r['pecas']:
-            self.report({'WARNING'}, "Nenhuma chapa na selecao")
+            self.report({'WARNING'}, "No panel in the selection")
             return {'CANCELLED'}
-        partes = ['%s %g mm: %.2f m2' % (mat or 'sem material', e, m2)
+        partes = ['%s %g mm: %.2f m2' % (mat or "no material", e, m2)
                   for (mat, e), m2 in sorted(r['por_material'].items())]
-        self.report({'INFO'}, "%.2f m2 de chapa, %.1f m de borda (%d pecas) -- %s" % (
+        self.report({'INFO'}, "%.2f m2 of panels, %.1f m of edging (%d parts) -- %s" % (
             r['total_m2'], r['borda_m'], len(r['pecas']), '; '.join(partes)))
         return {'FINISHED'}

@@ -14,8 +14,8 @@ cd archy-builder
 
 Read [AGENTS.md](../AGENTS.md), then use
 [ARCHITECTURE.md](../ARCHITECTURE.md) to find the owner and its local guide.
-Technical filenames and context guides use English. Existing Portuguese APIs,
-operator identifiers, saved properties and the Portuguese UI remain compatible.
+Documentation, UI text, comments and commit messages use English. Existing APIs,
+operator identifiers and saved properties remain compatible.
 
 ## Develop against Blender
 
@@ -92,5 +92,5 @@ Contribute only content you can publish under CC0. Preserve external licenses
 and provenance as described in [NOTICE](../NOTICE).
 
 - [Architecture](../ARCHITECTURE.md)
-- [Library contract](../archy_builder/biblioteca/AGENTS.md)
+- [Library contract](../archy_builder/assets/library/AGENTS.md)
 - [Historical documentation](HISTORY.md)

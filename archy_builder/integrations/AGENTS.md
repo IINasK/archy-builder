@@ -18,7 +18,7 @@ Use neutral English filenames and descriptions of actual behavior. Preserve
 legacy functions, attributes and identifiers, including brand-bearing data
 keys or operator IDs required by older files/scripts. Do not substitute a
 generic DXF promise for the existing layer-color and source-layout contract.
-UI text and function names remain compatible unless separately requested.
+UI text uses English; internal function identifiers remain compatible.
 
 ## Imports and compatibility
 

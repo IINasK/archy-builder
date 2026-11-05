@@ -1,56 +1,54 @@
-"""DXF -> sistemas do add-on (pedido do usuario: "integracao, nao
-importacao bruta"). O DXF do DXF so' traz SOLIDOS; aqui eles viram o
-que o add-on sabe tratar: a frente com dobradica vira PORTA nativa (as
-dobradicas sao as NOSSAS), a frente com caixa atras vira GAVETAS nativas
-(trilho nosso), o quadro de aluminio de correr vira porta de CORRER com a
-folha "Quadro de aluminio" (trilho nosso), o fundo fino e as travessas do
-topo viram as pecas DEPENDENTES do modulo. Ferragem do DXF (trilho,
-dobradica, puxador, cesto, eletro) nunca entra.
+"""DXF -> add-on systems, as requested by the user: integration rather
+than raw import. DXF supplies only SOLIDS; convert them to supported
+systems: hinged fronts become native DOORS with OUR hinges; fronts
+with boxes behind become native DRAWERS with our rails; sliding aluminum
+frames become SLIDING doors with an aluminum-frame leaf and our rails;
+thin backs and top rails become cabinet DEPENDENTS. Never retain DXF
+hardware (rails, hinges, handles, baskets, appliances).
 
-A COR da camada separa as pecas (levantamento dos DXF do usuario):
-7 = chapa (MDF), 253 = ferragem, 254 = aluminio/vidro (quadro de correr,
-cesto), 8 = puxador, 28 = acessorio de torre, 250-252 = eletro.
+Layer COLOR distinguishes components, based on the user's DXF files:
+7 = panel (MDF), 253 = hardware, 254 = aluminum/glass (sliding frame,
+basket), 8 = handle, 28 = tall-cabinet accessory, 250-252 = appliance.
 
-`planejar` usa geometria em mm de MUNDO; cada porta tem o referencial
-da placa da dobradica (inclusive L/diagonal). `aplicar` monta ferragens
-nossas nos apoios; as gavetas/correr conservam o caminho frontal.
-"""
+`planejar` uses WORLD geometry in mm; each door uses its hinge plate
+frame, including L/diagonal layouts. `aplicar` mounts our hardware on
+the supports; drawers/sliding doors retain the front path."""
 
 import bpy
 import bmesh
 from mathutils import Matrix, Vector
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _portas = _gavetas = _prateleiras = _puxadores = None
 _frentes = None
 
 COR_CHAPA = 7
 COR_FERRAGEM = 253
 COR_ALUMINIO = 254
-# sem tabela de camadas (DXF de teste, outro exportador): tudo e' chapa
+# Without a layer table (test DXF, other exporter), everything is a panel.
 CORES_CHAPA = {COR_CHAPA, None, 0, 256}
 
-TOL_FRENTE_MM = 3.0          # frente: a ate' 3 mm da face da frente do modulo
-FRENTE_MINIMA_MM = (100.0, 60.0)   # largura, altura
-DOBRADICA_MAXIMA_MM = 70.0   # peca de ferragem pequena = dobradica
-ALCANCE_DOBRADICA_MM = 60.0  # atras da frente
-LATERAL_GAVETA_MINIMA_MM = 150.0   # comprimento da lateral da caixa
-CESTO_MINIMO_MM = (80.0, 150.0, 80.0)  # cesto aramado (cor 254): L, P, A
-FOLGA_PILHA_MM = 12.0        # entre frentes da mesma pilha de gavetas
-FOLGA_PAR_MM = 8.0           # entre as duas folhas de uma porta dupla
-QUADRO_CORRER_MM = (18.0, 30.0)    # fundo do perfil do quadro de correr
+TOL_FRENTE_MM = 3.0          # Front: within 3 mm of the cabinet's front face.
+FRENTE_MINIMA_MM = (100.0, 60.0)   # Width, height.
+DOBRADICA_MAXIMA_MM = 70.0   # Small hardware component = hinge.
+ALCANCE_DOBRADICA_MM = 60.0  # Behind the front.
+LATERAL_GAVETA_MINIMA_MM = 150.0   # Box side length.
+CESTO_MINIMO_MM = (80.0, 150.0, 80.0)  # Wire basket (color 254): width, depth, height.
+FOLGA_PILHA_MM = 12.0        # Between fronts in the same drawer stack.
+FOLGA_PAR_MM = 8.0           # Between the two leaves of a double door.
+QUADRO_CORRER_MM = (18.0, 30.0)    # Sliding frame profile depth.
 FUNDO_MAXIMO_MM = 8.0
 TRAVESSA_MAXIMA_MM = 120.0
-FOLGA_ENCAIXE_MAXIMA_MM = 3.1  # DXF deixa base/tampo 3 mm para dentro da lateral
+FOLGA_ENCAIXE_MAXIMA_MM = 3.1  # DXF places base/top 3 mm inward from the side.
 TOL_ENCAIXE_MM = 0.05
 
 
-# ------------------------------------------------------------ caixas
+# ------------------------------------------------------------ boxes
 def peca(obj, lo, hi, eixo=None, curva=False, espessura=0.0, cor=COR_CHAPA,
          analise=None, pontos=None):
-    """Dados de uma peca para o plano: caixa de mundo em mm, o eixo da
-    espessura (0/1/2; None = curva) e a espessura (a da curva vem a parte)."""
+    """Component data for the plan: world box in mm, thickness axis
+    (0/1/2; None = curved), and thickness (provided separately for curves)."""
     dados = {'obj': obj, 'lo': list(lo), 'hi': list(hi), 'eixo': eixo,
             'curva': curva, 'cor': cor,
             'espessura': espessura or (hi[eixo] - lo[eixo] if eixo is not None else 0.0)}
@@ -85,17 +83,16 @@ def _em_referencia(p, referencia):
 
 
 def _referencias_dobradicas(pecas, ferragens):
-    """Cada conjunto placa/braco pertence a UMA folha. A placa fina e'
-    paralela a ela; usar so' caixas globais confundia lateral e porta.
-    """
+    """Each plate/arm assembly belongs to ONE leaf. The thin plate is
+    parallel to it; global boxes alone confused sides with doors."""
     pequenas = [f for f in ferragens if f['cor'] == COR_FERRAGEM
                 and max(_tam(f, k) for k in range(3)) <= DOBRADICA_MAXIMA_MM]
     placas = [f for f in pequenas if f.get('espessura', 0) > 0
               and f['espessura'] <= 3 and abs(Vector(f['normal']).z) < 0.05]
     sementes = list(placas)
     centros = lambda f: Vector(tuple(_centro(f, k) for k in range(3)))
-    # Exportacoes sem plaquinha (e DXFs antigos): o braco ainda informa
-    # o eixo da profundidade. Nao contar placa e braco como duas dobradicas.
+    # For exports without a plate (and older DXFs), the arm still gives
+    # the depth axis. Do not count plate and arm as two hinges.
     for f in pequenas:
         if any((centros(f) - centros(p)).length < 40 for p in placas):
             continue
@@ -112,8 +109,8 @@ def _referencias_dobradicas(pecas, ferragens):
         n.z = 0
         n.normalize()
         vizinhas = [f for f in pequenas if (centros(f) - centros(s)).length < 40]
-        # O centro do braco fica DENTRO da folha (a placa pode ultrapassar
-        # a junta central). Essa diferenca distingue as duas folhas.
+        # The arm center lies INSIDE the leaf (the plate may extend beyond
+        # the center joint). This difference distinguishes the two leaves.
         braco = max(vizinhas, key=lambda f: _tam(f, 0) * _tam(f, 1) * _tam(f, 2), default=s)
         centro = centros(braco)
         opcoes = []
@@ -131,9 +128,9 @@ def _referencias_dobradicas(pecas, ferragens):
                                 for b in (min(proj), max(proj)))
             if distancia > 7:
                 continue
-            # A orientacao vem de onde esta' o braco em relacao a' folha.
-            # A placa triangulada pode ter ruido angular. O plano da
-            # chapa e' a referencia exata, inclusive na diagonal a 45 graus.
+            # Orientation derives from the arm's position relative to the leaf.
+            # A triangulated plate may have angular noise. The panel plane
+            # is the exact reference, including 45-degree diagonals.
             normal_folha=Vector((nf.x,nf.y,0)).normalized()
             media=sum(v.dot(normal_folha) for v in _vertices(f))/len(_vertices(f))
             dentro = normal_folha if centro.dot(normal_folha) >= media else -normal_folha
@@ -158,11 +155,10 @@ def _referencias_dobradicas(pecas, ferragens):
 
 
 def _portas_curvas_referenciadas(pecas, ferragens):
-    """O plano TANGENTE da placa identifica o lado da folha curva.
+    """The plate's TANGENT plane identifies the curved leaf side.
 
-    A malha do DXF sera' adotada na folha nativa, sem aproximar o arco
-    por uma porta reta nem importar a ferragem do DXF.
-    """
+    Adopt the DXF mesh into the native leaf without approximating the
+    arc with a straight door or importing DXF hardware."""
     saida = []
     for f in pecas:
         if not f['curva'] or f.get('obj') is None:
@@ -201,17 +197,16 @@ def _portas_curvas_referenciadas(pecas, ferragens):
 
 
 def _linha_do_corpo(conj, folha):
-    """Borda real do tampo proxima da frente. BVH nativa consulta uma
-    vez ao montar/editar, nunca no desenho ou na abertura da porta.
-    """
+    """Actual top edge near the front. Query native BVH once during
+    assembly/editing, never while drawing or opening the door."""
     from mathutils.bvhtree import BVHTree
     estruturais = _modulos._estruturais(_modulos._chapas_do_conjunto(conj))
     horizontais = [o for o in estruturais
                    if abs(_chapas._eixos(o)[2].z) > .99]
     if not horizontais:
         return None
-    # Uma travessa alta ou tampo recortado nao define o envelope da
-    # frente. A maior chapa deitada conserva a planta completa da caixa.
+    # A tall rail or cut top does not define the front envelope.
+    # The largest horizontal panel preserves the box's full footprint.
     obj = max(horizontais, key=lambda o: (round(sum(p.area for p in o.data.polygons), 6),
                                          max(p.z for p in _chapas._cantos(o))))
     m = obj.matrix_world
@@ -224,7 +219,7 @@ def _linha_do_corpo(conj, folha):
         for e in p.edge_keys:
             e = tuple(sorted(e))
             contagem[e] = contagem.get(e, 0) + 1
-    # Exportacoes trianguladas repetem vertices na mesma coordenada.
+    # Triangulated exports repeat vertices at the same coordinates.
     arestas = {}
     for (i, j), n in contagem.items():
         if n != 1:
@@ -264,8 +259,8 @@ def _linha_do_corpo(conj, folha):
         if coberta:
             continue
         perto.append((tuple(a), tuple(b)))
-    # Cada trecho contiguo e' uma opcao. A frente longa vence o pequeno
-    # retorno lateral que tambem pode estar perto da ponta da porta.
+    # Each contiguous segment is a candidate. The long front wins over the
+    # small side return that may also lie near the door end.
     vizinhos = {}
     for a, b in perto:
         vizinhos.setdefault(a, []).append(b)
@@ -287,8 +282,8 @@ def _linha_do_corpo(conj, folha):
     caminho = max(caminhos, key=lambda ps: sum((b-a).length for a,b in zip(ps,ps[1:])))
     if sum((b-a).length for a,b in zip(caminho,caminho[1:])) < .08:
         return None
-    # O ponto levemente para dentro da chapa distingue os dois sentidos
-    # sem supor frente -Y nem depender da orientacao de uma placa DXF.
+    # A point slightly inside the panel distinguishes both directions
+    # without assuming front -Y or relying on a DXF plate's orientation.
     a, b = max(zip(caminho,caminho[1:]), key=lambda ab: (ab[1]-ab[0]).length)
     meio=(a+b)/2; normal=Vector(((b-a).y, -(b-a).x)).normalized()
     teste=Vector((meio.x+normal.x*.001,meio.y+normal.y*.001,pontos[topo[0].vertices[0]].z))
@@ -311,11 +306,10 @@ def _afastar_linha(pontos, distancia):
 
 
 def _limitar_pontas_frente(conj, dentro, fora, alturas):
-    """Recorta as DUAS faces da folha ate' liberar as laterais reais.
+    """Trim BOTH leaf faces until the actual sides are clear.
 
-    A borda do tampo pode passar por dentro da lateral; afastar so' pela
-    normal da curva nao libera essa ponta. Consultas nativas so' na montagem.
-    """
+    The top edge may pass inside a side panel; moving only along the
+    curve normal does not clear that end. Native queries only during assembly."""
     apoios = [(o, o.matrix_world.inverted()) for o in
               _modulos._estruturais(_modulos._chapas_do_conjunto(conj))]
     folga = _portas.RESPIRO_PORTA_MM / 1000
@@ -330,9 +324,9 @@ def _limitar_pontas_frente(conj, dentro, fora, alturas):
                         if (pt-co).length < folga - 2e-6:
                             return False
                         if (pt-co).dot(normal) < 0:
-                            # Na quina o closest_point pode devolver a normal
-                            # de outra face. Paridade nativa distingue dentro
-                            # de fora sem prolongar esse plano indefinidamente.
+                            # At a corner, closest_point may return another face's
+                            # normal. Native parity distinguishes inside from outside
+                            # without extending that plane indefinitely.
                             direcao = Vector((.7123,.3217,.6271)).normalized()
                             origem = pt.copy(); cruzamentos = 0
                             for _ in range(64):
@@ -380,9 +374,9 @@ def _limitar_pontas_frente(conj, dentro, fora, alturas):
 
 
 def _perfil_curvo_positivo(folha):
-    # DXFs tambem trazem faces invertidas. Reconhecer numa copia orientada
-    # impede usar a superficie interna como frente, sem tocar na madeira
-    # antes de saber se o encaixe e' possivel.
+    # DXFs also contain inverted faces. Recognizing an oriented copy
+    # avoids using the inner surface as the front without touching the wood
+    # before knowing whether fitting is possible.
     copia=folha.copy();copia.data=folha.data.copy();me=copia.data
     try:
         bm=bmesh.new()
@@ -403,9 +397,8 @@ def _perfil_curvo_positivo(folha):
 
 
 def _transportar_madeira_curva(folha,pontos,destino,verso):
-    """Encaixa o percurso por comprimento, conservando a secao, recortes
-    e TODOS os vertices/faces. A madeira nao vira uma extrusao nova.
-    """
+    """Fit the path by length, preserving the section, cutouts, and ALL
+    vertices/faces. Do not replace the wood with a new extrusion."""
     perfil,ref=_perfil_curvo_positivo(folha)
     if perfil is None:return None
     origem=[p.xy for p in perfil[0]]
@@ -458,17 +451,16 @@ def _transportar_madeira_curva(folha,pontos,destino,verso):
         base=Matrix(((st.x,sn.x),(st.y,sn.y)))
         if abs(base.determinant())<1e-8:return None
         residual=base.inverted()@(p.xy-oa.lerp(ob,t))
-        # O residual conserva relevos, recortes e quinas entre os dois
-        # percursos. Se o perfil nao muda, nem um vertice muda de lugar.
+        # The residual preserves relief, cutouts, and corners between both
+        # paths. If the profile is unchanged, no vertex moves.
         xy=a.lerp(b,t)+dt*residual.x+dn*residual.y
         novos.append(Vector((*xy,p.z)))
     return novos
 
 
 def _limite_curvo_no_corpo(grupo,folha):
-    """Sweep preparado na montagem, com ray casts BVH nativos. O slider
-    so' le o limite numerico; nao consulta malhas nem monta a porta.
-    """
+    """Sweep prepared during assembly with native BVH ray casts. The slider
+    reads only the numeric limit; it neither queries meshes nor builds the door."""
     ferragens=_portas._ferragens
     conj=_portas._modulo_da_chapa(folha)
     corpo=[]
@@ -497,8 +489,8 @@ def _limite_curvo_no_corpo(grupo,folha):
                 hit,_n,_f,_dist=arvore.ray_cast(ps[i]+u*.00001,u,l-.00002)
                 if hit is not None:return True
         return False
-    # Uma pose fechada ja' obstruida nao fornece um intervalo livre:
-    # conservar o curso legado sem apresenta-lo como limite validado.
+    # A closed pose already obstructed supplies no free interval:
+    # preserve legacy travel without presenting it as a validated limit.
     if colide(0):return None
     seguro=0.
     for graus in range(1,int(ferragens.ABERTURA_MAX_GRAUS['GIRO'])+1):
@@ -514,9 +506,8 @@ def _limite_curvo_no_corpo(grupo,folha):
 
 
 def alinhar_frente_ao_corpo(grupo):
-    """Porta diagonal usa o perfil da carcaca, inclusive a tangente no
-    apoio da dobradica. Refeito so' ao editar/importar; abertura e' nativa.
-    """
+    """A diagonal door uses the carcass profile, including the tangent at
+    the hinge support. Rebuild only on edit/import; opening is native."""
     folhas = _portas._folhas_portas(grupo)
     if len(folhas) != 1:
         return False
@@ -534,16 +525,16 @@ def alinhar_frente_ao_corpo(grupo):
     fechada = _portas._ferragens._matriz_fechada(folha)
     antigos = [fechada @ v.co for v in folha.data.vertices]
     z0,z1 = min(v.z for v in antigos),max(v.z for v in antigos)
-    # A placa do DXF ainda identifica QUAL ponta e' articulada, mas
-    # sua normal nao substitui a normal do corpo nem a tangente da folha.
+    # The DXF plate still identifies WHICH end is hinged, but its
+    # normal does not replace the body's normal or the leaf's tangent.
     x = -l/2000 if p['dobradica_lado']=='ESQUERDA' else l/2000
     apoio = (fechada @ Vector((x,0,-e/2000))).xy
     ponta = (0 if not grupo.get('porta_perfil_corpo') else
              0 if (linha[0]-apoio).length < (linha[-1]-apoio).length else -1)
     esp = float(p['espessura_mm'])
     if folha.get('porta_curva_modelada') and not grupo.get('porta_perfil_corpo'):
-        # A menor aresta do DXF era um segmento do arco (8,24 mm), nao
-        # a espessura. O corpo fornece a madeira nominal desta montagem.
+        # The DXF's shortest edge was an arc segment (8.24 mm), not the
+        # thickness. The body supplies this assembly's nominal wood thickness.
         esp = float(conj.conj_espessura_mm)
     dentro = _afastar_linha(linha, _portas.RESPIRO_PORTA_MM/1000)
     fora_linha = _afastar_linha(linha, (_portas.RESPIRO_PORTA_MM+esp)/1000)
@@ -571,7 +562,7 @@ def alinhar_frente_ao_corpo(grupo):
         locais = [ref.transposed() @ Vector((v.x,v.y,z)) for z in (z0,z1) for v in dentro+fora_linha]
         lo = Vector(tuple(min(v[k] for v in locais) for k in range(3)))
         hi = Vector(tuple(max(v[k] for v in locais) for k in range(3)))
-        # Z=0 e' a face de tras na ponta articulada, nao o extremo da flecha.
+        # Z=0 is the rear face at the hinged end, not the sagitta extreme.
         tras = (ref.transposed() @ Vector((*dentro[ponta],z0))).z
         nova.translation = ref @ Vector((lo.x,lo.y,tras))
         largura,altura=(hi.x-lo.x)*1000,(hi.y-lo.y)*1000
@@ -586,7 +577,7 @@ def alinhar_frente_ao_corpo(grupo):
         if not grupo.get('porta_perfil_corpo'):
             return False
     fracao=float(folha.get(_portas._ferragens.CHAVE_ABERTURA,0))
-    # A folha conserva o ID nativo; o perfil final e' vestido abaixo.
+    # The leaf keeps its native ID; apply the final profile below.
     _portas._aplicar_portas(bpy.context,grupo,nova,conj,largura,altura,p)
     bpy.context.view_layer.update()
     inversa = _portas._ferragens._matriz_fechada(folha).inverted()
@@ -597,11 +588,11 @@ def alinhar_frente_ao_corpo(grupo):
         fs.extend(((i,i+1,n-2-i,n-1-i),(n+i,2*n-1-i,2*n-2-i,n+i+1)))
     if modelada is not None:
         if len(modelada)!=len(folha.data.vertices):
-            raise RuntimeError('A montagem alterou a topologia da folha modelada')
+            raise RuntimeError("Assembly changed the modeled leaf's topology")
         for v,ponto in zip(folha.data.vertices,modelada):v.co=inversa@ponto
-        # Inverter o percurso pode inverter a orientacao do solido.
-        # Normais nativas conservam UV por canto e fazem o puxador sair
-        # da face fisica, em vez de apontar para dentro da madeira.
+        # Reversing the path may reverse the solid's orientation.
+        # Native normals preserve per-corner UVs and make the handle project
+        # from the physical face instead of pointing into the wood.
         bm=bmesh.new()
         try:
             bm.from_mesh(folha.data)
@@ -622,8 +613,8 @@ def alinhar_frente_ao_corpo(grupo):
         folha['porta_linha_frente']=[list(inversa @ Vector((v.x,v.y,z0))) for v in fora_linha]
         if modelada is None:folha['porta_linha_indices']=[n-1-i for i in range(m)]
         else:
-            # Compatibilidade legada; os consumidores atuais usam FACE/
-            # EDGE. A consulta parte dos vertices reais, nao da extrusao.
+            # Legacy compatibility; current consumers use FACE/
+            # EDGE. The query uses actual vertices, not the extrusion.
             folha['porta_linha_indices']=[min(range(len(folha.data.vertices)),
                 key=lambda i:(folha.data.vertices[i].co-Vector(v)).length_squared)
                 for v in folha['porta_linha_frente']]
@@ -671,9 +662,8 @@ def alinhar_frente_ao_corpo(grupo):
 
 
 def corrigir_curvas_legadas(conj,paineis_fixos=()):
-    """Uma vez na montagem/anexo, por geometria e referencias medidas;
-    nao por categoria. Uma placa acima da madeira nao articula rodape.
-    """
+    """Once during assembly/attachment, using geometry and measured references,
+    not category. A plate above the wood does not hinge a plinth."""
     mudancas=0
     for g in list(_portas._portas_do_conjunto(conj)):
         fs=_portas._folhas_portas(g)
@@ -682,14 +672,14 @@ def corrigir_curvas_legadas(conj,paineis_fixos=()):
         if not folha.get('porta_curva_modelada') or not folha.get('porta_origem_promob'):continue
         p=g['porta_parametros'];refs=p.get('dobradicas_referencia',{}).get('0',[])
         if g.name in paineis_fixos:
-            # Conservar a peca real e seus dados; remover so' o sistema
-            # automatico que nasceu da placa da porta vizinha.
+            # Preserve the actual component and its data; remove only the automatic
+            # system created from the neighboring door's plate.
             fechada=_portas._ferragens._matriz_fechada(folha)
             for o in list(_portas._ferragens._ferragens_portas(g)):
                 _portas._ferragens._remover_ferragem(o)
-            # Puxador e' escolha independente: mesmo um modelo que nasceu
-            # automatico pode ter sido editado depois. A migracao do asset
-            # auditado limpa seus proprios acessorios fora deste helper.
+            # Handles are an independent choice: even an automatically created
+            # model may have been edited later. The audited asset migration
+            # cleans up its own accessories outside this helper.
             folha.parent=conj;folha.matrix_parent_inverse=Matrix.Identity(4);folha.matrix_world=fechada
             for chave in list(folha.keys()):
                 if chave.startswith('porta_') or chave==_chapas.MARCA_FOLHA:del folha[chave]
@@ -698,8 +688,8 @@ def corrigir_curvas_legadas(conj,paineis_fixos=()):
                 mundo=o.matrix_world.copy();o.parent=conj;o.matrix_world=mundo
             bpy.data.objects.remove(g,do_unlink=True);mudancas+=1
         else:
-            # O clamp legado perdeu a distancia da placa. Nao e' prova
-            # para apagar um sistema: so' a migracao auditada confirma.
+            # The legacy clamp lost the plate distance. That is not evidence
+            # for removing a system; only the audited migration confirms it.
             if refs and all(float(r)<=1e-6 or float(r)>=1-1e-6 for r in refs):continue
             linha=_linha_do_corpo(conj,folha)
             if linha and len(linha)>3 and alinhar_frente_ao_corpo(g):mudancas+=1
@@ -709,9 +699,8 @@ def corrigir_curvas_legadas(conj,paineis_fixos=()):
 
 
 def integrar_frentes_diagonais(conj):
-    """Exportacoes sem placa reconhecivel ainda podem ter a frente
-    modelada. So' adota o painel alto que acompanha a borda real do corpo.
-    """
+    """Exports without a recognizable plate may still have a modeled front.
+    Adopt only a tall panel following the actual body edge."""
     grupos=_portas._portas_do_conjunto(conj)
     if not grupos:
         altura=float(conj.conj_altura_mm)/1000
@@ -794,9 +783,9 @@ def _portas_referenciadas(pecas, ferragens):
                     and abs((p['lo'][2] - f['hi'][2]) if lado == 'CIMA' else
                             (p['hi'][0] - f['lo'][0]) if lado == 'ESQUERDA' else
                             (p['lo'][0] - f['hi'][0])) <= ALCANCE_VAO_MM]
-        # Alguns cantos usam no DXF uma articulacao especial entre
-        # folhas (135/180 graus). A nossa dobradica comum exige apoio:
-        # nao montar na junta livre se so' a borda oposta tem uma lateral.
+        # Some corners use a special inter-leaf joint in DXF
+        # (135/180 degrees). Our standard hinge requires support:
+        # do not mount at the free joint if only the opposite edge has a side panel.
         paralelo = None
         if lado in ('ESQUERDA', 'DIREITA') and not apoios_lado(lado):
             borda_x = f['lo'][0] if lado == 'ESQUERDA' else f['hi'][0]
@@ -815,8 +804,8 @@ def _portas_referenciadas(pecas, ferragens):
             if paralelo is None and apoios_lado(oposto):
                 lado = oposto
         vao = list(vao_atras(corpo, f, face))
-        # Limite de apoio no lado articulado; o outro lado pode ser a
-        # junta livre com a folha vizinha, nunca um apoio inventado.
+        # Support limit on the hinged side; the other side may be the free
+        # joint with the neighboring leaf, never an invented support.
         indice = {'ESQUERDA': 0, 'DIREITA': 1, 'CIMA': 3}[lado]
         apoios = [p for p in corpo if id(p['original']) in ids
                   and p['eixo'] == (2 if lado == 'CIMA' else 0)
@@ -824,8 +813,8 @@ def _portas_referenciadas(pecas, ferragens):
                   and abs((p['lo'][2] if lado == 'CIMA' else
                            p['hi'][0] if lado == 'ESQUERDA' else p['lo'][0]) - vao[indice]) < 1]
         apoio = paralelo if paralelo is not None else (apoios[0] if apoios else None)
-        # Arremate FIXO nao e' outra folha. A junta articulada e' so'
-        # entre portas reconhecidas pelas ferragens do DXF.
+        # FIXED trim is not another leaf. A hinged joint exists only
+        # between doors recognized from DXF hardware.
         articulada = paralelo is not None and id(paralelo['original']) in ids
         if articulada:
             vao[indice] = (paralelo['hi'][0] + 2 if lado == 'ESQUERDA'
@@ -841,8 +830,8 @@ def _portas_referenciadas(pecas, ferragens):
     por_nome = {p['folhas'][0].get('origem'): p for p in saida}
     ciclos = [p for p in saida if p.get('apoio') in por_nome
               and por_nome[p['apoio']].get('apoio') == p['folhas'][0].get('origem')]
-    # Duas folhas nao podem se sustentar mutuamente na junta livre.
-    # Se o DXF aponta esse ciclo, prevalecem as laterais reais da caixa.
+    # Two leaves cannot support each other at a free joint.
+    # If DXF indicates that cycle, use the actual box sides instead.
     for p in ciclos:
         if p.get('lado_externo'):
             p.update(lado=p['lado_externo'], articulada=False, apoio=None, apoio_plano_mm=0)
@@ -884,7 +873,7 @@ def _cruza(a, b, k, folga=0.0):
 
 
 def _dentro(a, b, k, folga=0.0):
-    """a cabe em b no eixo k."""
+    """Whether a fits inside b along axis k."""
     return a['lo'][k] >= b['lo'][k] - folga and a['hi'][k] <= b['hi'][k] + folga
 
 
@@ -893,9 +882,9 @@ def _uniao(pecas):
             'hi': [max(p['hi'][k] for p in pecas) for k in range(3)]}
 
 
-# ------------------------------------------------------------ leitura
+# ------------------------------------------------------------ reading
 def _dobradicas(frente, ferragens):
-    """Dobradicas (ferragem pequena) que tocam a frente por tras."""
+    """Hinges (small hardware) touching the back of the front."""
     plano = frente['hi'][1]
     return [f for f in ferragens
             if f['cor'] == COR_FERRAGEM
@@ -905,11 +894,11 @@ def _dobradicas(frente, ferragens):
 
 
 def _caixa_de_gaveta(frente, corpo, costas, multinivel=False):
-    """As pecas da caixa atras da frente (laterais, contrafrente, traseira,
-    fundo) ou [] se nao ha' caixa: >= 2 laterais (de pe', normal X)
-    compridas, tudo DENTRO do vao atras da frente e longe das costas do
-    modulo (`costas`, y mm) -- a base, as laterais e o fundo do modulo,
-    que a frente inteirica cobre, nao sao da caixa."""
+    """Box components behind the front (sides, inner front, rear, bottom),
+    or [] if there is no box: >= 2 long upright sides with X normals,
+    all INSIDE the opening behind the front and away from the cabinet
+    back (`costas`, y mm). The cabinet base, sides, and back covered by
+    the full front do not belong to this box."""
     x0, x1, z0, z1 = vao_atras(corpo, frente, frente['hi'][1], costas)
     vao = {'lo': [x0, 0.0, z0], 'hi': [x1, 0.0, z1]}
     pecas = [p for p in corpo
@@ -922,7 +911,7 @@ def _caixa_de_gaveta(frente, corpo, costas, multinivel=False):
              and abs(a['lo'][2] - b['lo'][2]) < 3
              and abs(a['lo'][1] - b['lo'][1]) < 15 and abs(a['hi'][1] - b['hi'][1]) < 15]
     faixas = {round(a['lo'][2]) for a, b in pares}
-    # Uma lateral inteira pode cobrir VARIAS caixas: ela nao e' uma frente.
+    # A full side can cover SEVERAL boxes: it is not a front.
     if not faixas or (len(faixas) != 1 and not multinivel):
         return []
     a, b = max(pares, key=lambda par: par[1]['lo'][0] - par[0]['hi'][0])
@@ -933,15 +922,14 @@ def _caixa_de_gaveta(frente, corpo, costas, multinivel=False):
         return []
     return [p for p in pecas if p['lo'][2] >= baixo - (10 if p['eixo'] == 2 else 2)
             and p['hi'][2] <= cima + 2
-            # Fundo/contrafrente curvos avancam alem das laterais retas.
+            # Curved bottoms/inner fronts extend beyond straight sides.
             and p['lo'][1] >= min(frente['lo'][1], a['lo'][1], b['lo'][1]) - 1
             and p['hi'][1] <= max(a['hi'][1], b['hi'][1]) + 15]
 
 
 def _gavetas_em_faces(pecas, ferragens, portas):
-    """Caixa unica atras de uma FACE vertical, inclusive ilhas viradas.
-    Laterais de aluminio sao referencias de caixa, nunca modelos usados.
-    """
+    """Single box behind a vertical FACE, including rotated islands.
+    Aluminum sides are box references, never models to retain."""
     encontrados, cache = [], {}
     for f in pecas:
         if id(f) in portas or f['curva'] or 'normal' not in f:
@@ -970,8 +958,8 @@ def _gavetas_em_faces(pecas, ferragens, portas):
                 if _tam(q, q['eixo']) <= 30:
                     metal.append(q)
             costas = max(p['hi'][1] for p in corpo)
-            # Porta-temperos: uma frente alta com caixas em varios niveis.
-            # Puxador na face confirma a frente; uma lateral nao o tem.
+            # Spice pull-out: a tall front with boxes at several levels.
+            # A handle on the face confirms the front; a side has none.
             puxadores = [_em_referencia(p,ref) for p in ferragens if p['cor'] == 8]
             puxador_na_face = any(_dentro(p,frente,0,5) and _dentro(p,frente,2,5)
                 and p['hi'][1] <= frente['hi'][1]+5
@@ -983,7 +971,7 @@ def _gavetas_em_faces(pecas, ferragens, portas):
                 encontrados.append(dict(frente=frente, caixa=caixa, referencia=ref))
                 break
     grupos = []
-    # Pilhas so' se juntam na MESMA face, nunca no lado oposto da ilha.
+    # Join stacks only on the SAME face, never opposite sides of an island.
     while encontrados:
         ref = encontrados[0]['referencia']
         lado = [g for g in encontrados if (g['referencia'] - ref).col[1].length < .001]
@@ -1004,9 +992,8 @@ def _gavetas_em_faces(pecas, ferragens, portas):
 
 
 def orientar_modulo(conj, plano):
-    """Frente unica alinhada a' caixa: eixos funcionais, sem mover pecas.
-    Em cantos com faces diferentes ou diagonal da caixa, conservar eixos.
-    """
+    """Single front aligned with the box: functional axes without moving components.
+    For corners with different faces or diagonal boxes, preserve the axes."""
     refs = [p.get('referencia', Matrix.Identity(3)) for tipo in ('portas', 'gavetas')
             for p in plano[tipo]]
     if not refs:
@@ -1033,27 +1020,27 @@ def orientar_modulo(conj, plano):
     return True
 
 
-ALCANCE_VAO_MM = 40.0        # chapa do vao: a ate' isto da borda da frente
-ALCANCE_COSTAS_MM = 30.0     # peca da caixa do modulo: vai ate' as costas
+ALCANCE_VAO_MM = 40.0        # Opening panel: within this distance of the front edge.
+ALCANCE_COSTAS_MM = 30.0     # Cabinet box component: extends to the back.
 
 
 def _estrutural(p, costas):
-    """Peca da CAIXA do modulo (lateral, divisoria, base, tampo: vao ate'
-    as costas) ou travessa (estreita); a caixa da gaveta nao e'."""
+    """Cabinet BOX component (side, partition, base, top extending to
+    the back), or a narrow rail; excludes the drawer box."""
     return (costas is None or p['hi'][1] >= costas - ALCANCE_COSTAS_MM
             or (p['eixo'] == 2 and _tam(p, 1) <= TRAVESSA_MAXIMA_MM))
 
 
 def vao_atras(corpo, caixa, plano, costas=None, alcance=None):
-    """O vao (x0, x1, z0, z1) mm atras de `caixa`: as faces das chapas do
-    corpo que chegam a' frente (`plano`, a face de tras das frentes) mais
-    perto do centro dela, se estiverem PERTO da borda da frente. Lado sem
-    chapa (gavetas embaixo de uma porta, sem travessa entre elas): a borda
-    da frente menos a cobertura medida nos outros lados."""
+    """Opening (x0, x1, z0, z1) in mm behind `caixa`: body panel faces
+    reaching the front (`plano`, the rear face of the fronts), nearest
+    its center if CLOSE to the front edge. Without a panel on a side
+    (drawers below a door with no rail between), use the front edge
+    minus the overlay measured on the other sides."""
     cx, cz = _centro(caixa, 0), _centro(caixa, 2)
     y = plano + 5.0
     tocam = [p for p in corpo if p['lo'][1] <= y <= p['hi'][1]]
-    # a lateral e o fundo da caixa da GAVETA nao delimitam o vao
+    # The DRAWER box side and bottom do not define the opening.
     tocam = [p for p in tocam if _estrutural(p, costas)]
     achados = [
         max((p['hi'][0] for p in tocam if p['hi'][0] <= cx
@@ -1066,7 +1053,7 @@ def vao_atras(corpo, caixa, plano, costas=None, alcance=None):
              and p['lo'][0] < cx < p['hi'][0]), default=None),
     ]
     bordas = [caixa['lo'][0], caixa['hi'][0], caixa['lo'][2], caixa['hi'][2]]
-    sinais = (1.0, -1.0, 1.0, -1.0)            # para DENTRO da frente
+    sinais = (1.0, -1.0, 1.0, -1.0)            # Toward the INSIDE of the front.
     alcance = ALCANCE_VAO_MM if alcance is None else alcance
     validos = [a if a is not None and abs(a - b) <= alcance else None
                for a, b in zip(achados, bordas)]
@@ -1074,8 +1061,8 @@ def vao_atras(corpo, caixa, plano, costas=None, alcance=None):
              for v, b, s in zip(validos, bordas, sinais)]
 
     def cobertura(k):
-        # a do OUTRO eixo (as gavetas cobrem igual dos 4 lados, a medida
-        # dos lados); sem ela, a do lado oposto; sem nada, rente
+        # Use the OTHER axis (drawers overlay all four sides equally, measured
+        # at the sides); otherwise the opposite side; with neither, use flush.
         outros = [c for j, c in enumerate(cobre) if c is not None and j // 2 != k // 2]
         if not outros:
             outros = [c for c in cobre if c is not None]
@@ -1085,7 +1072,7 @@ def vao_atras(corpo, caixa, plano, costas=None, alcance=None):
 
 
 def _profundidade(corpo, caixa, plano, padrao):
-    """Do plano da frente ate' a 1a chapa atras (o fundo), no centro."""
+    """From the front plane to the first panel behind it (the back), at the center."""
     cx, cz = _centro(caixa, 0), _centro(caixa, 2)
     atras = [p['lo'][1] for p in corpo if p['eixo'] == 1
              and p['lo'][1] > plano + 50.0
@@ -1094,8 +1081,8 @@ def _profundidade(corpo, caixa, plano, padrao):
 
 
 def _pilhas(gavetas):
-    """Frentes de gaveta empilhadas (mesma largura, coladas) de baixo
-    para cima."""
+    """Stacked drawer fronts of the same width, touching, from bottom
+    to top."""
     pilhas = []
     for g in sorted(gavetas, key=lambda g: g['frente']['lo'][2]):
         f = g['frente']
@@ -1112,10 +1099,9 @@ def _pilhas(gavetas):
 
 
 def portas_sem_faces_opostas(portas):
-    """Uma frente por caixa (pedido do usuario: ilhas nao sao passantes).
-    Canto perpendicular continua com duas frentes. Na face oposta, usar
-    a frente visivel na foto padrao (+X/-Y), depois a maior abertura.
-    """
+    """One front per box; the user requested non-through-access islands.
+    Perpendicular corners retain two fronts. For opposite faces, use
+    the front visible in the standard photo (+X/-Y), then the largest opening."""
     def prioridade(p):
         fora = -p.get('referencia', Matrix.Identity(3)).col[1]
         area = sum(_tam(f,0)*_tam(f,2) for f in p['folhas'])
@@ -1129,19 +1115,19 @@ def portas_sem_faces_opostas(portas):
 
 
 def planejar(pecas, ferragens):
-    """O que cada peca do modulo vira. `pecas` = as chapas e curvas do
-    modulo (`peca`), `ferragens` = as que nao sao chapa (com a cor).
-    Devolve {'portas': [{'folhas': [frente], 'lado', 'vao', 'plano'}],
+    """Plan each cabinet component's conversion. `pecas` = cabinet panels
+    and curves (`peca`); `ferragens` = non-panel components with color.
+    Return {'portas': [{'folhas': [front], 'lado', 'vao', 'plano'}],
     'gavetas': [{'frentes', 'vao', 'plano', 'profundidade', 'curva'}],
-    'correr': [{'quadros', 'vao', 'plano'}], 'remover': [peca],
-    'fundo': peca|None, 'travessas': [(peca, lado)]}."""
+    'correr': [{'quadros', 'vao', 'plano'}], 'remover': [component],
+    'fundo': component|None, 'travessas': [(component, side)]}."""
     plano = {'portas': [], 'gavetas': [], 'correr': [], 'remover': [],
              'fundo': None, 'travessas': []}
     if not pecas:
         return plano
     portas = _portas_referenciadas(pecas, ferragens) + _portas_curvas_referenciadas(pecas,ferragens)
-    # Recortes e faces distintas exigem as coberturas medidas, sem
-    # arredondar a borda para Reta/Curva e criar interpenetracoes na quina.
+    # Cutouts and distinct faces require measured overlays; do not round
+    # edges to straight/curved defaults and create corner interpenetrations.
     for p in portas:
         p['contorno_exato']=True
     plano['portas'] = portas_sem_faces_opostas(portas)
@@ -1163,8 +1149,8 @@ def planejar(pecas, ferragens):
                and _tam(p, 2) >= FRENTE_MINIMA_MM[1]]
     corpo = [p for p in pecas if p not in frentes and id(p) not in reconhecidas]
     costas = max(p['hi'][1] for p in pecas)
-    # cesto aramado (gavetao, porta-temperos): a gaveta do DXF sem
-    # caixa de MDF -- vira gaveta NOSSA (caixa e trilho do add-on)
+    # Wire basket (deep drawer, spice pull-out): a DXF drawer without an
+    # MDF box becomes OUR drawer with the add-on box and rails.
     cestos = [c for c in ferragens if c['cor'] == COR_ALUMINIO
               and all(_tam(c, k) >= CESTO_MINIMO_MM[k] for k in range(3))]
     com_frente = set()
@@ -1172,7 +1158,7 @@ def planejar(pecas, ferragens):
     for f in frentes:
         if id(f) in reconhecidas:
             continue
-        # so' a curva chega sem 'normal'; as portas planas ja' sairam acima
+        # Only curves arrive without 'normal'; planar doors were handled above.
         caixa = _caixa_de_gaveta(f, corpo, costas) if f['curva'] else []
         dob = _dobradicas(f, ferragens) if not f['curva'] else []
         atras = [c for c in cestos
@@ -1182,12 +1168,12 @@ def planejar(pecas, ferragens):
         if (caixa or atras) and not dob:
             gavetas.append({'frente': f, 'caixa': caixa})
             usadas.update(id(p) for p in caixa)
-    # a caixa de uma gaveta nao delimita o vao da outra
+    # One drawer box does not define another's opening.
     corpo = [p for p in corpo if id(p) not in usadas]
     for pilha in _pilhas(gavetas):
         fs = [g['frente'] for g in pilha]
         uniao = _uniao(fs)
-        # a face de tras das frentes (na curva, a das pontas do arco)
+        # Rear face of the fronts (for curves, the face at the arc ends).
         face = max(f['hi'][1] for f in fs)
         curva = any(f['curva'] for f in fs)
         plano['gavetas'].append({
@@ -1196,8 +1182,8 @@ def planejar(pecas, ferragens):
             'profundidade': _profundidade(corpo, uniao, face, 500.0),
             'curva': curva})
         plano['remover'] += fs + [p for g in pilha for p in g['caixa']]
-    # cesto SEM frente de chapa (a frente era do cesto do DXF): gaveta
-    # no vao inteiro em que ele esta', com a frente do add-on
+    # Basket WITHOUT a panel front (its front was DXF basket geometry): use
+    # a drawer filling its entire opening with an add-on front.
     for c in cestos:
         if id(c) in com_frente or c['lo'][1] > ymin + 20.0:
             continue
@@ -1207,8 +1193,8 @@ def planejar(pecas, ferragens):
             'frentes': [], 'plano': ymin, 'vao': (x0, x1, z0, z1),
             'profundidade': _profundidade(corpo, caixa, ymin, 500.0),
             'curva': False})
-    # correr: os quadros de aluminio na frente do modulo (o vidro de
-    # dentro e os trilhos do DXF ficam de fora)
+    # Sliding doors: aluminum frames at the cabinet front, excluding
+    # their glass and DXF rails.
     caixa_modulo = _uniao(pecas)
     quadros = [f for f in ferragens if f['cor'] == COR_ALUMINIO
                and QUADRO_CORRER_MM[0] <= _tam(f, 1) <= QUADRO_CORRER_MM[1]
@@ -1219,7 +1205,7 @@ def planejar(pecas, ferragens):
         uniao = _uniao(quadros)
         plano['correr'].append({'quadros': quadros, 'plano': ymin,
                                 'vao': vao_atras(corpo, uniao, ymin, costas)})
-    # fundo e travessas do topo: as pecas dependentes do modulo
+    # Back and top rails: cabinet dependents.
     restantes = [p for p in corpo if id(p) not in {id(r) for r in plano['remover']}]
     if restantes:
         caixa = _uniao(restantes)
@@ -1251,9 +1237,8 @@ def planejar(pecas, ferragens):
 
 
 def _prateleiras_do_corpo(pecas):
-    """Chapas horizontais internas, por vao/perfil; sem base, topo ou
-    travessa. Uma divisoria vertical apoiada nela define estrutura fixa.
-    """
+    """Internal horizontal panels by opening/profile, excluding base, top,
+    and rails. A vertical partition resting on one defines fixed structure."""
     if not pecas:
         return []
     caixa = _uniao(pecas)
@@ -1280,14 +1265,14 @@ def _prateleiras_do_corpo(pecas):
     return grupos
 
 
-# ------------------------------------------------------------ cena
+# ------------------------------------------------------------ scene
 def encaixes_a_ajustar(conj):
-    """Bases/tampos junto a' quina externa, sem tocar prateleiras internas.
+    """Bases/tops flush with the outer corner, without touching internal shelves.
 
-    A lateral ja' define a altura certa; mover a chapa deitada fecha o
-    recuo sem mudar E, contorno modelado, portas/gavetas ou tamanho externo.
-    Tudo nos eixos do modulo: presets podem estar girados na cena.
-    """
+    The side already defines the correct height; moving the horizontal
+    panel closes the recess without changing thickness, modeled outline,
+    doors/drawers, or external size. Use cabinet axes throughout:
+    presets may be rotated in the scene."""
     placas = _modulos._estruturais(_modulos._chapas_do_conjunto(conj))
     dados = []
     inversa = conj.matrix_world.inverted()
@@ -1321,16 +1306,15 @@ def ajustar_encaixes(conj):
     for obj, delta_mm in ajustes:
         _chapas._definir_centro(obj, obj.matrix_world.translation + eixo_z * (delta_mm / 1000.0))
     bpy.context.view_layer.update()
-    # As ancoras precisam memorizar a montagem corrigida, nao os 3 mm antigos.
+    # Anchors must remember the corrected assembly, not the old 3 mm offset.
     _chapas.detectar_adjacencia(_modulos._chapas_do_conjunto(conj))
     _modulos.sincronizar_medidas_conjunto(conj)
     return [{'chapa': obj.name, 'deslocamento_mm': delta} for obj, delta in ajustes]
 
 
 def alinhar_arremates(conj):
-    """Ripa vertical quase inteira (recuo de exportacao ate' 3,1 mm)
-    termina na mesma quina da caixa; nao alongar divisorias internas.
-    """
+    """Nearly full-height vertical slat (export recess up to 3.1 mm)
+    ends at the same box corner; do not extend internal partitions."""
     corpos = _modulos._estruturais(_modulos._chapas_do_conjunto(conj))
     inv = conj.matrix_world.inverted()
     dados = []
@@ -1374,10 +1358,9 @@ def alinhar_arremates(conj):
 
 
 def reencaixar_verticais(conj, ajustes):
-    """Ao levar base/tampo 3 mm para fora, a divisoria que ENCOSTAVA
-    neles precisa acompanhar a face interna. Senao nasce uma fresta nova.
-    Conferir a face real (ray/BVH nativo), sem preencher o recorte do L.
-    """
+    """When moving base/top 3 mm outward, a partition that TOUCHED them
+    must follow the inner face to avoid creating a new gap.
+    Check the actual face with native ray/BVH queries, preserving L-shaped cutouts."""
     inv=conj.matrix_world.inverted()
     corpos=_modulos._estruturais(_modulos._chapas_do_conjunto(conj))
     planos=[]
@@ -1429,8 +1412,8 @@ def _mundo(conj, x, y, z):
 
 
 def _porta(conj, porta, vao, plano, referencia=None, **opcoes):
-    """Porta nativa pelos 4 pontos do wizard (porta, vao, vao, porta), no
-    plano da frente do corpo -- o caminho de `_portas.porta_no_modulo`."""
+    """Native door from four wizard points (door, opening, opening, door),
+    in the body front plane, following `_portas.porta_no_modulo`."""
     x0, x1, z0, z1 = vao
     px0, px1, pz0, pz1 = porta
     pontos = [_mundo(conj, px0, plano, pz1), _mundo(conj, x0, plano, z1),
@@ -1465,13 +1448,13 @@ def _gavetas_do_plano(context, conj, g):
     fs = g['frentes']
     E = float(conj.conj_espessura_mm) or 18.0
     if not fs:
-        # cesto sem frente: uma gaveta de frente nossa, cobrindo o vao
+        # Basket without a front: a drawer with our front covering the opening.
         p = dict(quantidade=1, lateral_mm=E, espessura_frente_mm=E,
                  profundidade_mm=round(g['profundidade'], 1))
         try:
             return _gavetas.criar_gavetas(context, conj, margens, p, local_ref)
         except ValueError as erro:
-            print('[Archy Builder] cesto do DXF em %s: %s' % (conj.name, erro))
+            print("[Archy Builder] DXF basket in %s: %s" % (conj.name, erro))
             return None
     cobre = x0 - min(f['lo'][0] for f in fs)
     sobreposta = cobre > 1.0
@@ -1497,18 +1480,17 @@ def _gavetas_do_plano(context, conj, g):
     try:
         return _gavetas.criar_gavetas(context, conj, margens, p, local_ref)
     except ValueError as erro:
-        print('[Archy Builder] gavetas do DXF em %s: %s' % (conj.name, erro))
+        print("[Archy Builder] DXF drawers in %s: %s" % (conj.name, erro))
         return None
 
 
 def _cobertura_nossa(borda, vao, E, lados):
-    """A borda da porta nos lados da DOBRADICA vai para a cobertura do
-    add-on: perto da espessura inteira = Reta (cobre E; o respiro de 2 mm
-    e' nosso), perto da metade = Curva. O DXF deixa 5 mm (cobre 10 de
-    15), que a regra de 75% chamaria de Curva. Os outros lados ficam como
-    vieram (o rodape do balcao, por exemplo)."""
+    """Map the door edge on HINGE sides to add-on overlay: near full thickness
+    = straight (covers E; our clearance is 2 mm), near half = curved. DXF
+    leaves 5 mm (covers 10 of 15), which the 75% rule would call curved.
+    Leave other sides unchanged, such as a base cabinet plinth."""
     borda = list(borda)
-    sinais = (-1.0, 1.0, -1.0, 1.0)            # para FORA do vao
+    sinais = (-1.0, 1.0, -1.0, 1.0)            # OUTWARD from the opening.
     for k in lados:
         cobre = sinais[k] * (borda[k] - vao[k])
         if cobre >= 0.6 * E:
@@ -1519,11 +1501,10 @@ def _cobertura_nossa(borda, vao, E, lados):
 
 
 def _respiro_arremate(conj, p, borda):
-    """Painel fixo coplanar nao pode se confundir/encostar com a folha.
+    """A fixed coplanar panel must not be mistaken for or touch the leaf.
 
-    Mede so' ao importar, na referencia real da frente; nao desloca o
-    arremate nem transforma essa madeira em parte da porta.
-    """
+    Measure only during import using the actual front reference; do not
+    move the trim or turn that wood into part of the door."""
     ref = p.get('referencia', Matrix.Identity(3))
     borda = list(borda)
     for obj in _modulos._chapas_do_conjunto(conj):
@@ -1542,8 +1523,8 @@ def _respiro_arremate(conj, p, borda):
 
 
 def aplicar(context, conj, plano):
-    """Cria no modulo `conj` (ja' so' com o corpo) as portas, gavetas e
-    portas de correr do plano. Devolve {'portas', 'gavetas', 'correr'}."""
+    """Create planned doors, drawers, and sliding doors in cabinet `conj`,
+    which already contains only the body. Return {'portas', 'gavetas', 'correr'}."""
     feitos = {'portas': 0, 'gavetas': 0, 'correr': 0, 'prateleiras': 0}
     por_frente, vincular = {}, []
     for g in plano['gavetas']:
@@ -1585,8 +1566,8 @@ def aplicar(context, conj, plano):
                 parametros['dobradica'] = 'CURVA'
                 parametros['dobradica_articulada'] = True
                 parametros['dobradica_apoio_plano_mm'] = p['apoio_plano_mm']
-            # Uma lista por folha: posicoes medidas do copo, em fracao da
-            # borda. Sobrevive ao resize e nao impõe margens simetricas.
+            # One list per leaf: measured cup positions as fractions of the
+            # edge. Survives resizing without imposing symmetric margins.
             medidas = _portas._calcular_folhas_portas(
                 grupo['porta_vao_largura_mm'], grupo['porta_vao_altura_mm'], parametros)
             inverse = grupo.matrix_world.inverted()
@@ -1602,15 +1583,15 @@ def aplicar(context, conj, plano):
             if refs:
                 parametros['dobradicas_referencia'] = refs
                 parametros['dobradicas_qtd'] = len(refs['0'])
-            # Reta nao deve forcar seu rig de 90 graus num apoio diagonal.
+            # Straight hinges must not force their 90-degree rig onto a diagonal support.
             prova=dict(parametros,dobradica='CURVA')
             calc=_portas._calcular_folhas_portas(grupo['porta_vao_largura_mm'],grupo['porta_vao_altura_mm'],prova)
             if _portas._ferragens._apoios_obliquos(conj,grupo.matrix_world,prova,
                     grupo['porta_vao_largura_mm'],grupo['porta_vao_altura_mm'],calc):
                 parametros['dobradica']='CURVA'
             elif not p.get('articulada') and not p.get('curva_modelada'):
-                # Usa a ferragem real tambem na cobertura parcial, sem
-                # mudar a borda da porta para a cobertura padrao Reta.
+                # Use actual hardware for partial overlay too, without changing
+                # the door edge to the standard straight overlay.
                 parametros['dobradica_modelo_reta'] = True
             _portas._reaplicar_portas(context, grupo, parametros)
             if p.get('curva_modelada'):
@@ -1621,7 +1602,7 @@ def aplicar(context, conj, plano):
                 malha.from_pydata([inversa @ (Vector(v)/1000) for v in p['malha_original']['vertices']],[],p['malha_original']['faces'])
                 malha.update()
                 folha['porta_curva_modelada']=1
-                # Alca tangente: perfil reto horizontal nao acompanha arco.
+                # Tangential pull handle: a straight horizontal profile does not follow an arc.
                 pux=_puxadores.criar_puxador(context,folha,'ALCA',
                     'X+' if parametros['dobradica_lado']=='ESQUERDA' else 'X-',1)
                 pux['puxador_curvo']=True
@@ -1675,7 +1656,7 @@ def aplicar(context, conj, plano):
 
 
 def _prateleiras_do_plano(context, conj, ps):
-    """Adota as chapas originais e as alturas livres, com UID/material/forma."""
+    """Adopt original panels and clear heights with UID/material/shape intact."""
     for p in ps:
         if p.get('obj') is not None:
             p['obj'][_prateleiras.MARCA_PRATELEIRA] = 1
@@ -1719,9 +1700,8 @@ def _prateleiras_do_plano(context, conj, ps):
 
 
 def fundos_a_recuar(conj):
-    """Fundo traseiro real, nao divisoria/revestimento interno. Mede pela
-    caixa grossa; incluir o proprio fundo fazia o recuo virar zero.
-    """
+    """Actual rear back panel, not an internal partition/lining. Measure from
+    the thick box; including the back itself used to make the recess zero."""
     pecas=_modulos._chapas_do_conjunto(conj)
     corpo=[o for o in pecas if o.chapa_espessura_mm>FUNDO_MAXIMO_MM
            and _chapas.MARCA_FUNDO not in o]
@@ -1747,14 +1727,14 @@ def fundos_a_recuar(conj):
 
 
 def ajustar_recuo_fundos(conj):
-    """So' desloca o fundo: conserva espessura, recortes, UID e materiais."""
+    """Move only the back, preserving thickness, cutouts, UID, and materials."""
     ajustes=fundos_a_recuar(conj)
     for obj,delta in ajustes:
         m=obj.matrix_world.copy()
         m.translation-=conj.matrix_world.to_3x3() @ Vector((0,delta/1000,0))
         obj.matrix_world=m
-        # Fundo de UM compartimento continua chapa: marca-lo como o
-        # fundo inteiro faria ajustar_fundo estica-lo por toda a torre.
+        # A back for ONE compartment remains a panel: marking it as the
+        # entire back would make ajustar_fundo stretch it across the whole tall cabinet.
     if ajustes:
         conj[_modulos.CHAVE_RECUO_FUNDO]=_modulos.RECUO_FUNDO_MM
         bpy.context.view_layer.update()
@@ -1763,10 +1743,9 @@ def ajustar_recuo_fundos(conj):
 
 
 def ajustar_internos_ao_fundo(conj):
-    """Prateleiras/caixas nao atravessam o fundo recuado. Recalcula os
-    sistemas nativos; o trilho passa ao comprimento comercial que cabe.
-    Retorna nomes dos grupos alterados, para a auditoria da biblioteca.
-    """
+    """Shelves/boxes must not cross the recessed back. Recalculate native
+    systems; choose a commercial rail length that fits.
+    Return changed group names for the library audit."""
     fundo=_modulos.fundo_do_modulo(conj)
     if fundo is None:return []
     alterados=[]
@@ -1803,8 +1782,8 @@ def ajustar_internos_ao_fundo(conj):
 
 
 def marcar_dependentes(conj, plano):
-    """O fundo fino e as travessas do DXF viram as dependentes do
-    modulo (refeitas pela caixa: `_modulos.ajustar_dependentes`)."""
+    """Thin DXF backs and rails become cabinet dependents, rebuilt from
+    the box by `_modulos.ajustar_dependentes`."""
     lo, hi = _modulos._caixa_local_estrutural(conj) or (None, None)
     for p, lado in plano['travessas']:
         tr = p['obj']
@@ -1812,14 +1791,14 @@ def marcar_dependentes(conj, plano):
         tr[_modulos.CHAVE_LADO_TRAVESSA] = lado
         _chapas._ocupado[0] = True
         try:
-            # o ajuste so' troca a posicao: os eixos tem de ser os dele
+            # Adjustment changes position only: use the component's own axes.
             tr.chapa_comprimento_mm = _tam(p, 1)
             tr.matrix_world = conj.matrix_world.to_quaternion().to_matrix().to_4x4()
         finally:
             _chapas._ocupado[0] = False
     fundos=plano.get('fundos',[])
-    # O fundo unico de uma caixa retangular continua usando o canal
-    # padrao. Dois planos de canto nunca podem virar um retangulo unico.
+    # A single rectangular-box back still uses the standard groove.
+    # Two corner planes must never become one rectangle.
     fundos=[p for p in fundos if len(plano.get('fundos',[]))>1
             or _tam(p,2)<.9*(hi.z-lo.z)
             or _tam(p,1 if p['eixo']==0 else 0)<.9*((hi.y-lo.y) if p['eixo']==0 else (hi.x-lo.x))]
@@ -1834,6 +1813,6 @@ def marcar_dependentes(conj, plano):
         conj[_modulos.CHAVE_RECUO_FUNDO] = max(_modulos.RECUO_FUNDO_MM, round(recuo, 1))
     if plano['travessas'] or fundo is not None:
         bpy.context.view_layer.update()
-        # o E do modulo sai da caixa, agora sem o fundo
+        # Cabinet thickness comes from the box, now excluding the back.
         _modulos.sincronizar_medidas_conjunto(conj)
         _modulos.ajustar_dependentes(conj)

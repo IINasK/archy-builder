@@ -1,4 +1,4 @@
-"""Reproducoes: planta monolitica, recorte por pontos e selecao nativa."""
+"""Reproductions: monolithic floor plan, point-based cropping and native selection."""
 import math
 import os
 import sys
@@ -48,7 +48,7 @@ class TestSelecaoParedes(unittest.TestCase):
         self.area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
         self.regiao=next(r for r in self.area.regions if r.type=='WINDOW')
         self.area.spaces.active.region_3d.view_rotation=Quaternion((1,0,0),math.pi/2)
-        # Frente e fundo no MESMO objeto: o caso que bloqueava a camera.
+        # Front and back in the same object: the case that blocked the camera.
         self.parede=malha('Planta monolitica',[quad(-2,2,0,3),list(reversed(quad(-2,2,0,3,-1))),
                        [(-2,-1,0),(-2,1,0),(-2,1,3),(-2,-1,3)]])
         self.extra=malha('Outra parede',[quad(5,6,0,3)])
@@ -118,14 +118,14 @@ class TestSelecaoParedes(unittest.TestCase):
 
     def test_vertices_com_orientacoes_distintas_sao_recusados(self):
         self.vertices(lambda v:True)
-        with self.assertRaisesRegex(ValueError,'orientacao'):
+        with self.assertRaisesRegex(ValueError,'orientation'):
             S.dos_vertices(bpy.context,self.parede)
         self.assertEqual(bpy.context.mode,'EDIT_MESH')
 
     def test_vertices_desconectados_sao_recusados(self):
         self.parede=malha('Desconectadas',[quad(-2,-1,0,3),quad(1,2,0,3)])
         self.vertices(lambda v:True)
-        with self.assertRaisesRegex(ValueError,'conectados'):
+        with self.assertRaisesRegex(ValueError,'connected'):
             S.dos_vertices(bpy.context,self.parede)
 
     def test_tolerancia_pequena_de_plano_e_aceita(self):
@@ -136,7 +136,7 @@ class TestSelecaoParedes(unittest.TestCase):
     def test_desvio_maior_que_dois_mm_e_recusado(self):
         self.parede=malha('Fora do plano',[quad(-2,0,0,3),[(0,1,0),(2,1.01,0),(2,1.01,3),(0,1,3)]])
         self.vertices(lambda v:True)
-        with self.assertRaisesRegex(ValueError,'plano'):
+        with self.assertRaisesRegex(ValueError,'plane'):
             S.dos_vertices(bpy.context,self.parede)
 
     def test_entrar_por_vertices_sai_do_edit_e_isola(self):
@@ -180,8 +180,8 @@ class TestSelecaoParedes(unittest.TestCase):
     def test_planta_monolitica_nao_bloqueia_camera(self):
         malha_original=self.parede.data
         antes=[tuple(v.co) for v in malha_original.vertices]
-        # Reproduz o bloqueio antigo: o mesmo objeto intercepta o raio
-        # na parede da frente antes da parede desejada, que fica em y=1.
+        # Reproduce the old blockage: the same object intercepts the ray at the front
+        # wall before it reaches the desired wall at y = 1.
         atingiu,ponto,_normal,_face=self.parede.ray_cast(Vector((0,-3,1.5)),Vector((0,1,0)))
         self.assertTrue(atingiu)
         self.assertAlmostEqual(ponto.y,-1)
@@ -251,7 +251,7 @@ class TestSelecaoParedes(unittest.TestCase):
         for largura in (190,320,564):
             itens=[];E.widgets(bpy.context,itens,12,900,min(540,largura-24))
             self.assertFalse([v for v in itens if v[0]+v[2]>largura-12+.01])
-            # 396: API de pontos legada permanece, os controles sairam da UI.
+            # 396: legacy point API remains; its controls were removed from the UI.
             self.assertNotIn('Cancelar selecao',[v[4] for v in itens])
 
     def test_desfazer_adia_limpeza_de_objetos_e_timer_remove_orfaos(self):
@@ -335,13 +335,13 @@ class TestSelecaoParedes(unittest.TestCase):
         self.assertTrue(self.parede.visible_get(viewport=self.area.spaces.active))
 
     def test_face_horizontal_e_menos_de_tres_vertices_sao_recusados(self):
-        self.parede=malha('Piso',[[(-1,-1,0),(1,-1,0),(1,1,0),(-1,1,0)]])
+        self.parede=malha("Floor",[[(-1,-1,0),(1,-1,0),(1,1,0),(-1,1,0)]])
         self.vertices(lambda v:True)
         with self.assertRaisesRegex(ValueError,'vertical'):
             S.dos_vertices(bpy.context,self.parede)
         bpy.ops.object.mode_set(mode='OBJECT')
         self.vertices(lambda v:v.x<0)
-        with self.assertRaisesRegex(ValueError,'tres vertices'):
+        with self.assertRaisesRegex(ValueError,'three connected vertices'):
             S.dos_vertices(bpy.context,self.parede)
 
     def test_hover_automatico_usa_raio_nativo_e_muda_feedback_por_face(self):
@@ -354,7 +354,7 @@ class TestSelecaoParedes(unittest.TestCase):
         self.assertIn('triangulos',e['candidata']['regiao'])
         self.assertIn('contorno',e['candidata']['regiao'])
 
-    # Regressao (era BUG, corrigido na 371): teto invisivel bloqueava a parede escolhida.
+    # Regression, fixed in v371: an invisible ceiling blocked the chosen wall.
     def test_escolha_absoluta_ignora_teto_e_objetos_a_frente(self):
         teto = malha('Teto com backface invisivel', [quad(-3,3,0,4,-3)])
         self.parede = malha('Parede alvo unica', [quad(-2,2,0,3,1)])
@@ -447,7 +447,7 @@ class TestSelecaoParedes(unittest.TestCase):
             self.assertFalse(self.extra.hide_select)
             self.assertEqual(tuple(bpy.context.scene.cursor.location),cursor)
             E.preparar_snap_area(bpy.context)
-            # Sem macro nativa viva, o timer deve interpretar Esc/cancelamento.
+            # Without a live native macro, the timer must interpret Esc/cancellation.
             E.acompanhar_snap_area(bpy.context)
             self.assertEqual(e['acao'],'CANCELAR')
             evento=SimpleNamespace(type='TIMER',value='NOTHING')
@@ -551,7 +551,7 @@ class TestSelecaoParedes(unittest.TestCase):
         peca.hide_select=True
         bpy.ops.ed.undo_push(message='Antes do recorte com selecao bloqueada')
         self.iniciar(self.recorte([(-2,1,0),(0,1,0),(0,1,3),(-2,1,3)]))
-        bpy.ops.ed.undo_push(message='Recorte temporario')
+        bpy.ops.ed.undo_push(message="Temporary cutout")
         E.encerrar()
         self.assertTrue(peca.hide_select)
         self.assertFalse(modulo.hide_select)
@@ -625,4 +625,4 @@ with tempfile.TemporaryDirectory(prefix='parede_selecao_') as pasta:
     addon.register()
     resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestSelecaoParedes))
     addon.unregister()
-    if not resultado.wasSuccessful():raise RuntimeError('Falha na selecao de paredes')
+    if not resultado.wasSuccessful():raise RuntimeError("Wall-selection tests failed")

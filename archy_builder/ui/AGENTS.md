@@ -24,8 +24,8 @@ Read the domain guide for behavior beyond presentation and dispatch.
 | door_controls.py | Door sliders, corners and opening controls | portas_viewport |
 
 The legacy gaveta module means sidebar; gavetas means furniture drawers.
-English file/context names do not authorize changing Portuguese UI text,
-functions, widget action vocabulary, operator IDs or persisted editor types.
+UI text, documentation and code annotations use English. Preserve internal
+function names, widget actions, operator IDs and persisted editor identities.
 
 ## Imports and lifecycle
 

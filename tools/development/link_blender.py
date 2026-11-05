@@ -1,8 +1,7 @@
-"""Liga a pasta do projeto a pasta de add-ons do Blender via junction.
+"""Link the project folder to Blender's add-ons folder through a junction.
 
-Depois disso o Blender carrega o codigo direto do repositorio: editar aqui
-altera o add-on, sem copiar nada. Junction no Windows nao exige admin.
-"""
+Blender then loads code directly from the repository: editing here
+changes the add-on without copying files. Windows junctions need no admin rights."""
 import os, subprocess, sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,23 +21,23 @@ def versoes():
 def main():
     vs = versoes()
     if not vs:
-        print("Nao achei instalacao do Blender em", BASE)
+        print("No Blender installation found in", BASE)
         return 1
     versao = sys.argv[1] if len(sys.argv) > 1 else vs[-1]
     addons = os.path.join(BASE, versao, "scripts", "addons")
     os.makedirs(addons, exist_ok=True)
     alvo = os.path.join(addons, "archy_builder")
 
-    # lexists: junction QUEBRADO (repositorio mudou de lugar) tambem sai
+    # lexists also finds BROKEN junctions after the repository moves.
     if os.path.lexists(alvo):
-        print("Removendo o que ja estava em", alvo)
+        print("Removing the existing item at", alvo)
         try:
-            os.rmdir(alvo)              # junction: rmdir basta
+            os.rmdir(alvo)              # Junction: rmdir is sufficient.
         except OSError:
-            # Pasta comum (instalado por .zip) pode ter presets salvos na
-            # biblioteca/: apagar sem perguntar perderia o trabalho do usuario.
-            print("Ja existe uma instalacao comum em", alvo,
-                  "- mova ou apague essa pasta e rode de novo.")
+            # A regular folder installed from ZIP may contain saved presets in
+            # assets/library/: deleting it without asking would lose the user's work.
+            print("A regular installation already exists at", alvo,
+                  "- move or delete that folder and run again.")
             return 1
 
     r = subprocess.run(["cmd", "/c", "mklink", "/J", alvo, ORIGEM],

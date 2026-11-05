@@ -7,9 +7,9 @@ instructions. Scenario inventory: SCENARIOS.md in this directory.
 
 ```
 blender --background --factory-startup --python tests/run_tests.py
-blender ... --python tests/run_tests.py -- --versoes 5.2 --suites hud
+blender ... --python tests/run_tests.py -- --versions 5.2 --suites hud
 blender ... --python tests/run_tests.py -- --gui
-blender ... --python tests/run_tests.py -- --atualizar
+blender ... --python tests/run_tests.py -- --update
 ```
 
 Blender's bundled Python can run the harness without starting Blender itself.
@@ -42,7 +42,7 @@ never modify the open project or the actual library.
    requires a reason and may only shrink as coverage arrives.
 2. Floors only rise. Any intentional removal needs explicit justification;
    never lower a floor just to make a refactor pass.
-3. Only intentionally update snapshots with --atualizar; REVIEW the JSON diff.
+3. Only intentionally update snapshots with --update; REVIEW the JSON diff.
 4. Record discovered unfixed behavior as expectedFailure with a BUG comment.
    Remove the marker when fixed, keeping the reproducible regression.
 5. Library tests redirect pasta_biblioteca and options._pasta_addon BEFORE

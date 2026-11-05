@@ -1,20 +1,13 @@
-"""Harness unico: roda TODAS as suites em TODAS as versoes do Blender.
+"""Unified harness: run every suite in every Blender version.
 
-Execute (so' o Blender e' necessario; o Python dele roda isto):
-
+Only Blender is required; its bundled Python can run this file:
     blender --background --factory-startup --python tests/run_tests.py
-    blender ... --python tests/run_tests.py -- --versoes 5.2 --suites hud
-    blender ... --python tests/run_tests.py -- --gui     (inclui GUI)
+    blender ... --python tests/run_tests.py -- --versions 5.2 --suites hud
+    blender ... --python tests/run_tests.py -- --gui     (includes GUI)
 
-Cada suite roda num Blender SEPARADO (`--factory-startup`), em paralelo:
-uma suite nao herda cena, preferencias nem estado de modulo de outra.
-O processo termina com codigo 1 se qualquer suite falhar, nao rodar ou
-rodar menos testes do que o piso gravado -- teste que some calado e'
-justamente a quebra oculta que este harness existe para pegar.
+Each suite runs in a separate factory-startup Blender process, in parallel, without inheriting scenes, preferences or module state. Exit with code 1 if a suite fails, does not run or runs fewer tests than its recorded floor: silently missing tests are precisely the hidden failures this harness catches.
 
-Suites `tests/test_*_blender.py` sao headless. Suites `tests/gui_*.py`
-abrem uma janela de verdade (eventos simulados); so' rodam com --gui.
-"""
+Suites tests/test_*_blender.py are headless. Suites tests/gui_*.py open a real window with simulated events and run only with --gui."""
 import argparse
 import glob
 import os
@@ -27,19 +20,20 @@ from concurrent.futures import ThreadPoolExecutor
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTES = os.path.join(RAIZ, 'tests')
 PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
-# Piso de testes por suite: cair abaixo disto = teste apagado/pulado sem
-# querer. Subir o numero quando a suite crescer (nunca baixar calado).
-# v304: portas -1, gavetas -3, geometria -1 de proposito -- os testes do
-# ima em Python (`_alvos_do_ima`, `IndiceSnapGavetas`, rotulos) sairam com
-# ele; o snap agora e' o nativo do Blender.
-# v309: geometria -3 de proposito -- o detector de angulos (`pontos_notaveis`)
-# saiu a pedido do usuario; ficam os testes de area e do snap da curva.
+# Per-suite test floors: falling below one means tests were inadvertently deleted
+# or skipped. Increase the floor as coverage grows; never silently lower it.
+# v304 deliberately removed 1 door, 3 drawer and 1 geometry test with the
+# Python snap engine (_alvos_do_ima, IndiceSnapGavetas and labels);
+# snapping now uses Blender's native engine.
+# v309 deliberately removed 3 geometry tests with the angle detector
+# (pontos_notaveis), as requested; area and curve-snap tests remain.
 PISO = {
+    'language':8,
     'packaging':3,
-    'installations':21,
+    'installations':22,
     'masonry':16,
-    'openings':7,
-    'lighting':8,
+    'openings':9,
+    'lighting':10,
     'rooms':61,
     'measurements':21,
     'visibility': 26,
@@ -57,7 +51,7 @@ PISO = {
     'partitions': 42,
     'structure': 51, 'sidebar': 86, 'doors': 165, 'hud': 214,
     'importing': 80, 'handles': 40, 'snapshot': 7, 'operators': 59, 'fronts': 29,
-    'library': 86, 'coverage': 4, 'gui_interaction': 63,
+    'library': 86, 'coverage': 5, 'gui_interaction': 63,
     'estimates': 17, 'walls': 39, 'cabinets': 20, 'shapes': 62, 'drawers': 62,
     'geometry': 5, 'shelves': 60, 'migrations': 14,
     'library_strip': 31, 'gui_library_strip': 7,
@@ -67,16 +61,14 @@ LIMITE_SEGUNDOS = 300
 
 def _argumentos():
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    p = argparse.ArgumentParser(prog='rodar_testes')
-    p.add_argument('--versoes', nargs='*', default=None,
-                   help='ex.: 5.2 4.2 (padrao: todas as instaladas)')
+    p = argparse.ArgumentParser(prog='run_tests')
+    p.add_argument('--versions', nargs='*', default=None, help='e.g. 5.2 4.2 (default: all installed)', dest='versoes', metavar='VERSIONS')
     p.add_argument('--suites', nargs='*', default=None,
-                   help='ex.: hud gaveta (padrao: todas)')
+                   help='e.g. hud sidebar (default: all)')
     p.add_argument('--gui', action='store_true',
-                   help='inclui as suites que abrem janela (gui_*.py)')
-    p.add_argument('--sequencial', action='store_true')
-    p.add_argument('--atualizar', action='store_true',
-                   help='regrava os snapshots (mudanca INTENCIONAL; revise o diff)')
+                   help='include suites that open a window (gui_*.py)')
+    p.add_argument('--sequential', action='store_true', dest='sequencial')
+    p.add_argument('--update', action='store_true', help='rewrite snapshots (intentional changes only; review the diff)', dest='atualizar')
     return p.parse_args(argv)
 
 
@@ -88,7 +80,7 @@ def _blenders(pedidas):
     if pedidas:
         faltando = [v for v in pedidas if v not in achados]
         if faltando:
-            raise SystemExit('Blender nao instalado: %s' % ', '.join(faltando))
+            raise SystemExit('Blender not installed: %s' % ', '.join(faltando))
         return {v: achados[v] for v in pedidas}
     return dict(sorted(achados.items(), reverse=True))
 
@@ -115,7 +107,7 @@ def _suites(pedidas, gui):
 def _rodar(blender, suite, caminho, gui, atualizar=False):
     comando = [blender, '--factory-startup', '--python-exit-code', '1']
     if gui:
-        # janela de tamanho fixo (layout reproduzivel) e sem roubar o foco
+        # Fixed window dimensions provide reproducible layouts without stealing focus.
         comando += ['--enable-event-simulate', '--no-window-focus',
                     '--window-geometry', '0', '0', '1600', '900']
     else:
@@ -128,14 +120,14 @@ def _rodar(blender, suite, caminho, gui, atualizar=False):
             ambiente['CABINET_ATUALIZAR_SNAPSHOTS'] = '1'
         saida = subprocess.run(comando, cwd=RAIZ, capture_output=True, env=ambiente,
                                text=True, encoding='utf-8', errors='replace',
-                               # A biblioteca regrava a amostra e as miniaturas;
-                               # esse I/O excedeu 300 s com os presets reparados.
-                               timeout=600 if suite == 'biblioteca' else LIMITE_SEGUNDOS)
+                               # The library rewrites the sample and thumbnails;
+                               # this I/O exceeded 300 s with the repaired presets.
+                               timeout=600 if suite == 'library' else LIMITE_SEGUNDOS)
         texto, codigo = saida.stdout + saida.stderr, saida.returncode
     except subprocess.TimeoutExpired as e:
         texto = (e.stdout or '') + (e.stderr or '') if isinstance(
             e.stdout, str) else ''
-        codigo = 'TEMPO'
+        codigo = 'TIMEOUT'
     rodados = re.search(r'^Ran (\d+) tests?', texto, re.M)
     rodados = int(rodados.group(1)) if rodados else 0
     falhas = re.findall(r'^(?:FAIL|ERROR): (\S+)', texto, re.M)
@@ -143,7 +135,7 @@ def _rodar(blender, suite, caminho, gui, atualizar=False):
     piso = PISO.get(suite, 1)
     if ok and rodados < piso:
         ok = False
-        falhas.append('rodou %d testes, piso e\' %d (teste sumiu?)'
+        falhas.append('ran %d tests, expected at least %d (missing tests?)'
                       % (rodados, piso))
     return {'ok': ok, 'rodados': rodados, 'falhas': falhas, 'codigo': codigo,
             'segundos': time.monotonic() - inicio, 'texto': texto}
@@ -154,18 +146,18 @@ def main():
     blenders = _blenders(args.versoes)
     suites = _suites(args.suites, args.gui)
     if not blenders or not suites:
-        raise SystemExit('Nada para rodar (versoes=%s suites=%s)'
+        raise SystemExit('Nothing to run (versions=%s suites=%s)'
                          % (list(blenders), list(suites)))
     tarefas = [(v, exe, s, c, g) for v, exe in blenders.items()
                for s, (c, g) in suites.items()]
-    # Suites de GUI disputam a tela: sempre uma de cada vez.
+    # GUI suites compete for the screen, so always run them sequentially.
     paralelas = [t for t in tarefas if not t[4]]
     janelas = [t for t in tarefas if t[4]]
     resultados = {}
     trabalhadores = 1 if args.sequencial else min(6, os.cpu_count() or 2)
     with ThreadPoolExecutor(trabalhadores) as pool:
-        # snapshot regravado por UMA versao so' (a primeira): duas
-        # gravando o mesmo arquivo em paralelo dariam corrida
+        # Only the first version rewrites snapshots; two versions writing the same
+        # file concurrently would race.
         primeira = next(iter(blenders))
         futuros = {pool.submit(_rodar, exe, s, c, g,
                                args.atualizar and v == primeira): (v, s)
@@ -176,35 +168,36 @@ def main():
         resultados[(v, s)] = _rodar(exe, s, c, g)
 
     print('\n' + '=' * 64)
-    print('%-8s %-14s %6s %8s  %s' % ('versao', 'suite', 'testes', 'tempo', 'resultado'))
+    print('%-8s %-14s %6s %8s  %s' % ('version', 'suite', 'tests', 'time', 'result'))
     print('-' * 64)
     falhou = False
     for (v, s), r in sorted(resultados.items()):
-        estado = 'OK' if r['ok'] else 'FALHOU'
+        estado = 'OK' if r['ok'] else 'FAILED'
         falhou |= not r['ok']
         print('%-8s %-14s %6d %7.1fs  %s' % (v, s, r['rodados'],
                                             r['segundos'], estado))
         if not r['ok']:
-            for f in r['falhas'][:10] or ['codigo de saida %s' % r['codigo']]:
+            for f in r['falhas'][:10] or ['exit code %s' % r['codigo']]:
                 print('           - %s' % f)
     print('=' * 64)
     total = sum(r['rodados'] for r in resultados.values())
-    print('%d testes em %d execucoes: %s' % (
-        total, len(resultados), 'FALHOU' if falhou else 'TUDO OK'))
+    print('%d tests across %d runs: %s' % (
+        total, len(resultados), 'FAILED' if falhou else 'ALL PASSED'))
     if falhou:
-        # o primeiro texto de falha inteiro ajuda a diagnosticar sem rodar de novo
+        # The complete first failure message helps diagnose issues without another run.
         primeiro = next(r for r in resultados.values() if not r['ok'])
-        print('\n--- saida da primeira suite que falhou (final) ---')
+        print('\n--- first failed suite output (tail) ---')
         print(primeiro['texto'][-4000:])
     sys.stdout.flush()
     if falhou:
-        # Sem --python-exit-code o Blender sai com 0 mesmo apos excecao.
+        # Without --python-exit-code, Blender exits with 0 even after an exception.
         os._exit(1)
 
 
-try:
-    main()
-except SystemExit as e:
-    # --python-exit-code so' vale para excecao; SystemExit(0) e' sucesso
-    if e.code not in (0, None):
-        raise RuntimeError('harness: %s' % e.code)
+if __name__ == '__main__':
+    try:
+        main()
+    except SystemExit as e:
+        # --python-exit-code applies only to exceptions; SystemExit(0) is success.
+        if e.code not in (0, None):
+            raise RuntimeError('harness: %s' % e.code)

@@ -1,4 +1,4 @@
-"""Composicao existente: cotas, redistribuicao, substituicao e visual de elevacao."""
+"""Existing composition: dimensions, redistribution, replacement and elevation appearance."""
 import os
 import sys
 import math
@@ -41,10 +41,10 @@ class TestComposicaoParedes(unittest.TestCase):
             v.co.x *= 3
             v.co.y *= .15
             v.co.z *= 2.7
-        m = bpy.data.meshes.new('Parede')
+        m = bpy.data.meshes.new("Wall")
         bm.to_mesh(m)
         bm.free()
-        self.parede = bpy.data.objects.new('Parede', m)
+        self.parede = bpy.data.objects.new("Wall", m)
         bpy.context.scene.collection.objects.link(self.parede)
         self.parede.location = (0, 1.075, 1.35)
         self.area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
@@ -63,7 +63,7 @@ class TestComposicaoParedes(unittest.TestCase):
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
-    def modulo(self, inicio=-1.4, base=0, largura=600, nome='Modulo', altura=720):
+    def modulo(self, inicio=-1.4, base=0, largura=600, nome="Cabinet", altura=720):
         obj = addon.modulos.criar_armario(bpy.context, nome, largura, altura, 550, fundo=True)
         costas = Vector((inicio + largura / 2000, 1, base))
         P.colocar_na_parede(obj, self.parede, costas, Vector((0, -1, 0)))
@@ -96,7 +96,7 @@ class TestComposicaoParedes(unittest.TestCase):
         return resultado, avisos
 
     def test_zero_digitado_encosta_nos_limites_sem_mudar_dimensoes(self):
-        # Regressao (era BUG, corrigido na 366): o parser recusava 0 antes do dominio.
+        # Regression, fixed in v366: the parser rejected 0 before domain validation.
         m = self.modulo(base=.3)
         self.iniciar(m)
         medidas = tuple(C.ficha(m, E._sessao[0])[k] for k in ('largura', 'altura', 'profundidade'))
@@ -131,7 +131,7 @@ class TestComposicaoParedes(unittest.TestCase):
                 self.assertEqual(m.matrix_world, antes)
 
     def test_zero_digitado_usa_topo_do_piso_real_sem_atravessar_o_apoio(self):
-        # Parede vai ate' z=0, mas o piso real ocupa 0..100 mm, como no projeto.
+        # The wall extends to z = 0, but the actual floor occupies 0..100 mm, as in the project.
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1)
         for v in bm.verts:
@@ -157,7 +157,7 @@ class TestComposicaoParedes(unittest.TestCase):
             ponto, erro = E.encaixar_na_face(bpy.context, m, alvo, E._sessao[0])
         self.assertIsNone(erro)
         self.assertAlmostEqual(ponto.z, .1, places=5)
-        # A base da edicao passa ao apoio, mas penetrar na madeira segue recusado.
+        # The editing base moves to the support, but penetration into wood remains rejected.
         f = dict(C.ficha(m, E._sessao[0]), base=0)
         self.assertIsNotNone(C._validar_encaixe(bpy.context, E._sessao[0], f, (m.name,)))
 
@@ -295,7 +295,7 @@ class TestComposicaoParedes(unittest.TestCase):
 
     def test_redistribuicao_nao_move_modulos_superiores(self):
         self.tres()
-        superior = self.modulo(-1.4, base=1.7, nome='Superior')
+        superior = self.modulo(-1.4, base=1.7, nome="Above")
         primeiro = next(o for o in bpy.data.objects if o.name == 'M0')
         self.selecionar(primeiro)
         antes = superior.matrix_world.copy()
@@ -347,16 +347,16 @@ class TestComposicaoParedes(unittest.TestCase):
             self.assertAlmostEqual(itens[0][k], antes[k], places=5)
         self.assertTrue(itens[0]['fixa'])
 
-    # Regressao (era BUG, corrigido na 302): o substituto ficava na raiz da
-    # cena, fora do comodo do original e, por isso, fora do orcamento.
+    # Regression, fixed in v302: the replacement stayed at the scene root outside
+    # the original's room, consequently disappearing from the estimate.
     def test_substituir_modelo_mantem_o_comodo(self):
         antigo = self.preparar_troca()
-        self.assertEqual(addon.orcamento.definir_comodo(bpy.context.scene, [antigo], 'Cozinha'), 1)
+        self.assertEqual(addon.orcamento.definir_comodo(bpy.context.scene, [antigo], "Kitchen"), 1)
         self.assertEqual(bpy.ops.object.cabinet_distribuir_parede(), {'FINISHED'})
         novo, = [o for o in bpy.data.objects if addon.chapas.MARCA_CONJUNTO in o]
         comodo = addon.orcamento._comodo_do_modulo(novo)
         self.assertIsNotNone(comodo)
-        self.assertEqual(addon.orcamento._nome_comodo(comodo), 'Cozinha')
+        self.assertEqual(addon.orcamento._nome_comodo(comodo), "Kitchen")
 
     def test_substituicao_com_falha_preserva_original(self):
         antigo = self.preparar_troca()
@@ -390,7 +390,7 @@ class TestComposicaoParedes(unittest.TestCase):
         addon.eventos._fim_do_desfazer()
         E.verificar()
         self.assertFalse(E.ativa())
-        parede = bpy.data.objects['Parede']
+        parede = bpy.data.objects["Wall"]
         self.assertEqual(parede.display_type, 'TEXTURED')
         self.assertNotIn(E.CHAVE_VISUAL, parede)
         for o in bpy.data.objects:
@@ -399,7 +399,7 @@ class TestComposicaoParedes(unittest.TestCase):
         bpy.ops.ed.redo()
         addon.eventos._fim_do_desfazer()
         E.verificar()
-        self.assertNotIn(E.CHAVE_VISUAL, bpy.data.objects['Parede'])
+        self.assertNotIn(E.CHAVE_VISUAL, bpy.data.objects["Wall"])
 
     def test_observador_passivo_nao_bloqueia_sincronizacao_nativa(self):
         from types import SimpleNamespace
@@ -460,14 +460,14 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertNotIn(nome, bpy.data.objects)
 
     def test_menu_da_composicao_sem_livre_fixa_nem_botoes(self):
-        # Print do usuario: "remova tudo isso" (Livre/Fixa, Redistribuir,
-        # Trocar modelo, Desassociar). Fica so' a cruz de medidas.
+        # User screenshot requested removing free/fixed, redistribute, replace-model
+        # and unlink controls. Keep only the dimension cross.
         a, b, c = self.tres()
         C.fixar(bpy.context, b.name, True)
         itens = []
         C.widgets(bpy.context, itens, 0, 2000, 300)
         self.assertFalse([i for i in itens if i[5] and i[5][0] in {'escolha', 'operador'}])
-        self.assertFalse([i for i in itens if i[4] in {'Livre', 'Fixa'} or i[4].startswith('M1 ')])
+        self.assertFalse([i for i in itens if i[4] in {"Free", 'Fixa'} or i[4].startswith('M1 ')])
         self.assertTrue([i for i in itens if i[5] and i[5][:2] == ('medida', 'parede_modulo')])
 
     def test_menu_da_composicao_some_sem_modulo_selecionado(self):
@@ -565,7 +565,7 @@ class TestComposicaoParedes(unittest.TestCase):
             self.assertEqual(self.clicar_porta(peca, 'INDIVIDUAL'), {'FINISHED'})
             self.assertFalse(modulo.select_get())
             self.assertTrue(peca.select_get())
-        # Fora da vista da parede, cada tipo volta a' propria selecao.
+        # Outside wall view, each type returns to its own selection behavior.
         E.encerrar()
         self.assertEqual(self.clicar_porta(gaveta), {'FINISHED'})
         self.assertFalse(a.select_get())
@@ -575,7 +575,7 @@ class TestComposicaoParedes(unittest.TestCase):
         ajustes.use_snap, ajustes.snap_elements, ajustes.snap_target = False, {'INCREMENT'}, 'CENTER'
         self.iniciar()
         self.assertTrue(ajustes.use_snap)
-        # VERTEX sempre; EDGE vem das guias (modo padrao Com snap).
+        # Always VERTEX; EDGE comes from guides in the default snap-enabled mode.
         self.assertIn('VERTEX', ajustes.snap_elements)
         self.assertEqual(ajustes.snap_target, 'CLOSEST')
         E.encerrar()
@@ -584,27 +584,27 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual(ajustes.snap_target, 'CENTER')
 
     def soltar_g(self, *modulos):
-        # O G nativo marca os modulos; o timer encaixa ao soltar.
+        # Native G marks cabinets; the timer fits them on release.
         bpy.context.view_layer.update()
         C._movidos[0] = {m.name for m in modulos}
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
-             patch.object(P, '_px_por_metro', return_value=1000.0):     # ima = 12 mm
+             patch.object(P, '_px_por_metro', return_value=1000.0):     # Snap range = 12 mm.
             return C.encaixar_movidos(bpy.context)
 
     def test_ima_2d_gruda_bordas_da_caixa_e_mantem_na_face(self):
         a, b, c = self.tres()
-        b.location.x -= .195            # fresta de 5 mm para a borda de A
-        b.location.z += .004            # 4 mm acima do piso
+        b.location.x -= .195            # 5 mm gap to A's edge.
+        b.location.z += .004            # 4 mm above the floor.
         self.assertTrue(self.soltar_g(b))
         f = C.ficha(b, E._sessao[0])
         self.assertAlmostEqual(f['inicio'], -.8, places=5)
         self.assertAlmostEqual(f['base'], 0, places=5)
         self.assertFalse(C._movidos[0])
-        # Longe do alcance do ima: fica onde o usuario soltou.
+        # Outside snap range: stay where the user released.
         b.location.x += .05
         self.assertFalse(self.soltar_g(b))
         self.assertAlmostEqual(C.ficha(b, E._sessao[0])['inicio'], -.75, places=5)
-        # Fora da face (antes da ponta e abaixo do piso): volta para dentro.
+        # Outside the face, beyond the endpoint and below the floor: return inside.
         a.location.x -= 1.0
         a.location.z -= .5
         self.assertTrue(self.soltar_g(a))
@@ -618,41 +618,41 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual(C.lado_sob(f, .59, .3, .024), 'direita')
         self.assertEqual(C.lado_sob(f, .3, .71, .024), 'topo')
         self.assertEqual(C.lado_sob(f, .3, -.01, .024), 'base')
-        # No meio da caixa, ou na altura de outra coisa, nenhuma lateral.
+        # In the box center or at another object's height, neither side is grabbed.
         self.assertIsNone(C.lado_sob(f, .3, .36, .024))
         self.assertIsNone(C.lado_sob(f, .01, 1.5, .024))
         alvos = ([-.2, 1.0], [0.0, .9])
-        # So' a lateral pega gruda; o outro eixo fica livre.
+        # Only the grabbed side snaps; the other axis remains free.
         self.assertEqual(C.posicao_com_ima(f, -.195, .004, alvos, 'esquerda', .012),
                          (-.2, .004, [('x', -.2)]))
         inicio, base, _l = C.posicao_com_ima(f, .395, .004, alvos, 'esquerda', .012)
-        self.assertAlmostEqual(inicio, .395)          # a direita nao conta
+        self.assertAlmostEqual(inicio, .395)          # The right side does not count.
         inicio, base, _l = C.posicao_com_ima(f, .395, .004, alvos, 'direita', .012)
         self.assertAlmostEqual(inicio, .4)
         self.assertAlmostEqual(base, .004)
-        # Sem lateral: a borda mais perto de cada eixo, como ao soltar o G.
+        # Without a grabbed side, use the nearest edge on each axis, as on G release.
         inicio, base, linhas = C.posicao_com_ima(f, -.195, .175, alvos, None, .012)
         self.assertAlmostEqual(inicio, -.2)
-        self.assertAlmostEqual(base, .18)              # topo .895 -> .9
+        self.assertAlmostEqual(base, .18)              # Top .895 -> .9.
         self.assertEqual(len(linhas), 2)
 
     def test_alt_gruda_quina_com_quina_no_plano(self):
         f = dict(inicio=0.0, fim=.6, base=0.0, largura=.6, altura=.72)
         quinas = [(-.2, .72)]
-        # O mouse sobre a quina-alvo leva a quina da caixa mais perto dela.
+        # Mouse over the target corner moves the nearest box corner to it.
         inicio, base, linhas = C.posicao_com_ima(f, -.195, .725, ([], []), None, .012,
                                                  quinas, (-.195, .725))
         self.assertAlmostEqual(inicio, -.2)
         self.assertAlmostEqual(base, .72)
         self.assertEqual(linhas, [('x', -.2), ('z', .72)])
-        # Longe da quina: sem alvo, nada mexe; com laterais, valem elas.
+        # Far from a corner: no target means no movement; grabbed sides still apply.
         self.assertEqual(C.posicao_com_ima(f, -.1, .5, ([], []), None, .012, quinas, (-.1, .5))[:2],
                          (-.1, .5))
         inicio, base, linhas = C.posicao_com_ima(f, -.195, .5, ([-.2], []), None, .012,
                                                  quinas, (-.1, .5))
         self.assertAlmostEqual(inicio, -.2)
         self.assertEqual(linhas, [('x', -.2)])
-        # Sem Alt (`laterais` False) so' a quina gruda, com a tolerancia dela.
+        # Without Alt, laterais is False: only the corner snaps within its tolerance.
         self.assertEqual(C.posicao_com_ima(f, -.195, .5, ([-.2], []), None, .012,
                                            quinas, (-.1, .5), laterais=False), (-.195, .5, []))
         inicio, base, linhas = C.posicao_com_ima(f, -.19, .73, ([], []), None, .012,
@@ -661,8 +661,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual((round(inicio, 6), round(base, 6)), (-.2, .72))
 
     def mover(self, modulo, grudar_em, destino, arrastar=False, alt=False, ctrl=False, esc=False):
-        """G (ou arraste) no modulo, pegando em `grudar_em` (x, z) da face e
-        soltando em `destino`: os eventos reais do operador."""
+        """Reproduce real operator events: G or drag on the cabinet, grabbing face point grudar_em (x, z) and releasing at destino."""
         from types import MethodType
         from bpy_extras import view3d_utils
         s = E._sessao[0]
@@ -689,7 +688,7 @@ class TestComposicaoParedes(unittest.TestCase):
                 return getattr(bpy.context, nome)
         contexto = Contexto()
         with bpy.context.temp_override(area=self.area, region=self.regiao), \
-             patch.object(P, '_px_por_metro', return_value=1000.0):     # ima = 12 mm
+             patch.object(P, '_px_por_metro', return_value=1000.0):     # Snap range = 12 mm.
             self.assertEqual(op.invoke(contexto, evento(*grudar_em, 'G', 'PRESS')), {'RUNNING_MODAL'})
             if arrastar:
                 self.assertEqual(op.modal(contexto, evento(*grudar_em)), {'PASS_THROUGH'})
@@ -701,29 +700,29 @@ class TestComposicaoParedes(unittest.TestCase):
 
     def test_g_perto_da_lateral_gruda_so_ela_no_vizinho(self):
         a, b, c = self.tres()
-        # Sem Alt o movimento e' livre (pedido do usuario): nada gruda.
+        # Without Alt, movement is free and does not snap, as requested.
         op, fim = self.mover(b, (-.6, .36), (-.795, .364))
         self.assertAlmostEqual(C.ficha(b, E._sessao[0])['inicio'], -.795, delta=.002)
         op, fim = self.mover(b, (-.795, .364), (-.6, .36))
-        # Alt: pega B pela lateral esquerda, a 5 mm da borda de A, 4 mm acima.
+        # Alt: grab B by its left side, 5 mm from A's edge and 4 mm above.
         op, fim = self.mover(b, (-.6, .36), (-.795, .364), alt=True)
         self.assertEqual(fim, {'FINISHED'})
         self.assertEqual(op._lado, 'esquerda')
         f = C.ficha(b, E._sessao[0])
         self.assertAlmostEqual(f['inicio'], -.8, places=5)
-        # livre: nem grudou no piso (12 mm); a tela e' float32, dai' o delta
+        # Free: not even the floor snaps within 12 mm; float32 screen coordinates require delta.
         self.assertAlmostEqual(f['base'], .004, delta=.001)
-        self.assertAlmostEqual(f['afastamento'], 0, places=5)   # nunca sai do plano
+        self.assertAlmostEqual(f['afastamento'], 0, places=5)   # Never leaves the plane.
         self.assertIsNone(C._movendo[0])
-        # Pelo meio: cada eixo gruda a borda mais perto (piso).
+        # Grab at the center: each axis snaps its nearest edge, here the floor.
         op, fim = self.mover(b, (-.5, .3), (-.48, .296), alt=True)
         self.assertIsNone(op._lado)
         self.assertAlmostEqual(C.ficha(b, E._sessao[0])['base'], 0, places=5)
 
     def test_circulo_na_quina_sob_o_mouse_e_a_quina_pega_gruda(self):
-        # Pedido do usuario (print do Paint): passar o mouse perto da quina
-        # de um modulo acende o circulo do snap de quina; G/arraste com ele
-        # aceso pega ESSA quina, que gruda na quina-alvo mais perto dela.
+        # User request from the Paint sketch: hovering near a cabinet corner highlights
+        # the corner-snap circle. G/drag while highlighted grabs that corner,
+        # which snaps to its nearest target corner.
         from bpy_extras import view3d_utils
         a, b, c = self.tres()
         s = E._sessao[0]
@@ -739,7 +738,7 @@ class TestComposicaoParedes(unittest.TestCase):
             xy = view3d_utils.location_3d_to_region_2d(self.regiao, rv3d, p)
             return SimpleNamespace(type='MOUSEMOVE', mouse_x=self.regiao.x + xy.x,
                                    mouse_y=self.regiao.y + xy.y)
-        with patch.object(P, '_px_por_metro', return_value=1000.0):     # 16 px = 16 mm
+        with patch.object(P, '_px_por_metro', return_value=1000.0):     # 16 px = 16 mm.
             C.atualizar_quina_hover(evento(-.595, .715), self.regiao, rv3d)
             nome, (x, z) = C._quina_hover[0]
             self.assertEqual(nome, b.name)
@@ -747,30 +746,30 @@ class TestComposicaoParedes(unittest.TestCase):
             self.assertAlmostEqual(z, .72, places=5)
             C.atualizar_quina_hover(evento(-.3, .36), self.regiao, rv3d)
             self.assertIsNone(C._quina_hover[0])
-        # Pega pela quina de cima-esquerda e a leva a 11 mm da de cima de A.
+        # Grab the upper-left corner and move it within 11 mm of A's upper corner.
         op, fim = self.mover(b, (-.595, .715), (-.79, .725), arrastar=True)
         self.assertEqual(op._quina, (0, 1))
-        self.assertIsNone(op._lado)                 # a quina vale mais que a lateral
+        self.assertIsNone(op._lado)                 # Corner takes precedence over side.
         self.assertEqual(fim, {'FINISHED'})
         f = C.ficha(b, s)
         self.assertAlmostEqual(f['inicio'], -.8, places=5)
         self.assertAlmostEqual(f['base'], 0.0, places=5)
-        # com a quina pega, o ima e' dela: longe de quina-alvo, nada gruda
+        # With a corner grabbed, only it snaps; far from a target corner, nothing snaps.
         inicio, base, linhas = C.posicao_com_ima(f, -.3, .2, ([], []), None, .012,
                                                  [(-.8, .72)], (-.3, .2), quina=(0, 1))
         self.assertEqual((inicio, base, linhas), (-.3, .2, []))
 
     def test_arraste_esquerdo_gruda_na_quina_sem_alt_e_esc_restaura(self):
         a, b, c = self.tres()
-        # Pedido do usuario: a quina gruda so' de o mouse passar perto dela,
-        # sem Alt. Arraste do esquerdo pela quina de baixo de B ate' a de
-        # cima de A (mouse a 14 px dela; o ima das laterais e' de 12).
+        # User request: corners snap when the mouse approaches, without Alt.
+        # Left-drag B's lower corner to A's upper corner, with the mouse 14 px away;
+        # side snapping has a 12 mm range.
         op, fim = self.mover(b, (-.6, 0), (-.79, .73), arrastar=True)
         self.assertEqual(fim, {'FINISHED'})
         f = C.ficha(b, E._sessao[0])
         self.assertAlmostEqual(f['inicio'], -.8, places=5)
         self.assertAlmostEqual(f['base'], .72, places=5)
-        # Ctrl nao faz nada (so' o Alt liga as laterais); Esc devolve posicao e ponto.
+        # Ctrl does nothing; only Alt enables side snapping. Esc restores position and point.
         antes = b.matrix_world.copy()
         ponto = tuple(b[P.CHAVE_PAREDE_PONTO])
         op, fim = self.mover(b, (-.6, .9), (-.3, 1.0), ctrl=True, esc=True)
@@ -792,12 +791,12 @@ class TestComposicaoParedes(unittest.TestCase):
                 evento.shift = True
                 self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
                 evento.shift = False
-                # Varios modulos selecionados: o arraste segue nativo.
+                # With multiple cabinets selected, dragging remains native.
                 for o in (a, b):
                     o.select_set(True)
                 porta.select_set(True)
                 self.assertIsNone(E.modulo_para_mover(bpy.context, evento, self.regiao))
-            # G (o atalho do usuario): o modulo selecionado, sozinho.
+            # G, the user's shortcut, with only the cabinet selected.
             self.selecionar(b)
             evento.type = 'G'
             with patch.object(E, '_tecla_de_mover', return_value=True):
@@ -819,7 +818,7 @@ class TestComposicaoParedes(unittest.TestCase):
             c.location.x += .01
             bpy.context.view_layer.update()
         self.assertFalse(C._movidos[0])
-        # 5 mm digitados ficam 5 mm, mesmo com o ima de 12 mm.
+        # A typed 5 mm stays 5 mm despite the 12 mm snap range.
         C._movidos[0] = {b.name}
         self.assertIsNone(C.editar_modulo(bpy.context, b.name, 'vao_esquerdo', 5))
         self.assertFalse(self.soltar_g())
@@ -838,7 +837,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertAlmostEqual(depois['vao_esquerdo'], .3, places=5)
         vizinho = next(f for f in C._resumo[0]['itens'] if f['nome'] == c.name)
         self.assertAlmostEqual(vizinho['vao_esquerdo'], .1, places=5)
-        # O tique normal chega ao mesmo numero.
+        # The regular tick reaches the same value.
         C.atualizar(bpy.context)
         conferido = next(f for f in C._resumo[0]['itens'] if f['nome'] == b.name)
         self.assertAlmostEqual(conferido['inicio'], depois['inicio'], places=6)
@@ -862,7 +861,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertAlmostEqual(baixo['cota_superior'], 1.5 - .72, places=5)
         self.assertAlmostEqual(cima['cota_inferior'], 1.5 - .72, places=5)
         self.assertAlmostEqual(cima['cota_superior'], 2.7 - 1.5 - .72, places=5)
-        # O vizinho de baixo nao conta para Anterior/Posterior do de cima.
+        # A lower neighbor does not count for the upper cabinet's previous/next distances.
         self.assertAlmostEqual(cima['vao_esquerdo'], .1, places=5)
         self.assertAlmostEqual(cima['vao_direito'], 1.5 + .8, places=5)
         self.assertIsNone(C.editar_modulo(bpy.context, alto.name, 'cota_inferior', 900))
@@ -893,8 +892,8 @@ class TestComposicaoParedes(unittest.TestCase):
 
     def test_menu_mostra_cotas_em_cruz_simetrica_e_estreita(self):
         a, b, c = self.tres()
-        for largura, rotulos in ((564, ('Superior', 'Anterior', 'Afastamento', 'Posterior', 'Inferior')),
-                                 (190, ('Sup', 'Ant', 'Afast', 'Post', 'Inf'))):
+        for largura, rotulos in ((564, ("Above", "Previous", "Offset", "Next", "Below")),
+                                 (190, ("Above", "Prev", "Offset", "Next", "Below"))):
             itens = []
             C.widgets(bpy.context, itens, 12, 1000, largura - 24)
             campos = {i[5][2]: i for i in itens if i[5] and i[5][0] == 'medida'}
@@ -919,8 +918,8 @@ class TestComposicaoParedes(unittest.TestCase):
         obj = self.objeto_guias()
         self.assertIsNotNone(obj)
         self.assertEqual(self.alturas_das_guias(), [a / 1000 for _n, a in C.GUIAS_PADRAO])
-        # Cada guia vai de ponta a ponta da face, rente a' frente dela, em
-        # tracos curtos (pontilhada, pedido do usuario) da propria malha.
+        # Each guide spans the face end to end, just in front of it, using short
+        # mesh-based dashes for the dotted appearance requested by the user.
         s0, s1 = E._sessao[0]['regiao']['retangulo'][:2]
         xs = [v.co.x for v in obj.data.vertices]
         self.assertAlmostEqual(min(xs), s0, places=6)
@@ -948,7 +947,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertIsNotNone(C.editar_guia(bpy.context, 1, 5000))
         self.assertIsNotNone(C.editar_guia(bpy.context, 1, 0))
         self.assertAlmostEqual(C.guias(bpy.context.scene)[1]['altura_mm'], 850)
-        # Rotulo na viewport: o mesmo hit-test e a mesma digitacao das cotas.
+        # Viewport label: same hit-test and text entry as dimensions.
         C._rotulos_guias[0] = ((10, 20, 60, 20, '', 'guia_4', 2150.0),)
         self.assertEqual(C.cota_sob(15, 25)[5], 'guia_4')
         op = SimpleNamespace(objeto='', propriedade='guia_4', report=lambda *a: None)
@@ -969,7 +968,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertIsNone(C.definir_modo_guias(bpy.context, 'VISIVEIS'))
         self.assertIsNotNone(self.objeto_guias())
         self.assertEqual(set(ajustes.snap_elements), {'VERTEX'})
-        # As arestas continuam visiveis, mas o filtro nativo as tira do snap.
+        # Edges remain visible, but the native filter excludes them from snapping.
         self.assertTrue(ajustes.use_snap_selectable)
         self.assertIsNone(C.definir_modo_guias(bpy.context, 'OCULTAS'))
         self.assertIsNone(self.objeto_guias())
@@ -987,7 +986,7 @@ class TestComposicaoParedes(unittest.TestCase):
     def test_rotulo_da_guia_acompanha_o_zoom(self):
         from types import SimpleNamespace
         self.iniciar()
-        # Em --background o ui_scale e' 0: contexto com escala 1 e cota de 14 px.
+        # Background ui_scale is 0; use a scale-1 context with a 14 px dimension label.
         maximo = 14
         contexto = SimpleNamespace(
             preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=1.0)),
@@ -1008,7 +1007,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual(perto, [maximo] * len(C.GUIAS_PADRAO))
         self.assertAlmostEqual(longe[0], C.ALTURA_ROTULO_GUIA_M * 150, places=4)
         self.assertEqual(len(C._rotulos_guias[0]), len(C.GUIAS_PADRAO))
-        # Longe demais: nenhum rotulo nem alvo de clique.
+        # Too far away: neither label nor click target.
         self.assertEqual(tamanhos(50), [])
         self.assertEqual(C._rotulos_guias[0], ())
 
@@ -1072,10 +1071,10 @@ class TestComposicaoParedes(unittest.TestCase):
         self.iniciar()
         guardado = dict(bpy.context.scene[E.CHAVE_SNAP])
         E.encerrar()
-        # O snapshot do undo devolve objeto, marca e snap da vista sem sessao.
+        # Undo snapshot restores object, marker and view snapping without a session.
         bpy.context.scene[E.CHAVE_SNAP] = guardado
         ajustes.snap_elements, ajustes.snap_target = {'VERTEX', 'EDGE'}, 'CLOSEST'
-        sobra = bpy.data.objects.new('Guias da parede', bpy.data.meshes.new('Guias da parede'))
+        sobra = bpy.data.objects.new("Wall guides", bpy.data.meshes.new("Wall guides"))
         sobra[C.MARCA_OBJETO_GUIAS] = 1
         bpy.context.scene.collection.objects.link(sobra)
         E.verificar()
@@ -1188,7 +1187,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertTrue(C._rotulos[0])
 
     def test_circulo_da_quina_e_desenhado_no_realce(self):
-        # O circulo do snap de quina (print do usuario) na quina sob o mouse.
+        # Corner-snap circle from the user's screenshot, at the corner under the mouse.
         a, b, c = self.tres()
         posicoes = []
         def batch(*args, **kwargs):
@@ -1213,7 +1212,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertGreaterEqual(len(no_circulo), 2 * 24)
 
     def desenhar_rotulos(self, projetar=None, livre=(0, 0, 2000, 2000)):
-        """{(modulo, propriedade)} das cotas desenhadas agora."""
+        """Return {(modulo, propriedade)} for dimensions currently drawn."""
         if projetar is None:
             def projetar(regiao, rv, ponto):
                 return Vector((300 + ponto.x * 100, 200 + ponto.z * 100))
@@ -1234,9 +1233,9 @@ class TestComposicaoParedes(unittest.TestCase):
         with patch.object(C, 'caixa_editavel', side_effect=lambda *args: textos.append(args[2])):
             self.desenhar_rotulos()
         f = C.ficha(m, E._sessao[0])
-        for prop, prefixo in (('largura', 'A1: '), ('altura', 'A2: '), ('profundidade', 'A3 Prof.: ')):
+        for prop, prefixo in (('largura', 'A1: '), ('altura', 'A2: '), ('profundidade', "A3 Depth: ")):
             self.assertIn(prefixo + addon.opcoes._texto_medida(f[prop] * 1000), textos)
-        self.assertIn('Afast. ' + addon.opcoes._texto_medida(50), textos)
+        self.assertIn("Offset " + addon.opcoes._texto_medida(50), textos)
         profundidade = next(r for r in C._rotulos[0] if r[5] == 'profundidade')
         quina = Vector((300 + f['fim'] * 100, 200 + f['base'] * 100))
         self.assertGreater(profundidade[0], quina.x)
@@ -1282,7 +1281,7 @@ class TestComposicaoParedes(unittest.TestCase):
                     self.assertLessEqual(r[1] + r[3], livre[3] + 1e-5)
 
     def test_dimensoes_sempre_visiveis_e_distancias_somem_ao_editar(self):
-        # Pedido na 368: A1/A2/A3 tambem selecionado; resize oculta so' distancias.
+        # User request v368: A1/A2/A3 also when selected; resize hides only distances.
         a, b, c = self.tres()
         rotulos = self.desenhar_rotulos()
         self.assertIn((a.name, 'afastamento'), rotulos)
@@ -1297,8 +1296,8 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual(self.desenhar_rotulos(), set())
 
     def test_guias_de_movimento_saem_do_meio_de_cada_face(self):
-        # Desenho do usuario (linhas azuis): esquerda/direita na meia
-        # altura, inferior/superior no meio da largura do modulo.
+        # User drawing's blue lines: left/right at mid-height,
+        # bottom/top at the cabinet's mid-width.
         a, b, c = self.tres()
         f = next(x for x in C._resumo[0]['itens'] if x['nome'] == a.name)
         self.desenhar_rotulos()
@@ -1309,7 +1308,7 @@ class TestComposicaoParedes(unittest.TestCase):
         for prop in ('vao_esquerdo', 'vao_direito'):
             r = rotulos[prop]
             self.assertAlmostEqual(r[1] + r[3] / 2, meio_z, places=3)
-        # Texto pode ser mais largo que um vao curto; seu centro segue a cota real.
+        # Text may exceed a short opening's width; its center still follows the real dimension.
         self.assertAlmostEqual(rotulos['vao_esquerdo'][0] + rotulos['vao_esquerdo'][2] / 2,
                                300 + (f['inicio'] - f['vao_esquerdo'] / 2) * 100, places=3)
         self.assertAlmostEqual(rotulos['vao_direito'][0] + rotulos['vao_direito'][2] / 2,
@@ -1319,7 +1318,7 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertGreater(r[1], 200 + (f['base'] + f['altura']) * 100)
 
     def test_digitacao_pela_bolinha_entra_no_numero_da_cota_verde(self):
-        # Print do usuario: a caixa da HUD sobrepunha o rotulo "703.0 mm".
+        # User screenshot: the HUD box overlapped the "703.0 mm" label.
         a, b, c = self.tres()
         desenhados = []
         def projetar(regiao, rv, ponto):
@@ -1338,7 +1337,7 @@ class TestComposicaoParedes(unittest.TestCase):
         finally:
             addon.hud._edicao_hud[0] = None
         self.assertIn(('750 mm', estado), desenhados)
-        self.assertEqual(len(desenhados), 3)        # A1/A2/A3, sem caixa extra da HUD
+        self.assertEqual(len(desenhados), 3)        # A1/A2/A3 without an extra HUD box.
         altura = next(r for r in C._rotulos[0] if r[5] == 'altura')
         self.assertEqual(estado['caixas'], [(altura[0] + 5, altura[1] + 4,
                                              estado['caixas'][0][2], estado['caixas'][0][3])])
@@ -1356,7 +1355,7 @@ class TestComposicaoParedes(unittest.TestCase):
             addon.hud_volume._estado[0] = None
 
     def test_seta_da_cota_fica_inteira_dentro_da_area_livre(self):
-        # Nota do usuario: as pontas das setas eram cortadas na borda.
+        # User note: arrowheads were clipped at the boundary.
         livre = (40, 0, 800, 600)
         a, b = C.recortar_cota(Vector((-200, 100)), Vector((300, 100)), livre, 8)
         self.assertEqual((a.x, b.x, a.y), (48, 300, 100))
@@ -1373,8 +1372,8 @@ class TestComposicaoParedes(unittest.TestCase):
         self.assertEqual(C.area_livre(contexto), (40, 70, 800, 600))
 
     def test_hud_na_parede_so_edita_a_geometria_no_plano(self):
-        # Pontos das faces e setas das quinas na parede; a profundidade se
-        # ve de ponta e a quina e' do snap (circulo da v334).
+        # Face points and corner arrows on the wall; depth is seen end-on,
+        # and the corner belongs to snapping, shown by the v334 circle.
         a, b, c = self.tres()
         H = addon.hud
         normal = Vector(E._sessao[0]['normal'])
@@ -1390,7 +1389,7 @@ class TestComposicaoParedes(unittest.TestCase):
             self.assertTrue(H._acertar_hud(bpy.context, ponto).get('controle_face'))
             canto = H._projetar_hud(bpy.context, geometria['cantos'][0])
             self.assertIsNone(H._acertar_hud(bpy.context, canto))
-            # Sem setas nas arestas (pedido do usuario): so' a bolinha edita.
+            # No edge arrows, as requested: only the dot edits.
             linha = geometria['linhas'][0]
             quarto = H._projetar_hud(bpy.context, linha['pontos'][0].lerp(linha['pontos'][1], .25))
             self.assertIsNone(H._acertar_hud(bpy.context, quarto))
@@ -1399,7 +1398,7 @@ class TestComposicaoParedes(unittest.TestCase):
                  patch.object(H, 'batch_for_shader', side_effect=lambda s, tipo, d: desenhos.append(tipo)
                               or SimpleNamespace(draw=lambda shader: None)):
                 H._desenhar_controles_volume(bpy.context, geometria, None)
-            self.assertEqual(desenhos, ['TRIS'] * 8)    # 4 bolinhas cheias com halo
+            self.assertEqual(desenhos, ['TRIS'] * 8)    # Four filled dots with halos.
             C._quina_hover[0] = (a.name, (0.0, 0.0))
             try:
                 self.assertIsNone(H._acertar_hud(bpy.context, ponto))
@@ -1423,4 +1422,4 @@ addon.register()
 resultado = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestComposicaoParedes))
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de composicao de paredes')
+    raise RuntimeError("Wall-layout tests failed")

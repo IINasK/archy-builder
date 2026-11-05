@@ -24,7 +24,7 @@ def main():
     if not os.path.isdir(raiz):
         parser.error('The source directory must exist')
     addon.register()
-    for obj in list(bpy.data.objects):          # cubo, camera e luz de fabrica
+    for obj in list(bpy.data.objects):          # Factory cube, camera, and light.
         bpy.data.objects.remove(obj, do_unlink=True)
     total = 0
     try:
@@ -36,12 +36,12 @@ def main():
                     bpy.context, caminho,
                     niveis, prefixo)
                 total += len(arqs)
-                print('[dxf import] %s/%s - %s: %d modulo(s) %s' % (
+                print("[dxf import] %s/%s - %s: %d cabinet(s) %s" % (
                     niveis[1], '/'.join(niveis[2:-1]), niveis[-1], len(arqs), info))
     except Exception:
         traceback.print_exc()
         sys.exit(1)
-    print('[dxf import] %d presets em %s' % (total, addon.biblioteca.pasta_biblioteca()))
+    print("[dxf import] %d presets in %s" % (total, addon.biblioteca.pasta_biblioteca()))
 
 
 main()

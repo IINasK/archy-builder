@@ -1,4 +1,4 @@
-"""Montagens, recortes e posicionador das instalacoes da alvenaria."""
+"""Assembly, cutouts, and placement for fixtures on masonry surfaces."""
 import math
 import uuid
 import os
@@ -20,22 +20,52 @@ _biblioteca = None
 
 DONO = 'cabinet_instalacao_dono'
 IDENTIDADE = 'cabinet_instalacao_uid'
-# Prefixos persistidos nos .blend: trocar quebraria a limpeza dos cortes antigos.
-CORTE = 'Archy Builder - Recorte '
-FILTRO = 'Archy Builder - Superficie '
+# Prefixes persisted in .blend files: changing them would break cleanup of older cutouts.
+CORTE = "Archy Builder - Cut "
+FILTRO = "Archy Builder - Surface "
+_SAVED_PREFIXES = {CORTE: 'Archy Builder - Recorte ', FILTRO: 'Archy Builder - Superficie ',
+                   'Archy Builder - Shadow Gap ': 'Archy Builder - Tabica '}
+_SAVED_ROLES = {'Batente esquerdo':'Left jamb', 'Batente direito':'Right jamb',
+                'Batente superior':'Head jamb', 'Trilhos inferiores':'Lower tracks',
+                'Espelho':'Faceplate', 'Tecla':'Rocker', 'Tomada central':'Central outlet',
+                'Canopla':'Canopy', 'Haste':'Stem', 'Difusor':'Diffuser', 'Luz':'Light',
+                'Corpo':'Body', 'Aro':'Trim', 'Recorte':'Cutout'}
 ATR_CORTE = 'cabinet_face_do_cortador'
 ALVO = '@instalacao'
 CHAVE_TIPO_MENU = 'cabinet_instalacoes_tipo'
 CHAVE_CATEGORIA = 'cabinet_instalacoes_caminho'
 CATEGORIAS = {
-    'PORTA': ('Esquadrias', 'Portas'), 'SACADA': ('Esquadrias', 'Portas'),
-    'JANELA': ('Esquadrias', 'Janelas'),
-    'TOMADA': ('Eletrica', 'Tomadas'), 'INTERRUPTOR': ('Eletrica', 'Interruptores'),
-    'SPOT_EMBUTIDO': ('Iluminacao', 'Spots'), 'SPOT_SOBREPOSTO': ('Iluminacao', 'Spots'),
-    'PENDENTE': ('Iluminacao', 'Pendentes'), 'REBAIXO': ('Tetos', 'Rebaixos'),
+    'PORTA': ("Doors and Windows", "Doors"), 'SACADA': ("Doors and Windows", "Doors"),
+    'JANELA': ("Doors and Windows", "Windows"),
+    'TOMADA': ("Electrical", "Outlets"), 'INTERRUPTOR': ("Electrical", "Switches"),
+    'SPOT_EMBUTIDO': ("Lighting", 'Spots'), 'SPOT_SOBREPOSTO': ("Lighting", 'Spots'),
+    'PENDENTE': ("Lighting", "Pendant Lights"), 'REBAIXO': ("Ceilings", "Dropped Ceilings"),
 }
 _previa = [None]
 _poses = [{}]
+
+
+def nome_peca(peca):
+    """Resolve saved component identities independently of English display text."""
+    role = peca.get(_alvenaria.PECA, '')
+    if role in _SAVED_ROLES:
+        return _SAVED_ROLES[role]
+    for old, new in (('Folha ', 'Leaf '), ('Dobradica ', 'Hinge '),
+                     ('Luz da tabica ', 'Shadow gap light '),
+                     ('Archy Builder - Tabica ', 'Archy Builder - Shadow Gap ')):
+        if role.startswith(old):return new + role[len(old):]
+    return role
+
+
+def modificador(apoio, nome):
+    modifier = apoio.modifiers.get(nome)
+    if modifier is None:
+        for current, saved in _SAVED_PREFIXES.items():
+            if nome.startswith(current):
+                modifier = apoio.modifiers.get(saved + nome[len(current):])
+                if modifier is not None:modifier.name = nome
+                break
+    return modifier
 
 
 def arvore(apoio):
@@ -49,7 +79,7 @@ def arvore(apoio):
 
 def _peca(obj, nome, medidas, criar, centro=(0, 0, 0)):
     for peca in obj.children:
-        if peca.get(_alvenaria.PECA) == nome:
+        if nome_peca(peca) == nome:
             break
     else:
         malha = bpy.data.meshes.new(nome)
@@ -122,21 +152,21 @@ def _area_intersecao(limites, pontos, normal, eixos):
 def _medir_corte(apoio, matriz, indice, medidas, limites=None):
     limites = limites or _alvenaria.regiao(apoio, indice, matriz)
     if limites is None:
-        raise ValueError('Selecione uma regiao plana de apoio')
+        raise ValueError("Select a planar support region")
     l, a, _ = medidas
     n = matriz.to_3x3().col[2]
     pontos = _retangulo(matriz, medidas)
     u, v = (matriz.to_3x3().col[i] for i in (0, 1))
     x0, x1, y0, y1 = limites['retangulo']
     if any(not (x0-.001 <= p.dot(u) <= x1+.001 and y0-.001 <= p.dot(v) <= y1+.001) for p in pontos):
-        raise ValueError('A instalacao excede os limites do apoio')
+        raise ValueError("The installation exceeds the support boundaries")
     ocupada = _area_intersecao(limites, pontos, n, (u, v))
     if ocupada < l*a*1e-4:
         return None
     if ocupada < l*a*.999:
-        raise ValueError('O vao cruza uma borda ou um recorte existente')
-    # So' atravessa ate' a face oposta da mesma casca. Uma face sem fundo
-    # precisa apenas de um prisma fino para o Boolean do Blender.
+        raise ValueError("The opening crosses an edge or an existing cutout")
+    # Extend only to the opposite face of the same shell. A face without a back
+    # needs only a thin prism for Blender's Boolean operation.
     bm = bmesh.new()
     try:
         bm.from_mesh(apoio.data)
@@ -157,7 +187,7 @@ def _medir_corte(apoio, matriz, indice, medidas, limites=None):
         origem = inv @ (matriz.translation - n*.0001)
         acerto, normal, outra, _ = BVHTree.FromBMesh(bm).ray_cast(origem, inv.to_3x3() @ -n)
         if acerto is None or bm.faces[outra] not in visitadas or (mundo.to_3x3().inverted_safe().transposed() @ normal).dot(n) >= 0:
-            raise ValueError('Nao foi possivel delimitar a espessura do apoio')
+            raise ValueError("Could not determine the support thickness")
         return max(.002, (matriz.translation - mundo @ acerto).dot(n) + .002)
     finally:
         bm.free()
@@ -166,8 +196,8 @@ def _medir_corte(apoio, matriz, indice, medidas, limites=None):
 def _recorte(obj, apoio, profundidade):
     nome = CORTE + obj[IDENTIDADE]
     nome_filtro = FILTRO + obj[IDENTIDADE]
-    mod = apoio.modifiers.get(nome)
-    filtro = apoio.modifiers.get(nome_filtro)
+    mod = modificador(apoio, nome)
+    filtro = modificador(apoio, nome_filtro)
     if profundidade is None:
         if filtro:
             apoio.modifiers.remove(filtro)
@@ -181,9 +211,9 @@ def _recorte(obj, apoio, profundidade):
     fundo = profundidade + .002
     centro = (0, 0, (.002 - profundidade) / 2)
     if obj[_alvenaria.MARCA] == 'SPOT_EMBUTIDO':
-        cortador = cilindro(obj, 'Recorte', l/2, fundo, centro)
+        cortador = cilindro(obj, "Cutout", l/2, fundo, centro)
     else:
-        cortador = caixa(obj, 'Recorte', centro, (l, a, fundo))
+        cortador = caixa(obj, "Cutout", centro, (l, a, fundo))
     cortador.display_type = 'WIRE'
     cortador.hide_render = True
     cortador.hide_select = True
@@ -193,8 +223,8 @@ def _recorte(obj, apoio, profundidade):
         mod.operation = 'DIFFERENCE'
         mod.solver = 'EXACT'
     mod.object = cortador
-    # No Boolean de uma casca aberta, o Blender pode devolver tampas do
-    # prisma. Marcar a origem preserva somente a superficie recortada.
+    # For a Boolean on an open shell, Blender may return caps from the
+    # prism. Marking the source preserves only the cut surface.
     if profundidade == .002:
         marca = cortador.data.attributes.get(ATR_CORTE)
         if marca is None:
@@ -247,9 +277,9 @@ def remover_peca(peca):
 def remover(obj):
     apoio = _alvenaria.apoio_de(obj)
     nome = CORTE + obj[IDENTIDADE]
-    if apoio is not None and (mod := apoio.modifiers.get(nome)):
+    if apoio is not None and (mod := modificador(apoio, nome)):
         apoio.modifiers.remove(mod)
-    if apoio is not None and (filtro := apoio.modifiers.get(FILTRO + obj[IDENTIDADE])):
+    if apoio is not None and (filtro := modificador(apoio, FILTRO + obj[IDENTIDADE])):
         apoio.modifiers.remove(filtro)
     for peca in tuple(obj.children):
         if peca.get(DONO) == obj[IDENTIDADE]:
@@ -264,7 +294,7 @@ def instalar(context, modelo, apoio, indice, matriz, medidas=None):
     medidas = medidas or padrao
     tipo = _alvenaria.superficie(apoio, indice, matriz.to_3x3().col[2])
     if tipo not in tipos_de_apoio(modelo):
-        raise ValueError('Escolha uma superficie compativel com a instalacao')
+        raise ValueError("Choose a surface compatible with the installation")
     if modelo == 'REBAIXO':
         return _iluminacao.instalar_forro(context, apoio, indice, matriz)
     perfura = modelo in _esquadrias.MODELOS or modelo == 'SPOT_EMBUTIDO'
@@ -291,11 +321,11 @@ def tipos_de_apoio(modelo):
 
 
 def reassociar(context, obj, apoio, indice, matriz):
-    """Valida antes de mudar o apoio; o gesto conserva o original ate' confirmar."""
+    """Validate before changing support; the gesture preserves the original until confirmation."""
     modelo = obj[_alvenaria.MARCA]
     tipo = _alvenaria.superficie(apoio, indice, matriz.to_3x3().col[2])
     if tipo not in tipos_de_apoio(modelo) or modelo == 'REBAIXO':
-        raise ValueError('Escolha uma superficie compativel com a instalacao')
+        raise ValueError("Choose a surface compatible with the installation")
     perfura = modelo in _esquadrias.MODELOS or modelo == 'SPOT_EMBUTIDO'
     profundidade = _medir_corte(apoio, matriz, indice, tuple(obj[_alvenaria.MEDIDAS])) if perfura else None
     anterior = _alvenaria.apoio_de(obj)
@@ -355,12 +385,12 @@ def reassociar(context, obj, apoio, indice, matriz):
         raise
     if anterior is not None and anterior != apoio:
         for prefixo in (CORTE, FILTRO):
-            mod = anterior.modifiers.get(prefixo + obj[IDENTIDADE])
+            mod = modificador(anterior, prefixo + obj[IDENTIDADE])
             if mod:
                 anterior.modifiers.remove(mod)
     if perfura and profundidade is None:
         for peca in tuple(obj.children):
-            if peca.get(_alvenaria.PECA) == 'Recorte':
+            if nome_peca(peca) == "Cutout":
                 remover_peca(peca)
     _poses[0].pop(obj.name, None)
     _alvenaria.esquecer()
@@ -378,7 +408,7 @@ def _aplicar_pose(obj, apoio, indice, matriz, limites, medidas):
     perfura = modelo in _esquadrias.MODELOS or modelo == 'SPOT_EMBUTIDO'
     if modelo in _esquadrias.MODELOS and any(
             not math.isfinite(v) or v < minimo for v, minimo in zip(medidas, (.15, .15, .055))):
-        raise ValueError('A medida nao comporta o batente ou o trilho')
+        raise ValueError("The dimension cannot accommodate the jamb or track")
     profundidade = _medir_corte(apoio, matriz, indice, medidas, limites) if perfura else None
     obj[_alvenaria.MEDIDAS] = medidas
     _alvenaria.vincular(obj, apoio, indice, matriz, obj[_alvenaria.CHAVE_VINCULO]['tipo'])
@@ -423,7 +453,7 @@ def absorver_transformacao(obj, resolvido):
 
 def editar_cota(obj, lado, valor):
     if obj[_alvenaria.MARCA] == 'REBAIXO':
-        return 'O forro acompanha a regiao selecionada do teto'
+        return "The suspended ceiling follows the selected ceiling region"
     try:
         apoio, matriz, indice, limites = _alvenaria.destino_cota(obj, lado, valor)
         _aplicar_pose(obj, apoio, indice, matriz, limites, tuple(obj[_alvenaria.MEDIDAS]))
@@ -437,10 +467,10 @@ def editar_medida(obj, eixo, valor):
     medidas = list(anterior)
     medidas[eixo] = valor
     if not math.isfinite(valor) or valor < (.15 if eixo < 2 else .055):
-        return 'A medida nao comporta o batente ou o trilho'
+        return "The dimension cannot accommodate the jamb or track"
     resolvido = _alvenaria.resolver(obj)
     if resolvido is None:
-        return 'Selecione um novo apoio'
+        return "Select a new support surface"
     apoio, matriz, indice, limites = resolvido
     if eixo == 1:
         matriz.translation += matriz.to_3x3().col[1] * (valor - anterior[1]) / 2
@@ -462,6 +492,11 @@ def verificar():
                 _iluminacao.devolver_luzes_do_forro(obj)
             remover_peca(obj)
         elif _paredes.alvenaria_definida(obj) and not obj.data.is_editmode:
+            for mod in obj.modifiers:
+                for current, saved in _SAVED_PREFIXES.items():
+                    if mod.name.startswith(saved):
+                        mod.name = current + mod.name[len(saved):]
+                        break
             for mod in list(obj.modifiers):
                 if mod.type != 'BOOLEAN' or not mod.name.startswith(CORTE):
                     continue
@@ -494,7 +529,7 @@ def desenhar_previa(context, tela):
 
 class OBJECT_OT_instalar(Operator):
     bl_idname = 'object.cabinet_instalar'
-    bl_label = 'Posicionar instalacao'
+    bl_label = "Place installation"
     bl_options = {'UNDO'}
 
     modelo: StringProperty(options={'SKIP_SAVE'})
@@ -677,7 +712,7 @@ class OBJECT_OT_instalar(Operator):
 
 class OBJECT_OT_acao_instalacao(Operator):
     bl_idname = 'object.cabinet_acao_instalacao'
-    bl_label = 'Editar instalacao'
+    bl_label = "Edit installation"
     bl_options = {'UNDO'}
     acao: StringProperty(options={'SKIP_SAVE'})
 
@@ -718,12 +753,12 @@ def _sugerir_sacada(context, ponto, normal, medidas):
 def widgets_seletor(context, itens, x, y, w):
     tipo = context.screen.get(CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
     blf.size(0,12)
-    pesos = [blf.dimensions(0, rotulo.capitalize())[0]+18 for rotulo in _alvenaria.TIPOS]
+    pesos = [blf.dimensions(0, _alvenaria.ROTULOS[identifier])[0]+18 for identifier in _alvenaria.TIPOS]
     larguras = [(w-46)*p/sum(pesos) for p in pesos] if w < 240 else [(w-46)/3]*3
     y -= 25
     inicio = x
     for rotulo, coluna in zip(_alvenaria.TIPOS, larguras):
-        itens.append((inicio, y, coluna, 25, rotulo.capitalize(),
+        itens.append((inicio, y, coluna, 25, _alvenaria.ROTULOS[rotulo],
                       ('escolha', 'tipo_instalacao', rotulo, tipo == rotulo, True, ALVO)))
         inicio += coluna+6
     visivel = bool(context.scene.get(_alvenaria.CHAVE_VISUAL, False))
@@ -739,7 +774,7 @@ def widgets_tipos(context, itens, x, y, w):
 
 
 def widgets_modelos(context, itens, x, y, w, apoio, excluir=()):
-    y = _gaveta._titulo_secao(itens, x, y, w, 'Instalacoes')
+    y = _gaveta._titulo_secao(itens, x, y, w, "Installations")
     y -= 25
     indice = catalogo()
     trilha = tuple(context.screen.get(CHAVE_CATEGORIA, '').split('/'))
@@ -748,8 +783,8 @@ def widgets_modelos(context, itens, x, y, w, apoio, excluir=()):
         filhos = _biblioteca.filhos_de(indice, trilha[:nivel-1])
         if not filhos:
             break
-        y = _gaveta._linha_cascata_gaveta(itens, x, y, w, ['Todos']+filhos, nivel,
-                trilha[nivel-1] if len(trilha)>=nivel else 'Todos', prefixo='cabinet_instalacoes')
+        y = _gaveta._linha_cascata_gaveta(itens, x, y, w, ["All"]+filhos, nivel,
+                trilha[nivel-1] if len(trilha)>=nivel else "All", prefixo='cabinet_instalacoes')
         v = itens[-1];acao = v[5]
         itens[-1] = v[:5]+(acao[:3]+((ALVO, nivel),)+acao[4:],)
     daqui = [it for it in indice if tuple(it['niveis'][:len(trilha)]) == trilha and it['modelo'] not in excluir]
@@ -766,12 +801,12 @@ def catalogo():
 
 def item_do_modelo(modelo):
     return dict(modelo=modelo, nome=modelos()[modelo][0], niveis=CATEGORIAS[modelo],
-                pasta=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'fotos', 'instalacoes'), foto=modelo+'.png')
+                pasta=os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets/previews", 'installations'), foto=modelo+'.png')
 
 
 def definir_categoria(context, nivel, valor):
     trilha = [p for p in context.screen.get(CHAVE_CATEGORIA, '').split('/') if p][:nivel-1]
-    if valor != 'Todos' and valor in _biblioteca.filhos_de(catalogo(), trilha):
+    if valor != "All" and valor in _biblioteca.filhos_de(catalogo(), trilha):
         trilha.append(valor)
     context.screen[CHAVE_CATEGORIA] = '/'.join(trilha)
 
@@ -781,7 +816,7 @@ def widgets(context, itens, x, y, w, obj):
     if obj.get(_alvenaria.MARCA) in _esquadrias.MODELOS:
         colunas = _gaveta._colunas_medidas(context, w + 24, 3)
         coluna = (w - (colunas-1)*6) / colunas
-        for i, rotulo in enumerate(('Largura', 'Altura', 'Profundidade')):
+        for i, rotulo in enumerate(("Width", "Height", "Depth")):
             mm = obj[_alvenaria.MEDIDAS][i]*1000
             itens.append((x + i%colunas*(coluna+6), y-37-i//colunas*43, coluna, 37,
                           rotulo + ': ' + _opcoes._texto_medida(mm),
@@ -789,15 +824,15 @@ def widgets(context, itens, x, y, w, obj):
         y -= math.ceil(3/colunas)*43
         for i in range(1 if obj[_alvenaria.MARCA] == 'PORTA' else 2):
             y -= 29
-            itens.append((x, y, w, 25, 'Abertura %d' % (i+1),
+            itens.append((x, y, w, 25, "Opening %d" % (i+1),
                           ('slider', 'instalacao', obj.name, i, obj[_esquadrias.CHAVE_ABERTURAS][i])))
         if obj[_alvenaria.MARCA] == 'PORTA':
             metade = (w-6)/2
             y -= 34
-            for i, rotulo in enumerate(('Inverter', 'Espelhar')):
+            for i, (rotulo, identifier) in enumerate((("Reverse", 'inverter'), ("Mirror", 'espelhar'))):
                 itens.append((x+i*(metade+6), y, metade, 28, rotulo,
-                              ('escolha', 'acao_instalacao', rotulo.lower(), False, True, ALVO)))
+                              ('escolha', 'acao_instalacao', identifier, False, True, ALVO)))
     y -= 34
-    itens.append((x, y, w, 28, 'Remover instalacao',
+    itens.append((x, y, w, 28, "Remove installation",
                   ('escolha', 'acao_instalacao', 'remover', False, True, ALVO)))
     return y - 6

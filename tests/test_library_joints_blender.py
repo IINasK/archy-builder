@@ -1,4 +1,4 @@
-"""Soldas da biblioteca: fixtures sinteticas, staging e publicacao temporarios."""
+"""Library welds: synthetic fixtures with temporary staging and publication."""
 from contextlib import ExitStack
 import json
 import math
@@ -23,26 +23,26 @@ class TestSoldasBiblioteca(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='cabinet_soldas_teste_')
         self.addCleanup(self.tmp.cleanup)
         self.raiz = Path(self.tmp.name)
-        self.biblioteca = self.raiz / 'biblioteca'
+        self.biblioteca = self.raiz / "library"
         self.biblioteca.mkdir()
         self.destino = self.raiz / 'preparo'
         addon.chapas._ocupado[0] = True
         migracao.base.limpar()
         self.patches = ExitStack()
         self.addCleanup(self.patches.close)
-        # A suite ja registrou o addon com guarda temporaria antes de criar fixtures.
+        # The suite registered the add-on with temporary guards before creating fixtures.
         self.patches.enter_context(patch.object(addon, 'register'))
         self.patches.enter_context(patch.object(addon, 'unregister'))
 
     def fixture(self):
-        colecao = bpy.data.collections.new('Montagem')
+        colecao = bpy.data.collections.new("Assembly")
         bpy.context.scene.collection.children.link(colecao)
         colecao.asset_mark()
         colecao.asset_data.catalog_id = 'af970f2e-98be-4137-a087-f93650e70041'
         preview = colecao.preview_ensure()
         preview.image_size = (2, 2)
         preview.image_pixels_float = [.2, .4, .6, 1.] * 4
-        grupo = bpy.data.objects.new('Grupo', None)
+        grupo = bpy.data.objects.new("Group", None)
         grupo['eh_conjunto_chapa'] = True
         colecao.objects.link(grupo)
         material = bpy.data.materials.new('Material conservado')
@@ -102,7 +102,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
 
     def test_api_indisponivel_nao_cria_preparo(self):
         with patch.object(addon.solda, 'normalizar_ligacoes', None, create=True):
-            with self.assertRaisesRegex(RuntimeError, 'indisponivel'):
+            with self.assertRaisesRegex(RuntimeError, 'API is still unavailable'):
                 migracao.preparar(self.biblioteca, self.destino)
         self.assertFalse(self.destino.exists())
 
@@ -188,10 +188,10 @@ class TestSoldasBiblioteca(unittest.TestCase):
         self.assertLessEqual(resultado[0]['excesso_mm'], migracao.TOLERANCIA_MINIMO_MM)
         _distancia, i, j = candidatos[-1]
         a['adj_x_pos_ancoras'] = ['v%d|v%d' % (i, j)]
-        with self.assertRaisesRegex(RuntimeError, 'minimo real global'):
+        with self.assertRaisesRegex(RuntimeError, 'actual global minimum'):
             migracao.validar_minimos_reais(objetos)
         b.data.clear_geometry()
-        with self.assertRaisesRegex(RuntimeError, 'sem vertices reais'):
+        with self.assertRaisesRegex(RuntimeError, 'no finite actual vertices'):
             migracao.validar_minimos_reais(objetos)
 
     def test_api_real_refina_pares_e_conserva_restricoes_axiais(self):
@@ -219,7 +219,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
         self.fixture()
         def invalida(pecas, **opcoes):
             return dict(invalidas=['ancora apagada'])
-        with self.assertRaisesRegex(RuntimeError, 'exige revisao'):
+        with self.assertRaisesRegex(RuntimeError, 'Normalization requires review'):
             self.preparar(invalida)
 
     def test_preparo_exige_idempotencia_depois_de_reabrir(self):
@@ -264,8 +264,8 @@ class TestSoldasBiblioteca(unittest.TestCase):
 
     def test_preset_complexo_reabre_em_temporario_com_estado_protegido_identico(self):
         if bpy.app.version < (5,):
-            self.skipTest('Biblioteca 5.x nao abre em Blender 4.2')
-        fonte = Path(__file__).resolve().parents[1] / 'archy_builder/biblioteca/Armario_Quarto_08_600x2503x550.blend'
+            self.skipTest('The Blender 5.x library cannot open in Blender 4.2')
+        fonte = Path(__file__).resolve().parents[1] / "archy_builder/assets/library/Armario_Quarto_08_600x2503x550.blend"
         digital = migracao.base.digital(fonte)
         copia = self.raiz / 'copia.blend'
         shutil.copy2(fonte, copia)
@@ -308,7 +308,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
                 migracao._gravar(self.destino / 'manifesto.json', m)
             manifesto_antes = (self.destino / 'manifesto.json').read_bytes()
             with self.subTest(estado=estado), patch.object(migracao.shutil, 'copyfile') as copiar:
-                with self.assertRaisesRegex(RuntimeError, 'Fonte mudou'):
+                with self.assertRaisesRegex(RuntimeError, 'Source changed since preparation'):
                     migracao.publicar(self.destino)
                 copiar.assert_not_called()
             self.assertEqual(migracao._arquivos(self.biblioteca), antes)
@@ -321,7 +321,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
         (self.biblioteca / 'Teste.png').write_bytes(b'foto editada')
         antes = migracao._arquivos(self.biblioteca)
         with patch.object(migracao.shutil, 'copyfile') as copiar:
-            with self.assertRaisesRegex(RuntimeError, 'mudou'):
+            with self.assertRaisesRegex(RuntimeError, 'Library, staging, or backup changed since preparation'):
                 migracao.publicar(self.destino)
         copiar.assert_not_called()
         self.assertEqual(migracao._arquivos(self.biblioteca), antes)
@@ -333,7 +333,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
             caminho = self.destino / pasta / 'Teste.blend'
             dados = caminho.read_bytes()
             caminho.write_bytes(b'arquivo adulterado')
-            with self.assertRaisesRegex(RuntimeError, 'mudou'):
+            with self.assertRaisesRegex(RuntimeError, 'Library, staging, or backup changed since preparation'):
                 migracao.publicar(self.destino)
             caminho.write_bytes(dados)
 
@@ -342,7 +342,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
         self.preparar()
         temporario = self.biblioteca / 'Teste.blend.solda-nova'
         temporario.write_bytes(b'arquivo de outro processo')
-        with self.assertRaisesRegex(RuntimeError, 'Temporario ja existe'):
+        with self.assertRaisesRegex(RuntimeError, 'Temporary file already exists'):
             migracao.publicar(self.destino)
         self.assertEqual(temporario.read_bytes(), b'arquivo de outro processo')
 
@@ -410,4 +410,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_soldas_guarda_') as guarda:
             addon.chapas._ocupado[0] = False
             addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Soldas da biblioteca reprovadas')
+    raise RuntimeError("Library weld tests failed")

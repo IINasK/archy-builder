@@ -1,34 +1,30 @@
-> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below are retained only where historically relevant.
+> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below remain where historically relevant.
 
-# CLAUDE.md — biblioteca/ (presets de fabrica)
+# Library history and asset contracts
 
-> **REGRA:** este CLAUDE.md NAO pode passar de 200 linhas (mesmo limite do
-> CLAUDE.md da raiz). Visao geral e invariantes gerais estao em
-> `../../CLAUDE.md`.
+This records the former library CLAUDE.md (then limited to 200 lines). Current
+instructions live in the [asset guide](../../archy_builder/assets/library/AGENTS.md).
 
-## Papel desta pasta
+## One library and its files
 
-E' a biblioteca DA EMPRESA -- a unica. `pasta_biblioteca()` aponta para
-ca' e o Blender a registra como a unica biblioteca de assets do add-on,
-chamada `Archy Builder`. Salvar pela UI grava aqui.
+The company library is the only library. `pasta_biblioteca()` resolves it and
+Blender registers one Archy Builder asset library. UI Save writes there. The old
+factory/team split produced duplicate Asset Browser entries; locks are now per
+item (`bloqueado`), never implicit from directory membership.
 
-Nao existe mais o par fabrica/equipe: era ele que produzia duas entradas
-no seletor do Asset Browser. O cadeado virou por item (`bloqueado` no
-indice); nada e' bloqueado so' por estar nesta pasta.
+Writing inside the add-on was safe in the company checkout because development
+used a junction (`vincular_blender.py`). ZIP updates can overwrite that directory;
+ZIP installations should configure Preferences `pasta_biblioteca` to a network
+folder when retaining company assets.
 
-> **Cuidado:** gravar dentro do add-on so' e' seguro porque esta pasta e'
-> o repositorio da empresa (junction de `vincular_blender.py`). Numa
-> instalacao por `.zip`, atualizar o add-on SOBRESCREVE a pasta — nesse
-> caso configure Preferences > `pasta_biblioteca` para uma pasta de rede.
-## Arquivos
-| Arquivo | O que e' |
+| File | Purpose |
 |---|---|
-| `*.blend` | Um arquivo por preset (`bpy.data.libraries.write`, comprimido). Binario. |
-| `*.png` | Foto 512x512 com o mesmo nome base do `.blend`. |
-| `indice.json` | Catalogo lido pelo painel (evita abrir cada `.blend`). |
-| `blender_assets.cats.txt` | Catalogos do Asset Browser (`VERSION 1`). |
-## Formato do `indice.json`
-Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
+| `*.blend` | One compressed binary preset written with `bpy.data.libraries.write`. |
+| `*.png` | 512x512 photo with the blend basename. |
+| `indice.json` | UI catalog, avoiding a blend read per item. |
+| `blender_assets.cats.txt` | Asset Browser catalogs, `VERSION 1`. |
+
+Index is a JSON list, `indent=1`, `ensure_ascii=False`; example retained as data:
 
 ```json
 {
@@ -39,164 +35,88 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 }
 ```
 
-- `tipo`: `"modulo"` (Collection marcada como asset; insere o conjunto) ou
-  `"objeto"` (objetos soltos).
-- `n1/n2/n3`: primeiros niveis da arvore em `biblioteca.py`; o indice
-  estende os ramos dinamicamente. Ramo sem nivel 3 usa `"n3": ""`.
-- `niveis` (opcional): o caminho INTEIRO quando passa de 3 (pedido do
-  usuario: sem limite) -- `["Armarios", "Cozinha", "Altos", "Despenseiros"]`;
-  n1/n2/n3 continuam com os 3 primeiros. Leia sempre por `caminho_de`
-  (`_niveis_de` so' devolve os 3 primeiros). O catalogo e' o caminho todo.
-- Opcionais: `foto`, `ordem` (posicao na grade), `bloqueado` (cadeado por
-  item), `caixa` (wireframe do arraste sem abrir o .blend; `bytes` invalida).
-- Formato legado `categoria`/`subcategoria` ainda e' aceito por
-  `_niveis_de` — nao gere mais, mas nao quebre a leitura.
-- `arquivo` e' a chave de identidade do item (sem caminho, so' o basename).
-  `pasta` e `origem` sao adicionados em memoria por `indice_completo()`
-  e NAO devem ser gravados no JSON.
-## Catalogos (`blender_assets.cats.txt`)
+- `tipo`: `modulo` means asset Collection/whole assembly; `objeto` loose objects.
+- `n1/n2/n3` are the first tree levels, extended dynamically; absent third level is empty string.
+- Optional `niveis` is the complete unlimited path, e.g. `["Armarios", "Cozinha", "Altos", "Despenseiros"]`; first three remain in n1/n2/n3. Read with `caminho_de`; `_niveis_de` returns only three. Catalog uses the complete path.
+- Optional `foto`, `ordem` (grid position), `bloqueado`, `caixa` (drag wireframe without opening blend; `bytes` invalidates it).
+- `_niveis_de` still reads legacy `categoria`/`subcategoria`; do not generate these or break reading them.
+- `arquivo` basename is item identity. `indice_completo()` adds `pasta`/`origem` in memory; never persist them in JSON.
 
-- Linha: `UUID:caminho/do/catalogo:nome_simples`.
-- Os `.blend` guardam o UUID do catalogo no `asset_data`. NAO troque os
-  UUIDs existentes, senao os assets somem do catalogo no Asset Browser.
-- O arquivo e' GERADO por `_garantir_catalogos()`: a cascata inteira da
-  `ARVORE` sob a raiz UNICA `Archy Builder`. Nao edite a mao — rode a
-  funcao apontando para esta pasta e commite o resultado.
-- Raizes antigas (`RAIZES_ANTIGAS`, `Cabinet Creator` e `Chapa G3`) sao RENOMEADAS
-  mantendo o UUID. Renomear o caminho e' seguro; trocar o UUID nao.
-- O nivel 1 e' exatamente o do painel N (chaves da `ARVORE`). Os
-  catalogos por TIPO (`Chapas`/`Modulos`) so' existem como fallback de
-  quem salva sem categoria — nao entram na cascata.
-- Cada preset e' arquivado no catalogo da sua CATEGORIA (`n1/n2/n3` do
-  indice), nao mais por tipo. Para mover um preset de categoria use
-  `refiliar_preset()`: o catalogo mora dentro do `.blend`, mudar so' o
-  indice.json nao surte efeito no Asset Browser.
-## Armarios nativos de fabrica
+Catalog line: `UUID:caminho/do/catalogo:nome_simples`. Presets store UUID in
+asset_data; replacing it makes assets disappear from categories. `_garantir_catalogos()`
+generates the full ARVORE cascade under single Archy Builder root; do not hand-edit.
+`RAIZES_ANTIGAS` (Cabinet Creator/Chapa G3) renames paths while retaining UUIDs.
+Level 1 matches ARVORE UI keys; Chapas/Modulos type catalogs are uncategorized-save
+fallbacks, outside the cascade. Category moves use `refiliar_preset()` because
+catalog_id lives inside blend; changing only the index cannot move Asset Browser entries.
 
-> Decisao do usuario: a biblioteca usa SO' os modulos do DXF. Os 39
-> nativos foram APAGADOS; o gerador continua no add-on (e nos testes),
-> mas nao rode na biblioteca real sem pedido.
+## Native factory cabinets and DXF adoption
 
-`tools/library/generate_native_cabinets.py` e `ARMARIOS_NATIVOS` continuam para testes,
-fora da biblioteca real. Preview so' DEPOIS de remover as pecas da cena:
-`aplicar_preview_png` recarrega/regrava e nomes ainda presentes viravam `.001`.
+User decision: use DXF modules only. The 39 native presets were deleted; generator
+`tools/library/generate_native_cabinets.py` and `ARMARIOS_NATIVOS` remain for tests,
+never run on real library without request. Apply preview only AFTER removing
+scene pieces: `aplicar_preview_png` reloads/rewrites and existing names caused .001.
 
-## Modulos do DXF
+DXF folder = tab (Altos/Ilhas/Sup Baixos...), file = category. Unlimited `niveis`
+currently includes four or more levels, e.g. Armarios > Cozinha > Inferiores >
+Cantos. Early Cantos/Bifond exports map to Inferiores (`importacao.categoria_promob`).
+`tools/library/import_dxf_library.py` runs background in Blender 5.x and reads
+`Documentos/DXF/<Ambiente>/<Aba>/<Categoria>.dxf`. Names such as `Canto 01 LxAxP`
+exclude door depth; non-Inferiores include tab (`Canto Sup Baixo 01`) to prevent
+collisions. Reimport replaces by name; if naming rules change, remove old index
+entries (former n3 `Aba - Categoria`) and their blend/png first.
 
-> Decisao do usuario: a biblioteca usa SO' os modulos do DXF, com as
-> abas dele: a PASTA e' a aba (Altos, Ilhas, Sup Baixos...), o ARQUIVO a
-> categoria. O caminho atual tem 4 ou mais niveis, pelo campo `niveis`:
-> Armarios > Cozinha > Inferiores > Cantos. As pastas Cantos/ e Bifond/
-> das primeiras exportacoes sao Inferiores (`importacao.categoria_promob`).
+DXF has a layer per part, 3DFACE/polyface, mm, Z up, front -Y. Colors: 7 wood,
+253 hardware, 254 aluminum/glass, 8 handles, 28 accessories, 250..252 appliances.
+Integrate into native systems: panels color 7, >=3 mm thick, sides>=50 mm including
+curves; hinged fronts -> native doors/hinges/coverage; MDF boxes/wire baskets ->
+native drawers/rails with proportional heights and sagitta for curved fronts;
+23 mm color 254 aluminum frame -> sliding aluminum-frame leaf/native rail.
+Thin backs/top stretchers become dependents. Imported curved doors use explicit
+native add-on control; Tab-curved meshes never silently activate it.
 
-`tools/library/import_dxf_library.py` (raiz, `--background`, Blender 5.x) le
-`Documentos/DXF/<Ambiente>/<Aba>/<Categoria>.dxf`. Nome: "Canto 01
-LxAxP" (P sem a porta: a frente vira porta nativa); fora de Inferiores
-leva a aba ("Canto Sup Baixo 01") -- o mesmo "Canto 01" de duas abas
-gravava um por cima do outro. Rodar de novo substitui pelo nome; se o
-nome MUDAR (outra regra de importacao), tire antes os presets antigos do
-indice (os de n3 "Aba - Categoria") e os .blend/.png deles. O DXF do
-DXF tem uma CAMADA por peca (3DFACE/polyface, mm, Z para cima, frente
--Y) e a COR da camada diz o que e' (7 chapa, 253 ferragem, 254 aluminio
-e vidro, 8 puxador, 28 acessorio, 250-252 eletro). Pedido do usuario:
-INTEGRACAO, nao copia -- o modulo vira o NOSSO (`promob`):
-- CHAPA (cor 7, >= 3 mm, lados >= 50 mm), inclusive a de contorno curvo;
-- frente com DOBRADICA -> porta nativa (dobradica nossa; o lado dela vai
-  para a cobertura Reta/Curva do add-on); com CAIXA de MDF ou CESTO
-  aramado atras -> gavetas nativas (trilho nosso, alturas em proporcao,
-  frente curva com flecha); QUADRO de aluminio (cor 254, 23 mm) -> porta
-  de correr com a folha Quadro de aluminio (trilho nosso);
-- fundo fino e travessas do topo -> as dependentes do modulo;
-- PORTA curva adotada na importacao usa folha nativa e controle explicito
-  do add-on; malha curvada pelo Tab nao ativa curva parametrica.
-Ferragem, puxador, cesto, eletro e decoracao NUNCA viram peca; o PISO
-(chapa deitada > 1,5 m2 com <= 6 mm, ou por baixo de 80% das pecas) sai.
-Portas em L/diagonal: placa/braco do DXF revelam a face e as alturas;
-vao orientado segue vertices reais (cabinet_canto/vN), inclusive R/angulo.
-Folha articulada segue sua folha de apoio (placa/caneco nativos, nao Reta
-de carcaca flutuando); ferragens pertencem so' ao grupo mais proximo.
-Junta sem apoio/ciclo: usar a lateral externa que existe na caixa.
-Ainda fica chapa a com dobradica EMBAIXO (tombador nao implementado).
-Os niveis: Armarios > Ambiente > ABA > CATEGORIA (4 niveis).
-Pecas que se encostam viram UM modulo: na cena do DXF os modulos
-precisam de espaco entre si. Os arquivos da biblioteca do DXF NAO
-servem: o .entity e' receita do motor dele (formulas), sem as pecas; o
-.model de fabricante e' criptografado.
+Hardware, handles, baskets, appliances and decoration never become wood. Remove
+floor panels lying flat >1.5 m2 and <=6 mm, or underneath 80% of pieces. L/diagonal
+hinge plate/arm determines face/heights; oriented opening follows real vertices
+(cabinet_canto/vN), including R/angle. Articulated leaf follows its support leaf,
+with plate/cup, not a floating carcass hinge. Hardware belongs only to nearest
+group. Unsupported/cyclic joints use actual outer side. Bottom-hinged fronts
+remain panels (drop-down unsupported). Touching pieces form one cabinet; separate
+modules in DXF scene. Native source `.entity` files contain engine recipes/formulas,
+not geometry; manufacturer `.model` is encrypted and cannot substitute for DXF.
 
-Encaixes (v230): o DXF deixa base/tampo 3 mm para dentro da extremidade
-das laterais. `promob.ajustar_encaixes` leva essas chapas deitadas a' quina
-externa (tolerancia ate' 3,1 mm); conserva E, contornos, UID, portas/gavetas
-e dimensoes externas; refaz as ancoras da montagem. Prateleiras internas,
-fundo em canal e recuos maiores nao entram. Aplicado tambem ao importar.
-Presets existentes: `tools/migrations/adjust_fits.py -- --destino PASTA_BACKUP`
-prepara/reabre/verifica .blend + fotos/previews FORA da biblioteca e guarda
-originais. Depois `--aplicar` publica os mesmos nomes, checando hashes;
-indice, nomes e UUIDs de catalogo permanecem. NUNCA rode isso dentro de teste.
-13/10/2026: auditados 182 presets DXF; corrigidos 172 (269 chapas,
-deslocamentos de -3/+3 mm), com fotos e previews. Conferencia apos publicar:
-zero folgas desse tipo, dimensoes externas preservadas em todos. Originais
-em Documentos/Cabinet Creator Backups/encaixes-20261013 (manifesto + hashes).
+## Recorded migrations and audits
 
-## Cuidados
+These results and backup names are historical evidence, not checks rerun during
+translation. Original asset names, paths and labels below remain data contracts.
 
-Portas (v231): `tools/migrations/adjust_doors.py` prepara fora da biblioteca,
-substitui so' portas usando os DXFs da categoria, restaura chapas que
-viraram portas por engano e converte frentes de canto antes fixas.
-Conserva chapas restantes (UID/geometria/encaixes), materiais, puxadores,
-nomes de arquivo e UUIDs; reabre e verifica .blend/foto antes de --aplicar.
-Alturas por folha sao referencias normalizadas, substituidas ao editar
-qtd/margem manualmente; nao contar a plaquinha como outra dobradica.
-Calco da Reta pode andar para fora tambem (meia cobertura); nao clamar
-em zero e deixar a placa a 7 mm da divisoria. Editor conserva referencias
-sem edicao de margem/qtd; slots OBJECT conservados na migracao.
-14/10/2026: 96 presets corrigidos, 26 chapas antes confundidas com portas
-restauradas e 68 frentes antes fixas integradas. 339 apoios de dobradicas
-verificados em contato. Backup: Documentos/Cabinet Creator Backups/
-portas-20261014-preparo5. Fotos de canto: 100%/50%; .blend fechado.
-Zig-zag nativa: 2-8 folhas, articulacoes alternadas em cadeia, volumetria
-propria (placas, nos, eixo, parafusos), puxador somente na ultima folha.
-v232: `tools/migrations/adjust_hinges.py` corrige somente ferragens dos apoios
-obliquos, sem reconstruir portas/chapas. A placa inteira encosta na face
-real: 4 vertices coplanares + espessura para fora; nao usar so' a menor
-distancia de um canto. Arame e malha preservam o prisma inclinado.
+| Version | Recorded work and evidence |
+|---|---|
+| 230 | `tools/migrations/adjust_fits.py`: base/top up to3.1 mm inset moved to outer side corners; preserve E, contours, UID, doors/drawers, external bounds; rebuild anchors. Internal shelves/grooved backs/larger setbacks excluded. Native import also applies `promob.ajustar_encaixes`. Prepare/reopen/check blend/photos/previews externally, keep originals; publish with hashes and unchanged names/index/UUIDs. 13 Oct2026:182 audited,172 corrected,269 panels at -3/+3 mm; zero residual gaps, all external bounds retained. Backup `Documentos/Cabinet Creator Backups/encaixes-20261013` with manifest/hashes. |
+| 231 | `tools/migrations/adjust_doors.py`: replace doors only from category DXF, restore misclassified panels, adopt formerly fixed corner fronts. Preserve other UID/geometry/fits/materials/handles/names/UUIDs; reopen/check before apply. Normalized per-leaf hinge-height references replaced only by manual count/margin, never count plate as second hinge. Full-overlay spacer may move outward for half coverage; no zero clamp leaving plate7 mm away. Preserve references/OBJECT slots. 14 Oct:96 corrected,26 panels restored,68 fronts integrated,339 hinge supports verified touching. Backup `Documentos/Cabinet Creator Backups/portas-20261014-preparo5`. Closed blend; historical corner photo100%/50%. |
+| 232 | `tools/migrations/adjust_hinges.py` repairs oblique-support hardware only, no door/panel rebuild. Whole plate touches actual face:four coplanar vertices plus outward thickness, not nearest single corner. Preserve inclined prism in wireframe/mesh. Native zigzag:2..8 alternating leaves, plates/nodes/axis/screws, handle last only. |
+| 233 | `tools/migrations/audit_and_repair_integration.py`: DXF comparison, selection/sliders/open/edit/restore including save/reopen.182 audited,134 corrected;113 native drawers (was96),220 shelves/free gaps in original panels. Islands by actual face, misclassified sides restored, front coverages/proportions retained; materials/UID/world body geometry/catalogs verified. Backup `Documentos/Cabinet Creator Backups/integracao-20261014-preparo11`, expected/before/after manifest per preset. Library updates require reinserting old scene instances. BLENDER17/5.x unreadable by4.2.1, which validates code only. |
+| 236 | `tools/migrations/adjust_backs_and_doors.py`:25 backs set15 mm, four single-front islands Inferior02/03/Superior01/05,29 presets. Opposite front -> native5 mm back, corners preserved; shelves/boxes refitted, partial backs retain profile. Backup `Documentos/Cabinet Creator Backups/fundos-portas-20261014-preparo3`. |
+| 237/238 | First door photographed left, others closed, corner100%/50%, crease-only outlines.238 makes real supported left opening; reverses coplanar chains. `tools/migrations/adjust_left_opening.py`, backup `esquerda-20261014-preparo2`. Assembly intact; `tools/migrations/refresh_library_photos.py` checks reread/hashes, backup `Documentos/Cabinet Creator Backups/fotos-20261014-preparo1`. |
+| 241 |11 Sup Medios > Cantos rebuilt from DXF by `tools/migrations/refine_corners.py`. L backs retain margins on EACH plane; partial back never full rectangle (formerly+75 mm). Base/top to corner, touching partitions follow inner face. Exact gaps/coverage, panel normal free from plate noise, native angular hinge for diagonal support. Profile below; later306 curved door profile uses straight edge, native leaf retains mesh/sagitta/R/opening. Closed files, historical100%/50% photos, reread/open/contact audited. Names/index/UUID/material retained. Final backup `Documentos/Cabinet Creator Backups/cantos-20261015-preparo7`, initial originals preparo6. |
+| 243 | ALL doors closed in photos/previews, sides/hardware unchanged;183 modules. Backup `Documentos/Cabinet Creator Backups/fotos-fechadas-20261015-v243`. |
+| 244/245 |33 corner door modules Inferiores/Sup Baixos/Sup Medios rebuilt: narrow strips/trim retained, fixed panel never leaf articulation,2 mm gap. Backups `cantos-apoios244-{supmedios,supbaixos,inferiores-validado}`. Inferiores07/12 already lacked functional leaves, preserved.245 adds face references/full-overlay rig for flat leaves/perpendicular support, cups audited inside leaf; backups `cantos-reta245-{medios,baixos,inferiores}`. |
+| 246 |+220 models,408 presets;30 categories (26 new,4 revised). Kitchen Sup Altos/remaining Sup Medios/Portas (32 wood,12 aluminum); Bedrooms Armarios/Bancadas/Escritorios/Cabeceiras/Superiores. Canto05/08 split A/B with individual measurements/local-front profile. Audit259 assets,246 leaves,12 drawer groups,149 shelf groups. Backup `bibliotecas246-preparo` originals/new/manifest/audit. Inserted instances remain unchanged. |
+| 249 |405 modules audited; positive-support-area automatic joints, residual UIDs cleaned, manual anchors retained;8557 ->3129 links. Canto Sup Alto11 strip3..1053 ->0..1056 mm, new closed photo. Backup/reread/hash `conexoes249-preparo`; `tools/migrations/refine_library_connections_v249.py`. |
+| 251 |32 Diagonais corrected from top profile;12 modeled fronts adopted, handle/Alt tangent, supports touching.100 mm resize/return audited; body/UID/material/catalog retained. Backup `diagonais251-validado`; `tools/migrations/refine_diagonal_fronts_v251.py`. |
+| 252 |Same32 with free actual-panel ends, profile outline/top preview corrected; no BVH intersections. Backup `diagonais252-final`; `tools/migrations/refine_diagonal_clearance_v252.py`. |
+| 306 |User chose ALL profile handles. `tools/migrations/standardize_profile_handles.py`:142 modules,37 bar handles ->profile on SAME edge (curves vertical straight edge),147 missing door handles added by import rule (curves side),8 drawers NONE ->profile. Reread505 profiles,zero handleless doors. Profile saved without model material as before,+1.6 MB. Backup `puxador-perfil-20261024-preparo4`. |
+| 307 |Bancadas Quarto01/02/05 curved fronts reversed (external hinges/inward opening); `_virar_porta_modelada` turns reference with wood fixed, hinges on actual inner face.01/02 ends aligned with side get user-selected15 mm `Apoio Dobradica` at door height, cut to inner base. Bancada03 profile moved off hinge edge. `tools/migrations/repair_reversed_curved_doors.py`; backup `portas-curvas-20261024-preparo2`. |
+| 308 |Profiles always horizontal except wardrobes, by user decision.95 modules redone with standardize_profile_handles.py; tall cabinets by hand height, curved leaves get front references. Reread51 vertical,all Quartos > Armarios. Backup `puxador-horizontal-20261024-preparo1`. |
+| 310 |Removed11 leaf-on-leaf hinged/folding modules, user decision: Despenseiro Alto03/04,Balcao11,Inferior Ilha05/06,Armario Quarto02/06,Bifold01/02 (Cantos Bifold category removed),Canto Quarto Armario07/12. Do not reimport articulated leaves into library. |
+| 333 |Removed21 curved-leaf modules: Diagonal01/02,Diagonal Sup Baixo02/03,Sup Alto01/02,Sup Medio01/02,Diagonal Quarto Armario01/02,Canto08B,Canto Sup Alto01,Sup Baixo05,Sup Medio03,Canto Quarto Armario02,Canto Quarto Bancada01,Canto Quarto Superior02,Bancada Quarto01/02/03/05. Straight chamfered diagonals stay. Backup `portas-curvas-remocao-20261025`;two copies in tests/fixtures. |
+| 341/342 |341 removes Balcao09/15 (curved fronts still ordinary panels),Gaveteiro01/03 (arc fronts); curved reception desks/chamfered diagonals stay by user choice. Backup `frentes-curvas-remocao-20261025-v341`.342 prepares/reopens nonoverlapping internal gaps/local cuts/repaired seams; fixed separators stay structure. Gaveteiro19/Mesa de Cabeceira04 sides restored from DXF; Armario Quarto08 gets four native drawers. Photos/previews/index boxes updated;backup `internos342-preparo`. |
+| 350 |Removed remaining10 diagonals with `porta_curva_modelada` and34 repeated/mirrored variants; straight/chamfered/curved reception desks stay. Geometry/material/systems audited across369 modules; preserve most visible front-right-photo orientation, ties by ordinal. Kept names/UUIDs/bytes unchanged. `tools/migrations/consolidate_library_variants.py`:external plan,backup/hashes,atomic index/rollback. Originals `Documentos/Cabinet Creator Backups/variantes350-20261025`;audit/choices sibling `variantes350-auditoria`. Mirror is native GROUP Object Mode transform, never per-panel duplicating modifier. Inserted instances not removed. |
+| 359 |`tools/migrations/refine_library_joints.py`:328 audited,265 blend files refined;2385 records ->1978 unique pairs, nearest actual vertices. Geometry/material/UID/catalog/photos retained. Reversible backup `Documentos/Cabinet Creator Backups/soldas359-aceite-20261027-042135Z`. |
 
-v233: `tools/migrations/audit_and_repair_integration.py` compara cada preset ao DXF e testa
-selecao, sliders, abertura e editar/restaurar, inclusive depois de salvar.
-182 presets auditados; 134 corrigidos: 113 gavetas nativas (antes 96) e
-220 prateleiras com vaos LIVRES nas chapas originais. Ilhas por FACE real,
-laterais antes confundidas com frente restauradas; proporcoes/coberturas
-das frentes preservadas. Materiais, UID, geometria mundial do corpo e
-catalogos verificados. Backup: Documentos/Cabinet Creator Backups/
-integracao-20261014-preparo11 (manifesto esperado/antes/depois por preset).
-Atualiza BIBLIOTECA; exemplares antigos na cena precisam ser reinseridos. Formato BLENDER17 de 5.x; 4.2.1 nao le (valida so' codigo).
+## Data safeguards
 
-v236: `tools/migrations/adjust_backs_and_doors.py`: 25 fundos recuados a 15 mm e
-4 ilhas de frente unica (Inferior 02/03, Superior 01/05); 29 presets.
-Frente oposta substituida por fundo nativo 5 mm, cantos preservados.
-Prateleiras e caixas reencaixadas; fundos parciais conservam o perfil.
-Backup: Documentos/Cabinet Creator Backups/fundos-portas-20261014-preparo3.
-v237: primeira porta na foto a' esquerda, demais fechadas (canto 100%/50%); contorno das quinas, sem triangulacao. v238: abertura REAL esquerda com apoio; cadeias coplanares invertidas. tools/migrations/adjust_left_opening.py (backup esquerda-20261014-preparo2).
-Montagem intacta; tools/migrations/refresh_library_photos.py valida releitura/hashes. Backup: Documentos/Cabinet Creator Backups/fotos-20261014-preparo1.
-
-v241: Sup Medios > Cantos (11): reconstruidos do DXF por
-`tools/migrations/refine_corners.py`. Fundos em L guardam margens em CADA plano;
-fundo parcial nao vira o retangulo da caixa (antes alargava 75 mm).
-Base/tampo na quina: divisorias que encostavam acompanham a face interna.
-Coberturas/gaps exatos, normal da chapa sem ruido da placa; apoio diagonal
-usa ferragem angular nossa. Perfil embaixo; curva com perfil na borda reta (v306),
-folha nativa que conserva malha/flecha e acompanha R c/ abertura preservada.
-Historico v241: arquivo fechado e foto 100%/50%; releitura/abertura/contato auditados. v243: TODAS as portas fechadas nas fotos/previews, sem mudar lado/ferragens. Backup: Documentos/Cabinet Creator Backups/fotos-fechadas-20261015-v243 (183 modulos).
-Indice, nomes, UUIDs e materiais conservados. Backup final: Documentos/Cabinet Creator Backups/cantos-20261015-preparo7; originais iniciais no preparo6.
-v244: 33 cantos com portas reconstruidos dos DXF (Inferiores/Sup Baixos/Sup Medios): ripas estreitas e arremates conservados, painel fixo sem articulacao entre folhas, folga de 2 mm. Backup: cantos-apoios244-{supmedios,supbaixos,inferiores-validado}. Inferiores 07/12 ja' nao tinham folhas funcionais e foram preservados. v245: mesmos 33 com referencias de face e rig Reta nas folhas planas com apoio perpendicular; copos auditados dentro da folha. Backup cantos-reta245-{medios,baixos,inferiores}. v246: +220 modelos, 408 presets totais; 30 categorias preparadas (26 novas + 4 revistas). Cozinha inclui Sup Altos, restantes Sup Medios e Portas (32 madeira, 12 aluminio); Quartos inclui Armarios/Bancadas/Escritorios/Cabeceiras/Superiores. Canto 05 e 08 separados em A/B com medidas individuais, perfil na frente local. Auditoria: 259 assets, 246 folhas, 12 grupos de gavetas, 149 grupos de prateleiras. Backup: bibliotecas246-preparo (originais/novos/manifesto/auditoria). Atualizar preset nao substitui exemplares ja' inseridos. v252: mesmos 32 Diagonais com extremidades livres das chapas reais, contorno do perfil e previa superior corrigidos; BVH sem intersecoes, backup diagonais252-final; tools/migrations/refine_diagonal_clearance_v252.py. v251: 32 Diagonais corrigidos pelo perfil do tampo; 12 frentes antes modeladas integradas, puxador/Alt na tangente e apoios em contato. Resize 100 mm/retorno auditado; corpo/UID/materiais/catalogo conservados. Backup diagonais251-validado; tools/migrations/refine_diagonal_fronts_v251.py. v249: 405 modulos auditados; soldas automaticas por area positiva de apoio, UID residual limpo, ancoras manuais preservadas; 8557 -> 3129 ligacoes. Canto Sup Alto 11: ripa alinhada de 3..1053 para 0..1056 mm, nova foto fechada. Backup/releitura/hash: conexoes249-preparo; tools/migrations/refine_library_connections_v249.py. v306: TODO puxador e' PERFIL (pedido do usuario), `tools/migrations/standardize_profile_handles.py`: 142 modulos; 37 alcas viraram perfil na MESMA borda (curvas: a vertical, reta), 147 folhas sem puxador ganharam perfil pela regra da importacao (curva na lateral), 8 gavetas NENHUM -> perfil. Releitura: 505 perfis, 0 porta sem puxador. Perfil gravado SEM o material do modelo, como os antigos (+1,6 MB). Backup puxador-perfil-20261024-preparo4. v307: Bancadas Quarto 01/02/05 tinham a FRENTE da porta curva invertida (dobradica por fora, abrindo para dentro): virada por `_virar_porta_modelada` com a madeira no lugar; dobradica na face real por dentro e, na 01/02 (ponta em linha com a lateral), 'Apoio Dobradica' 15 mm na altura da porta (escolha do usuario), cortada na base interna. Bancada 03: perfil saiu da borda das dobradicas. `tools/migrations/repair_reversed_curved_doors.py`, backup portas-curvas-20261024-preparo2. v308: perfil SEMPRE horizontal salvo guarda-roupa (pedido do usuario): 95 modulos refeitos por `tools/migrations/standardize_profile_handles.py` (Altos pela altura da mao; folhas curvas ganharam referencia de frentes). Releitura: 51 verticais, todos em Quartos > Armarios. Backup puxador-horizontal-20261024-preparo1. v310: EXCLUIDOS 11 modulos com folha presa em OUTRA folha por dobradica (sanfona; pedido do usuario: nao e' modelo real): Despenseiro Alto 03/04, Balcao 11, Inferior Ilha 05/06, Armario Quarto 02/06, Bifold 01/02 (catalogo Cantos Bifold saiu) e Canto Quarto Armario 07/12. Nao reimportar folha articulada para a biblioteca. v333: EXCLUIDOS 21 modulos com folha de porta CURVA (pedido do usuario): Diagonal 01/02, Diagonal Sup Baixo 02/03, Sup Alto 01/02, Sup Medio 01/02, Diagonal Quarto Armario 01/02, Canto 08B, Canto Sup Alto 01, Sup Baixo 05, Sup Medio 03, Canto Quarto Armario 02, Canto Quarto Bancada 01, Canto Quarto Superior 02 e Bancada Quarto 01/02/03/05; diagonais de porta reta chanfrada ficam. Backup portas-curvas-remocao-20261025; 2 copias em tests/fixtures. v341: retirados tambem Balcao 09/15 (frentes curvas ainda como chapas comuns) e Gaveteiro 01/03 (frentes em arco); recepcoes curvas e diagonais chanfrados ficam por escolha do usuario. Backup frentes-curvas-remocao-20261025-v341. v342: internos preparados/reabertos com vaos sem sobreposicao, recortes locais e costuras reparadas; separadores fixos continuam na estrutura. Laterais do Gaveteiro 19/Mesa de Cabeceira 04 restauradas do DXF; Armario Quarto 08 tem quatro gavetas nativas. Fotos, previews e caixas do indice atualizados; backup internos342-preparo.
-
-v350: retirados 10 diagonais restantes com `porta_curva_modelada` e 34 variantes repetidas/espelhadas; retas/chanfradas e recepcoes curvas continuam. Geometria, materiais e sistemas auditados nos 369 modulos; conservada orientacao mais visivel da foto frontal direita, empate conserva ordinal. Nomes/UUIDs/bytes dos mantidos intactos. `tools/migrations/consolidate_library_variants.py`: plano externo, backup/hashes, indice atomico e rollback. Originais: Documentos/Cabinet Creator Backups/variantes350-20261025; auditoria/escolhas no irmao variantes350-auditoria. Mirror e' transformacao NATIVA do GRUPO no Object Mode; nao aplicar modificador duplicador em cada chapa. Atualizacao nao remove exemplares ja' inseridos.
-
-v359: `tools/migrations/refine_library_joints.py`: 328 auditados, 265 .blend refinados;
-2385 registros -> 1978 pares unicos, ancorados nos vertices reais mais proximos.
-Geometria/material/UID/catalogo/fotos preservados. Backup reversivel:
-Documentos/Cabinet Creator Backups/soldas359-aceite-20261027-042135Z.
-- `.blend`/`.png` sao binarios no `.gitattributes`; nunca edite como texto.
-- Nao commitar `*.blend1`/`*.blend2` (backups do Blender, ja' ignorados).
-- Os `.blend` contem as props `eh_chapa`, `chapa_*`, `adj_*`, `chapa_uid`:
-  qualquer renomeacao dessas props no codigo quebra estes presets.
-- `build.py` empacota esta pasta inteira no zip (inclusive este `.md`). Estado conferido: 328 assets (325 modulos e 3 objetos), com indice/arquivo/foto/catalogo consistentes. Scripts de preparo validam pasta externa por caminho real, inclusive junction/case no Windows; publicacao confere hashes/backup e tem rollback (suite migracoes).
+- `.blend`/`.png` are binary in `.gitattributes`; never edit as text.
+- Do not commit ignored `*.blend1`/`*.blend2` backups.
+- Saved `eh_chapa`, `chapa_*`, `adj_*`, `chapa_uid` are compatibility contracts.
+- Historical build.py packages the whole folder including this guide. Recorded state:328 assets,325 cabinets/3 objects, index/file/photo/catalog consistent. Preparation validates external real paths including Windows junction/case; publication checks hashes/backups and rolls back (migracoes suite).

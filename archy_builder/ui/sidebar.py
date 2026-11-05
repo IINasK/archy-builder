@@ -1,6 +1,6 @@
-"""Gaveta (UI desenhada por GPU): a area (abrir, reconectar, limitar a
-largura), os primitivos de desenho, o layout dos widgets de cada aba --
-a lista que o desenho e o hit-test leem -- e a animacao dos realces."""
+"""Sidebar (GPU-drawn UI): area lifecycle (open, reconnect, limit width), drawing
+primitives, per-tab widget layouts shared by drawing and hit-testing, and highlight
+animation."""
 
 import bpy, colorsys, math, os, gpu, blf, time
 from gpu_extras.batch import batch_for_shader
@@ -8,10 +8,10 @@ from bpy.props import StringProperty
 from mathutils import Matrix, Vector
 from bpy.types import Operator
 
-# usados ao CARREGAR (corpo de classe, constantes): ja' carregados antes
+# Used at LOAD time (class bodies, constants): already loaded earlier.
 from .. import opcoes as _opcoes
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _modulos = None
 _biblioteca = None
@@ -41,9 +41,9 @@ _alvenaria = None
 _instalacoes = None
 
 class OBJECT_OT_modo_medidas(Operator):
-    """Alterna a edicao entre uma chapa e o conjunto"""
+    """Switch editing between a panel and its assembly."""
     bl_idname = "object.cabinet_modo_medidas"
-    bl_label = "Modo de Medidas"
+    bl_label = "Measurement Mode"
     bl_options = {'INTERNAL'}
 
     modo: StringProperty()
@@ -55,7 +55,7 @@ class OBJECT_OT_modo_medidas(Operator):
         if self.modo == 'INDIVIDUAL' and _chapas.MARCA_CONJUNTO in obj:
             chapas = _modulos._chapas_do_conjunto(obj)
             if not chapas:
-                self.report({'WARNING'}, "Modulo sem chapas")
+                self.report({'WARNING'}, "Cabinet has no panels")
                 return {'CANCELLED'}
             alvo = chapas[0]
             for selecionado in context.selected_objects:
@@ -70,23 +70,22 @@ class OBJECT_OT_modo_medidas(Operator):
         return {'FINISHED'}
 
 
-# ================================================ AJUSTE A' LARGURA
-# O bpy nao mede texto nem informa quanto cabe num botao: ele so' corta
-# pela direita, comendo o final do rotulo. Para decidir layout e
-# encurtar nomes na mao, a largura da regiao e' convertida em pixels
-# logicos e o texto e' estimado por estes valores.
-# Medidos por captura de tela: com 6.5/10 o rotulo "Adjacencia" ainda
-# era cortado numa sidebar de 280px. Estes valores sao propositalmente
-# conservadores -- errar para o lado de sobrar espaco nao corta texto.
+# ================================================ FIT TO WIDTH
+# bpy neither measures text nor reports how much fits a button: it only truncates from
+# the right, removing label endings. To choose layouts and shorten names manually,
+# convert region width to logical pixels and estimate text using these values. Measured
+# from screenshots: with 6.5/10, the Adjacency label was still clipped in a 280 px
+# sidebar. These values are deliberately conservative: spare space is preferable to
+# clipped text.
 PX_CARACTERE = 7.5
 PX_FOLGA_BOTAO = 14.0
 PX_ICONE = 22.0
-# largura minima para um botao de categoria continuar legivel
+# Minimum width for a category button to remain readable.
 PX_MIN_NIVEL = 64.0
 
 
 def _largura_painel(context):
-    """Largura da regiao em pixels logicos (descontada a escala da UI)."""
+    """Region width in logical pixels, excluding UI scale."""
     regiao = getattr(context, "region", None)
     try:
         escala = context.preferences.system.ui_scale or 1.0
@@ -103,55 +102,55 @@ def _px_botao(rotulo, com_icone=True):
 
 
 def _abreviar(texto, limite):
-    """Encurta o NOME; quem chama concatena o sufixo depois, para que a
-    contagem nunca seja o pedaco cortado."""
+    """Shorten the NAME; the caller appends the suffix afterward so the count is never
+    truncated."""
     if limite >= len(texto):
         return texto
     return texto[:max(1, limite)]
 
 
-# ===================================================== GAVETA ESQUERDA
-# Editor nativo independente: nao mover a regiao N do usuario. O desenho
-# GPU (`_gaveta_desenho._desenhar_gaveta`) e os eventos
-# (`_gaveta_eventos.OBJECT_OT_interagir_gaveta`) nao passam pelo handler
-# de UILayout; portanto a barra recebe PRESS/MOUSEMOVE/RELEASE de verdade.
+# ===================================================== LEFT SIDEBAR
+# Independent native editor: do not move the user's N-region. GPU drawing
+# (`_gaveta_desenho._desenhar_gaveta`) and events
+# (`_gaveta_eventos.OBJECT_OT_interagir_gaveta`) bypass the UILayout handler, so the bar
+# receives actual PRESS/MOUSEMOVE/RELEASE events.
 _handler_gaveta = [None]
 _biblioteca_faixa = None
 _fotos_gaveta = {}
 _edicao_gaveta = [None]
-# Realces animados: chave -> [valor atual, alvo, instante]. A chave
-# e' (ponteiro da area, nome do widget), porque agora a alca e os
-# campos de medida usam o MESMO glow.
+# Animated highlights: key -> [current value, target, timestamp]. Key = (area pointer,
+# widget name), since the handle and dimension fields now use the SAME glow.
 _realces = {}
 _CHAVE_GAVETA = "cabinet_gaveta_area"
 _CHAVE_PENDENTE = "cabinet_gaveta_pendente"
 _CHAVE_ROLAGEM = "cabinet_gaveta_rolagem"
-# Biblioteca: painel FIXO embaixo, com rolagem propria. A divisoria e'
-# guardada como FRACAO da altura util, para acompanhar o resize da area.
+# Library: FIXED lower panel with its own scrolling. Store the divider as a FRACTION of
+# usable height so it follows area resizing.
 _CHAVE_ROLAGEM_BIB = "cabinet_gaveta_rolagem_bib"
 _CHAVE_DIVISA = "cabinet_gaveta_divisa"
-DIVISA_PADRAO = 0.5            # pedido do usuario: metade para baixo
-ALTURA_MIN_PAINEL_GAVETA = 90  # nenhum dos dois paineis some ao arrastar
-FOLGA_DIVISA_GAVETA = 5        # meia altura da faixa que pega a divisoria
-_cursor_divisa = [False]       # o cursor de redimensionar esta' posto
-# Engrenagem aberta: a gaveta mostra as opcoes no lugar do conteudo da aba
+DIVISA_PADRAO = 0.5            # User request: lower half.
+ALTURA_MIN_PAINEL_GAVETA = 90  # Neither panel disappears while dragging.
+FOLGA_DIVISA_GAVETA = 5        # Half-height of the divider's grab strip.
+_cursor_divisa = [False]       # The resize cursor is active.
+# Options gear open: show options instead of tab content.
 _CHAVE_OPCOES = "cabinet_gaveta_opcoes"
-# Lista suspensa aberta (nome da opcao) e seletor de cor aberto
+# Open dropdown (option name) and open color picker.
 _CHAVE_SUSPENSO = "cabinet_gaveta_suspenso"
 _CHAVE_COR = "cabinet_gaveta_cor"
-ALVO_PREFERENCIAS = '@preferencias'   # alvo da 'escolha' que grava opcao
+ALVO_PREFERENCIAS = '@preferencias'   # Target of the 'escolha' action that saves an
+                                      # option.
 _LARGURA_MAX_GAVETA = 564
-# Largura LOGICA a partir da qual Largura, Altura e Profundidade (e a
-# Espessura) ficam na mesma linha. A gaveta abre exatamente nela: e' o
-# menor tamanho com as medidas lado a lado (pedido do usuario).
+# LOGICAL width at which Width, Height, Depth and Thickness share one row. The sidebar
+# opens at exactly this width: the smallest size allowing dimensions side by side (user
+# request).
 LARGURA_MEDIDAS_EM_LINHA = 480
 _LARGURA_PADRAO_GAVETA = LARGURA_MEDIDAS_EM_LINHA
 
 
 def _largura_inicial_gaveta(context):
-    """Px de area com que a gaveta abre. A escala da UI entra igual ao
-    corte de `_colunas_medidas`; +2 cobre o arredondamento do split,
-    que senao abriria 1 px abaixo do corte, com as medidas em 2 linhas."""
+    """Initial sidebar area width in pixels. Apply UI scale as at the
+    `_colunas_medidas` threshold; +2 covers split rounding, which otherwise opened 1
+    px below the threshold with dimensions wrapping to two rows."""
     escala = max(1.0, context.preferences.system.ui_scale)
     return math.ceil(_LARGURA_PADRAO_GAVETA * escala) + 2
 
@@ -172,10 +171,9 @@ def _eh_area_gaveta(context):
 
 
 def _limitar_largura_gaveta():
-    # Area.width e' somente leitura. Corrigir a divisoria apos o resize,
-    # nunca disputar eventos com um operador modal do usuario.
-    # Com a UI ampliada a largura inicial passa de 564 px; o teto nunca
-    # fica abaixo dela, senao as medidas voltariam a quebrar a linha.
+    # Area.width is read-only. Correct the divider after resize; never compete for
+    # events with a user's modal operator. With enlarged UI, initial width exceeds 564
+    # px; the cap must never be lower, or dimensions would wrap again.
     if _eventos._desfazendo[0]:
         return 0.3
     teto = max(_LARGURA_MAX_GAVETA, _largura_inicial_gaveta(bpy.context))
@@ -186,7 +184,7 @@ def _limitar_largura_gaveta():
         painel = _area_gaveta(janela.screen)
         if (janela.screen.get(_CHAVE_GAVETA) and
                 (painel is None or painel.type == 'VIEW_3D')):
-            # Workspaces inativos so' recebem areas validas ao serem abertos.
+            # Inactive workspaces receive valid areas only when opened.
             if not bpy.app.timers.is_registered(_reconectar_gavetas):
                 bpy.app.timers.register(_reconectar_gavetas, first_interval=.05)
         if painel is None:
@@ -211,7 +209,7 @@ def _limitar_largura_gaveta():
 
 
 def _configurar_gavetas():
-    # A geometria da area nova so' fica disponivel no tique seguinte ao split.
+    # New area geometry becomes available only on the tick after splitting.
     if _eventos._desfazendo[0]:
         return .05
     pendente = False
@@ -243,7 +241,7 @@ def _configurar_gavetas():
 
 
 def _reconectar_gavetas():
-    # Ponteiros de areas nao sobrevivem a recarga de um arquivo .blend.
+    # Area pointers do not survive reloading a .blend file.
     if _eventos._desfazendo[0]:
         return .1
     for janela in bpy.context.window_manager.windows:
@@ -297,7 +295,7 @@ def _fechar_gavetas_registradas():
                                            area=painel):
                 bpy.ops.screen.area_close()
         except Exception as e:
-            print("[Archy Builder] fechar gaveta ao desativar:", e)
+            print("[Archy Builder] close sidebar on disable:", e)
 
 
 def _retangulo_gaveta(x, y, largura, altura, cor):
@@ -377,12 +375,11 @@ def _botao_gaveta(x, y, w, h, ativo=False, secao=False, cor=None):
 
 
 def _grupos_de_porta(obj):
-    """Grupos de porta ligados ao que esta' selecionado.
+    """Door groups linked to the current selection.
 
-    No cenario 1 (objeto generico) a porta nao tem vinculo com nada:
-    so' aparece na SELECAO. Sem olhar para ela, o preview ficava sem
-    porta nenhuma logo depois de criar.
-    """
+    In scenario 1 (generic object), the door has no link to anything: it appears
+    only in SELECTION. Ignoring it left the preview without any door immediately
+    after creation."""
     grupo = _portas._grupo_portas(obj)
     if grupo is not None:
         return [grupo]
@@ -404,39 +401,35 @@ def _grupos_de_porta(obj):
 
 
 def _espessura_visivel(dimensoes):
-    """Engrossa a aresta fina o bastante para ela aparecer.
+    """Thicken the narrow edge enough to make it visible.
 
-    Uma chapa de 18 mm ao lado de 2000 mm da menos de 1% do desenho --
-    sai sub-pixel e o preview parece uma folha de papel. O desenho e'
-    um esquema, entao a espessura ganha um minimo; as outras duas
-    medidas ficam intactas.
-    """
+    An 18 mm panel beside a 2000 mm dimension takes under 1% of the drawing:
+    subpixel thickness makes the preview look like paper. This is a schematic, so
+    impose a minimum drawn thickness while leaving the other two dimensions intact."""
     largura, espessura, profundidade = dimensoes
     minimo = max(largura, profundidade) * _biblioteca.MINIMO_ESPESSURA_WIREFRAME
     return (largura, max(espessura, minimo), profundidade)
 
 
 def _folhas_para_wireframe(obj, modo):
-    """Quantas folhas o preview deve mostrar.
+    """Number of leaves to show in the preview.
 
-    No modo INDIVIDUAL o desenho e' de UMA chapa; porta ali nao existe
-    e as folhas apareciam dentro da peca, que e' o que quebrava a
-    visualizacao.
-    """
+    INDIVIDUAL mode draws ONE panel; no door exists there. Leaves appearing inside
+    the part broke the visualization."""
     if modo == 'INDIVIDUAL':
         return 0
     return sum(len(_portas._folhas_portas(g)) for g in _grupos_de_porta(obj))
 
 
 def _frente_da_porta(obj):
-    """Em que face do modulo a porta foi montada ('' se nao ha' porta)."""
+    """Cabinet face on which the door is mounted ('' if there is no door)."""
     for grupo in _grupos_de_porta(obj):
         frente = grupo.get('porta_frente')
         folhas = _portas._folhas_portas(grupo)
         modulo = _portas._modulo_da_chapa(folhas[0]) if folhas else None
         if modulo is not None and grupo.get('porta_parametros'):
-            # Arquivos antigos podem guardar a normal invertida. A face
-            # do desenho segue a posicao real, sem alterar essas portas.
+            # Old files may store a reversed normal. Draw the face from its actual
+            # position without altering those doors.
             base = modulo.matrix_world.to_quaternion().to_matrix().transposed()
             normal = base @ grupo.matrix_world.to_3x3().col[2]
             eixo = max(range(3), key=lambda i: abs(normal[i]))
@@ -450,11 +443,10 @@ def _frente_da_porta(obj):
 
 
 def _porta_para_wireframe(obj):
-    """(largura, altura, espessura, folhas) da porta, ou None.
+    """Door (width, height, thickness, leaves), or None.
 
-    Na aba Portas o desenho mostra SO' a porta, entao as medidas sao as
-    do vao e a espessura das folhas -- nao as do modulo.
-    """
+    The Doors tab draws ONLY the door, so use opening dimensions and leaf thickness,
+    not cabinet dimensions."""
     for grupo in _grupos_de_porta(obj):
         folhas = _portas._folhas_portas(grupo)
         if not folhas:
@@ -470,11 +462,10 @@ def _porta_para_wireframe(obj):
 
 
 def _geometria_wireframe(obj, modo):
-    """Medidas, vertices e arestas reais no referencial frontal do preview.
+    """Dimensions, actual vertices and edges in the preview's front reference frame.
 
-    Contar folhas perde fileiras, alturas parciais e planos de correr.
-    Ler a malha preserva tudo isso, inclusive edicoes da geometria.
-    """
+    Counting leaves loses rows, partial heights and sliding planes. Reading the mesh
+    preserves all of these, including geometry edits."""
     if modo == 'INDIVIDUAL' or obj is None:
         return None
     grupos = [g for g in _grupos_de_porta(obj) if g.get('porta_parametros')]
@@ -491,8 +482,8 @@ def _geometria_wireframe(obj, modo):
                   if modulo is not None else Matrix.Identity(3))
     frente = _frente_da_porta(obj) or 'NEG_Y'
     if frente.endswith('Z'):
-        # Porta deitada: o modulo continua de pe' no desenho, visto de
-        # frente, com a tampa em cima (ou embaixo).
+        # Horizontal door: keep the cabinet upright in the drawing, viewed from the
+        # front with its lid above (or below).
         frente = 'NEG_Y'
     normal = referencia @ Vector(_portas.NORMAIS_FRENTE[frente])
     cima = referencia @ Vector((0, 0, 1))
@@ -519,24 +510,21 @@ def _geometria_wireframe(obj, modo):
 
 
 def _modo_chapa(context, obj):
-    """Individual ou Grupo sai da SELECAO, nao de um botao.
+    """Individual or Group comes from SELECTION, not a button.
 
-    Um objeto so' selecionado = Individual (a chapa isolada pelo duplo
-    clique, ou uma chapa solta). Mais de um = Grupo (o modulo inteiro
-    acende com o clique simples). Os botoes da gaveta so' mostram.
-    """
+    One selected object = Individual (panel isolated by double click, or a
+    standalone panel). More than one = Group (single click highlights the whole
+    cabinet). Sidebar buttons are indicators only."""
     selecionados = list(getattr(context, 'selected_objects', ()) or ())
     return 'INDIVIDUAL' if len(selecionados) <= 1 else 'GRUPO'
 
 
 def _medidas_da_porta(obj, grupo):
-    """L/A so' leitura e E editavel, no nivel porta ou folha.
+    """Read-only L/A and editable E at door or leaf level.
 
-    L/A de uma folha nao se editam: o proximo recalculo das folhas
-    (modulo redimensionado, folga mudada) apagaria a mudanca. A
-    espessura e' da porta inteira -- folhas de uma porta sao iguais. A
-    largura da folha de CORRER e' parametro da porta: essa se edita.
-    """
+    Leaf L/A are not editable: the next leaf recalculation (cabinet resized, gap
+    changed) would overwrite the change. Thickness belongs to the entire door: all
+    its leaves match. SLIDING leaf width is a door parameter and is editable."""
     folhas = _portas._folhas_portas(grupo)
     if _chapas.MARCA_FOLHA in obj:
         largura, altura = obj.chapa_largura_mm, obj.chapa_comprimento_mm
@@ -552,24 +540,24 @@ def _medidas_da_porta(obj, grupo):
         'espessura_mm', folhas[0].chapa_espessura_mm if folhas
         else _portas.ESPESSURA_PADRAO_PORTA))
     if grupo['porta_parametros'].get('abertura') == 'CORRER' and folhas:
-        # correr: a largura e' a da FOLHA (todas iguais) e se edita
-        # (pedido do usuario); o conjunto mudaria ao correr
-        nome = 'Largura' if _chapas.MARCA_FOLHA in obj or len(folhas) == 1             else 'Largura da folha'
+        # Sliding doors: editable LEAF width (all leaves equal), per user request;
+        # overall assembly width would change while sliding.
+        nome = "Width" if _chapas.MARCA_FOLHA in obj or len(folhas) == 1             else "Leaf Width"
         return [(nome, folhas[0].chapa_largura_mm, 'ui_porta_largura_folha'),
-                ('Altura', folhas[0].chapa_comprimento_mm, ''),
-                ('Espessura', espessura, 'ui_porta_espessura')]
-    return [('Largura', largura, ''), ('Altura', altura, ''),
-            ('Espessura', espessura, 'ui_porta_espessura')]
+                ("Height", folhas[0].chapa_comprimento_mm, ''),
+                ("Thickness", espessura, 'ui_porta_espessura')]
+    return [("Width", largura, ''), ("Height", altura, ''),
+            ("Thickness", espessura, 'ui_porta_espessura')]
 
 
 def _medidas_gaveta(context):
     obj = context.object
     if obj is not None and _chapas.MARCA_CONJUNTO in obj:
-        campos = [('Largura', obj.conj_largura_mm, 'ui_conj_largura'),
-                  ('Altura', obj.conj_altura_mm, 'ui_conj_altura'),
-                  ('Profundidade', obj.conj_profundidade_mm,
+        campos = [("Width", obj.conj_largura_mm, 'ui_conj_largura'),
+                  ("Height", obj.conj_altura_mm, 'ui_conj_altura'),
+                  ("Depth", obj.conj_profundidade_mm,
                    'ui_conj_profundidade'),
-                  ('Espessura', obj.conj_espessura_mm,
+                  ("Thickness", obj.conj_espessura_mm,
                    'ui_conj_espessura')]
         return 'GRUPO', campos, 'objeto'
     grupo = _portas._grupo_portas(obj)
@@ -578,26 +566,26 @@ def _medidas_gaveta(context):
     if _puxadores._eh_puxador_parametrico(obj):
         return 'PUXADOR', _puxadores._medidas_puxador_parametrico(obj), 'puxador'
     if obj is not None and _chapas.MARCA_PUXADOR in obj:
-        # (nome, valor, prop) como os outros; a trava vai no 4o campo
+        # (name, value, property), as elsewhere; lock goes in the fourth field.
         return 'PUXADOR', [(n, v, p, t) for n, v, p, t, _k
                            in _importacao._medidas_do_puxador(obj)], 'puxador'
     if obj is not None and _chapas.MARCA_CHAPA in obj:
         if _modo_chapa(context, obj) == 'GRUPO':
             s = context.scene
-            campos = [('Largura', s.grupo_largura_mm, 'ui_grupo_largura'),
-                      ('Altura', s.grupo_altura_mm, 'ui_grupo_altura'),
-                      ('Profundidade', s.grupo_profundidade_mm,
+            campos = [("Width", s.grupo_largura_mm, 'ui_grupo_largura'),
+                      ("Height", s.grupo_altura_mm, 'ui_grupo_altura'),
+                      ("Depth", s.grupo_profundidade_mm,
                        'ui_grupo_profundidade'),
-                      ('Espessura', s.grupo_espessura_mm,
+                      ("Thickness", s.grupo_espessura_mm,
                        'ui_grupo_espessura')]
             return 'GRUPO', campos, 'cena'
         cotas=_hud.campos_cotas(obj,'INDIVIDUAL',[obj])
         if any(nome not in ('A1','A2','E') for nome,_v,_p in cotas):
             return 'INDIVIDUAL',cotas,'cota'
-        campos = [('Largura', obj.chapa_largura_mm, 'ui_chapa_largura'),
-                  ('Altura', obj.chapa_comprimento_mm,
+        campos = [("Width", obj.chapa_largura_mm, 'ui_chapa_largura'),
+                  ("Height", obj.chapa_comprimento_mm,
                    'ui_chapa_comprimento'),
-                  ('Espessura', obj.chapa_espessura_mm,
+                  ("Thickness", obj.chapa_espessura_mm,
                    'ui_chapa_espessura')]
         return 'INDIVIDUAL', campos, 'objeto'
     medido = _modulos.medir_selecao(context)
@@ -610,24 +598,24 @@ def _medidas_gaveta(context):
         else:
             valores = medido[:3]
         return 'LIVRE', [
-            ('Largura', valores[0], 'dimensions_0' if editavel else ''),
-            ('Altura', valores[1], 'dimensions_2' if editavel else ''),
-            ('Profundidade', valores[2], 'dimensions_1' if editavel else '')
+            ("Width", valores[0], 'dimensions_0' if editavel else ''),
+            ("Height", valores[1], 'dimensions_2' if editavel else ''),
+            ("Depth", valores[2], 'dimensions_1' if editavel else '')
         ], 'livre' if editavel else ''
     return 'LIVRE', [], ''
 
 
 def _linha_cascata_gaveta(itens, x, y, largura, valores, nivel, selecionado,
                          indice=None, pai=None, prefixo='cabinet_carrossel'):
-    """Um nivel da cascata da biblioteca NO MENU = um campo suspenso,
-    como no DXF (pedido do usuario): a lista abre flutuando embaixo
-    dele (`_lista_da_cascata`). `prefixo` separa presets de materiais."""
+    """One library cascade level IN THE MENU = one dropdown field, as in the DXF (user
+    request). Its list floats below it (`_lista_da_cascata`). `prefixo` separates
+    presets from materials."""
     if not valores:
         return y
     nome = '%s_%d' % (prefixo, nivel)
     aberto = bpy.context.screen.get(_CHAVE_SUSPENSO, '') == nome
     ordenados = tuple(sorted(valores, key=str.casefold))
-    itens.append((x, y, largura, 25, selecionado or 'Escolha...',
+    itens.append((x, y, largura, 25, selecionado or "Choose...",
                   ('suspenso', nome, aberto, nivel, ordenados, selecionado)))
     return y - 39
 
@@ -636,9 +624,9 @@ ALTURA_LINHA_LISTA = 24
 
 
 def _lista_da_cascata(itens, piso, teto):
-    """Lista flutuante do nivel aberto: (fundo, linhas...) ou []. Abre
-    embaixo do campo; sem espaco, em cima; sem espaco nenhum, em colunas.
-    So' existe com o campo inteiro visivel entre `piso` e `teto`."""
+    """Floating list for the open level: (background, rows...) or []. Open below the
+    field, above if needed, or in columns if neither side has room. Exists only when
+    the whole field is visible between `piso` and `teto`."""
     campo = next((v for v in itens if v[5] and v[5][0] == 'suspenso'
                   and v[5][2] and len(v[5]) > 3), None)
     if campo is None or campo[1] < piso or campo[1] + campo[3] > teto:
@@ -665,26 +653,24 @@ def _lista_da_cascata(itens, piso, teto):
 
 def _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
                           ativo=True, alvo='', por_linha=None):
-    """Rotulo mais uma fila de segmentos: a alternativa ao dropdown.
+    """Label plus segmented row: the dropdown alternative.
 
-    O bpy nao desenha menu suspenso aqui, e popup e' justamente o que
-    esta' saindo da frente do usuario. Segmento tem a vantagem de
-    mostrar TODAS as opcoes sem clique nenhum. `por_linha=1` empilha as
-    opcoes em coluna (Abertura | Dobradica lado a lado na aba Portas).
-    """
+    bpy does not draw a dropdown here, and popups are precisely what the user wants
+    out of the way. Segments show ALL options without a click. `por_linha=1` stacks
+    options in a column (Opening | Hinge side by side in the Doors tab)."""
     if rotulo:
-        # 23 deixava o primeiro segmento 2 px por cima do rotulo
+        # 23 placed the first segment 2 px over the label.
         itens.append((x, y, w, 20, rotulo, None))
         y -= 26
-    # 52 px e' o menor segmento onde um rotulo curto ainda cabe
+    # 52 px is the smallest segment that still fits a short label.
     if por_linha is None:
         por_linha = max(1, min(len(opcoes), int(w // 52)))
     for inicio in range(0, len(opcoes), por_linha):
         fatia = opcoes[inicio:inicio + por_linha]
         bw = (w - 4 * (len(fatia) - 1)) / len(fatia)
         for i, (valor, texto) in enumerate(fatia):
-            # `alvo` = nome do grupo de portas quando a fila edita uma
-            # porta colocada; vazio = parametro da cena (porta nova).
+            # `alvo` = door group name when the row edits a placed door; empty = scene
+            # parameter for a new door.
             itens.append((x + i * (bw + 4), y, bw, 25, texto,
                           ('escolha', prop, valor, valor == atual, ativo,
                            alvo)))
@@ -692,32 +678,29 @@ def _linha_escolha_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
     return y
 
 
-# Carrossel de RETRATOS (pedido do usuario): no lugar dos nomes (Perfil,
-# Alca, Borda; Giro, Basculante, Correr) a foto de cada opcao, como na
-# biblioteca. Cada retrato e' uma 'escolha' comum -- o clique segue o
-# mesmo caminho -- com a foto no 7o campo. Nao cabendo todos, setas nas
-# pontas rolam de um em um (como a cascata da biblioteca).
-LARGURA_RETRATO_MIN = 40        # limites do slider dos retratos
+# IMAGE carousel (user request): show each option's image like the library instead of
+# names (Profile, Pull, Edge; Swing, Tilt, Slide). Each image is a regular 'escolha'
+# action using the same click path, with its image in the seventh field. If not all fit,
+# arrows at the ends scroll one at a time like the library cascade.
+LARGURA_RETRATO_MIN = 40        # Image-size slider limits.
 LARGURA_RETRATO_MAX = 128
 ALTURA_ROTULO_RETRATO = 18
-LARGURA_SLIDER_RETRATO = 72     # o slider pequeno ao lado do titulo
+LARGURA_SLIDER_RETRATO = 72     # Small slider beside the title.
 
 
 def _lado_retrato(w):
-    """Lado de TODO retrato (puxador, abertura, dobradica): o mesmo
-    quadrado em toda a gaveta (pedido do usuario), no tamanho do slider.
-    So' encolhe quando tres nao cabem lado a lado -- as tres aberturas
-    nunca viram carrossel de um so'."""
+    """Side length of EVERY image (handle, opening, hinge): the same square throughout
+    the sidebar (user request), sized by the slider. Shrink only when three cannot
+    fit side by side: the three opening types must never become a one-item carousel."""
     lado = getattr(bpy.context.scene, 'cabinet_tam_retrato', 64)
     return max(1.0, min(float(lado), (w - 8) / 3))
 
 
 def _titulo_com_slider(itens, x, y, w, rotulo, altura=20):
-    """O titulo de uma fila de retratos e, na ponta direita dele, o
-    slider que aumenta ou diminui TODOS os retratos. `altura` 23 = o
-    titulo de categoria da aba da porta (`_titulo_secao`)."""
-    # o slider na SUA caixa, da altura do titulo (auditoria visual: solto,
-    # ele boiava ao lado de uma caixa encurtada); widget nenhum se sobrepoe
+    """Image-row title with a slider at its right end to resize ALL images. `altura` 23
+    matches the door tab's category title (`_titulo_secao`)."""
+    # Slider in its OWN title-height box (visual audit: detached, it floated beside a
+    # shortened box); no widgets overlap.
     lado = min(LARGURA_SLIDER_RETRATO, w / 2)
     itens.append((x, y, w - lado - 6, altura, rotulo, None))
     itens.append((x + w - lado, y, lado, altura, '', ('slider', 'retratos')))
@@ -725,9 +708,8 @@ def _titulo_com_slider(itens, x, y, w, rotulo, altura=20):
 
 def _carrossel_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
                       ativo=True, alvo='', chave=''):
-    """`opcoes` = (valor, texto, foto); foto = dict de `_desenhar_foto_gaveta`.
-    Mesmo contrato de `_linha_escolha_gaveta`: `y` e' o do rotulo e volta
-    o y da linha seguinte."""
+    """`opcoes` = (value, text, image); image = dict from `_desenhar_foto_gaveta`. Same
+    contract as `_linha_escolha_gaveta`: `y` is label y; return the next row's y."""
     if rotulo:
         _titulo_com_slider(itens, x, y, w, rotulo)
         y -= 26
@@ -735,7 +717,7 @@ def _carrossel_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
     if not n:
         return y
     bw = _lado_retrato(w)
-    cabe = n * bw + 4 * (n - 1) <= w + 0.01     # (w - 8) / 3 x 3 nao erra
+    cabe = n * bw + 4 * (n - 1) <= w + 0.01     # (w - 8) / 3 x 3 has no rounding error.
     if cabe:
         colunas, inicio, x0 = n, 0, x
     else:
@@ -746,7 +728,7 @@ def _carrossel_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
         inicio = max(0, min(limite, int(bpy.context.screen.get(chave, 0))))
         x0 = x + 24
     altura = bw + ALTURA_ROTULO_RETRATO
-    # o topo fica onde estaria o de uma fila de segmentos (25 px)
+    # Top aligns with where a segmented row would start (25 px).
     base = y + 25 - altura
     if not cabe:
         for lado, dx in ((-1, x), (1, x + w - 20)):
@@ -756,13 +738,12 @@ def _carrossel_gaveta(itens, x, y, w, rotulo, prop, opcoes, atual,
         itens.append((x0 + i * (bw + 4), base, bw, altura, texto,
                       ('escolha', prop, valor, valor == atual, ativo, alvo,
                        foto)))
-    return base - 29        # como depois de uma fila que terminasse em `base`
+    return base - 29        # As after a row ending at `base`.
 
 
 def _colunas_medidas(context, largura, n):
-    """Colunas dos campos de medida pela largura LOGICA da gaveta:
-    todos numa linha (>= 480), dois (>= 240) ou um. Vale para o bloco
-    fixo e para as medidas da porta, que assim ficam alinhados."""
+    """Dimension-field columns by LOGICAL sidebar width: all in one row (>= 480), two
+    (>= 240), or one. Applies to the fixed block and door dimensions so they align."""
     logica = largura / max(1.0, context.preferences.system.ui_scale)
     return max(1, n if logica >= LARGURA_MEDIDAS_EM_LINHA
                else 2 if logica >= 240 else 1)
@@ -770,35 +751,34 @@ def _colunas_medidas(context, largura, n):
 
 def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
                           modos=True, medidas=None):
-    """Os campos de medida do item. So' a aba DONA do item os mostra
-    (pedido do usuario: o menu mostra o que vale para o que esta'
-    selecionado; o modulo nao aparece na aba Portas). `medidas` =
-    (modo, campos, dono) prontos, como na porta que o wizard desenha.
-    Nao ha' botao de sincronizar: o handler rele as medidas sozinho
-    (`_modulos._sincronizar_medidas_ativas`).
-    """
+    """Item dimension fields. Only the item's OWNER tab shows them (user request: menus
+    show what applies to selection; cabinets do not appear in the Doors tab).
+    `medidas` = prepared (mode, fields, owner), as for the door drawn by the wizard.
+    No synchronization button: the handler rereads dimensions automatically
+    (`_modulos._sincronizar_medidas_ativas`)."""
     obj = context.object
     y += 23
     modo, campos, dono = medidas or _medidas_gaveta(context)
-    # Na aba Portas edita-se o conjunto das folhas, nunca uma peca
-    # isolada: alternar Individual/Grupo ali nao significa nada.
+    # The Doors tab edits the leaf assembly, never an isolated part: toggling
+    # Individual/Group there has no meaning.
     if (modos and obj is not None and modo != 'PORTA'
             and (_chapas.MARCA_CHAPA in obj or _chapas.MARCA_CONJUNTO in obj)):
-        for i, nome in enumerate(('Individual', 'Grupo')):
+        for i, (nome, identifier) in enumerate((('Individual', 'INDIVIDUAL'), ('Group', 'GRUPO'))):
             itens.append((x + i * (metade + 6), y, metade, 25, nome,
-                          ('modo', nome.upper(), modo == nome.upper())))
+                          ('modo', identifier, modo == identifier)))
         y -= 33
     if campos:
-        # Campos tem 37 px de altura; afastar das abas de modo acima.
+        # Fields are 37 px high; separate them from the mode tabs above.
         y -= 8
         colunas = _colunas_medidas(context, largura, len(campos))
         if dono=='cota':colunas=min(3,colunas)
         largura_campo = (w - 6 * (colunas - 1)) / colunas
-        # Puxador: cadeado no fim de cada linha. Travado, a medida nao
-        # muda quando a porta muda; destravado, estica junto.
+        # Handle: lock at each row end. Locked dimensions stay fixed when the door
+        # changes; unlocked dimensions stretch with it.
         for i, campo in enumerate(campos):
             nome, valor, prop = campo[:3]
-            # so' o importado tem trava (4o campo); o parametrico nao
+            # Only imported handles have locks (fourth field); parametric handles do
+            # not.
             cadeado = 22 if modo == 'PUXADOR' and len(campo) > 3 else 0
             linha, coluna = divmod(i, colunas)
             cx = x + coluna * (largura_campo + 6)
@@ -811,13 +791,13 @@ def _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade,
                               ('cadeado', obj.name, int(prop[-1]),
                                bool(campo[3]))))
         y -= (math.ceil(len(campos) / colunas) - 1) * 43 + 42
-    # Sem rodape: nome do item, "Chapa" e "Auto-regenerar" sairam a
-    # pedido do usuario (a chapa sempre guarda o que foi modelado).
+    # No footer: item name, Panel and Auto-regenerate were removed at the user's request
+    # (panels always retain modeled geometry).
     return y
 
 
 def _botoes_gaveta(itens, x, y, w, botoes):
-    """Botoes de texto em duas colunas quando cabem; devolve o y seguinte."""
+    """Text buttons in two columns when space allows; return the next y."""
     colunas = 2 if w >= 240 else 1
     bw = (w - 6 * (colunas - 1)) / colunas
     for i, (rotulo, op) in enumerate(botoes):
@@ -828,8 +808,8 @@ def _botoes_gaveta(itens, x, y, w, botoes):
 
 
 def _modelos_puxador_gaveta():
-    """Retratos do carrossel: os de fabrica (protegidos) e os do usuario,
-    que moram na categoria Puxadores da biblioteca."""
+    """Carousel images: protected factory models and user models from the library's
+    Handles category."""
     opcoes = [(t, _puxadores.MODELOS_PUXADOR[t][0],
                _biblioteca.foto_padrao('puxador_' + t))
               for t in _puxadores.MODELOS_PADRAO]
@@ -840,21 +820,20 @@ def _modelos_puxador_gaveta():
 
 
 def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
-    """Como as outras abas (pedido do usuario): nada selecionado = so' o
-    "Criar Puxador" (no topo, fora daqui). Criando, aparece o MODELO num
-    carrossel de retratos (clicavel: o posicionador troca na hora).
-    Puxador selecionado: as medidas dele (e os cadeados do importado) e,
-    no do add-on, o carrossel -- trocar refaz AQUELE puxador. Objeto de
-    fora: "Usar como puxador" (vira modelo na biblioteca). Como na aba
-    Portas, o nome do item nao aparece."""
+    """Like other tabs (user request): no selection = only Create Handle at the top,
+    outside this block. During creation, show the MODEL in an image carousel
+    (clicking changes the placement model immediately). Selected handle: its
+    dimensions (and imported-model locks), plus the carousel for add-on handles;
+    switching rebuilds THAT handle. External object: Use as Handle (becomes a
+    library model). As in the Doors tab, omit the item name."""
     usando = _puxadores._usando_como_puxador[0]
     if usando is not None:
         itens.append((x, y + 26, w, 26,
-                      'Clique na face do puxador que encosta na porta', None))
+                      "Click the handle face that touches the door", None))
         return itens
     posicionando = _puxadores._posicionador_puxador[0]
     if posicionando is not None:
-        _carrossel_gaveta(itens, x, y + 26, w, 'Modelo do puxador',
+        _carrossel_gaveta(itens, x, y + 26, w, "Handle Model",
                           'cabinet_puxador_modelo', _modelos_puxador_gaveta(),
                           _puxadores.valor_do_modelo(
                               posicionando['tipo'], posicionando.get('arquivo', '')),
@@ -866,31 +845,30 @@ def _aba_puxadores_gaveta(context, itens, x, y, w, s, largura, metade):
                                   modos=False)
         itens.append((x, y + 31, w, 1, '', ('separador',)))
         if _puxadores._eh_puxador_parametrico(obj):
-            _carrossel_gaveta(itens, x, y, w, 'Modelo do puxador',
+            _carrossel_gaveta(itens, x, y, w, "Handle Model",
                               'cabinet_puxador_modelo', _modelos_puxador_gaveta(),
                               _puxadores.valor_do_modelo(
                                   obj['puxador_tipo'], obj.get('puxador_modelo', '')),
                               alvo=ALVO_PUXADOR)
         else:
             ligado = obj.parent is not None and _chapas.MARCA_CHAPA in obj.parent
-            itens.append((x, y, w, 26, 'Ligado a uma porta' if ligado
-                          else 'Solto: ligue a uma porta', None))
+            itens.append((x, y, w, 26, "Linked to a door" if ligado
+                          else "Detached: link to a door", None))
         return itens
     if obj is not None and obj.type == 'MESH' and not any(
             m in obj for m in (_chapas.MARCA_CHAPA, _chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
                                _chapas.MARCA_FOLHA, _chapas.MARCA_ACESSORIO, _ferragens.CHAVE_FERRAGEM)):
         _botoes_gaveta(itens, x, y + 26, w, (
-            ('Usar como puxador', 'object.cabinet_usar_como_puxador'),))
+            ("Use as Handle", 'object.cabinet_usar_como_puxador'),))
     return itens
 
 
 def _valores_portas(s, grupo=None):
-    """O que a aba MOSTRA: os parametros da porta selecionada, ou os da
-    cena quando nao ha' porta (a proxima a ser criada).
+    """What the tab SHOWS: selected door parameters, or scene parameters when there is
+    no door (the next one to create).
 
-    Ler direto do grupo, em vez de copiar para a cena, e' o que impede
-    a aba de exibir os valores da ULTIMA porta como se fossem desta.
-    """
+    Reading directly from the group rather than copying to the scene prevents
+    showing the LAST door's values as if they belonged to this one."""
     valores = _portas._parametros_portas_da_cena(s, numerico=True)
     guardados = (grupo.get('porta_parametros') or {}) if grupo else {}
     for nome, valor in guardados.items():
@@ -907,42 +885,40 @@ def _valores_portas(s, grupo=None):
 
 ETAPAS_FERRAGENS_ASSISTENTE = ('EIXO', 'QUANTIDADE', 'MARGEM',
                                'PISTOES_QTD', 'PISTOES_OFFSET')
-# alvo da 'escolha' (e dono da 'medida') que edita as ferragens
-# SELECIONADAS: vale para todas as portas do modulo delas
+# Target of the 'escolha' action (and owner of 'medida') editing SELECTED hardware:
+# applies to all doors in its cabinet.
 ALVO_FERRAGENS = '@ferragens'
-# alvo da 'escolha' do modelo que troca o puxador SELECIONADO
+# Target of the model 'escolha' action replacing the SELECTED handle.
 ALVO_PUXADOR = '@puxador'
 
 
 def _selecionado(context):
-    """O objeto ativo, se ele esta' selecionado (ativo sem selecao nao
-    conta: a gaveta mostra o que esta' SELECIONADO, pedido do usuario)."""
+    """The active object, if selected (an unselected active object does not count: the
+    sidebar shows what is SELECTED, per user request)."""
     obj = getattr(context, 'object', None)
     return obj if obj is not None and obj.select_get() else None
 
 
-LARGURA_CONFIRMAR = 30           # o quadrado verde do "aceitar"
-LARGURA_CAMPO_FOLHAS = 76        # o campo compacto "Folhas" da porta
-# coluna do contador ao lado dos retratos; mais estreita, a secao
-# empilha (com os retratos de 64 px, era o corte antigo de 260)
+LARGURA_CONFIRMAR = 30           # Green acceptance square.
+LARGURA_CAMPO_FOLHAS = 76        # Compact door Leaves field.
+# Counter column beside images; below this width the section stacks (with 64 px images,
+# the previous threshold was 260).
 LARGURA_MIN_COLUNA_FERRAGENS = 120
 
 
 def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
                             separar=True, abertura=None):
-    """Dobradicas e pistoes EDITAVEIS, no layout do usuario (mockup):
-    [abertura][dobradica][Dobradicas: < 2 >] numa linha e o afastamento
-    embaixo; o "aceitar" da etapa e' o quadrado VERDE a' direita do campo
-    que ela edita (`CONFIRMAR_ETAPA`, o mesmo do clique na viewport).
-    Quantidade = contador (arrastar ou clicar nas metades), nao mais
-    cinco segmentos. Serve ao wizard (alvo do modal, `abertura` = o
-    retrato da escolhida) e as ferragens selecionadas (todas as portas
-    do modulo). `dados[tipo]`: 'qtd' e 'mm' (None = ainda nao chegou
-    la'), 'info', 'modelo' (retrato da dobradica) e 'confirmar' =
-    (etapa, 'qtd' ou 'mm'). Devolve o y do rotulo seguinte."""
+    """EDITABLE hinges and gas struts in the user's mockup layout:
+    [opening][hinge][Hinges: < 2 >] in one row, with offset below. The step's
+    acceptance control is the GREEN square right of the edited field
+    (`CONFIRMAR_ETAPA`, same as the viewport click). Quantity uses a counter (drag
+    or click halves), no longer five segments. Serves the wizard (modal target,
+    `abertura` = chosen opening image) and selected hardware (all cabinet doors).
+    `dados[tipo]`: 'qtd' and 'mm' (None = not reached yet), 'info', 'modelo' (hinge
+    image), and 'confirmar' = (step, 'qtd' or 'mm'). Return the next label's y."""
 
     def campo_com_aceite(cx, cy, cw, h, widget, parte):
-        """O campo e, se a etapa e' dele, o quadrado verde colado."""
+        """The field and, if this is its step, the adjacent green square."""
         conf = d.get('confirmar')
         if conf and conf[1] == parte:
             cw -= LARGURA_CONFIRMAR + 4
@@ -959,23 +935,23 @@ def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
             itens.append((x, y + 30, w, 1, '', ('separador',)))
         separar = True
         if tipo == 'DOBRADICA':
-            rotulo, limites = 'Dobradicas', _portas.LIMITES_DOBRADICAS
+            rotulo, limites = "Hinges", _portas.LIMITES_DOBRADICAS
             prop_qtd, prop_mm = 'dobradicas_qtd', 'dobradicas_margem_mm'
-            nome_mm = 'Afastamento das quinas'
+            nome_mm = "Corner Offset"
         else:
-            rotulo, limites = 'Pistoes', _portas.LIMITES_PISTOES
+            rotulo, limites = "Gas Stays", _portas.LIMITES_PISTOES
             prop_qtd, prop_mm = 'pistoes_qtd', 'pistoes_offset_mm'
-            nome_mm = 'Distancia do topo'
+            nome_mm = "Distance from Top"
         if d.get('info'):
             rotulo = '%s: %s' % (rotulo, d['info'])
-        # retratos: a abertura escolhida (clicar volta a' escolha) e o
-        # tipo da dobradica, AUTOMATICO -- para ver, sem clique
+        # Images: chosen opening (click returns to selection) and AUTOMATIC hinge type,
+        # for viewing only, without clicking.
         retratos = []
         if tipo == 'DOBRADICA' and abertura is not None:
             valor, texto, foto = abertura
             retratos.append((texto, ('escolha', 'porta_abertura', valor, True,
                                      True, _portas.ALVO_ASSISTENTE, foto)))
-            _titulo_com_slider(itens, x, y, w, 'Abertura')
+            _titulo_com_slider(itens, x, y, w, "Opening")
             y -= 26
         modelo = d.get('modelo')
         if tipo == 'DOBRADICA' and modelo in _portas.NOME_DOBRADICA:
@@ -983,7 +959,7 @@ def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
                              ('escolha', 'dobradica', modelo, True, False, '',
                               _biblioteca.foto_padrao('dobradica_' + modelo))))
         topo = y + 20
-        # o MESMO quadrado dos outros retratos (`_lado_retrato`)
+        # The SAME square as other images (`_lado_retrato`).
         lado = _lado_retrato(w)
         altura = lado + ALTURA_ROTULO_RETRATO
         for i, (texto, acao) in enumerate(retratos):
@@ -1000,8 +976,8 @@ def _secao_ferragens_gaveta(itens, x, y, w, dados, alvo, dono,
             fundo = topo_coluna
         cw = x + w - cx
         if retratos and abertura is None:
-            # sem o titulo "Abertura" (ferragens selecionadas), o slider
-            # dos retratos vai na linha do rotulo
+            # Without the Opening title (selected hardware), put the image-size slider
+            # on the label row.
             _titulo_com_slider(itens, cx, topo_coluna - 20, cw, rotulo)
         else:
             itens.append((cx, topo_coluna - 20, cw, 20, rotulo, None))
@@ -1030,51 +1006,51 @@ def _retratos_abertura(opcoes):
 
 
 def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
-    """A aba Portas CRIANDO (pedido do usuario): tudo aparece etapa a
-    etapa. Marcada a area, as medidas da porta (so' leitura: saem dos
-    cliques); depois a copia da caixa da viewport, clicavel (quem
-    responde e' o modal, em `_responder_pela_gaveta` do
-    `_assistente.OBJECT_OT_apanhar_vao_portas`; respondida de novo,
-    refaz dali); e as ferragens, EDITAVEIS assim que o wizard chega
-    nelas (quantidade e afastamento das dobradicas, pistoes)."""
+    """Doors tab during CREATION (user request): reveal everything step by step. After
+    marking the area, show read-only door dimensions derived from clicks, then a
+    clickable copy of the viewport box. The modal answers through
+    `_responder_pela_gaveta` in `_assistente.OBJECT_OT_apanhar_vao_portas`;
+    answering again rebuilds from that point. Hardware becomes EDITABLE as soon as
+    the wizard reaches it (hinge/gas-strut counts and offsets)."""
     etapa, escolhas = a.get('etapa'), a.get('escolhas', {})
     medidas = a.get('medidas_porta')
     if medidas:
         largura_mm, altura_mm, espessura = medidas
         y = _bloco_medidas_gaveta(
             context, itens, x, y, w, largura, metade, modos=False,
-            medidas=('PORTA', [('Largura', largura_mm, ''),
-                               ('Altura', altura_mm, ''),
-                               ('Espessura', espessura, '')], 'porta'))
+            medidas=('PORTA', [("Width", largura_mm, ''),
+                               ("Height", altura_mm, ''),
+                               ("Thickness", espessura, '')], 'porta'))
     itens.append((x, y + 31, w, 1, '', ('separador',)))
     filas = []
     if etapa == 'CONFIRMAR':
-        filas.append(('As medidas estao corretas?', 'porta_confirmar',
+        filas.append(("Are the dimensions correct?", 'porta_confirmar',
                       _portas.OPCOES_CONFIRMAR, None))
     else:
-        filas.append(('Quantas folhas?' if etapa == 'FOLHAS' else 'Folhas',
+        filas.append(("How many leaves?" if etapa == 'FOLHAS' else "Leaves",
                       'porta_folhas',
                       tuple((int(k), t) for k, t in _portas.OPCOES_FOLHAS),
                       escolhas.get('folhas')))
-    # escolhida, a abertura vira o 1o retrato da linha das dobradicas
-    # (mockup do usuario); so' escolhendo aparecem as tres
+    # Once chosen, the opening becomes the first image in the hinge row (user mockup);
+    # all three appear only while choosing.
     if etapa == 'TIPO' or ('abertura' in escolhas
                            and etapa not in ETAPAS_FERRAGENS_ASSISTENTE):
-        filas.append(('Escolha a abertura' if etapa == 'TIPO' else 'Abertura',
+        filas.append(("Choose the opening type" if etapa == 'TIPO' else "Opening",
                       'porta_abertura', a.get('tipos') or _portas.ESCOLHAS_PORTAS[0][2],
                       escolhas.get('abertura')))
     if etapa == 'MOLDURA' or (etapa in {'BASE', 'TRILHO'}
                               and 'tipo_correr' in escolhas):
-        # cliques metade-metade num correr: a mesma caixa da viewport
-        filas.append(('Porta embutida ou com moldura?', 'porta_tipo_correr',
+        # Half-thickness clicks on both sides of a sliding door: same box as the
+        # viewport.
+        filas.append(("Inset or framed door?", 'porta_tipo_correr',
                       _portas.TIPOS_CORRER, escolhas.get('tipo_correr')))
     if etapa in {'BASE', 'TRILHO'}:
-        # com moldura: vai direto no chao (sem rodape) ou tem base?
+        # With a frame: straight to the floor (no plinth), or with a base?
         sem = escolhas.get('rodape_mm')
-        filas.append(('A porta tem base?', 'porta_base', _portas.OPCOES_BASE,
+        filas.append(("Does the door have a base?", 'porta_base', _portas.OPCOES_BASE,
                       None if sem is None else 'SEM' if sem <= 0 else 'COM'))
     if etapa == 'TRILHO':
-        filas.append(('Qual trilho?', 'porta_trilho', _portas.OPCOES_TRILHO,
+        filas.append(("Which track?", 'porta_trilho', _portas.OPCOES_TRILHO,
                       escolhas.get('trilho')))
     for i, (rotulo, pergunta, opcoes, atual) in enumerate(filas):
         if i:
@@ -1091,21 +1067,22 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
         :ETAPAS_FERRAGENS_ASSISTENTE.index(etapa) + 1]
     aresta = a.get('aresta')
     if etapa == 'EIXO' or aresta is None:
-        # o tipo sai da borda: o da borda sob o mouse (pedido do usuario,
-        # "o tipo nao aparece"); a embutida e' Super Curva em qualquer uma
+        # Type comes from the edge under the mouse (user request: type was not
+        # appearing); inset always uses the full-crank hinge type.
         snap = a.get('snap')
         modelo = 'SUPER_CURVA' if a.get('embutida') else None
         if snap:
             lado = _portas.COBERTURAS_LADOS[_portas.INDICE_LADO[snap[0]['lado']]]
             modelo = _portas._dobradica_da_cobertura(
                 float(a.get('coberturas', {}).get(lado, 1.0)), a.get('embutida'))
-        dobradicas = {'info': 'clique na borda delas', 'qtd': None,
+        dobradicas = {'info': "click their edge", 'qtd': None,
                       'modelo': modelo}
     else:
-        dobradicas = {'info': 'borda %s' % aresta['lado'].lower(),
+        side_label = _opcoes.DIRECTION_LABELS[aresta['lado']].lower()
+        dobradicas = {'info': "%s edge" % side_label,
                       'modelo': escolhas.get('dobradica'),
                       'qtd': a.get('qtd'), 'mm': a.get('margem')}
-    # o "aceitar" (verde) fica no campo que a etapa edita
+    # Green acceptance control sits on the field edited by this step.
     confirmar = {'QUANTIDADE': ('DOBRADICA', 'qtd'), 'MARGEM': ('DOBRADICA', 'mm'),
                  'PISTOES_QTD': ('PISTAO', 'qtd'), 'PISTOES_OFFSET': ('PISTAO', 'mm')}
     dados = {'DOBRADICA': dobradicas}
@@ -1124,12 +1101,11 @@ def _filas_do_assistente(context, itens, x, y, w, largura, metade, a):
 
 
 def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
-    """A aba mostra so' o que vale AGORA (pedido do usuario, para todas
-    as abas): nada selecionado = so' o "Criar Portas" (no topo, fora
-    daqui); criando = os campos etapa a etapa (`_filas_do_assistente`);
-    ferragens selecionadas = so' as delas (quantidade e afastamento);
-    porta ou folha selecionada = medidas, folhas, abertura e folgas
-    DELA -- nada de dobradica, que e' da selecao das ferragens."""
+    """Show only what applies NOW (user request for every tab): no selection = only
+    Create Doors at the top, outside this block; creation = step-by-step fields
+    (`_filas_do_assistente`); selected hardware = only its counts and offsets;
+    selected door or leaf = ITS dimensions, leaves, opening and gaps, with no hinge
+    controls, which belong to hardware selection."""
     grupo = _portas._grupo_portas(_selecionado(context))
     if grupo is not None and not grupo.get('porta_parametros'):
         grupo = None
@@ -1146,7 +1122,7 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
     if grupo is None:
         return itens
     topo = y + 26 + 28
-    itens.append((x, topo - 28, w, 28, 'Esconder porta e agregados',
+    itens.append((x, topo - 28, w, 28, "Hide Door and Attached Components",
                   ('operador', 'object.cabinet_esconder_porta')))
     topo -= 34
     alvo = grupo.name
@@ -1158,59 +1134,58 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
                 ('medida', 'porta', prop_ui, rotulo, valor))
 
-    # Auditoria do usuario: a aba em CATEGORIAS com titulo (o mesmo de
-    # Montagem/Orcamento), rotulos curtos que nao se cortam e campos
-    # alinhados pela mesma regra de colunas. Sem cabecalho "Porta N de M":
-    # nada de nome nem medida repetida (pedido do usuario).
+    # User audit: organize the tab into titled CATEGORIES (same title style as
+    # Assembly/Estimate), short unclipped labels and fields aligned by a shared column
+    # rule. No 'Door N of M' header: no names or repeated dimensions (user request).
     _modo, medidas, dono = _medidas_gaveta(context)
-    topo = _titulo_secao(itens, x, topo, w, 'Porta')
+    topo = _titulo_secao(itens, x, topo, w, "Door")
     topo = _campos_em_linhas(context, itens, x, topo, w, [
         ('%s: %s' % (nome, _opcoes._texto_medida(valor)),
          ('medida', dono, prop, nome, valor)) for nome, valor, prop in medidas])
 
-    # FOLHAS: campo COMPACTO na ponta da linha do "Entre planos" (pedido do
-    # usuario; eram segmentos 1 2 3 4): arrastar de lado muda, clicar digita
+    # LEAVES: COMPACT field at the end of the Between Planes row (user request; formerly
+    # segments 1 2 3 4). Sideways drag changes the value; click types.
     folhas = []
     if valores['folhas'] > 1:
-        folhas.append(campo('ui_porta_entre_planos', 'Entre planos')
+        folhas.append(campo('ui_porta_entre_planos', "Between Planes")
                       if valores['abertura'] == 'CORRER'
-                      else campo('ui_porta_entre_folhas', 'Entre folhas'))
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Folhas')
+                      else campo('ui_porta_entre_folhas', "Between Leaves"))
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Leaves")
     topo = _campos_em_linhas(
         context, itens, x, topo, w, folhas,
         compacto=(str(valores['folhas']),
                   ('contador', 'porta_folhas', int(valores['folhas']), 2 if valores['abertura'] == 'ZIGZAG' else 1,
                    _portas.LIMITES_FOLHAS.get(valores['abertura'], 1),
-                   alvo, 'Folhas')))
+                   alvo, "Leaves")))
 
-    # Posicao da folha em relacao ao modulo (nao ha' "Folga no perimetro":
-    # pedido do usuario, sempre zero). Com moldura, as medidas DELA.
+    # Leaf position relative to the cabinet (no Perimeter Gap: always zero, per user
+    # request). Framed doors show the FRAME's dimensions.
     if moldura:
-        secao, campos = 'Moldura', [campo('ui_porta_moldura', 'Espessura'),
-                                    campo('ui_porta_rodape', 'Rodape')]
+        secao, campos = "Frame", [campo('ui_porta_moldura', "Thickness"),
+                                    campo('ui_porta_rodape', "Toe Kick")]
         if valores.get('trilho') != 'LEVE':
-            # o leve nao tem testeira: o campo nao vale nada para ele
-            campos.append(campo('ui_porta_testeira', 'Testeira'))
+            # The light track has no fascia: this field does not apply to it.
+            campos.append(campo('ui_porta_testeira', "Fascia"))
     elif valores['abertura'] == 'CORRER':
-        secao, campos = 'Trilhos', [campo('ui_porta_recuo_correr', 'Recuo')]
+        secao, campos = "Rails", [campo('ui_porta_recuo_correr', "Inset")]
     elif valores['dobradica'] == 'SUPER_CURVA':
-        secao, campos = 'Posicao', [campo('ui_porta_recuo_embutida', 'Recuo')]
+        secao, campos = "Position", [campo('ui_porta_recuo_embutida', "Inset")]
     else:
-        secao, campos = 'Posicao', [campo('ui_porta_afastamento', 'Afastamento')]
+        secao, campos = "Position", [campo('ui_porta_afastamento', "Offset")]
     topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, secao)
     topo = _campos_em_linhas(context, itens, x, topo, w, campos)
     if moldura:
-        # o tipo de trilho da moldura (pesado/leve), trocavel na porta pronta
+        # Frame track type (heavy/light), editable on a finished door.
         topo = _linha_escolha_gaveta(
             itens, x, topo - 25, w, '', 'porta_trilho', _portas.OPCOES_TRILHO,
-            valores.get('trilho', 'PESADO'), alvo=alvo) + 23   # passo 29 -> 31
+            valores.get('trilho', 'PESADO'), alvo=alvo) + 23   # Step 29 -> 31.
     if valores['abertura'] == 'CORRER':
-        # a folha: chapa ou o quadro de aluminio (estilo do DXF)
+        # Leaf: panel or aluminum frame (DXF style).
         topo = _linha_escolha_gaveta(
             itens, x, topo - 25, w, '', 'porta_folha', _portas.OPCOES_FOLHA_CORRER,
             valores.get('folha', 'CHAPA'), alvo=alvo) + 23
 
-    # Abertura: a dobradica nao aparece, e' automatica pelos dois limites.
+    # Opening: omit the hinge; its type is automatic from both boundaries.
     (prop, rotulo, opcoes), = _portas.ESCOLHAS_PORTAS
     topo -= ESPACO_SECOES
     _titulo_com_slider(itens, x, topo - 23, w, rotulo, altura=23)
@@ -1218,8 +1193,8 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
                           _retratos_abertura(opcoes), valores['abertura'],
                           alvo=alvo) - 4
 
-    # Medida da folha nao se repete aqui; so' o ERRO aparece, quando a
-    # configuracao nao cabe no vao da porta selecionada.
+    # Do not repeat leaf dimensions here; show only the ERROR when the configuration
+    # does not fit the selected door's opening.
     try:
         _portas._calcular_folhas_portas(grupo['porta_vao_largura_mm'],
                                 grupo['porta_vao_altura_mm'], valores)
@@ -1228,28 +1203,27 @@ def _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade):
     return itens
 
 
-ESPACO_SECOES = 8       # respiro a mais entre as categorias da aba
+ESPACO_SECOES = 8       # Extra spacing between tab categories.
 
 
 def _titulo_secao(itens, x, topo, w, texto):
-    """Titulo de categoria (o de Montagem: 23 px) com o TOPO em `topo`;
-    devolve o topo do que vem embaixo."""
+    """Category title (Assembly style: 23 px) with its TOP at `topo`; return the top of
+    the following content."""
     itens.append((x, topo - 23, w, 23, texto, None))
     return topo - 31
 
 
 def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None,
                       colunas_uniformes=False):
-    """Campos de valor (37 px, passo 43) a partir do TOPO, numa GRADE: a
-    das medidas da porta (L/A/E: 3, 2 ou 1 coluna pela largura), a mesma
-    em todas as categorias -- as colunas se alinham de uma secao a outra e
-    campo sozinho nao estica (auditoria visual: "Entre planos" virava uma
-    faixa de 460 px). `compacto` = (texto, acao) do campo estreito
-    (LARGURA_CAMPO_FOLHAS) logo DEPOIS do ultimo; sem lugar na linha (uma
-    coluna so'), o vizinho cede o espaco. `colunas_uniformes` reparte a
-    largura entre as medidas ANTES de reservar o contador; em mais de
-    uma linha, conserva a grade sem espremer a ultima medida.
-    Devolve o topo do que vem embaixo."""
+    """Value fields (37 px, step 43) starting at the TOP in a GRID, like door
+    dimensions (L/A/E: three, two or one column by width). Use the same grid in
+    every category: columns align across sections and lone fields do not stretch
+    (visual audit: Between Planes became a 460 px strip). `compacto` = (text,
+    action) for the narrow field (LARGURA_CAMPO_FOLHAS) immediately AFTER the last
+    one; if the row is full (single column), its neighbor yields space.
+    `colunas_uniformes` divides width among dimensions BEFORE reserving the counter;
+    across multiple rows it retains the grid without squeezing the last dimension.
+    Return the top of following content."""
     if not campos and compacto is None:
         return topo
     colunas = _colunas_medidas(context, w + 24, 3)
@@ -1283,13 +1257,13 @@ def _campos_em_linhas(context, itens, x, topo, w, campos, compacto=None,
     return min(p[1] for p in posicoes) - 6
 
 
-# botoes LARANJA do topo das abas: Criar Portas e Criar Puxador
+# ORANGE buttons at tab tops: Create Doors and Create Handle.
 BOTOES_CRIAR = ('portas', 'gavetas', 'prateleiras', 'divisorias', 'criar_puxador')
-COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # laranja
-COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # marcando o vao
-# Entrar/sair da edicao da parede no MESMO padrao (pedido do usuario):
-# laranja para entrar, o laranja forte da etapa em andamento para sair.
-# Tupla, nunca set/dict: a comparacao nao pode hashear a acao.
+COR_CRIAR_PORTAS = (0.85, 0.38, 0.06, 1.0)        # Orange.
+COR_CRIAR_PORTAS_ATIVO = (1.0, 0.5, 0.12, 1.0)     # Marking the opening.
+# Enter/exit wall editing with the SAME pattern (user request): orange to enter, the
+# brighter active-step orange to exit. Tuple, never set/dict: comparison must not hash
+# the action.
 OPERADORES_DESTAQUE = ('object.cabinet_definir_alvenaria', 'object.cabinet_editar_parede', 'object.cabinet_editar_ambientes', 'object.cabinet_sair_parede',
                       'object.cabinet_confirmar_alvenaria',
                       'object.cabinet_definir_ambiente', 'object.editmode_toggle',
@@ -1300,39 +1274,38 @@ OPERADOR_DESTAQUE_ATIVO = 'object.cabinet_sair_parede'
 
 
 def _botao_criar_portas(context):
-    """(rotulo, acao) do "Criar Portas", no topo da aba Portas.
+    """(label, action) for Create Doors at the top of the Doors tab.
 
-    Com porta selecionada o botao fica APAGADO: as mudancas ja' se
-    aplicam na hora, e outra porta se cria voltando ao modulo. O rotulo
-    carrega o estado (marcando o vao, ou o que impede de criar).
-    """
+    With a door selected, the button is DISABLED: changes apply immediately, and
+    creating another door requires returning to the cabinet. The label conveys state
+    (marking the opening or the reason creation is blocked)."""
     s = context.scene
     grupo = _portas._grupo_portas(context.object)
     if grupo is not None and not grupo.get('porta_parametros'):
         grupo = None
     motivo = '' if grupo is not None else _portas._motivo_portas(s)
     if _portas._apanhando_vao[0]:
-        rotulo = 'Marcando o vao... (Esc cancela)'
+        rotulo = "Marking the opening... (Esc cancels)"
     elif motivo:
         rotulo = motivo
     else:
-        rotulo = 'Criar Portas'
+        rotulo = "Create Doors"
     return rotulo, ('portas', bool(grupo), _portas._apanhando_vao[0], motivo,
                     grupo is not None)
 
 
 def _botao_criar_gavetas():
-    """(rotulo, acao) do "Criar Gavetas", no topo da aba Gavetas (o
-    mesmo formato do "Criar Portas": aceso = marcando o vao)."""
+    """(label, action) for Create Drawers at the top of the Drawers tab (same format as
+    Create Doors: lit = marking the opening)."""
     criando = _gavetas._criando()
-    return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Gavetas'),
+    return (("Marking the opening... (Esc cancels)" if criando else "Create Drawers"),
             ('gavetas', False, criando, '', False))
 
 
 def _botao_criar_prateleiras():
-    """(rotulo, acao) do "Criar Prateleiras" (o formato do de gavetas)."""
+    """(label, action) for Create Shelves, using the drawer-button format."""
     criando = _prateleiras._criando()
-    return (('Marcando o vao... (Esc cancela)' if criando else 'Criar Prateleiras'),
+    return (("Marking the opening... (Esc cancels)" if criando else "Create Shelves"),
             ('prateleiras', False, criando, '', False))
 
 
@@ -1349,15 +1322,15 @@ def _aba_divisorias_gaveta(context, itens, x, y, w):
     def campo(nome, rotulo, valor):
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
                 ('medida', 'divisorias', nome, rotulo, valor))
-    topo = _titulo_secao(itens, x, y + 26, w, 'Divisorias')
+    topo = _titulo_secao(itens, x, y + 26, w, "Partitions")
     topo = _campos_em_linhas(context, itens, x, topo, w,
         [campo('largura', 'A1', l), campo('altura', 'A2', a),
          campo('profundidade_mm', 'A3', prof)], colunas_uniformes=True)
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Panel")
     topo = _campos_em_linhas(context, itens, x, topo, w,
-        [campo('espessura_mm', 'Espessura', p['espessura_mm']),
-         campo('recuo_mm', 'Recuo', p['recuo_mm'])])
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Espacamento')
+        [campo('espessura_mm', "Thickness", p['espessura_mm']),
+         campo('recuo_mm', "Inset", p['recuo_mm'])])
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Spacing")
     g = _divisorias.calcular(l, a, p)['vaos']
     _campos_em_linhas(context, itens, x, topo, w,
         [campo('vao_%d' % i, 'E%d' % (i + 1), v) for i, v in enumerate(g)])
@@ -1365,10 +1338,10 @@ def _aba_divisorias_gaveta(context, itens, x, y, w):
 
 
 def _aba_prateleiras_gaveta(context, itens, x, y, w):
-    """Como a aba Gavetas (pedido do usuario): nada selecionado = so' o
-    "Criar Prateleiras"; criando = o recado da etapa; selecionadas
-    (clique = todas do vao, duplo = uma) = o vao, a chapa e os VAOS --
-    todos de baixo para cima, E1..En+1, tambem na selecao individual."""
+    """Like the Drawers tab (user request): no selection = only Create Shelves;
+    creation = current-step message; selected shelves (click = all in the opening,
+    double click = one) = opening, panel and GAPS, all bottom to top, E1..En+1,
+    including individual selection."""
     assistente = _prateleiras._assistente_prateleiras[0]
     if assistente is not None:
         itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
@@ -1392,11 +1365,11 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
                 ('medida', 'prateleiras', nome, rotulo, valor))
 
-    topo = _titulo_secao(itens, x, y + 26, w, 'Prateleiras')
-    campos = [campo('largura', 'Largura', prateleira.chapa_largura_mm if prateleira is not None else largura_vao)]
+    topo = _titulo_secao(itens, x, y + 26, w, "Shelves")
+    campos = [campo('largura', "Width", prateleira.chapa_largura_mm if prateleira is not None else largura_vao)]
     if prateleira is None:
-        campos.append(campo('altura', 'Altura', altura_vao))
-    campos.append(campo('profundidade_mm', 'Profundidade', profundidade))
+        campos.append(campo('altura', "Height", altura_vao))
+    campos.append(campo('profundidade_mm', "Depth", profundidade))
     previa = _prateleiras._quantidade_previa[0]
     alvo_contador = prateleira or grupo
     detalhe = None
@@ -1413,19 +1386,19 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
         compacto=(str(quantidade),
                   ('contador', 'prateleiras_quantidade', quantidade_atual, 0,
                    _prateleiras.MAXIMO_PRATELEIRAS - int(p['quantidade']) + quantidade_atual,
-                   alvo_contador.name, 'Prateleiras')))
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Chapa')
+                   alvo_contador.name, "Shelves")))
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Panel")
     topo = _campos_em_linhas(context, itens, x, topo, w, [
-        campo('espessura_mm', 'Espessura', p['espessura_mm']),
-        campo('recuo_mm', 'Recuo', p['recuo_mm']),
-        campo('folga_lateral_mm', 'Folga lateral', p['folga_lateral_mm'])])
+        campo('espessura_mm', "Thickness", p['espessura_mm']),
+        campo('recuo_mm', "Inset", p['recuo_mm']),
+        campo('folga_lateral_mm', "Side Gap", p['folga_lateral_mm'])])
     try:
         vaos = _prateleiras.vaos(altura_vao, _prateleiras.parametros(grupo))
     except ValueError as erro:
         itens.append((x, topo - 23 - ESPACO_SECOES, w, 22, str(erro), None))
         return itens
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Espacamento')
-    itens.append((x, topo - 37, w, 37, 'Centralizar espacamento',
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Spacing")
+    itens.append((x, topo - 37, w, 37, "Center Spacing",
                   ('operador', 'object.cabinet_alinhar_prateleiras')))
     topo -= 43
     indices = (range(detalhe['primeiro'], detalhe['ultimo'] + 2) if detalhe else range(len(vaos)))
@@ -1434,15 +1407,15 @@ def _aba_prateleiras_gaveta(context, itens, x, y, w):
     return itens
 
 
-# alvo da 'escolha' do modelo do puxador das GAVETAS selecionadas
+# Target of the handle-model 'escolha' action for selected DRAWERS.
 ALVO_PUXADOR_GAVETAS = '@puxador_gavetas'
 
 
 def _aba_gavetas_gaveta(context, itens, x, y, w):
-    """Como a aba Portas (pedido do usuario): nada selecionado = so' o
-    "Criar Gavetas" (no topo); criando = o recado da etapa; gavetas
-    selecionadas (clique = todas do vao, duplo = uma) = as medidas, a
-    frente, o trilho e o puxador -- da gaveta escolhida ou de todas."""
+    """Like the Doors tab (user request): no selection = only Create Drawers at the
+    top; creation = current-step message; selected drawers (click = all in the
+    opening, double click = one) = dimensions, front, rail and handle for the chosen
+    drawer or all of them."""
     assistente = _gavetas._assistente_gavetas[0]
     if assistente is not None:
         itens.append((x, y + 26, w, 26, assistente.get('recado', ''), None))
@@ -1470,44 +1443,44 @@ def _aba_gavetas_gaveta(context, itens, x, y, w):
         return ('%s: %s' % (rotulo, _opcoes._texto_medida(valor)),
                 ('medida', 'gavetas', prop(nome), rotulo, valor))
 
-    topo = _titulo_secao(itens, x, y + 26, w, 'Gaveta %d' % (indice+1) if indice is not None else 'Gavetas')
+    topo = _titulo_secao(itens, x, y + 26, w, "Drawer %d" % (indice+1) if indice is not None else "Drawers")
     topo = _campos_em_linhas(context, itens, x, topo, w, [
-        campo('largura', 'Largura', largura_vao),
-        campo('altura', 'Altura', altura_vao),
-        campo('profundidade_mm', 'Profundidade', profundidade)],
+        campo('largura', "Width", largura_vao),
+        campo('altura', "Height", altura_vao),
+        campo('profundidade_mm', "Depth", profundidade)],
         compacto=None if indice is not None else (str(p['quantidade']),
                   ('contador', 'gavetas_quantidade', int(p['quantidade']), 1,
-                   _gavetas.MAXIMO_GAVETAS, alvo, 'Gavetas')))
+                   _gavetas.MAXIMO_GAVETAS, alvo, "Drawers")))
     if int(p['quantidade']) > 1:
-        itens.append((x, topo - 28, w, 28, 'Normalizar alturas',
+        itens.append((x, topo - 28, w, 28, "Normalize Heights",
                       ('operador', 'object.cabinet_normalizar_gavetas')))
         topo -= 34
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Frente')
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Front")
     topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', prop('cobertura') if indice is not None else 'gavetas_cobertura',
                                  _gavetas.OPCOES_COBERTURA, p['cobertura'],
                                  alvo=alvo) + 23
-    espacos = ([campo('entre_gavetas_mm','Entre gavetas',p['entre_gavetas_mm'])]
+    espacos = ([campo('entre_gavetas_mm',"Between Drawers",p['entre_gavetas_mm'])]
               if indice is None else [campo(nome,rotulo,_gavetas.folgas(p)[k])
-                for nome,rotulo,k in (('abaixo_mm','Abaixo',indice-1),('acima_mm','Acima',indice))
+                for nome,rotulo,k in (('abaixo_mm',"Below",indice-1),('acima_mm',"Above",indice))
                 if 0 <= k < int(p['quantidade'])-1])
     topo = _campos_em_linhas(context, itens, x, topo, w, [
-        campo('folga_frontal_mm', 'Espacamento frontal', p['folga_frontal_mm']),
+        campo('folga_frontal_mm', "Front Spacing", p['folga_frontal_mm']),
         *espacos,
-        campo('recuo_mm', 'Recuo', p['recuo_mm']),
-        campo('espessura_frente_mm', 'Espessura', p['espessura_frente_mm']),
-        # flecha do arco da frente (0 = reta): o gaveteiro de canto curvo
-        campo('frente_curva_mm', 'Curva', float(p.get('frente_curva_mm') or 0.0))])
-    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, 'Trilho %d mm' % round(
+        campo('recuo_mm', "Inset", p['recuo_mm']),
+        campo('espessura_frente_mm', "Thickness", p['espessura_frente_mm']),
+        # Front arc sagitta (0 = straight): curved-corner drawer unit.
+        campo('frente_curva_mm', "Curve", float(p.get('frente_curva_mm') or 0.0))])
+    topo = _titulo_secao(itens, x, topo - ESPACO_SECOES, w, "Rail %d mm" % round(
         _gavetas.curso(gaveta) if gaveta is not None else float(grupo.get(_gavetas.CHAVE_TRILHO_MM, 0.0))))
     topo = _linha_escolha_gaveta(itens, x, topo - 25, w, '', prop('trilho') if indice is not None else 'gavetas_trilho',
                                  _gavetas.OPCOES_TRILHO, p['trilho'],
                                  alvo=alvo) + 23
-    # puxador: o duplo clique isola UMA gaveta (so' ela troca); o grupo
-    # selecionado troca todas
+    # Handle: double click isolates ONE drawer, changing only that one; selecting the
+    # group changes all.
     gaveta = obj if _gavetas.MARCA_GAVETA in obj else None
     atual = gaveta.get(_gavetas.CHAVE_PUXADOR, p['puxador']) if gaveta else p['puxador']
     _carrossel_gaveta(itens, x, topo - 23 - ESPACO_SECOES, w,
-                      'Puxador desta gaveta' if gaveta else 'Puxador (todas)',
+                      "This Drawer's Handle" if gaveta else "Handle (All)",
                       'gavetas_puxador', _modelos_puxador_gaveta(), atual,
                       alvo=ALVO_PUXADOR_GAVETAS)
     try:
@@ -1518,21 +1491,19 @@ def _aba_gavetas_gaveta(context, itens, x, y, w):
 
 
 def _botao_criar_puxador():
-    """(rotulo, acao) do "Criar Puxador", no topo da aba Puxadores: a
-    acao tem o MESMO formato da do "Criar Portas" (aceso = posicionando)."""
+    """(label, action) for Create Handle at the top of the Handles tab: SAME action
+    format as Create Doors (lit = placing)."""
     posicionando = _puxadores._posicionador_puxador[0] is not None
-    rotulo = ('Posicionando o puxador... (Esc cancela)' if posicionando
-              else 'Criar Puxador')
+    rotulo = ("Positioning the handle... (Esc cancels)" if posicionando
+              else "Create Handle")
     return rotulo, ('criar_puxador', False, posicionando, '', False)
 
 
 def _divisa_gaveta(context, altura):
-    """Altura (y da regiao) da divisoria entre a aba e a biblioteca.
+    """Height (region y) of the divider between tab and library.
 
-    Fica entre o pe' fixo e o cabecalho, sempre deixando
-    ALTURA_MIN_PAINEL_GAVETA para cada lado; numa area baixa demais
-    para os dois, cai no meio.
-    """
+    Between fixed footer and header, always leaving ALTURA_MIN_PAINEL_GAVETA on each
+    side; center it when the area is too short for both."""
     base, topo = ALTURA_RODAPE_GAVETA, altura - 48
     try:
         fracao = float(context.screen.get(_CHAVE_DIVISA, DIVISA_PADRAO))
@@ -1546,14 +1517,13 @@ def _divisa_gaveta(context, altura):
 
 
 def _fracao_divisa(altura, y):
-    """Inverso de `_divisa_gaveta`: o y do mouse vira a fracao gravada."""
+    """Inverse of `_divisa_gaveta`: mouse y becomes the stored fraction."""
     base, topo = ALTURA_RODAPE_GAVETA, altura - 48
     return max(0.0, min(1.0, (y - base) / max(1, topo - base)))
 
 
 def _paineis_gaveta(conteudo):
-    """(painel da aba, divisoria ou None, biblioteca) -- o conteudo se
-    divide no widget 'divisa'."""
+    """(tab panel, divider or None, library): content splits at the 'divisa' widget."""
     i = next((i for i, v in enumerate(conteudo)
               if v[5] and v[5][0] == 'divisa'), None)
     if i is None:
@@ -1566,7 +1536,7 @@ def _reservar_barras_gaveta(context, conteudo, largura, altura, rolagem, rolagem
         return conteudo
     n = _tamanho_cabecalho(conteudo)
     cima, divisa, baixo = _paineis_gaveta(conteudo[n:])
-    # Refluir os campos e fotos; cobrir sua ponta com a barra roubava cliques.
+    # Reflow fields and images; covering their ends with the bar stole clicks.
     estreito = _widgets_conteudo_gaveta(context, min(largura, 564) - 12,
                                        altura, rolagem, rolagem_bib)
     menor_cima, _, menor_baixo = _paineis_gaveta(estreito[_tamanho_cabecalho(estreito):])
@@ -1575,8 +1545,8 @@ def _reservar_barras_gaveta(context, conteudo, largura, altura, rolagem, rolagem
 
 
 def _limites_rolagem_gaveta(context, largura, altura):
-    """(limite do painel da aba, limite da biblioteca). Cada painel rola
-    ate' o ultimo widget passar inteiro pela borda de baixo DELE."""
+    """(tab-panel limit, library limit). Each panel scrolls until its final widget
+    fully crosses ITS own bottom edge."""
     conteudo = _widgets_conteudo_gaveta(context, largura, altura, 0, 0)
     cima, divisa, baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])
     piso_bib = 18 + ALTURA_RODAPE_GAVETA
@@ -1587,7 +1557,7 @@ def _limites_rolagem_gaveta(context, largura, altura):
     conteudo = _reservar_barras_gaveta(context, conteudo, largura, altura, 0, 0,
                                       (limite > 0, limite_bib > 0))
     cima, _, baixo = _paineis_gaveta(conteudo[_tamanho_cabecalho(conteudo):])
-    # A foto pode encolher ao reservar a barra: evitar alternar o layout no limiar.
+    # Reserving the bar may shrink images: avoid layout oscillation at the threshold.
     limite = max(int(limite > 0), int(piso - min((v[1] for v in cima), default=piso)))
     limite_bib = max(int(limite_bib > 0), int(piso_bib - min((v[1] for v in baixo), default=piso_bib)))
     return limite, limite_bib
@@ -1618,9 +1588,9 @@ def _barras_rolagem_gaveta(context, largura, altura, limites, deslocamentos):
 
 
 def _rolar_ate_o_fim(context):
-    """A aba acompanha quem cria: a etapa nova do wizard nasce no FIM do
-    painel e, com os retratos, caia para baixo da divisoria sem ninguem
-    ver. Chamado so' quando a etapa muda: rolar a' mao continua valendo."""
+    """The tab follows creation: each new wizard step appears at the panel END and,
+    with images, used to fall unseen below the divider. Called only on step changes
+    so manual scrolling remains effective."""
     tela = getattr(context, 'screen', None)
     area = _area_gaveta(tela) if tela is not None else None
     regiao = next((r for r in area.regions if r.type == 'WINDOW'),
@@ -1635,9 +1605,9 @@ def _rolar_ate_o_fim(context):
 
 
 def _rolar_biblioteca_ate_pergunta(context):
-    """A caixa "Apagar?" de um material nasce sob a fila dele e, numa
-    fila de baixo, caia abaixo do pe' do painel (o "Nao" sumia). A
-    biblioteca rola o NECESSARIO para a caixa aparecer inteira."""
+    """A material's Delete? box appears below its row; on lower rows it fell below the
+    panel footer, hiding No. Scroll the library only as MUCH as necessary to reveal
+    the whole box."""
     tela = getattr(context, 'screen', None)
     if tela is not None and _biblioteca_faixa.area_da_faixa(tela) is not None:
         _biblioteca_faixa.area_da_faixa(tela).tag_redraw()
@@ -1662,17 +1632,17 @@ def _rolar_biblioteca_ate_pergunta(context):
     area.tag_redraw()
 
 
-ALTURA_RODAPE_GAVETA = 40      # faixa fixa da engrenagem, no pe' da gaveta
+ALTURA_RODAPE_GAVETA = 40      # Fixed gear strip at the sidebar foot.
 OP_OPCOES = 'object.cabinet_opcoes_gaveta'
 
 
-ABAS_GAVETA = (('Modulos', 'Mod.', 'MODULOS'), ('Portas', 'Portas', 'PORTAS'),
-               ('Fundos', 'Fundo', 'FUNDOS'),
-               ('Gavetas', 'Gav.', 'GAVETAS'), ('Prateleiras / Divisorias', 'Prat./Div.', 'PRATELEIRAS'),
-               ('Puxadores', 'Pux.', 'PUXADORES'), ('Alvenaria', 'Alv.', 'ALVENARIA'))
-# Os operadores das antigas correntes seguem no F3, fora do cabecalho.
+ABAS_GAVETA = (("Modules", "Mod.", 'MODULOS'), ("Doors", "Doors", 'PORTAS'),
+               ("Back Panels", "Backs", 'FUNDOS'),
+               ("Drawers", "Draw.", 'GAVETAS'), ("Shelves / Partitions", 'Int.', 'PRATELEIRAS'),
+               ("Handles", "Handle", 'PUXADORES'), ("Masonry", "Mason.", 'ALVENARIA'))
+# Old chain operators remain in F3, outside the header.
 OPERADORES_CORRENTE = ()
-# Conta da linha expandida; o cabecalho estreito ocupa apenas um widget.
+# Expanded-row count; the narrow header occupies only one widget.
 WIDGETS_CABECALHO = len(ABAS_GAVETA) + len(OPERADORES_CORRENTE)
 CHAVE_ABAS = 'cabinet_abas_gaveta'
 
@@ -1682,13 +1652,13 @@ def _aba_no_menu(scene):
 
 
 def _no_cabecalho(acao):
-    """A navegacao fica fixa, inclusive quando vira lista suspensa."""
+    """Navigation stays fixed, including when it becomes a dropdown."""
     return bool(acao) and (acao[0] == 'aba' or acao[:2] == ('suspenso', CHAVE_ABAS) or (
         acao[0] == 'operador' and acao[1] in OPERADORES_CORRENTE))
 
 
 def _tamanho_cabecalho(widgets):
-    # So' o prefixo: as escolhas da lista flutuante tambem usam 'aba'.
+    # Prefix only: floating-list choices also use 'aba'.
     return next((i for i, v in enumerate(widgets) if not _no_cabecalho(v[5])), len(widgets))
 
 
@@ -1707,14 +1677,12 @@ def _cabecalho_gaveta(context, x, y, w):
 
 def _widgets_gaveta(context, largura, altura, _rolagem=None,
                     _rolagem_bib=None):
-    """Retangulos (x,y,w,h,rotulo,acao) compartilhados por desenho e hit-test.
+    """Rectangles (x,y,w,h,label,action) shared by drawing and hit-testing.
 
-    Ordem: cabecalho (abas e correntes), conteudo da aba, a DIVISORIA, a
-    biblioteca e, por ultimo, o RODAPE fixo -- a engrenagem e, aberto, o
-    painel de opcoes que sobe a partir dela. `_partes_gaveta` separa
-    cabecalho/conteudo/rodape e `_paineis_gaveta` corta o conteudo na
-    divisoria. Cada painel tem a sua rolagem.
-    """
+    Order: header (tabs and chains), tab content, DIVIDER, library, then the fixed
+    FOOTER: gear and, when open, the options panel extending upward from it.
+    `_partes_gaveta` separates header/content/footer; `_paineis_gaveta` splits
+    content at the divider. Each panel scrolls independently."""
     if _biblioteca_faixa.eh_faixa(context):
         return _biblioteca_faixa.widgets(context, largura, altura)
     limite, limite_bib = _limites_rolagem_gaveta(context, largura, altura)
@@ -1737,9 +1705,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
     rodape = fixos[:inicio_opcoes] + _visibilidade.widgets(context, x, w, altura) + fixos[inicio_opcoes:] + lista_opcoes
     painel = _retangulo_painel_opcoes(rodape)
     if painel is not None:
-        # O que fica embaixo do painel nao aparece nem recebe clique. A
-        # divisoria fica (o desenho corta os paineis nela), mas coberta
-        # ela nao se arrasta.
+        # Content underneath the panel is neither visible nor clickable. The divider
+        # remains (drawing clips panels there), but cannot be dragged while covered.
         px, py, pw, ph = painel
         def coberto(v):
             return (v[0] < px + pw and px < v[0] + v[2]
@@ -1752,13 +1719,13 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
     else:
         rodape += _barras_rolagem_gaveta(context, largura, altura,
             (limite, limite_bib), (_rolagem, _rolagem_bib))
-    # Listas flutuam sobre o conteudo e atendem primeiro. A cascata fica
-    # abaixo da divisoria; a navegacao das abas abre sob o cabecalho.
+    # Lists float above content and handle events first. The cascade stays below the
+    # divider; tab navigation opens below the header.
     divisa = next((v for v in itens[n:]
                    if v[5] and v[5][0] == 'divisa'), None)
     lista = _lista_da_cascata(itens[:n], ALTURA_RODAPE_GAVETA, altura)
     if lista:
-        # Reutiliza o mesmo despacho das abas, sem navegar na biblioteca.
+        # Reuse tab dispatch without navigating the library.
         abas = {rotulo: aba for rotulo, _, aba in ABAS_GAVETA}
         lista = [lista[0]] + [v[:5] + (('aba', abas[v[4]]),) for v in lista[1:]]
     else:
@@ -1779,9 +1746,8 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
 
 
 def _widgets_interativos(context):
-    """Widgets que podem receber mouse, do que esta' POR CIMA para baixo:
-    lista suspensa aberta, rodape/painel, cabecalho e o conteudo que nao
-    esta' escondido sob as duas faixas fixas."""
+    """Mouse-receiving widgets from TOPMOST downward: open dropdown, footer/panel,
+    header, then content not hidden under the two fixed strips."""
     if _biblioteca_faixa.eh_faixa(context):
         return _biblioteca_faixa.interativos(context)
     altura = context.region.height
@@ -1795,18 +1761,17 @@ def _widgets_interativos(context):
         rodape = [v for v in rodape if not (_visibilidade.eh_acao(v[5]) and
             v[0] < px + pw and px < v[0] + v[2] and v[1] < py + ph and py < v[1] + v[3])]
     if flutuante:
-        # A lista e' desenhada por ULTIMO mas atende PRIMEIRO; o fundo
-        # dela engole o clique nas frestas e as linhas que ela cobre
-        # saem do hit-test (e do hover) ate' ela fechar.
+        # Draw the list LAST but handle it FIRST: its background consumes clicks in
+        # gaps, while covered rows leave hit-testing (and hover) until it closes.
         fx, fy, fw, fh = flutuante[0][:4]
         rodape = flutuante[1:] + flutuante[:1] + [
             v for v in rodape
             if not (v[0] < fx + fw and fx < v[0] + v[2]
                     and v[1] < fy + fh and fy < v[1] + v[3])]
-    # Widget cortado pela divisoria ou pelas faixas fixas recebe mouse SO'
-    # na parte visivel (retangulo recortado ao painel): a foto do preset
-    # mal cabe na metade de baixo, e exigir o widget inteiro deixava o
-    # clique -- e o duplo clique -- na foto sem efeito nenhum.
+    # A widget clipped by the divider or fixed strips receives mouse input ONLY in its
+    # visible portion (rectangle clipped to the panel). A preset image barely fits in
+    # the lower half; requiring the whole widget made both clicks and double clicks on
+    # the image ineffective.
     cima, divisa, baixo = _paineis_gaveta(conteudo)
     meio = (divisa[1] + divisa[3] / 2) if divisa else ALTURA_RODAPE_GAVETA
     folga = FOLGA_DIVISA_GAVETA if divisa else 0
@@ -1821,32 +1786,31 @@ def _widgets_interativos(context):
 
 
 def _recortar_ao_painel(v, piso, teto):
-    """O widget como recebe mouse dentro da faixa [piso, teto] do painel:
-    inteiro, recortado (so' a parte visivel) ou None.
+    """Widget mouse target within the panel's [piso, teto] range: whole, clipped to its
+    visible portion, or None.
 
-    Icone (desenhado por gizmo, que nao respeita o recorte) e trilho do
-    slider (que se mede pela altura do widget) so' valem inteiros.
-    """
+    Icons (drawn by gizmos that ignore clipping) and slider tracks (measured from
+    widget height) are valid only when whole."""
     x, y, w, h = v[:4]
     if y >= piso and y + h <= teto:
         return v
     if _gaveta_eventos._icone_acao_gaveta(v[5]) or (v[5] and v[5][0] == 'slider'):
         return None
     baixo, alto = max(y, piso), min(y + h, teto)
-    if alto - baixo < 8:        # fiapo: nao da' para mirar
+    if alto - baixo < 8:        # Sliver: too small to target.
         return None
     return (x, baixo, w, alto - baixo) + tuple(v[4:])
 
 
 def _separar_flutuante(rodape):
-    """(rodape, lista suspensa) -- a lista comeca no widget 'fundo'."""
+    """(footer, dropdown): the list starts at the 'fundo' widget."""
     inicio = next((i for i, v in enumerate(rodape)
                    if v[5] and v[5][0] == 'fundo'), len(rodape))
     return rodape[:inicio], rodape[inicio:]
 
 
 def _partes_gaveta(widgets):
-    """(cabecalho, conteudo, rodape) -- o rodape comeca na engrenagem."""
+    """(header, content, footer): the footer starts at the gear."""
     inicio = next((i for i, v in enumerate(widgets)
                    if v[5] == ('operador', OP_OPCOES)), len(widgets))
     n = _tamanho_cabecalho(widgets)
@@ -1855,8 +1819,8 @@ def _partes_gaveta(widgets):
 
 
 def _retangulo_painel_opcoes(rodape):
-    """Fundo do painel de opcoes (x, y, w, h), ou None se fechado."""
-    # a linha fixa do pe' (engrenagem, Criar Portas) nao e' do painel
+    """Options-panel background (x, y, w, h), or None when closed."""
+    # The fixed footer row (gear, Create Doors) is outside the panel.
     painel = [v for v in _separar_flutuante(rodape)[0]
               if v[1] >= ALTURA_RODAPE_GAVETA and not _visibilidade.eh_acao(v[5])
               and v[5] != ('rotulo',)
@@ -1872,23 +1836,21 @@ def _retangulo_painel_opcoes(rodape):
 
 
 def _rodape_gaveta(context, x, w):
-    """Engrenagem no pe' da gaveta e, aberto, o painel que sobe dela.
+    """Gear at the sidebar foot and, when open, the panel extending upward from it.
 
-    O painel e' desenhado pela propria gaveta (popup do bpy fecha quando
-    o mouse sai, ver DESIGN.md). Uma linha por opcao -- rotulo a
-    esquerda, controle a direita; so' empilha em gaveta estreita:
-    'suspenso' abre a lista flutuante, 'faixa' arrasta ou digita
-    (`_opcoes.FAIXAS_OPCOES`) e 'cor' abre o seletor ali mesmo, empurrando o
-    painel para cima. Tudo grava nas preferencias do add-on.
-    """
+    The sidebar draws the panel itself (bpy popups close when the mouse leaves; see
+    DESIGN.md). One row per option: label left, control right; stack only in narrow
+    sidebars. 'suspenso' opens the floating list, 'faixa' supports dragging or
+    typing (`_opcoes.FAIXAS_OPCOES`), and 'cor' opens an inline picker, pushing the
+    panel upward. Everything saves to add-on preferences."""
     rodape = [(x, 7, 26, 26, '', ('operador', OP_OPCOES))]
     if _solda._conexao_manual[0] is not None and not _solda._conexao_manual[0].get('moderna'):
-        # escolhendo vertices: o pe' vira o "Confirmar" (o mesmo do Enter)
-        rodape.append((x + 32, 7, w - 32, 26, 'Confirmar conexao (Enter)',
+        # Choosing vertices: footer becomes Confirm, equivalent to Enter.
+        rodape.append((x + 32, 7, w - 32, 26, "Confirm Connection (Enter)",
                        ('operador', 'object.cabinet_confirmar_conexao')))
     elif context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2:
-        # Biblioteca dentro do menu: o pe' dela leva de volta a' faixa.
-        # O cabecalho nao tem espaco sem empurrar Modulos | Materiais.
+        # Library inside the menu: its footer returns it to the strip. The header has no
+        # room without displacing Cabinets | Materials.
         rodape.append((x + 32, 7, 26, 26, '', ('operador', _biblioteca_faixa.OP_LUGAR)))
     tela = context.screen
     if not tela.get(_CHAVE_OPCOES):
@@ -1898,7 +1860,7 @@ def _rodape_gaveta(context, x, w):
     largo = w >= 250 * max(1.0, context.preferences.system.ui_scale)
     rot_w = (w - 6) / 2 if largo else w
     cx, cw = (x + rot_w + 6, w - rot_w - 6) if largo else (x, w)
-    painel = [(x, 0, w, 20, 'Opcoes', None)]
+    painel = [(x, 0, w, 20, "Options", None)]
     flutuante = []
     y = -29
     for rotulo, tipo, nome in LINHAS_OPCOES:
@@ -1915,8 +1877,8 @@ def _rodape_gaveta(context, x, w):
             painel.append((cx, y, cw, 25, texto,
                            ('suspenso', nome, aberto)))
             if aberto:
-                # Lista colada embaixo do campo, por cima das linhas de
-                # baixo (por isso as listas ficam nas primeiras linhas)
+                # List directly below the field, over subsequent rows (hence lists
+                # appear in the first rows).
                 n = len(opcoes)
                 flutuante.append((cx, y - 4 - 25 * n - 3, cw, 25 * n + 6,
                                   '', ('fundo',)))
@@ -1931,7 +1893,7 @@ def _rodape_gaveta(context, x, w):
         else:
             rgb = _hud._cor_opcao(nome)
             especial = _cor_especial(nome)
-            texto = {'TEMA': 'Tema', 'GIZMO': 'Gizmo'}.get(especial) or (
+            texto = {'TEMA': "Theme", 'GIZMO': 'Gizmo'}.get(especial) or (
                 '#%02X%02X%02X' % tuple(round(c * 255) for c in rgb))
             painel.append((cx, y, cw, 25, texto,
                            ('cor', nome, 'amostra', rgb, cor_aberta == nome,
@@ -1941,39 +1903,39 @@ def _rodape_gaveta(context, x, w):
                                         especial)
         y -= 29
     _botao_orcamento_opcoes(painel, x, y, w)
-    # Montado de cima para baixo a partir de 0; sobe para encostar logo
-    # acima da engrenagem -- o painel abre de baixo para cima.
+    # Build downward from 0, then shift up to sit just above the gear: the panel opens
+    # from bottom to top.
     deslocar = ALTURA_RODAPE_GAVETA + 8 - min(v[1] for v in painel)
     return rodape + [(v[0], v[1] + deslocar, *v[2:])
                      for v in painel + flutuante]
 
 
-# (rotulo, controle, opcao) -- as listas suspensas vem PRIMEIRO: abrem
-# para baixo, por cima das linhas seguintes, e precisam delas embaixo.
+# (label, control, option): dropdowns come FIRST, opening downward over subsequent rows,
+# which must be below them.
 LINHAS_OPCOES = (
-    ('Unidade padrao', 'suspenso', 'unidade_padrao'),
-    ('Contorno do Blender', 'suspenso', 'ocultar_contorno_grupo'),
-    ('Origens no grupo', 'suspenso', 'ocultar_origens_grupo'),
-    ('Bolinhas de apoio', 'suspenso', 'hud_pontos_apoio'),
-    ('Guias nas quinas', 'suspenso', 'hud_setas_quinas'),
-    ('Correntes', 'suspenso', 'tecla_corrente'),
-    ('Espessura das linhas', 'faixa', 'hud_espessura_linha'),
-    ('Tamanho dos rotulos', 'faixa', 'hud_tamanho_rotulo'),
-    ('Cor das linhas', 'cor', 'hud_rgb_linha'),
-    ('Cor do realce', 'cor', 'hud_rgb_realce'),
+    ("Default unit", 'suspenso', 'unidade_padrao'),
+    ("Blender Outline", 'suspenso', 'ocultar_contorno_grupo'),
+    ("Group Origins", 'suspenso', 'ocultar_origens_grupo'),
+    ("Support dots", 'suspenso', 'hud_pontos_apoio'),
+    ("Corner guides", 'suspenso', 'hud_setas_quinas'),
+    ("Links", 'suspenso', 'tecla_corrente'),
+    ("Line thickness", 'faixa', 'hud_espessura_linha'),
+    ("Label size", 'faixa', 'hud_tamanho_rotulo'),
+    ("Line color", 'cor', 'hud_rgb_linha'),
+    ("Highlight color", 'cor', 'hud_rgb_realce'),
 )
 SUSPENSOS_OPCOES = {
     'unidade_padrao': tuple((k, v[1]) for k, v in _opcoes.UNIDADES_MEDIDA.items()),
-    'ocultar_contorno_grupo': ((True, 'Ocultar'), (False, 'Mostrar')),
-    'ocultar_origens_grupo': ((True, 'Ocultar'), (False, 'Mostrar')),
-    'hud_pontos_apoio': ((True, 'Ligado'), (False, 'Desligado')),
-    'hud_setas_quinas': ((True, 'Ligado'), (False, 'Desligado')),
-    'tecla_corrente': (('ALT', 'Segurar Alt'), ('CTRL', 'Segurar Ctrl'),
-                       ('SHIFT', 'Segurar Shift'), ('SEMPRE', 'Sempre')),
+    'ocultar_contorno_grupo': ((True, "Hide"), (False, "Show")),
+    'ocultar_origens_grupo': ((True, "Hide"), (False, "Show")),
+    'hud_pontos_apoio': ((True, "On"), (False, "Off")),
+    'hud_setas_quinas': ((True, "On"), (False, "Off")),
+    'tecla_corrente': (('ALT', "Hold Alt"), ('CTRL', "Hold Ctrl"),
+                       ('SHIFT', "Hold Shift"), ('SEMPRE', "Always")),
 }
 ALTURA_QUADRO_COR = 96
-# Matiz de cada opcao de cor: cinza/branco/preto nao tem matiz, e sem
-# isto o quadrado voltava ao vermelho ao arrastar no eixo de saturacao.
+# Hue for each color option: gray/white/black have no hue. Without this, the square
+# reverted to red when dragging along the saturation axis.
 _matiz_cor = {}
 
 
@@ -1990,7 +1952,7 @@ def _fechar_opcoes(tela):
 
 
 def _valor_da_faixa(nome, fracao):
-    """Posicao no trilho (0..1) -> valor da opcao, no passo dela."""
+    """Track position (0..1) -> option value at its step size."""
     minimo, maximo, passo = _opcoes.FAIXAS_OPCOES[nome]
     fracao = max(0.0, min(1.0, fracao))
     valor = round((minimo + fracao * (maximo - minimo)) / passo) * passo
@@ -1999,7 +1961,7 @@ def _valor_da_faixa(nome, fracao):
 
 
 def _cor_do_seletor(nome, parte, rgb, fx, fy):
-    """Ponto clicado no quadro (fx=saturacao, fy=brilho) ou na matiz."""
+    """Clicked point in the square (fx=saturation, fy=brightness) or hue strip."""
     h, s, v = _hsv_opcao(nome, rgb)
     fx, fy = max(0.0, min(1.0, fx)), max(0.0, min(1.0, fy))
     if parte == 'matiz':
@@ -2010,7 +1972,7 @@ def _cor_do_seletor(nome, parte, rgb, fx, fy):
 
 
 def _aplicar_cor_opcao(nome, rgb):
-    # escolher uma cor desliga o Tema / o Gizmo daquela opcao
+    # Choosing a color disables Theme / Gizmo for that option.
     _opcoes._definir_opcao(OPCAO_DO_ESPECIAL[ATALHO_ESPECIAL[nome]], False)
     _opcoes._definir_opcao(nome, tuple(float(c) for c in rgb[:3]))
 
@@ -2027,7 +1989,7 @@ def _hsv_opcao(nome, rgb):
 
 
 def _cor_especial(nome):
-    """'TEMA' (linhas na cor do tema), 'GIZMO' (realce por eixo) ou ''."""
+    """'TEMA' (theme-colored lines), 'GIZMO' (per-axis highlighting) or ''."""
     if nome == 'hud_rgb_linha' and _opcoes._opcao('hud_linha_tema'):
         return 'TEMA'
     if nome == 'hud_rgb_realce' and _opcoes._opcao('hud_realce_gizmo'):
@@ -2035,14 +1997,14 @@ def _cor_especial(nome):
     return ''
 
 
-# Atalho que nao e' uma cor so': o primeiro da fila de cada opcao
+# Shortcut representing more than one color: first in each option's row.
 ATALHO_ESPECIAL = {'hud_rgb_linha': 'TEMA', 'hud_rgb_realce': 'GIZMO'}
 OPCAO_DO_ESPECIAL = {'TEMA': 'hud_linha_tema', 'GIZMO': 'hud_realce_gizmo'}
 
 
 def _seletor_cor_gaveta(painel, x, y, w, nome, rgb, especial):
-    """Atalhos, quadrado saturacao x brilho e faixa de matiz, embaixo da
-    amostra. Devolve o y da ultima linha ocupada (o laco desce 29)."""
+    """Shortcuts, saturation x brightness square and hue strip below the sample. Return
+    the last occupied row's y (the loop descends by 29)."""
     chave_especial = ATALHO_ESPECIAL[nome]
     atalhos = ((chave_especial, _hud._cor_tema_linha() if chave_especial == 'TEMA'
                 else _opcoes.COR_REALCE_PADRAO),) + _opcoes.CORES_ATALHO
@@ -2058,20 +2020,20 @@ def _seletor_cor_gaveta(painel, x, y, w, nome, rgb, especial):
     painel.append((x, base, w, ALTURA_QUADRO_COR, '',
                    ('cor', nome, 'quadro', rgb)))
     painel.append((x, base - 20, w, 14, '', ('cor', nome, 'matiz', rgb)))
-    # o laco desce 29 e a linha seguinte (25) fica 4 px abaixo da matiz
+    # The loop descends by 29; the next row (25) sits 4 px below the hue strip.
     return base - 20
 
 
 def _widgets_conteudo_gaveta(context, largura, altura, _rolagem,
                              _rolagem_bib=0):
-    """Cabecalho + painel da aba + divisoria + biblioteca."""
+    """Header + tab panel + divider + library."""
     itens = _widgets_aba_gaveta(context, largura, altura, _rolagem)
     if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) == 2:
         return itens
     x, w = 12, max(24, min(540, largura - 24))
     divisa = _divisa_gaveta(context, altura)
-    # a linha e' desenhada de borda a borda; o retangulo de pegar fica
-    # nas margens, como todo widget (regra de ouro da secao 6)
+    # Draw the line edge to edge; its grab rectangle stays within the margins like every
+    # widget (section 6 golden rule).
     itens.append((x, divisa - FOLGA_DIVISA_GAVETA, w,
                   2 * FOLGA_DIVISA_GAVETA, '', ('divisa', True)))
     _biblioteca_gaveta(context, itens, x, divisa - 34 + _rolagem_bib, w)
@@ -2080,8 +2042,8 @@ def _widgets_conteudo_gaveta(context, largura, altura, _rolagem,
 
 def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     s = context.scene
-    # Mesmo se a area for alargada drasticamente, o menu permanece uma
-    # coluna vertical legivel; miniaturas nao viram faixas gigantes.
+    # Even if the area is drastically widened, the menu remains a readable vertical
+    # column; thumbnails do not become giant strips.
     x, w = 12, max(24, min(540, largura - 24))
     itens = _cabecalho_gaveta(context, x, altura - 40, w)
     metade = (w - 6) / 2
@@ -2109,31 +2071,30 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
     if s.cabinet_aba == 'MODULOS' and _alvenaria.candidatos(context):
         y = _alvenaria.widgets_classificar(context, itens, x, y+30, w)-58
     if s.cabinet_aba in {'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS', 'PUXADORES'}:
-        # "Criar Portas" no TOPO da aba, logo abaixo das abas, largura
-        # inteira e texto centralizado (backlog do usuario, Epico 2.3);
-        # antes morava no pe' fixo ao lado da engrenagem. O "Criar
-        # Puxador" segue o MESMO padrao (pedido do usuario).
+        # Create Doors at the tab TOP, directly below the tabs, full width with centered
+        # text (user backlog, Epic 2.3); previously in the fixed footer beside the gear.
+        # Create Handle follows the SAME pattern (user request).
         rotulo, acao = (_botao_criar_portas(context)
                         if s.cabinet_aba == 'PORTAS'
-                        else ('Criar Fundo', ('operador', 'object.cabinet_criar_fundo')) if s.cabinet_aba == 'FUNDOS'
+                        else ("Create Back Panel", ('operador', 'object.cabinet_criar_fundo')) if s.cabinet_aba == 'FUNDOS'
                         else _botao_criar_gavetas() if s.cabinet_aba == 'GAVETAS'
                         else _botao_criar_prateleiras() if s.cabinet_aba == 'PRATELEIRAS'
-                        else ('Marcando o vao... (Esc cancela)' if _divisorias._criando() else 'Criar Divisorias',
+                        else ("Marking the opening... (Esc cancels)" if _divisorias._criando() else "Create Partitions",
                               ('divisorias', False, _divisorias._criando(), '', False)) if s.cabinet_aba == 'DIVISORIAS'
                         else _botao_criar_puxador())
         if s.cabinet_aba in {'PRATELEIRAS', 'DIVISORIAS'} and not (_prateleiras._criando() or _divisorias._criando()):
-            rotulo, acao = 'Criar prateleiras ou divisorias', ('operador', 'object.cabinet_internos')
+            rotulo, acao = "Create Shelves or Partitions", ('operador', 'object.cabinet_internos')
         topo_criar = altura - 48 - 8 - 30 + _rolagem
         itens.append((x, topo_criar, w, 30, rotulo, acao))
         y -= 38
         if _areas_criacao.oferecer(context):
-            rotulo = 'Definir por plano' if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else 'Definir por volume'
+            rotulo = "Define by Plane" if s.cabinet_aba in {'PORTAS', 'FUNDOS'} else "Define by Volume"
             itens.append((x, y + 26, w, 30, rotulo, ('operador', 'object.cabinet_definir_area')))
             y -= 36
     if s.cabinet_aba == 'MODULOS':
         y = _paredes_edicao.widgets(context, itens, x, y, w)
-    # Cada aba mostra SO' o que vale para a selecao (pedido do usuario):
-    # o bloco de medidas e' da aba dona do item, nao fixo nas tres.
+    # Each tab shows ONLY what applies to selection (user request): the dimension block
+    # belongs to the item's owner tab, rather than being fixed across all three.
     if s.cabinet_aba == 'PORTAS':
         return _aba_portas_gaveta(context, itens, x, y, w, s, largura, metade)
     if s.cabinet_aba == 'FUNDOS':
@@ -2151,10 +2112,9 @@ def _widgets_aba_gaveta(context, largura, altura, _rolagem):
 
 
 def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
-    """Modulo ou chapa selecionado: medidas (Individual | Grupo) e
-    Montagem e o comodo; objeto de fora: as medidas dele. Nada
-    selecionado: nada (a biblioteca, embaixo, e' a criacao desta aba; o
-    orcamento, da cena inteira, mora nas Opcoes)."""
+    """Selected cabinet or panel: dimensions (Individual | Group), Assembly and room;
+    external object: its dimensions. No selection: nothing (the library below
+    handles creation for this tab; the scene-wide estimate lives in Options)."""
     obj = _selecionado(context)
     if _paredes_composicao.parede(obj) or (_paredes_edicao.ativa(context)
                                           and _paredes.modulo_de(obj) is not None):
@@ -2172,21 +2132,20 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
         y = _bloco_medidas_gaveta(context, itens, x, y, w, largura, metade)
     if not (nosso or pendente):
         return _secao_orcamento_gaveta(context, itens, x, y, w)
-    itens.append((x, y, w, 23, 'Montagem', None))
+    itens.append((x, y, w, 23, "Assembly", None))
     y -= 31
     if nosso:
-        itens.append((x, y, w, 28, 'Criar solda',
+        itens.append((x, y, w, 28, "Create Weld",
                       ('operador', 'object.cabinet_conectar_vertices')))
         y -= 34
-    # Sem "Recalcular": o handler ja' normaliza as chapas ao fim de
-    # todo S/G, e o botao so' repetia isso (pedido do usuario).
-    # O ima (Adjacencia) virou a CORRENTE: com um objeto selecionado o
-    # botao acende azul se ele esta' agregado (o clique desagrega) e fica
-    # cinza se nao (o clique associa); com varios, conecta por distancia.
-    # Criar tem acesso proprio, pois a corrente de uma peca agregada
-    # desagrega. Agrupar/Converter continuam no F3.
-    montagem = (('Corrente', _solda.OP_CORRENTE_OBJETO),
-                ('Resetar distancia', _solda.OP_RESETAR_DISTANCIA))
+    # No Recalculate button: the handler already normalizes panels after every S/G, so
+    # the button only repeated it (user request). The magnet (Adjacency) became the
+    # CHAIN: with one object selected, blue means attached (click detaches), gray means
+    # unattached (click associates); with multiple objects, connect by distance.
+    # Creation has its own entry because an attached part's chain detaches it.
+    # Group/Convert remain in F3.
+    montagem = (("Link", _solda.OP_CORRENTE_OBJETO),
+                ("Reset Distance", _solda.OP_RESETAR_DISTANCIA))
     colunas = 2 if w >= 240 else 1
     bw = (w - 6 * (colunas - 1)) / colunas
     for i, (rotulo, op) in enumerate(montagem):
@@ -2201,7 +2160,7 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
     aviso=_solda.diagnostico_soldas(obj)
     if aviso:
         y-=31;itens.append((x,y,w,26,aviso,None))
-        y-=26;itens.append((x,y,w,26,'Crie outra solda para reparar',None))
+        y-=26;itens.append((x,y,w,26,"Create another weld to repair",None))
     pergunta = _perguntas._pergunta_atual[0]
     if (pergunta is not None and pergunta['na_gaveta']
             and not pergunta.get('comodo') and not pergunta.get('biblioteca')):
@@ -2210,49 +2169,49 @@ def _aba_modulos_gaveta(context, itens, x, y, w, largura, metade):
 
 
 def _painel_criacao_solda(context,itens,x,topo,w,estado):
-    topo=_titulo_secao(itens,x,topo,w,'Criar solda')
-    recado={'origem':'1. Escolha a ancora de origem',
-            'destino':'2. Escolha a ancora final',
-            'confirmar':'Deseja criar esta solda?'}[estado['fase']]
+    topo=_titulo_secao(itens,x,topo,w,"Create Weld")
+    recado={'origem':"1. Choose the source anchor",
+            'destino':"2. Choose the end anchor",
+            'confirmar':"Create this weld?"}[estado['fase']]
     itens.append((x,topo-26,w,26,recado,None));topo-=34
     valor=(estado['distancias'][-1] if estado['pares'] else estado.get('distancia_previa') or 0.)*1000
     topo=_campos_em_linhas(context,itens,x,topo,w,[
-        ('Distancia: '+_opcoes._texto_medida(valor),('medida','solda_criacao','distancia','Distancia',valor))])
+        ("Distance: "+_opcoes._texto_medida(valor),('medida','solda_criacao','distancia',"Distance",valor))])
     if estado['pares']:
-        for rotulo,comando in (('Resetar distancia','RESETAR'),('Voltar etapa','VOLTAR')):
+        for rotulo,comando in (("Reset Distance",'RESETAR'),("Previous Step",'VOLTAR')):
             itens.append((x,topo-28,w,28,rotulo,('escolha','solda_acao',comando,False,True,'@solda')));topo-=34
         if estado['fase']=='confirmar':
-            itens.append((x,topo-28,w,28,'Adicionar outro par',('escolha','solda_acao','ADICIONAR',False,True,'@solda')));topo-=34
-            itens.append((x,topo-28,w,28,'Criar solda',('operador','object.cabinet_confirmar_conexao')));topo-=34
-    itens.append((x,topo-28,w,28,'Cancelar solda',('escolha','solda_acao','CANCELAR',False,True,'@solda')))
-    itens.append((x,topo-62,w,26,'Alt: editar ancora',None))
-    itens.append((x,topo-88,w,26,'Direito / Esc: cancelar',None))
-    itens.append((x,topo-114,w,26,'Backspace / Ctrl+Z: voltar',None))
+            itens.append((x,topo-28,w,28,"Add Another Pair",('escolha','solda_acao','ADICIONAR',False,True,'@solda')));topo-=34
+            itens.append((x,topo-28,w,28,"Create Weld",('operador','object.cabinet_confirmar_conexao')));topo-=34
+    itens.append((x,topo-28,w,28,"Cancel Weld",('escolha','solda_acao','CANCELAR',False,True,'@solda')))
+    itens.append((x,topo-62,w,26,"Alt: edit anchor",None))
+    itens.append((x,topo-88,w,26,"Right click / Esc: cancel",None))
+    itens.append((x,topo-114,w,26,"Backspace / Ctrl+Z: back",None))
     return itens
 
 
 def _secao_orcamento_gaveta(context, itens, x, y, w):
-    """O COMODO do modulo selecionado, que agrupa o orcamento (UMA linha
-    que expande; pedido do usuario: a grade fixa ocupava a aba). O botao
-    que gera o orcamento e' da cena inteira: mora nas Opcoes."""
+    """Selected cabinet's ROOM, used to group the estimate (ONE expandable row; user
+    request: the fixed grid occupied the tab). Generate Estimate applies to the
+    entire scene and lives in Options."""
     modulos = _orcamento._modulos_da_selecao(context)
     if not modulos:
         return itens
-    # titulo como o de Montagem, sem separador (os da aba sao da cascata)
-    itens.append((x, y, w, 23, 'Orcamento', None))
+    # Assembly-style title without a separator (tab separators belong to the cascade).
+    itens.append((x, y, w, 23, "Estimate", None))
     y -= 31
     ativo = _orcamento._modulo_do_objeto(context.object) or modulos[0]
     atual = _orcamento._nome_comodo(_orcamento._comodo_do_modulo(ativo))
     aberto = context.screen.get(_CHAVE_SUSPENSO, '') == _orcamento.SUSPENSO_COMODO
-    itens.append((x, y, w, 25, 'Comodo: %s' % (atual or '(nenhum)'),
+    itens.append((x, y, w, 25, "Room: %s" % (atual or "(none)"),
                   ('suspenso', _orcamento.SUSPENSO_COMODO, aberto)))
     y -= 29
     if aberto:
-        # a lista abre DENTRO da aba, empurrando o resto para baixo
+        # Open the list INSIDE the tab, pushing subsequent content down.
         opcoes = [(n, n) for n in _orcamento._comodos_da_lista(context.scene)]
         if atual:
-            opcoes.append((_orcamento.COMODO_NENHUM, 'Sem comodo'))
-        opcoes.append((_orcamento.COMODO_OUTRO, 'Outro nome...'))
+            opcoes.append((_orcamento.COMODO_NENHUM, "No Room"))
+        opcoes.append((_orcamento.COMODO_OUTRO, "Other Name..."))
         y = _linha_escolha_gaveta(
             itens, x, y, w, '', _orcamento.ALVO_COMODO, tuple(opcoes), atual,
             alvo=_orcamento.ALVO_COMODO, por_linha=3 if w >= 300 else 2)
@@ -2263,19 +2222,19 @@ def _secao_orcamento_gaveta(context, itens, x, y, w):
 
 
 def _botao_orcamento_opcoes(painel, x, y, w):
-    """"Gerar orcamento" no fim das Opcoes (pedido do usuario: o add-on e'
-    vendido, nao e' coisa de um ERP so'). Abre o "Salvar como" e grava o
-    .txt; o que fez aparece no botao e, havendo, as pendencias numa caixa
-    preta logo abaixo. Devolve o y de baixo."""
+    """Generate Estimate at the end of Options (user request: the add-on is sold as a
+    product, not tied to a single ERP). Open Save As and write the .txt; show the
+    result on the button and any outstanding issues in a black box immediately
+    below. Return the bottom y."""
     gerado = _orcamento._orcamento_gerado[0]
-    rotulo = 'Gerar orcamento (.txt)'
+    rotulo = "Generate Estimate (.txt)"
     if gerado is not None:
-        rotulo = 'Salvo: %d modulo(s) - gerar de novo' % gerado['modulos']
+        rotulo = "Saved: %d cabinet(s) - generate again" % gerado['modulos']
     y -= 6
     painel.append((x, y, w, 28, rotulo,
                    ('operador', _orcamento.OP_EXPORTAR_ORCAMENTO, gerado is not None)))
     if gerado is not None and gerado['pendencias']:
-        texto = 'Pendencias:\n' + '\n'.join(
+        texto = 'Pending items:\n' + '\n'.join(
             '\n'.join(_quebrar_texto(p, w - 20))
             for p in gerado['pendencias'])
         linhas = texto.count('\n') + 1
@@ -2285,12 +2244,12 @@ def _botao_orcamento_opcoes(painel, x, y, w):
     return y
 
 
-PX_CARACTERE_PERGUNTA = 6.4      # estimativa da largura de um caractere (11 px)
+PX_CARACTERE_PERGUNTA = 6.4      # Estimated character width (11 px text).
 
 
 def _quebrar_texto(texto, largura):
-    """Linhas que cabem em `largura` px (o bpy nao mede texto fora do
-    desenho: estimativa por caractere, como os PX_* da gaveta)."""
+    """Lines fitting within `largura` px (bpy does not measure text outside drawing:
+    estimate per character, like sidebar PX_* constants)."""
     cabe = max(8, int(largura / PX_CARACTERE_PERGUNTA))
     linhas, atual = [], ''
     for palavra in texto.split():
@@ -2303,20 +2262,20 @@ def _quebrar_texto(texto, largura):
     return linhas + ([atual] if atual else [])
 
 
-LARGURA_MIN_RESPOSTA = 70   # px: abaixo disto as respostas quebram a fila
+LARGURA_MIN_RESPOSTA = 70   # Pixels: below this width, answers wrap to another row.
 
 
 def _pergunta_na_gaveta(itens, x, topo, w, pergunta):
-    """Caixa preta com a pergunta e as respostas lado a lado, a partir de
-    `topo` (logo abaixo do botao que perguntou). Devolve o y de baixo."""
+    """Black box with the question and side-by-side answers, starting at `topo` just
+    below the initiating button. Return the bottom y."""
     texto = pergunta['texto']
     estado = _solda._nome_grupo_gaveta[0]
     if pergunta.get('campo') and estado is not None:
-        # o nome que se digita (Enter confirma), com o cursor
+        # Typed name with cursor (Enter confirms).
         texto += ': ' + _gaveta_desenho._com_cursor(estado['texto'], estado['cursor'])
     linhas = _quebrar_texto(texto, w - 20)
     n = len(pergunta['opcoes'])
-    # muitas respostas (os comodos da pintura rapida) quebram em filas
+    # Many answers (quick-paint rooms) wrap into rows.
     por_fila = max(1, min(n, int((w - 20 + 6) // (LARGURA_MIN_RESPOSTA + 6))))
     filas = -(-n // por_fila)
     altura = 12 + 15 * len(linhas) + 8 + 26 * filas + 6 * (filas - 1) + 10
@@ -2331,23 +2290,23 @@ def _pergunta_na_gaveta(itens, x, topo, w, pergunta):
     return baixo
 
 
-# Icones a' direita do titulo, por biblioteca: presets (pasta, Asset
-# Browser, salvar a selecao) ou materiais (pasta, novo material)
+# Icons right of the title, by library: presets (folder, Asset Browser, save selection)
+# or materials (folder, new material).
 BOTOES_BIBLIOTECA = {
-    # 'Assets' (a prateleira nativa) foi descontinuado a pedido do usuario
-    'MODULOS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
-                ('Salvar +', 'object.cabinet_salvar_biblioteca')),
-    'MATERIAIS': (('Pasta', 'object.cabinet_abrir_biblioteca'),
-                  ('Novo +', 'object.cabinet_novo_material')),
+    # Assets (the native shelf) was discontinued at the user's request.
+    'MODULOS': (("Folder", 'object.cabinet_abrir_biblioteca'),
+                ("Save +", 'object.cabinet_salvar_biblioteca')),
+    'MATERIAIS': (("Folder", 'object.cabinet_abrir_biblioteca'),
+                  ("New +", 'object.cabinet_novo_material')),
 }
-TITULO_BIBLIOTECA = 'Biblioteca'
-MODOS_BIBLIOTECA = (('MODULOS', 'Modulos'), ('MATERIAIS', 'Materiais'))
+TITULO_BIBLIOTECA = "Library"
+MODOS_BIBLIOTECA = (('MODULOS', "Modules"), ('MATERIAIS', "Materials"))
 
 
 def _cabecalho_biblioteca(context, itens, x, y, w, contagens):
-    """Titulo, os dois botoes Modulos | Materiais AO LADO dele (pedido do
-    usuario; gaveta estreita: na linha de baixo) e os icones a' direita.
-    A contagem vai no botao de cada biblioteca. Devolve o y seguinte."""
+    """Title with Cabinets | Materials buttons BESIDE it (user request; below it in a
+    narrow sidebar) and icons on the right. Each library's button carries its count.
+    Return the next y."""
     modo = context.scene.cabinet_bib_modo
     botoes = BOTOES_BIBLIOTECA[modo]
     bw = min(28, max(12, (w - 44) / 3))
@@ -2355,14 +2314,14 @@ def _cabecalho_biblioteca(context, itens, x, y, w, contagens):
     largura_titulo = _px_botao(TITULO_BIBLIOTECA, False)
     sobra = w - reserva - largura_titulo - 4
     ao_lado = sobra >= 2 * PX_MIN_NIVEL + 4
-    # o titulo e' o PRIMEIRO widget do painel (o teste de rolagem o acha)
+    # The title is the panel's FIRST widget (the scrolling test locates it).
     itens.append((x, y, largura_titulo if ao_lado else max(1, w - reserva), 26,
                   TITULO_BIBLIOTECA, None))
     for i, (rotulo, op) in enumerate(botoes):
         itens.append((x + w - reserva + 4 + i * (bw + 4), y, bw, 26, rotulo,
                       ('operador', op)))
     if ao_lado:
-        # segmento (25) centrado no titulo (26)
+        # Segment (25) centered on the title (26).
         mx, mw, my = x + largura_titulo + 4, sobra, y + 0.5
         y -= 34
     else:
@@ -2378,9 +2337,9 @@ def _cabecalho_biblioteca(context, itens, x, y, w, contagens):
 
 
 def _biblioteca_gaveta(context, itens, x, y, w):
-    """Biblioteca no painel de baixo, igual nas tres abas e sempre
-    aberta: o titulo deixou de ser botao de abrir/fechar. Duas
-    bibliotecas, a mesma cascata: presets (Modulos) e Materiais."""
+    """Library in the lower panel, identical across all three tabs and always open: the
+    title no longer toggles it. Two libraries with the same cascade: presets
+    (Cabinets) and Materials."""
     s = context.scene
     indice = _biblioteca.indice_completo()
     materiais = _materiais.ler_materiais()
@@ -2388,11 +2347,11 @@ def _biblioteca_gaveta(context, itens, x, y, w):
                               {'MODULOS': len(indice), 'MATERIAIS': len(materiais)})
     if s.cabinet_bib_modo == 'MATERIAIS':
         return _materiais_gaveta(context, itens, x, y, w, materiais)
-    # os de fabrica (puxadores, dobradicas) entram travados na cascata
+    # Factory items (handles, hinges) enter the cascade locked.
     indice = indice + _biblioteca.itens_de_fabrica()
-    # Cascata SEM limite de niveis (pedido do usuario): um carrossel por
-    # nivel do caminho escolhido, e o de baixo dele enquanto houver filhos
-    # (Armarios > Cozinha > Altos > Despenseiros). Ramo vazio nao aparece.
+    # UNLIMITED cascade depth (user request): one carousel per level of the chosen path,
+    # plus its child level while children exist (Cabinets > Kitchen > Tall Units >
+    # Pantries). Hide empty branches.
     trilha = _biblioteca.trilha_da_cena(s)
     for nivel in range(1, len(trilha) + 2):
         pai = trilha[:nivel - 1]
@@ -2401,8 +2360,8 @@ def _biblioteca_gaveta(context, itens, x, y, w):
             break
         if nivel > 1:
             itens.append((x, y + 31.5, w, 1, '', ('separador',)))
-        # o pai do nivel 1 e' None (a chave de rolagem de sempre); o do 2,
-        # o nome do 1; do 3 em diante, a tupla
+        # Level 1 parent is None (the existing scroll key); level 2 uses level 1's name;
+        # level 3 onward uses a tuple.
         chave_pai = None if nivel == 1 else (pai[0] if nivel == 2 else tuple(pai))
         y = _linha_cascata_gaveta(itens, x, y, w, filhos, nivel,
                                   trilha[nivel - 1] if len(trilha) >= nivel else '',
@@ -2411,13 +2370,13 @@ def _biblioteca_gaveta(context, itens, x, y, w):
             break
     daqui = _biblioteca.itens_em(indice, trilha) if trilha else []
     if daqui:
-        itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
+        itens.append((x, y, min(w, 290), 26, "Thumbnail Size",
                       ('slider', None)))
         y -= 12
         daqui.sort(key=lambda it: it.get('nome', '').casefold())
         bw, colunas, altura_bloco = _grade_biblioteca(s, w)
-        # Inserir/Editar/Bloquear: clique DIREITO na foto, como na faixa
-        # (pedido do usuario); sem a fila de botoes embaixo de cada modulo.
+        # Insert/Edit/Lock: RIGHT-click the image, like the strip (user request); no
+        # button row beneath each cabinet.
         for i, it in enumerate(daqui):
             linha, coluna = divmod(i, colunas)
             bx = x + coluna * (bw + 8)
@@ -2428,19 +2387,19 @@ def _biblioteca_gaveta(context, itens, x, y, w):
 
 
 def _grade_biblioteca(s, w):
-    """(lado do bloco, colunas, altura do bloco) da grade de miniaturas,
-    a mesma para presets e materiais (slider "Tamanho das miniaturas").
-    A foto nunca herda a largura da gaveta: e' sempre quadrada."""
+    """(block side, columns, block height) for the thumbnail grid, shared by presets
+    and materials (Thumbnail Size slider). Images never inherit sidebar width: they
+    remain square."""
     lado_foto = 88 + (s.chapa_tam_bloco - 2) * 14
     bw = min(w, lado_foto + 10)
     return bw, max(1, int((w + 8) // (bw + 8))), bw + 17
 
 
 def _materiais_gaveta(context, itens, x, y, w, materiais):
-    """A cascata dos materiais (MDF/MDP > categoria) e, no fim dela, a
-    grade de esferas: clicar pinta a selecao (`cabinet_aplicar_material`);
-    embaixo de cada uma, Editar e Apagar. A esfera do material da selecao
-    acende. O "Apagar?" abre logo abaixo da fila do material."""
+    """Materials cascade (MDF/MDP > category), followed by the sphere grid: clicking
+    paints selection (`cabinet_aplicar_material`), with Edit and Delete beneath each
+    sphere. Highlight the selection's material sphere. Delete? opens directly below
+    the material row."""
     s = context.scene
     prefixo = 'cabinet_carrossel_mat'
     y = _linha_cascata_gaveta(itens, x, y, w, _materiais.filhos_n1(materiais),
@@ -2462,7 +2421,7 @@ def _materiais_gaveta(context, itens, x, y, w, materiais):
                                   prefixo=prefixo)
         if not s.cabinet_mat_n3:
             return itens
-    itens.append((x, y, min(w, 290), 26, 'Tamanho das miniaturas',
+    itens.append((x, y, min(w, 290), 26, "Thumbnail Size",
                   ('slider', None)))
     y -= 12
     daqui = [it for it in materiais
@@ -2483,7 +2442,7 @@ def _materiais_gaveta(context, itens, x, y, w, materiais):
             bx = x + coluna * (bw + 8)
             itens.append((bx, by, bw, altura_bloco, _abreviar(it['nome'], 17),
                           ('material', it, it['chave'] == aplicada)))
-            for j, rotulo in enumerate(('Edit.', 'Apagar')):
+            for j, rotulo in enumerate(('Edit.', "Delete")):
                 itens.append((bx + j * (sw + 4), by - 24, sw, 21, rotulo,
                               ('material_item', it, j)))
         topo = by - 30
@@ -2526,13 +2485,13 @@ def _desenhar_wireframe_gaveta(x, y, modo, largura, altura, profundidade,
         rotulo('E', _biblioteca._meio_wireframe(pontos[2], pontos[6]), -13)
         rotulo('A', _biblioteca._meio_wireframe(pontos[0], pontos[2]), -12, -8)
     elif modo == 'PORTA':
-        # A porta tem largura, altura e espessura; profundidade nao.
+        # Doors have width, height and thickness, but no depth.
         rotulo('A', _biblioteca._meio_wireframe(pontos[2], pontos[6]), -13)
         rotulo('E', _biblioteca._meio_wireframe(pontos[0], pontos[2]), -12, -8)
     else:
         rotulo('A', _biblioteca._meio_wireframe(pontos[2], pontos[6]), -13)
-        # Com a porta em X, a aresta de cima passa a medir a
-        # profundidade do modulo e a que recua, a largura.
+        # With the door along X, the upper edge measures cabinet depth and the receding
+        # edge measures width.
         rotulo('L' if trocado else 'P',
                _biblioteca._meio_wireframe(pontos[0], pontos[2]), -12, -8)
         if modo == 'GRUPO':
@@ -2556,7 +2515,7 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
     png = it.get('foto') or os.path.splitext(it['arquivo'])[0] + '.png'
     caminho = os.path.join(it['pasta'], png)
     if not os.path.isfile(caminho):
-        _texto_gaveta(x + 8, y + h / 2, 'Sem foto', 11)
+        _texto_gaveta(x + 8, y + h / 2, "No Photo", 11)
         return
     try:
         entrada = _fotos_gaveta.get(caminho)
@@ -2573,11 +2532,10 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
                 limites = ((int(xs.min()), int(ys.min()),
                             int(xs.max()) + 1, int(ys.max()) + 1)
                            if len(xs) else (0, 0, largura, altura))
-                # PNG RGBA: preservar o alpha, sem achatar contra uma cor.
-                # PNG de preview nao precisa de 32 bits por canal: em
-                # telas largas, RGBA8 mantem toda a fila no cache sem thrash.
-                # A API aceita somente Buffer FLOAT, mesmo quando o
-                # armazenamento da textura e' RGBA8 (conversao na GPU).
+                # RGBA PNG: preserve alpha without flattening against a color. Preview
+                # PNGs do not need 32 bits per channel: on wide screens RGBA8 keeps the
+                # entire row cached without thrashing. The API accepts only FLOAT Buffer
+                # even with RGBA8 texture storage (GPU conversion).
                 dados = gpu.types.Buffer('FLOAT', largura * altura * 4,
                                           pixels)
                 textura = gpu.types.GPUTexture(
@@ -2604,19 +2562,19 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
         shader.uniform_sampler('image', textura)
         batch.draw(shader)
     except Exception as e:
-        print('[Archy Builder] foto na gaveta:', e)
-        _texto_gaveta(x + 8, y + h / 2, 'Foto indisponivel', 11)
+        print("[Archy Builder] sidebar photo:", e)
+        _texto_gaveta(x + 8, y + h / 2, "Photo Unavailable", 11)
 
 
 def _trilho_miniaturas_gaveta(x, y, w, h):
-    # Desenho e arraste usam os mesmos limites, sem incluir o rotulo.
+    # Drawing and dragging share the same bounds, excluding the label.
     rotulo = min(145, w * 0.52)
     return x + rotulo + 8, y + h / 2, max(1, w - rotulo - 14)
 
 
 def _trilho_slider_gaveta(acao, x, y, w, h):
-    """(inicio, y, largura) do trilho de qualquer slider: o dos retratos
-    (sem rotulo, o widget inteiro) ou o das miniaturas da biblioteca."""
+    """(start, y, width) of any slider track: images (no label, full widget) or library
+    thumbnails."""
     if acao[1] in {'retratos', 'instalacao'}:
         return x + 10, y + h / 2, max(1, w - 20)
     return _trilho_miniaturas_gaveta(x, y, w, h)
@@ -2642,7 +2600,7 @@ def _animar_realces():
 
 
 def _eh_area_gaveta_bruto(area):
-    """Versao de `_eh_area_gaveta` que aceita a area solta."""
+    """Variant of `_eh_area_gaveta` accepting a standalone area."""
     if _editor.eh_editor(area):
         return True
     for janela in bpy.context.window_manager.windows:
@@ -2653,7 +2611,7 @@ def _eh_area_gaveta_bruto(area):
 
 
 def _realcar(context, nome, ativo):
-    """Liga ou desliga o glow de um widget, com transicao."""
+    """Turn a widget's glow on or off with a transition."""
     chave = (context.area.as_pointer(), nome)
     estado = _realces.setdefault(chave, [0.0, 0.0, time.monotonic()])
     alvo = float(ativo)
@@ -2671,13 +2629,10 @@ def _valor_realce(context, nome):
 
 
 def _glow_gaveta(x, y, w, h, raio, realce, cor, esquerda_reta=False):
-    """Halo do widget aceso. Um so' lugar, para alca e botoes acenderem
-    identicos.
+    """Highlighted widget halo, centralized so handles and buttons glow identically.
 
-    Liga o ALPHA por conta propria: `blf.draw` mexe no estado de blend
-    e, sem isto, o halo do segundo widget em diante saia OPACO -- um
-    bloco branco cobrindo o texto do botao.
-    """
+    Enable ALPHA explicitly: `blf.draw` changes blending state; without this, the
+    second and subsequent halos were OPAQUE white blocks covering button text."""
     if realce <= 0.0:
         return
     gpu.state.blend_set('ALPHA')

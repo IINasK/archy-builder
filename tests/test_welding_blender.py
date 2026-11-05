@@ -1,4 +1,4 @@
-"""Unicidade da solda por objetos reais, cadastro e compatibilidade axial."""
+"""Weld uniqueness by real objects, registration and axial compatibility."""
 import json
 import os
 import sys
@@ -122,7 +122,7 @@ class TestSoldaUnica(unittest.TestCase):
                 else:
                     resultados.append(mapa[a]['x_pos'])
         self.assertEqual(resultados[0], resultados[1])
-        # O dominio pode recusar o conflito ou priorizar a primaria, nunca a ordem do arquivo.
+        # The domain may reject the conflict or prioritize the primary; never depend on file order.
         if resultados[0] is not None:
             self.assertEqual(resultados[0], (c, 0, .025))
         self.assertEqual({o.name: repr(sorted((k, str(v)) for k, v in o.items())) for o in (a, b, c)}, antes)
@@ -297,4 +297,4 @@ resultado = unittest.TextTestRunner(verbosity=2).run(
     unittest.defaultTestLoader.loadTestsFromTestCase(TestSoldaUnica))
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de solda unica')
+    raise RuntimeError("Unique-weld tests failed")

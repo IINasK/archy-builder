@@ -1,0 +1,102 @@
+VERSION 1
+
+ff132502-1eea-4aa6-9175-638fb37486a7:Archy Builder:Archy Builder
+f6a70a9a-61ed-4af0-85dc-9394fd5fb420:Archy Builder/Cabinets:Archy Builder-Cabinets
+4a37a9e3-8bca-43db-874a-90780fed5f2d:Archy Builder/Cabinets/Bathroom:Archy Builder-Cabinets-Bathroom
+035a0499-eb3f-4a24-899c-e2ce9cb9bf83:Archy Builder/Cabinets/Bathroom/Mirror Cabinets:Archy Builder-Cabinets-Bathroom-Mirror Cabinets
+aaa7887b-197d-46f8-a715-b5e1c4066319:Archy Builder/Cabinets/Bathroom/Niches:Archy Builder-Cabinets-Bathroom-Niches
+632c2c60-d6b1-482a-96b6-60cc49380084:Archy Builder/Cabinets/Bathroom/Vanity Cabinets:Archy Builder-Cabinets-Bathroom-Vanity Cabinets
+205451f8-ff2f-4ab4-bc94-51d5891f6f64:Archy Builder/Cabinets/Bedroom:Archy Builder-Cabinets-Bedroom
+2d1baef8-e279-44cc-aef3-1f6aac0701bf:Archy Builder/Cabinets/Bedroom/Base Cabinets:Archy Builder-Cabinets-Bedroom-Base Cabinets
+c4f57f85-68c2-43fa-8e26-b6fe387cf333:Archy Builder/Cabinets/Bedroom/Closets:Archy Builder-Cabinets-Bedroom-Closets
+ad7d7624-5cf3-4ea9-a5b3-a5aae7e05a2e:Archy Builder/Cabinets/Bedroom/Drawer Units:Archy Builder-Cabinets-Bedroom-Drawer Units
+cf7fb8af-0d8e-4d4b-8487-024a769bf014:Archy Builder/Cabinets/Bedroom/Wall Cabinets:Archy Builder-Cabinets-Bedroom-Wall Cabinets
+3b19e1cf-3964-428a-adcf-3027386839e1:Archy Builder/Cabinets/Bedrooms:Archy Builder-Cabinets-Bedrooms
+f55b1f59-1d3d-4a28-8ec9-e6605e339054:Archy Builder/Cabinets/Bedrooms/Bedside Tables:Archy Builder-Cabinets-Bedrooms-Bedside Tables
+6c940847-45a3-4123-b6a2-4e56aa524fc4:Archy Builder/Cabinets/Bedrooms/Cabinets:Archy Builder-Cabinets-Bedrooms-Cabinets
+8e961fd6-66b9-42ce-9f18-e82c04f7ff3a:Archy Builder/Cabinets/Bedrooms/Cabinets/Corners:Archy Builder-Cabinets-Bedrooms-Cabinets-Corners
+be9063c9-6579-4451-baf4-0fefb3c3c62f:Archy Builder/Cabinets/Bedrooms/Cabinets/Diagonals:Archy Builder-Cabinets-Bedrooms-Cabinets-Diagonals
+a02bba9b-2fc2-47f0-b3ca-518c731ed6cf:Archy Builder/Cabinets/Bedrooms/Cabinets/Specials:Archy Builder-Cabinets-Bedrooms-Cabinets-Specials
+96f4ab25-c682-48e9-b95f-d27d7cbcacf9:Archy Builder/Cabinets/Bedrooms/Countertops:Archy Builder-Cabinets-Bedrooms-Countertops
+351af211-f8e7-460e-be6b-3fe5ee61b47b:Archy Builder/Cabinets/Bedrooms/Countertops/Corners:Archy Builder-Cabinets-Bedrooms-Countertops-Corners
+f8fbc19f-cf15-40de-8120-e40a5db46dad:Archy Builder/Cabinets/Bedrooms/Countertops/Drawer Units:Archy Builder-Cabinets-Bedrooms-Countertops-Drawer Units
+52729ef0-8bcd-4d6a-b745-7c018d3e5b3b:Archy Builder/Cabinets/Bedrooms/Desks:Archy Builder-Cabinets-Bedrooms-Desks
+1eaa8805-49c7-4678-927d-32ae57358ca4:Archy Builder/Cabinets/Bedrooms/Desks/Connectors:Archy Builder-Cabinets-Bedrooms-Desks-Connectors
+c23f5199-70e5-42d7-9b02-810d2c140417:Archy Builder/Cabinets/Bedrooms/Desks/Extensions:Archy Builder-Cabinets-Bedrooms-Desks-Extensions
+33226e2b-b9f9-48ac-88ab-061166410473:Archy Builder/Cabinets/Bedrooms/Desks/Meeting Tables:Archy Builder-Cabinets-Bedrooms-Desks-Meeting Tables
+7923a7c5-3759-4172-a7b8-3c59f43d9f4d:Archy Builder/Cabinets/Bedrooms/Desks/Reception:Archy Builder-Cabinets-Bedrooms-Desks-Reception
+60efef5a-3f18-4d6a-8d1b-52be22b7d36a:Archy Builder/Cabinets/Bedrooms/Desks/Tables:Archy Builder-Cabinets-Bedrooms-Desks-Tables
+538f5952-3ff2-4b97-b602-ce4a5cf35060:Archy Builder/Cabinets/Bedrooms/Wall Cabinets:Archy Builder-Cabinets-Bedrooms-Wall Cabinets
+7cd67588-dc9b-4ce4-a6de-031d6b215674:Archy Builder/Cabinets/Bedrooms/Wall Cabinets/Cabinets:Archy Builder-Cabinets-Bedrooms-Wall Cabinets-Cabinets
+639a2cf9-0c25-437d-8d3b-0a7c767572ca:Archy Builder/Cabinets/Bedrooms/Wall Cabinets/Corners:Archy Builder-Cabinets-Bedrooms-Wall Cabinets-Corners
+924749f8-9cf1-4a08-a495-47363132e931:Archy Builder/Cabinets/Kitchen:Archy Builder-Cabinets-Kitchen
+216b4f0d-90af-4a5d-b006-7e352861f56c:Archy Builder/Cabinets/Kitchen/Base Cabinets:Archy Builder-Cabinets-Kitchen-Base Cabinets
+4af2a360-adb4-431f-ac53-60151afcfe39:Archy Builder/Cabinets/Kitchen/Base Cabinets/Base Cabinets:Archy Builder-Cabinets-Kitchen-Base Cabinets-Base Cabinets
+f2d42a23-91c8-43f5-b534-58b78da65792:Archy Builder/Cabinets/Kitchen/Base Cabinets/Corner Shelf Units:Archy Builder-Cabinets-Kitchen-Base Cabinets-Corner Shelf Units
+66b64c79-4dab-4a25-85af-5bce7aa1dbf9:Archy Builder/Cabinets/Kitchen/Base Cabinets/Corners:Archy Builder-Cabinets-Kitchen-Base Cabinets-Corners
+a59550d5-6ff3-4538-8be7-419ebfd616fa:Archy Builder/Cabinets/Kitchen/Base Cabinets/Diagonals:Archy Builder-Cabinets-Kitchen-Base Cabinets-Diagonals
+7951a613-c843-44f2-bef6-e44d07290264:Archy Builder/Cabinets/Kitchen/Base Cabinets/Drawer Units:Archy Builder-Cabinets-Kitchen-Base Cabinets-Drawer Units
+87787be0-a477-4fdb-a4b1-136d2bc015c6:Archy Builder/Cabinets/Kitchen/Base Cabinets/For Appliances:Archy Builder-Cabinets-Kitchen-Base Cabinets-For Appliances
+b8d810eb-0ab9-4c11-a5e0-987ed83f7125:Archy Builder/Cabinets/Kitchen/Base Cabinets/Sinks:Archy Builder-Cabinets-Kitchen-Base Cabinets-Sinks
+fda54de5-313d-4626-9734-26cb4e972c9e:Archy Builder/Cabinets/Kitchen/Base Cabinets/Specials:Archy Builder-Cabinets-Kitchen-Base Cabinets-Specials
+dd16c8a3-8d43-427d-81a0-97093dad1087:Archy Builder/Cabinets/Kitchen/Bifond:Archy Builder-Cabinets-Kitchen-Bifond
+065c51fe-2254-48b6-87df-4acdef1aaaa0:Archy Builder/Cabinets/Kitchen/Corners:Archy Builder-Cabinets-Kitchen-Corners
+2b7b08eb-17b3-46eb-9fe7-d1dd537923c5:Archy Builder/Cabinets/Kitchen/Doors:Archy Builder-Cabinets-Kitchen-Doors
+fe0c9f0e-f1f0-4c05-a7fc-63f491c432b4:Archy Builder/Cabinets/Kitchen/Doors/Aluminum:Archy Builder-Cabinets-Kitchen-Doors-Aluminum
+fba7bf26-5778-4248-9e1f-016425decc56:Archy Builder/Cabinets/Kitchen/Doors/Wood:Archy Builder-Cabinets-Kitchen-Doors-Wood
+ffa48e26-b671-4a1a-83cb-9793f618ca5c:Archy Builder/Cabinets/Kitchen/Islands:Archy Builder-Cabinets-Kitchen-Islands
+25d1bd1b-0410-4e7a-bce2-b51705d1a648:Archy Builder/Cabinets/Kitchen/Islands/Base Cabinets:Archy Builder-Cabinets-Kitchen-Islands-Base Cabinets
+09c915f4-6a7a-47e8-b6f8-c5cdad8476d5:Archy Builder/Cabinets/Kitchen/Islands/Drawer Units:Archy Builder-Cabinets-Kitchen-Islands-Drawer Units
+c8f88dc1-07ff-4c16-8727-6c178677969c:Archy Builder/Cabinets/Kitchen/Islands/Wall Cabinets:Archy Builder-Cabinets-Kitchen-Islands-Wall Cabinets
+41c352c5-4b27-464c-9798-5506dbb432ca:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets
+7befc9e0-2aff-4ecc-b426-3a490ee81562:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/Cabinets:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-Cabinets
+353847b5-5284-4b52-bcd6-df14cc9d29f9:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/Corner Shelf Units:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-Corner Shelf Units
+24e82b11-6f0d-4c44-9093-32b0c37238c7:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/Corners:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-Corners
+17d22169-a629-4def-ac38-22a1802cf382:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/Diagonals:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-Diagonals
+b7aed3be-9726-42c2-9772-26df80d50320:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/For Appliances:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-For Appliances
+760cba14-0431-44fc-96d3-4d3d63ae2de1:Archy Builder/Cabinets/Kitchen/Medium Wall Cabinets/Specials:Archy Builder-Cabinets-Kitchen-Medium Wall Cabinets-Specials
+a6631cb4-e705-44aa-aeca-c304207afd30:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets
+ca9cfc85-b31b-47ff-9232-11a753ba5364:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets/Cabinets:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets-Cabinets
+7da15876-6a99-4709-a726-0cecadcfb624:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets/Corner Shelf Units:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets-Corner Shelf Units
+b08e36dc-3579-4a4f-bb81-2373fa8e90b5:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets/Corners:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets-Corners
+60322611-b66d-43bf-80d3-cb9ac25cc4f1:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets/Diagonals:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets-Diagonals
+f2b099ff-74cd-4272-8901-ea9986b7439d:Archy Builder/Cabinets/Kitchen/Short Wall Cabinets/Microwaves:Archy Builder-Cabinets-Kitchen-Short Wall Cabinets-Microwaves
+95a9a089-2383-40d5-812e-428adaa4db82:Archy Builder/Cabinets/Kitchen/Tall Cabinets:Archy Builder-Cabinets-Kitchen-Tall Cabinets
+498e57b0-d5c0-4ea2-86a3-6c557b40b684:Archy Builder/Cabinets/Kitchen/Tall Cabinets/Corner Shelf Units:Archy Builder-Cabinets-Kitchen-Tall Cabinets-Corner Shelf Units
+08a164c9-b551-4cbc-a0c2-05374734b395:Archy Builder/Cabinets/Kitchen/Tall Cabinets/Pantry Cabinets:Archy Builder-Cabinets-Kitchen-Tall Cabinets-Pantry Cabinets
+1e043dff-9c02-446f-bfbe-9732cc225202:Archy Builder/Cabinets/Kitchen/Tall Cabinets/Tower Cabinets:Archy Builder-Cabinets-Kitchen-Tall Cabinets-Tower Cabinets
+c5af5348-b4ec-407b-9cc6-a4de5f0604a8:Archy Builder/Cabinets/Kitchen/Tall Wall Cabinets:Archy Builder-Cabinets-Kitchen-Tall Wall Cabinets
+208a25e6-3024-4f3c-a7e4-3e43698e6366:Archy Builder/Cabinets/Kitchen/Tall Wall Cabinets/Cabinets:Archy Builder-Cabinets-Kitchen-Tall Wall Cabinets-Cabinets
+57ee262d-0976-4823-aac4-6fc86b4acddc:Archy Builder/Cabinets/Kitchen/Tall Wall Cabinets/Corner Shelf Units:Archy Builder-Cabinets-Kitchen-Tall Wall Cabinets-Corner Shelf Units
+e432aa3f-e455-467e-bf08-4bb6be499ba0:Archy Builder/Cabinets/Kitchen/Tall Wall Cabinets/Corners:Archy Builder-Cabinets-Kitchen-Tall Wall Cabinets-Corners
+ef73ba78-e05a-429a-b49d-4d09bd0bf9b0:Archy Builder/Cabinets/Kitchen/Tall Wall Cabinets/Diagonals:Archy Builder-Cabinets-Kitchen-Tall Wall Cabinets-Diagonals
+5fa3731d-024a-47ee-bdda-92fa8864370e:Archy Builder/Cabinets/Kitchen/Tower Cabinets:Archy Builder-Cabinets-Kitchen-Tower Cabinets
+74823596-a734-4d6c-b267-446f528e461f:Archy Builder/Cabinets/Kitchen/Wall Cabinets:Archy Builder-Cabinets-Kitchen-Wall Cabinets
+33768a6f-e934-4382-acf0-26302236e891:Archy Builder/Cabinets/Living Room:Archy Builder-Cabinets-Living Room
+5b033f39-81df-4d98-87fc-47c2c8050ab8:Archy Builder/Cabinets/Living Room/Base Cabinets:Archy Builder-Cabinets-Living Room-Base Cabinets
+57f28494-0b46-40b1-9b4b-eed17d467078:Archy Builder/Cabinets/Living Room/Bookcases:Archy Builder-Cabinets-Living Room-Bookcases
+300f3d8c-abba-476a-bbb9-a0b91688f2ad:Archy Builder/Cabinets/Living Room/Corners:Archy Builder-Cabinets-Living Room-Corners
+68b0db28-6499-40b6-954c-7310936be619:Archy Builder/Cabinets/Living Room/Wall Cabinets:Archy Builder-Cabinets-Living Room-Wall Cabinets
+1414fc38-21e8-4741-a036-472edaf6e2cc:Archy Builder/Cabinets/Outdoor:Archy Builder-Cabinets-Outdoor
+ae66b1ff-41da-4930-9357-5010c93bf61a:Archy Builder/Cabinets/Outdoor/Base Cabinets:Archy Builder-Cabinets-Outdoor-Base Cabinets
+57483aad-b265-43a7-9a46-9563f09a2065:Archy Builder/Cabinets/Outdoor/Countertops:Archy Builder-Cabinets-Outdoor-Countertops
+58e64071-eedd-4eb0-b279-637bf867f5e1:Archy Builder/Cabinets/Outdoor/Wall Cabinets:Archy Builder-Cabinets-Outdoor-Wall Cabinets
+1b493a00-1b53-4991-8b4d-bbdf5312d3a9:Archy Builder/Cabinets/Veranda:Archy Builder-Cabinets-Veranda
+57c3cdce-9c4d-4403-b735-4576db9f613a:Archy Builder/Cabinets/Veranda/Base Cabinets:Archy Builder-Cabinets-Veranda-Base Cabinets
+fa4d0c15-d8fe-483e-b46c-f59310d1d939:Archy Builder/Cabinets/Veranda/Countertops:Archy Builder-Cabinets-Veranda-Countertops
+353f16d0-69e0-48e3-84c5-ecc393e4b62e:Archy Builder/Cabinets/Veranda/Wall Cabinets:Archy Builder-Cabinets-Veranda-Wall Cabinets
+c8744afd-d980-4df1-91c0-1cc0a990962a:Archy Builder/Doors:Archy Builder-Doors
+d8de9059-d2c0-4982-a8ff-f3ef6acf81f9:Archy Builder/Doors/Hinged:Archy Builder-Doors-Hinged
+e1cc62dc-47b7-4c62-8a82-07fbdf0138f7:Archy Builder/Doors/Lift-up:Archy Builder-Doors-Lift-up
+766e1e67-2eac-4d47-918c-cd3eede6145c:Archy Builder/Doors/Sliding:Archy Builder-Doors-Sliding
+8e16c7f1-c585-4403-80b7-de3f55bf41e6:Archy Builder/Handles:Archy Builder-Handles
+d566b802-a249-4fa4-b1af-204e912f1a77:Archy Builder/Handles/Edge:Archy Builder-Handles-Edge
+13bfe85e-c259-4a7e-9f72-213b4e3a25db:Archy Builder/Handles/Profile:Archy Builder-Handles-Profile
+3641de9d-9a6e-4738-acd8-0556791b5eb3:Archy Builder/Handles/Pull:Archy Builder-Handles-Pull
+66b301cc-1238-4052-bdc5-060936d5c699:Archy Builder/Handles/Recessed:Archy Builder-Handles-Recessed
+178f3863-2de9-43b5-9649-a068d32b32e7:Archy Builder/Hinges:Archy Builder-Hinges
+32c1a2ad-61f1-4742-977c-ae894b48fd58:Archy Builder/Hinges/Soft-Close:Archy Builder-Hinges-Soft-Close
+76340849-cef4-4c60-9b70-ca83ab853b97:Archy Builder/Hinges/Specials:Archy Builder-Hinges-Specials
+b9d63da6-7772-4dc3-8748-4c554f4561ff:Archy Builder/Hinges/Standard:Archy Builder-Hinges-Standard
+f708b5d0-3cfa-4920-891c-4d816b2b04bb:Archy Builder/Panels:Archy Builder-Panels
+8608cf74-76b8-4572-978c-d726fb7551c9:Archy Builder/Panels/Loose Panels:Archy Builder-Panels-Loose Panels

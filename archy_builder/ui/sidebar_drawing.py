@@ -1,6 +1,5 @@
-"""Gaveta: desenho dos widgets (callback POST_PIXEL), o gizmo de hover
-dos campos e a caixa de digitar medida -- teclas, cursor e leitura do
-texto em metros --, que a HUD tambem usa."""
+"""Sidebar: widget drawing (POST_PIXEL callback), field hover gizmo and dimension input
+box (keys, cursor and text parsing in meters), also used by the HUD."""
 
 import bpy, colorsys, math, re, gpu, blf
 from functools import lru_cache
@@ -10,8 +9,8 @@ _visibilidade = None
 from gpu_extras.batch import batch_for_shader
 from bpy.types import Gizmo
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _opcoes = None
 _gaveta_eventos = None
@@ -25,18 +24,17 @@ _biblioteca_faixa = None
 _instalacoes = None
 
 def _eh_campo_contador(acao):
-    """Contador com rotulo (7o campo): o "Folhas" da porta, desenhado
-    como campo de medida -- arrastar muda, clicar digita -- em vez do
-    `< 2 >` das ferragens, que soma/tira pela metade clicada."""
+    """Labeled counter (seventh field): the door's Leaves control, drawn like a
+    dimension field (drag changes, click types) instead of the hardware '< 2 >'
+    control that increments/decrements according to the clicked half."""
     return bool(acao and acao[0] == 'contador' and len(acao) > 6)
 
 
 def _chave_widget(acao):
-    """Identidade estavel do widget, usada para guardar o realce dele.
+    """Stable widget identity used to store its highlight.
 
-    Devolve None para o que NAO e' botao (decoracao, rotulo, trilho do
-    slider): essas coisas nao acendem.
-    """
+    Return None for items that are NOT buttons (decoration, labels, slider track):
+    these do not glow."""
     if not acao:
         return None
     if _biblioteca_faixa.caixa_categoria(acao):
@@ -51,27 +49,27 @@ def _chave_widget(acao):
     if verbo == 'rolagem':
         return 'rolagem:' + acao[1]
     if verbo == 'cor':
-        # quadro e matiz sao superficie de arraste, nao botao
+        # The color square and hue strip are drag surfaces, not buttons.
         if acao[2] == 'amostra':
             return 'cor:' + acao[1]
         return 'cor:%s:%s' % (acao[1], acao[5]) if acao[2] == 'atalho' else None
     if verbo in _gaveta.BOTOES_CRIAR and len(acao) > 4 and acao[4]:
-        return None             # botao apagado nao acende
+        return None             # Disabled buttons do not glow.
     if verbo == 'cadeado':
         return 'cad:%d' % acao[2]
     if verbo == 'medida':
-        # prop + nome: "Espessura" da porta e da moldura sao campos distintos
+        # Property + name: door Thickness and frame Thickness are distinct fields.
         return 'medida:%s:%s' % (acao[2], acao[3])
     if verbo == 'modo':
-        return None             # so' indicador: o modo sai da selecao
+        return None             # Indicator only: mode comes from selection.
     if verbo == 'divisa':
-        return 'divisa' if acao[1] else None    # coberta pelas opcoes
+        return 'divisa' if acao[1] else None    # Covered by options.
     if verbo == 'aba':
         return '%s:%s' % (verbo, acao[1])
     if verbo == 'escolha':
         return 'esc:%s:%s' % (acao[1], acao[2])
     if verbo == 'operador':
-        # botao de texto apagado (selecao invalida) nao acende
+        # Disabled text buttons (invalid selection) do not glow.
         return None if _gaveta_eventos._operador_apagado(acao) else 'op:' + acao[1]
     if verbo == 'navegar':
         return 'nav:%s:%s' % (acao[1], acao[2])
@@ -93,18 +91,16 @@ def _chave_widget(acao):
 
 
 class VIEW3D_GT_campo_gaveta(Gizmo):
-    """Hit-test invisivel sobre o retangulo de UM widget da gaveta.
+    """Invisible hit-test over ONE sidebar widget rectangle.
 
-    Existe so' para ganhar `is_highlight`: o desenho da gaveta e' GPU e
-    nao recebe evento de mouse, e um operador modal persistente roubaria
-    evento de outros add-ons. O clique cai no mesmo operador que a
-    keymap ja' dispara para a area inteira, entao nada muda ao clicar.
+    Exists only to obtain `is_highlight`: the GPU-drawn sidebar receives no mouse
+    events, and a persistent modal operator would steal events from other add-ons.
+    Clicking invokes the same operator the keymap already uses for the entire area,
+    preserving click behavior.
 
-    Quando o widget tem icone, o disco do `GIZMO_GT_button_2d` fica de
-    FORA deste hit-test: assim o gizmo do icone continua ganhando o
-    pick ali e o tooltip dele nao se perde. O glow cobre os dois casos
-    porque soma os dois `is_highlight`.
-    """
+    When a widget has an icon, exclude the `GIZMO_GT_button_2d` disc from this
+    hit-test so the icon gizmo still wins picking there and retains its tooltip. The
+    glow covers both by combining their `is_highlight` states."""
     bl_idname = 'VIEW3D_GT_campo_gaveta'
 
     def draw(self, context):
@@ -129,7 +125,7 @@ class VIEW3D_GT_campo_gaveta(Gizmo):
 
 
 def _degrade_gaveta(vertices, cores):
-    """Triangulos com cor por vertice (quadro e faixa de matiz)."""
+    """Triangles with per-vertex color (color square and hue strip)."""
     shader = gpu.shader.from_builtin('SMOOTH_COLOR')
     batch_for_shader(shader, 'TRIS', {'pos': vertices,
                                       'color': cores}).draw(shader)
@@ -146,15 +142,15 @@ def _seta_suspensa_gaveta(x, y, w, h, aberta, cor):
 
 
 def _anel_gaveta(cx, cy, raio, miolo):
-    """Marcador do seletor: aro preto + branco em volta da cor escolhida,
-    visivel sobre qualquer ponto do quadro."""
+    """Picker marker: black and white rings around the chosen color, visible anywhere
+    on the square."""
     for r, cor in ((raio + 1.5, (0, 0, 0, 1)), (raio, (1, 1, 1, 1)),
                    (raio - 2, (*miolo, 1))):
         _gaveta._retangulo_arredondado_gaveta(cx - r, cy - r, 2 * r, 2 * r, r, cor)
 
 
 def _listras_gizmo_gaveta(x, y, w, h):
-    """Amostra do realce do gizmo: X, Y, Z e a espessura, lado a lado."""
+    """Gizmo highlight sample: X, Y, Z and thickness, side by side."""
     tons = [_hud._cor_eixo_gizmo(e) for e in ('axis_x', 'axis_y', 'axis_z')]
     tons.append(_opcoes.COR_REALCE_PADRAO)
     for i, tom in enumerate(tons):
@@ -162,7 +158,7 @@ def _listras_gizmo_gaveta(x, y, w, h):
 
 
 def _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo):
-    """Controles do painel de opcoes: lista suspensa, faixa e cor."""
+    """Options panel controls: dropdown, strip and color."""
     texto_cor = tuple(cores.text[:3])
     verbo = acao[0]
     if verbo == 'fundo':
@@ -227,8 +223,8 @@ def _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo):
     elif parte == 'quadro':
         h_, s, v = _gaveta._hsv_opcao(acao[1], acao[3])
         puro = colorsys.hsv_to_rgb(h_, 1.0, 1.0)
-        # Interpolar os 4 cantos (preto embaixo, branco e matiz pura em
-        # cima) da' exatamente V * mistura(branco, matiz, S)
+        # Interpolating the four corners (black below, white and pure hue above) gives
+        # exactly V * mix(white, hue, S).
         a, b, c, d = (x, y), (x + w, y), (x + w, y + h), (x, y + h)
         preto, branco = (0, 0, 0, 1), (1, 1, 1, 1)
         _degrade_gaveta((a, b, c, a, c, d),
@@ -252,18 +248,18 @@ def _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo):
 
 
 def _medida_em_alerta(acao):
-    """Campo de medida que sai em vermelho: Espessura acima do
-    convencional (`_chapas.ESPESSURA_ALERTA_MM`)."""
+    """Dimension field drawn red: thickness beyond the conventional limit
+    (`_chapas.ESPESSURA_ALERTA_MM`)."""
     try:
-        return (acao[0] == 'medida' and (acao[3] == 'Espessura' or acao[1]=='cota' and acao[3]=='E')
+        return (acao[0] == 'medida' and (acao[3] == "Thickness" or acao[1]=='cota' and acao[3]=='E')
                 and _chapas._espessura_em_alerta(acao[4]))
     except (IndexError, TypeError, ValueError):
         return False
 
 
 def _cor_alerta_gaveta():
-    """Vermelho do TEMA (cor literal e' proibida, DESIGN.md sec. 5): o do
-    erro do editor Info, clareado ate' ler bem sobre o fundo escuro."""
+    """THEME red (literal colors are forbidden, DESIGN.md sec. 5): Info editor error
+    color, lightened for readability on a dark background."""
     tema = bpy.context.preferences.themes[0]
     for area, nome in (('info', 'info_error'), ('user_interface', 'axis_x')):
         try:
@@ -278,7 +274,7 @@ def _cor_alerta_gaveta():
 
 
 def _intersecao_retangulos(a, b):
-    """(x, y, w, h) comum a dois retangulos; largura/altura >= 0."""
+    """Intersection (x, y, w, h) of two rectangles; width/height >= 0."""
     x0, y0 = max(a[0], b[0]), max(a[1], b[1])
     x1 = min(a[0] + a[2], b[0] + b[2])
     y1 = min(a[1] + a[3], b[1] + b[3])
@@ -286,8 +282,8 @@ def _intersecao_retangulos(a, b):
 
 
 def _desenhar_divisa_gaveta(context, largura, meio, acao, cores):
-    """Linha entre a aba e a biblioteca. Sob o mouse ela ganha o mesmo
-    halo dos botoes e uma pega no centro: e' ali que se arrasta."""
+    """Line between the tab and library. Hover gives it the same halo as buttons and a
+    central grip for dragging."""
     realce = _gaveta._valor_realce(context, _chave_widget(acao)) if acao[1] else 0.0
     gpu.state.blend_set('ALPHA')
     if realce > 0.01:
@@ -296,16 +292,15 @@ def _desenhar_divisa_gaveta(context, largura, meio, acao, cores):
                 zip(cores.outline[:3], cores.text[:3]))
     _gaveta._retangulo_gaveta(0, meio - 1 if realce > 0.5 else meio, largura,
                       2 if realce > 0.5 else 1, (*cor, 1))
-    # pega: tres tracinhos no meio, como a divisoria de areas do Blender
+    # Grip: three short central lines, like Blender's area divider.
     for i in (-1, 0, 1):
         _gaveta._retangulo_gaveta(largura / 2 - 9, meio + i * 3 - 0.5, 18, 1,
                           (*cor, 0.55 + 0.45 * realce))
 
 
 def _segmentos_igualar_vaos(x, y, w, h):
-    """Simbolo pedido pelo usuario: duas setas para fora e barra central.
-    Coordenadas locais ao botao, compartilhadas com a auditoria visual.
-    """
+    """User-requested symbol: two outward arrows and a central bar. Button-local
+    coordinates shared with the visual audit."""
     cx, cy, lado = x + w / 2, y + h / 2, min(w, h)
     segmentos = [(0, -.28), (0, .28)]
     for sinal in (-1, 1):
@@ -325,7 +320,7 @@ def _desenhar_igualar_vaos(x, y, w, h, cor):
 
 
 def _cor_contorno_categorias(cores):
-    """Cinza do tema: a navegacao nao herda a cor azul de selecao."""
+    """Theme gray: navigation does not inherit the blue selection color."""
     tom = sum(.7 * t + .3 * b for t, b in zip(cores.text[:3], cores.outline[:3])) / 3
     return (tom, tom, tom, 1)
 
@@ -342,7 +337,7 @@ def _desenhar_gaveta(tela=False):
             realce = _gaveta._valor_realce(context, 'alca')
             cores, _ = _gaveta._cores_gaveta()
             gpu.state.blend_set('ALPHA')
-            # o glow cresce so' para a direita: a alca encosta na borda
+            # Glow grows only to the right: the handle touches the edge.
             _gaveta._glow_gaveta(0, centro - 35, 26, 70, 5, realce, cores.text,
                          esquerda_reta=True)
             _gaveta._retangulo_arredondado_gaveta(
@@ -367,8 +362,8 @@ def _desenhar_gaveta(tela=False):
             batch.draw(shader)
             gpu.state.blend_set('NONE')
         return
-    # A tela da gaveta e' desenhada antes dos GIZMO_GT_button_2d.
-    # POST_PIXEL cobre os icones nativos se desenhar o fundo por cima.
+    # Draw the sidebar surface before GIZMO_GT_button_2d. A POST_PIXEL background drawn
+    # on top covers native icons.
     if not tela:
         return
     largura, altura = context.region.width, context.region.height
@@ -377,18 +372,17 @@ def _desenhar_gaveta(tela=False):
     _gaveta._retangulo_gaveta(0, 0, largura, altura, fundo)
     _gaveta._retangulo_gaveta(largura - 2, 0, 2, altura, (0.27, 0.27, 0.27, 1))
     widgets = _gaveta._widgets_gaveta(context, largura, altura)
-    # O cabecalho e' desenhado por ultimo, acima do conteudo rolavel.
+    # Draw the header last, above scrollable content.
     cabecalho, conteudo, rodape = _gaveta._partes_gaveta(widgets)
     faixa_biblioteca = _biblioteca_faixa.eh_faixa(context)
     escala_faixa = max(1.0, context.preferences.system.ui_scale) if faixa_biblioteca else 1.0
     if faixa_biblioteca:
         cabecalho, conteudo, rodape = [], widgets, []
-    # A faixa do rodape (e o fundo do painel de opcoes) entra ENTRE o
-    # conteudo e os botoes do rodape: o conteudo rola por baixo dela.
+    # The footer strip (and options-panel background) goes BETWEEN content and footer
+    # buttons: content scrolls beneath it.
     faixa = (0, 0, 0, 0, '', ('faixa_rodape',))
-    # Cada painel e' recortado no proprio retangulo: o da aba rola por
-    # baixo do cabecalho e da divisoria, a biblioteca por baixo da
-    # divisoria e do pe' fixo.
+    # Clip each panel to its own rectangle: tab content scrolls beneath the header and
+    # divider; library content scrolls beneath the divider and fixed footer.
     cima, divisa, baixo = _gaveta._paineis_gaveta(conteudo)
     meio = round(divisa[1] + divisa[3] / 2) if divisa else _gaveta.ALTURA_RODAPE_GAVETA
     piso_cima = meio + _visibilidade.altura(context) + 1
@@ -461,7 +455,7 @@ def _desenhar_gaveta(tela=False):
                                    cores, fundo)
             continue
         if acao and acao[0] == 'pergunta':
-            # caixa PRETA: destaca que a gaveta espera uma resposta
+            # BLACK box: emphasize that the sidebar is awaiting an answer.
             _gaveta._retangulo_arredondado_gaveta(x - 1, y - 1, w + 2, h + 2, 6,
                                           (*cores.outline[:3], 1))
             _gaveta._retangulo_arredondado_gaveta(x, y, w, h, 5, (0.0, 0.0, 0.0, 0.92))
@@ -486,8 +480,7 @@ def _desenhar_gaveta(tela=False):
             _gaveta._retangulo_arredondado_gaveta(tx+tw*acao[4]-4, ty-6, 8, 8, 4, (*cores.text, 1))
             continue
         if acao and acao[0] == 'slider' and acao[1] == 'retratos':
-            # o pequeno, ao lado do titulo: a caixa dele (a do titulo),
-            # trilho e bolinha
+            # Small slider beside the title: its title-row box, track and dot.
             _gaveta._botao_gaveta(x, y, w, h, secao=True)
             tx, ty, tw = _gaveta._trilho_slider_gaveta(acao, x, y, w, h)
             menor, maior = _gaveta.LARGURA_RETRATO_MIN, _gaveta.LARGURA_RETRATO_MAX
@@ -503,8 +496,8 @@ def _desenhar_gaveta(tela=False):
             if largura_rotulo >= 135:
                 _gaveta._texto_cabivel_gaveta(x, y + 8, rotulo, largura_rotulo, 11)
             else:
-                _gaveta._texto_cabivel_gaveta(x, y + 15, 'Tamanho das', largura_rotulo, 11)
-                _gaveta._texto_cabivel_gaveta(x, y + 2, 'miniaturas', largura_rotulo, 11)
+                _gaveta._texto_cabivel_gaveta(x, y + 15, "Size of", largura_rotulo, 11)
+                _gaveta._texto_cabivel_gaveta(x, y + 2, 'thumbnails', largura_rotulo, 11)
             valor = (context.scene.chapa_tam_bloco - 2) / 6.0
             _gaveta._retangulo_gaveta(tx, ty - 1.5, tw, 3, tuple(cores.inner))
             _gaveta._retangulo_arredondado_gaveta(
@@ -514,15 +507,15 @@ def _desenhar_gaveta(tela=False):
             _gaveta._botao_gaveta(x, y, w, h)
             lado = min(w - 10 * escala_faixa, h - 27 * escala_faixa)
             _gaveta._retangulo_gaveta(x + 5 * escala_faixa, y + 22 * escala_faixa, lado, lado, fundo)
-            # BLF e outros widgets podem alterar o blend antes da foto.
+            # BLF and other widgets may change blending before the image.
             gpu.state.blend_set('ALPHA')
             _gaveta._desenhar_foto_gaveta(acao[1], x + 5 * escala_faixa, y + 22 * escala_faixa, lado, lado)
             _gaveta._texto_cabivel_gaveta(x + 5 * escala_faixa, y + 5 * escala_faixa,
                                          rotulo, w - 10 * escala_faixa, round(11 * escala_faixa))
             continue
         if acao and acao[0] == 'material':
-            # o bloco do preset, com a ESFERA da cor no lugar da foto;
-            # aceso = o material da selecao
+            # Preset block with a color SPHERE instead of an image; lit = selection's
+            # material.
             chave = _chave_widget(acao)
             _gaveta._glow_gaveta(x, y, w, h, 4, _gaveta._valor_realce(context, chave),
                                  cores.text)
@@ -534,12 +527,12 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_cabivel_gaveta(x + 5 * escala_faixa, y + 5 * escala_faixa,
                                          rotulo, w - 10 * escala_faixa, round(11 * escala_faixa))
             continue
-        # A peca que esta' entrando (ou saindo) invade a area das setas.
-        # O recorte faz o carrossel parecer uma janela por onde a fila
-        # passa, em vez de pecas aparecendo do nada.
+        # An entering or exiting item extends into the arrow area. Clipping makes the
+        # carousel look like a window through which the row passes, rather than items
+        # appearing from nowhere.
         recortado = bool(acao and acao[0] == 'navegar' and not faixa_biblioteca)
         if recortado:
-            # trilho do carrossel DENTRO do recorte do painel
+            # Carousel track INSIDE the panel clip.
             trilho = (12 + 24, int(y) - 1, max(0, largura - 24 - 48), 27)
             if painel is not None:
                 trilho = _intersecao_retangulos(trilho, painel)
@@ -554,24 +547,24 @@ def _desenhar_gaveta(tela=False):
                                or acao[0] == 'contador'
                                and not _eh_campo_contador(acao)
                                or acao[0] in _gaveta.BOTOES_CRIAR and acao[2]
-                               # comparar, nunca hashear: a acao de preset
-                               # e item da biblioteca leva um dict (v140:
-                               # um set aqui derrubava a gaveta inteira)
+                               # Compare, never hash: preset actions and library items
+                               # contain a dict (v140: a set here crashed the entire
+                               # sidebar).
                                or acao[0] == 'operador'
                                and acao[1] in (_solda.OP_CORRENTE_OBJETO,
                                                _solda.OP_RESETAR_DISTANCIA,
                                                _orcamento.OP_EXPORTAR_ORCAMENTO)
                                and len(acao) > 2 and acao[2]))
-        # O halo vai ANTES do corpo do botao, como na alca: por cima
-        # ele lavaria o texto em vez de circundar o widget.
+        # Draw the halo BEFORE the button body, as with the handle: drawing it on top
+        # would wash out text instead of surrounding the widget.
         chave = _chave_widget(acao)
         if chave and not (faixa_biblioteca and acao[0] in {'navegar', 'biblioteca', 'rolar_nivel'}):
             _gaveta._glow_gaveta(x, y, w, h, 4, _gaveta._valor_realce(context, chave),
                          cores.text)
         apagado = bool(acao and acao[0] in _gaveta.BOTOES_CRIAR and len(acao) > 4
                        and acao[4]) or _gaveta_eventos._operador_apagado(acao)
-        # "Criar Portas" LARANJA desde o inicio (pedido do usuario): e' o
-        # ponto de partida da aba; mais forte enquanto marca o vao
+        # Create Doors is ORANGE from the start (user request): the tab's starting
+        # point, brighter while marking the opening.
         cor = None
         destaque = bool(acao and acao[0] == 'operador'
                         and acao[1] in _gaveta.OPERADORES_DESTAQUE)
@@ -585,7 +578,7 @@ def _desenhar_gaveta(tela=False):
             cor = (_gaveta.COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO
                    else _gaveta.COR_CRIAR_PORTAS)
         elif aceitar:
-            cor = COR_ACEITAR       # o "aceitar" da etapa (mockup do usuario)
+            cor = COR_ACEITAR       # Step acceptance control (user mockup).
         if not acao or acao[0] != 'cadeado':
             _gaveta._botao_gaveta(x, y, w, h, ativo=ativo,
                           secao=acao is None or apagado, cor=cor)
@@ -599,8 +592,8 @@ def _desenhar_gaveta(tela=False):
                         and edicao['propriedade'] == acao[1 if campo_contador else 2])
             if editando:
                 _gaveta._botao_gaveta(x, y, w, h, ativo=True)
-            # Espessura fora do convencional (> 60 mm): nome e valor em
-            # vermelho. Alerta, nao trava -- o valor e' o que foi pedido.
+            # Unconventional thickness (> 60 mm): name and value in red. Warn without
+            # blocking; preserve the requested value.
             alerta = (_cor_alerta_gaveta() if not campo_contador
                       and _medida_em_alerta(acao) else None)
             _gaveta._texto_cabivel_gaveta(x + 7, y + h - 14,
@@ -612,7 +605,7 @@ def _desenhar_gaveta(tela=False):
             else:
                 _gaveta._texto_cabivel_gaveta(x + 7, y + 6, valor, w - 14, 12, cor=alerta)
         elif acao and (acao[0] in _gaveta.BOTOES_CRIAR or destaque):
-            # "Criar Portas"/"Criar Puxador": largo, texto CENTRALIZADO
+            # Create Doors/Create Handle: wide with CENTERED text.
             blf.size(0, 12)
             largura_texto = min(blf.dimensions(0, rotulo)[0], w - 18)
             _gaveta._texto_cabivel_gaveta(
@@ -625,7 +618,7 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_cabivel_gaveta(x+(w-largura_texto)/2, y+(h-12)/2,
                                           rotulo, w-8, 12)
         elif acao and acao[0] == 'contador':
-            # o valor no meio e as setas que dizem "arraste ou clique"
+            # Value in the middle and arrows indicating drag or click.
             blf.size(0, 13)
             largura_texto = blf.dimensions(0, rotulo)[0]
             _gaveta._texto_gaveta(x + (w - largura_texto) / 2, y + (h - 12) / 2,
@@ -634,7 +627,7 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_gaveta(x + 7, y + (h - 12) / 2, '<', 12, setas)
             _gaveta._texto_gaveta(x + w - 14, y + (h - 12) / 2, '>', 12, setas)
         elif acao and acao[0] == 'escolha' and len(acao) > 6 and acao[6]:
-            # retrato do carrossel: a foto em cima, o nome centrado embaixo
+            # Carousel image: picture above, name centered below.
             gpu.state.blend_set('ALPHA')
             _gaveta._desenhar_foto_gaveta(acao[6], x + 4, y + 18, w - 8, h - 22)
             blf.size(0, 11)
@@ -647,7 +640,7 @@ def _desenhar_gaveta(tela=False):
             _gaveta._texto_cabivel_gaveta(x + h + 4, y + (h - 12) / 2,
                 rotulo, w - h - 13, cor=(*cores.text[:3], .4) if apagado else None)
         elif _gaveta_eventos._icone_ao_lado(acao):
-            # o icone (gizmo) na ponta esquerda, o texto depois dele
+            # Icon gizmo at the left end, followed by text.
             _gaveta._texto_cabivel_gaveta(
                 x + h + 4, y + (h - 12) / 2, rotulo, w - h - 13,
                 cor=(*cores.text[:3], 0.4) if apagado else None)
@@ -671,27 +664,26 @@ def _desenhar_gaveta(tela=False):
             _desenhar_opcao_gaveta(context, x, y, w, h, rotulo, acao, cores, fundo)
             continue
         if acao[0] != 'aba':
-            continue        # corrente: so' o icone, desenhado pelo gizmo
+            continue        # Chain: icon only, drawn by the gizmo.
         _gaveta._botao_gaveta(x, y, w, h,
                        ativo=_gaveta._aba_no_menu(context.scene) == acao[1])
         _gaveta._texto_cabivel_gaveta(x + 9, y + 8, rotulo, w - 18)
     gpu.state.blend_set('NONE')
 
 
-COR_ACEITAR = (0.13, 0.66, 0.30, 1.0)    # o visto e' o icone CHECKMARK
+COR_ACEITAR = (0.13, 0.66, 0.30, 1.0)    # The tick is the CHECKMARK icon.
 
 
 def _unidade_nos_numeros_soltos(texto, sufixo):
-    """"60 + 5mm" -> "60cm + 5mm" (com padrao cm).
+    """'60 + 5mm' -> '60cm + 5mm' (with cm as default).
 
-    Sozinho, o parser do Blender da' a um numero sem unidade a unidade
-    do VIZINHO -- 60 virava 60 mm. A regra combinada e' outra: sem
-    unidade, vale a padrao. So' parcelas de soma/subtracao recebem o
-    sufixo; fator de * ou / (o 2 de "2*30cm") continua numero puro.
-    """
+    Blender's parser alone gives a unitless number its NEIGHBOR's unit, turning 60
+    into 60 mm. The agreed rule differs: unitless numbers use the default. Only
+    additive/subtractive terms receive the suffix; multiplication/division factors
+    (the 2 in '2*30cm') remain plain numbers."""
     fichas = re.findall(r'\d+\.?\d*|\.\d+|[A-Za-z]+|\S', texto)
     if not any(f.isalpha() for f in fichas):
-        return texto          # sem unidade nenhuma: str_ref_unit resolve
+        return texto          # No units anywhere: str_ref_unit handles it.
     saida = []
     for i, ficha in enumerate(fichas):
         saida.append(ficha)
@@ -709,12 +701,11 @@ _UNIDADE_RE = r'(?:mm|cm|m)(?![a-z])'
 
 
 def _arrumar_texto_medida(texto):
-    """O que o cursor livre deixa escrever e o usuario quer dizer:
+    """Interpret input allowed by the freely positioned cursor as the user intends:
 
-    - "51cm00" (unidade digitada no MEIO do numero) -> "5100cm";
-    - "500 + cm" (operador sem numero antes da unidade) -> "500cm";
-    - "500 +" (conta pela metade) -> "500".
-    """
+    - '51cm00' (unit typed INSIDE the number) -> '5100cm';
+    - '500 + cm' (operator without a number before the unit) -> '500cm';
+    - '500 +' (unfinished expression) -> '500'."""
     anterior = None
     while anterior != texto:
         anterior = texto
@@ -748,7 +739,7 @@ def _posicionar_cursor_texto(estado, cursor, shift=False):
 
 
 def _tecla_no_texto(estado, tipo, entrada='', ctrl=False, shift=False):
-    """Undo local da escrita; nunca chama undo da cena durante digitacao."""
+    """Local text undo; never invoke scene undo during typing."""
     chaves = ('texto', 'cursor', 'selecionado', 'ancora')
     antes = tuple(estado.get(k) for k in chaves)
     if ctrl and tipo in {'Z', 'Y'}:
@@ -810,9 +801,9 @@ def _editar_texto(estado, tipo, entrada, ctrl, shift):
     elif tipo == 'DEL':
         texto = texto[:cursor] + texto[cursor + 1:]
     if entrada in tuple(OPERADORES_MEDIDA) and texto[:cursor].strip():
-        # Operador DIGITADO sai sempre com um espaco de cada lado, em
-        # qualquer ponto da conta: "100+25" ficava fora do padrao de
-        # "664 - 100" (print do usuario). Colado, entra como veio.
+        # TYPED operators always get a space on each side, anywhere in the expression:
+        # '100+25' was inconsistent with '664 - 100' (user screenshot). Pasted text is
+        # retained as supplied.
         antes = texto[:cursor].rstrip() + ' ' + entrada + ' '
         texto, cursor = antes + texto[cursor:].lstrip(), len(antes)
     elif entrada:
@@ -826,7 +817,7 @@ def _editar_texto(estado, tipo, entrada, ctrl, shift):
 
 
 def _realcar_selecao_texto(x, y, estado, tamanho, medida=False, barra=True, largura=None):
-    """Realca apenas o buffer selecionado; unidade automatica/resultado ficam fora."""
+    """Highlight only the selected input buffer; exclude automatic units/results."""
     inicio, fim = _selecao_no_texto(estado)
     if inicio == fim:
         return
@@ -843,7 +834,8 @@ def _realcar_selecao_texto(x, y, estado, tamanho, medida=False, barra=True, larg
     if largura is not None:
         a, b = min(a, largura), min(b, largura)
     if b > a:
-        # O fundo selecionado de wcol_text e' quase preto, invisivel na HUD preta.
+        # The wcol_text selection background is nearly black, invisible on the black
+        # HUD.
         cor = bpy.context.preferences.themes[0].user_interface.wcol_regular.inner_sel
         _gaveta._retangulo_gaveta(x + a, y - 2, b - a, blf.dimensions(0, '0')[1] + 4, (*cor[:3], 1))
 
@@ -858,9 +850,9 @@ def _texto_editavel_gaveta(x, y, estado, largura, tamanho=12, cor=None):
 
 
 def _cursor_no_x(texto, cursor, x_texto, mouse_x, largura, medida=False):
-    """Posicao do texto mais perto de um clique em x. O texto aparece com
-    a barra '|' no cursor: depois dela as posicoes andam a largura dela.
-    `largura(texto)` mede em pixels (blf no Blender)."""
+    """Text position nearest a click at x. Text displays a '|' at the cursor, so
+    positions after it shift by its width. `largura(texto)` measures pixels (blf in
+    Blender)."""
     if medida:
         mostrado, mapa = _apresentacao_medida(texto, _opcoes._opcao('unidade_padrao'))
         pos = mapa[min(cursor,len(texto))]
@@ -901,7 +893,8 @@ def _normalizar_numeros(texto):
 
 @lru_cache(maxsize=128)
 def _apresentacao_medida(texto, unidade):
-    # O buffer continua sendo o digitado: pontos de milhar nao mudam a conta/cursor.
+    # Keep the buffer as typed: thousands separators must not change the
+    # expression/cursor.
     partes=[];mapa=[0]*(len(texto)+1);fim=0;tamanho=0
     for m in _NUMEROS_MEDIDA.finditer(texto):
         for i in range(fim,m.start()):
@@ -928,7 +921,8 @@ def _apresentacao_medida(texto, unidade):
     resultado=None
     if conta and texto.count('(')==texto.count(')') and not re.search(r'[+*/(-]\s*$',texto):
         try:
-            # Previa incompleta nao imprime erros nativos a cada tecla; Enter valida normalmente.
+            # Incomplete previews do not print native errors on every keystroke; Enter
+            # validates normally.
             with redirect_stderr(StringIO()):
                 resultado=_ler_medida_digitada(texto,minimo=-math.inf)*1000
         except (ValueError,TypeError,OverflowError,ZeroDivisionError):pass
@@ -948,29 +942,28 @@ def _com_cursor(texto, cursor, medida=False):
 
 
 def _ler_medida_digitada(texto, minimo=0.001):
-    """Texto digitado -> metros.
+    """Typed text -> meters.
 
-    Aceita conta e unidades misturadas: "600 + 500", "600cm + 500mm",
-    "1m - 20mm", "(600+500)/2". Numero sem unidade vale a unidade padrao
-    das opcoes (mm de fabrica); virgula decimal tambem. O parser do
-    Blender devolve ruido de float (1100.0001): arredonda em 0,01 mm.
-    ValueError abaixo de `minimo` (m): 1 mm, ou 0 nas folgas/afastamentos.
-    """
+    Accept expressions and mixed units: '600 + 500', '600cm + 500mm', '1m - 20mm',
+    '(600+500)/2'. Unitless numbers use the default unit in options (factory default
+    mm); decimal commas also work. Blender's parser returns floating-point noise
+    (1100.0001): round to 0.01 mm. Raise ValueError below `minimo` (meters): 1 mm,
+    or 0 for gaps/offsets."""
     texto = _arrumar_texto_medida(_normalizar_numeros(texto.strip()))
     sufixo = _opcoes.UNIDADES_MEDIDA[_opcoes._opcao('unidade_padrao')][1]
     texto = _unidade_nos_numeros_soltos(texto, sufixo)
     valor = bpy.utils.units.to_value('METRIC', 'LENGTH', texto,
                                      str_ref_unit='1 ' + sufixo)
     if not math.isfinite(valor) or valor < minimo - 1e-9:
-        raise ValueError('Informe uma medida de pelo menos %g mm' % (minimo * 1000.0))
+        raise ValueError("Enter a measurement of at least %g mm" % (minimo * 1000.0))
     return round(valor * 1000.0, 2) / 1000.0
 
 
 def _ler_numero_digitado(texto):
-    """Numero puro das faixas da engrenagem ("14", "1,5", "10 + 4",
-    "18px"). Quem prende no minimo/maximo e' quem grava."""
+    """Plain number from options sliders ('14', '1,5', '10 + 4', '18px'). The writer
+    clamps to minimum/maximum."""
     texto = texto.strip().replace(',', '.').lower().replace('px', '')
     valor = bpy.utils.units.to_value('NONE', 'NONE', texto)
     if not math.isfinite(valor):
-        raise ValueError('Informe um numero')
+        raise ValueError("Enter a number")
     return valor

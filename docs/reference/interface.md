@@ -1,122 +1,67 @@
-> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below are retained only where historically relevant.
+> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below remain where historically relevant.
 
-# Interface -- guia transversal
-Leitura EXPLICITA pela rota do indice/guia raiz para tarefas de interface.
-Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
-em `archy_builder/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
-Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
-Escopo: `archy_builder/ui/sidebar.py`, `gaveta_desenho.py`, `gaveta_eventos.py`, `hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py`, `materiais.py` e `ambientes.py`.
-Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
-Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
-Assets/presets: ler `archy_builder/biblioteca/CLAUDE.md` e
-`docs/reference/integration.md`.
-Fundos (360): aba propria com campos/segmentos existentes e Criar Fundo
-no SOLTAR. UNPINNED desassocia na aba Fundos ou nos internos vinculados.
-## Rota de trabalho
-Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
-| Tarefa | Arquivo: funcao/classe | Suite |
+# Interface - cross-sector reference
+
+Explicit historical routing reference for UI tasks, not inherited instructions
+for `archy_builder/`. Former mirrored-guide limit: 120 lines. Paths below are
+repository-relative. Historical scope: `archy_builder/ui/sidebar.py`,
+`gaveta_desenho.py`, `gaveta_eventos.py`, `hud.py`, `selecao.py`, `eventos.py`,
+`editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`,
+`biblioteca_faixa.py`, `materiais.py`, `ambientes.py`; `gavetas/` means furniture.
+Read [DESIGN.md](../../DESIGN.md), [assets](../../archy_builder/assets/library/CLAUDE.md)
+and [integration](integration.md) when applicable. Backs 360 use their own tab,
+release-triggered creation and UNPINNED detach in Backs or linked internals.
+
+## Historical task routing
+
+Suites: `tests/test_<suite>_blender.py`; GUI: `tests/<suite>.py`.
+
+| Task | Entry | Suites |
 |---|---|---|
-| Contexto/layout/partes esmaecidas | gaveta.py: `_widgets_gaveta`, `_widgets_interativos`; visibilidade.py: `membros`, `verificar` | gaveta, visibilidade, estrutura, snapshot |
-| Editor persistente/ponte 3D | editor.py: `configurar`, `reparar`, `executar` | editor, biblioteca_faixa |
-| Desenho/identidade | gaveta_desenho.py: `_desenhar_gaveta`, `_chave_widget` | gaveta, estrutura, gui_interacao |
-| Clique/campo/texto/unidades | gaveta_eventos.py: `OBJECT_OT_interagir_gaveta`; gaveta_desenho.py: `_tecla_no_texto`, `_apresentacao_medida`; opcoes.py: `_texto_medida` | medidas, gaveta, hud, gui_interacao |
-| Selecao/aba/Tab | selecao.py: `OBJECT_OT_selecionar`, `_seguir_selecao_na_gaveta`, `OBJECT_OT_editar_grupo` | operadores, hud, gui_interacao |
-| Cotas/hover/arraste | hud.py: `campos_cotas`, `_acertar_hud`, `OBJECT_OT_arrastar_hud` | hud, gaveta, snapshot |
-| Face da caixa/snap B | hud_volume.py: `controles`, `iniciar`, `atualizar`, `terminar` | hud, gui_interacao |
-| Grupo Paredes, edicao 2D e biblioteca na parede | paredes_edicao.py: `widgets`, `iniciar`, `encerrar`, `preparar_modelo` | paredes_edicao, gaveta |
-| Elevacao/cotas editaveis dos modulos (menu: so' a cruz do selecionado) | paredes_composicao.py: `widgets`, `desenhar`, `editar_modulo` | paredes_composicao |
-| Undo/contorno/timer | eventos.py: `_antes_de_desfazer`, `_fim_do_desfazer`, `sincronizar_contornos`, `verificar_periodicamente` | operadores, hud, estrutura |
-| Faixa/niveis/menu | biblioteca_faixa.py: `widgets`, `catalogo`, `rolar`, `abrir_menu_item` | biblioteca_faixa, gui_biblioteca_faixa |
-| Fotos/cache | gaveta.py: `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py: `invalidar` | biblioteca_faixa |
-| Sim/Nao | gaveta.py: `_pergunta_na_gaveta`; perguntas.py: `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
-## Decisoes de interacao
-- Alvenaria 404: Editar laranja primeiro; olho junto a Teto, forcado ao editar. Catalogo de instalacoes reutiliza cascata/grade/fotos; arraste nasce na origem. Direito usa mesmo posicionador; reassociacao valida antes de escrever, transfere so' o corte proprio, preserva componentes. Undo/redo invalida cache numerico; suite instalacoes. Alvenaria 403: aba propria Parede/Piso/Teto + instalacoes; Criar primeiro so' para nova malha, mista ignora cadastrada. Editar carrega faces do tipo, botao/Enter confirma, Esc cancela; cores/nomes so' nesse editor. Modulos conserva 2D/categorias. Instalacoes 402: cartoes arrastaveis no contexto Alvenaria, medidas e cotas responsivas, abertura pela barra/roda sob controle e aviso sem bloquear. Usar cabinet-design. Alvenaria 399: categorias alternam so' quando todas ja' possuem a escolhida; mistas recebem todas. Sem categoria limpa sem cor; olho ao lado de Sair alterna cores/nomes. Em 2D, submenu conserva sessao/vista/isolar, limita acerto/previa a' area ativa e altera faces inteiras. 398: Editar em 2D/Editar categorias lado a lado; Desagregar Alvenaria vermelho do tema em linha inteira abaixo. Definir Alvenaria laranja inteiro. Categorias: sem Definir como, clicar no nome aplica faces no SOLTAR com UNDO; quadrado so' edita cor. Saida/retorno inteiro; selecao 2D sem lista de categorias. Tab retoma 2D; reabrir categorias inicia edicao propria. Faces existentes mantem categoria (G/remocao de vizinha); novas comecam sem categoria. Captura BMesh transitoria, limpa antes do undo. Realce coplanar com bias nativo; snap so' na Alvenaria.
-- Parede 399: alvo fixo ignora outros objetos. Automatico escolhe categoria clicada ou regiao plana livre; entrada 2D restringe ao plano. Shift alterna face; Ctrl percurso nativo, Shift+Ctrl preenche; Enter confirma. Indice nativo soma vertices+arestas+face; original fora do Local View entra so' durante a chamada, sem redraw.
-  No caminho 2D, clique automatico entra; Enter confirma manual. Menu sem
-  seletor de metodos ou botoes de pontos. Previa nao muda selecao; menus e
-  navegacao passam. BVHs/copia BMesh no timer, nunca reconstruidos no hover.
-- Parede (299): menu nao exibe nem edita medidas da parede identificada.
-  Na edicao 2D, cotas sao dos modulos/vaos; clique digita, Esc cancela.
-  Parede e modulos solidos/OBJECT/FLAT com contornos pretos nativos. Estado
-  anterior e' devolvido na saida; G/Tab continuam nativos. Redistribuir
-  exige comando (fora do menu desde 338); troca so' apos confirmar.
-  Orbita volta a PERSP; biblioteca ajusta L/A ate limite do menu (363). Duplo clique
-  segue o ultimo para a direita ou centra na parede quando exceder.
-  Chapas usam show_wire nativo temporario; ferragens ficam sem a sobreposicao.
-  So' nesta vista, clique em qualquer peca seleciona modulo; duplo isola.
-  Interior: arestas avaliadas, cinza com alfa so' atras das frentes. Cotas
-  proximas da peca; extracao no timer, redraw consulta somente cache numerico.
-  Cotas (301): traco do tema sobre halo opaco, setas e fonte minima 14;
-  item ativo usa realce da HUD. Numeros apos linhas; A1/A2/A3 sempre, A3 Prof. na quina (368), editavel e separado do afastamento; resize esconde so' distancias.
-- Sim/Nao passa por `_perguntar`: pop-up SO' da viewport; botao do menu =
-  caixa preta na gaveta; pergunta da biblioteca fica na faixa. Nunca abrir
-  `popup_menu` em background. Operador que abre modal/pergunta dispara no
-  SOLTAR (`solda.OPERADORES_NO_SOLTAR`), inclusive quando tem icone/gizmo.
-- Excecao: DIREITO na foto/nome da biblioteca abre no SOLTAR o menu
-  Inserir/Editar/Bloquear; sem botoes sob modulos. Respeitar cadeado/protecao.
-- A SELECAO decide o que edita; Shift soma e conserva a malha clicada como mestre (356: Ctrl+L nativo); a gaveta segue a aba do item.
-  Caixa (laterais/tampo) seleciona modulo; duplo isola chapa. Quina arrasta
-  modulo; Ctrl encaixa SO' em quina/ponta de curva de OUTRO armario/chapa. Clique fora encerra o individual; novo clique simples = grupo (Shift conserva).
-- Visibilidade 388: faixa fixa acima da biblioteca, rotulo Visibilidade de objetos e botoes compactos olho/lapis a direita; so' com selecao compativel, sem faixa/vazio nos demais casos. Fora da rolagem/captura. Segue aba: portas/gavetas com todos agregados, internos juntos, fundos, estrutura; nao ferragens isoladas. WIRE/cor branca/opacidade nativos mantem snap; H/Alt+H independentes. Lapis: selecao nativa, esquerdo inclui/direito retira, Enter aceita/Esc devolve; UIDs extras/exclusoes no modulo, sem reparentear. Sim na pergunta Esconder portas? ativa esse mesmo arame. Save/unregister devolvem aparencia; undo so' reconcilia no timer. Clique porta inteira, duplo folha.
-  Sem linha Reposicionar/Frente/Espelhar na aba. Espelhar fica no contexto direito, grupo ou folha; inverter
-  giro, cadeia zigzag inteira, curso de correr ou basculante com pistoes;
-  puxador acompanha. Nao espelhar madeira.
-- Ferragem: so' aparece criando ou selecionada, ARAME da peca real. Clique
-  seleciona todas do tipo NATIVAMENTE (370); Shift soma; Alt controlador; duplo PECA
-  com Tab/G/X nativos. Trilho das gavetas permanece com elas.
-- Puxador (385): duplo direto = SO' ele; clique no proprio puxador da gaveta isolada tambem, antes da regra da parede. Fora desse escopo, clique = peca/grupo. Alt arrasta
-  ancora para outra borda SO' do grupo dele, com snap de linha.
-- Gavetas/prateleiras (379): na cota V selecionada, scroll subdivide so' o vao; campo passa a quantidade e Enter confirma, Esc descarta copias. Prateleiras da mesma blocagem mostram cotas de todos os segmentos; divisorias so' na orientacao ativa, sem poluicao mista. Clique todas do vao, duplo uma; 384: Shift conserva gavetas individuais; Shift+duplo reduz so' o vao clicado. Modulo absorve filhos
-  na HUD. Divisorias: clique grupo, duplo chapa. Conservar escopo por tipo.
-- Tab no Empty (383: inclui uma ou varias unidades de gaveta) = Edit Mode MULTIOBJETO nativo, so' malhas reais, sem
-  cortadores/controles; tornar compartilhadas unicas antes. Conservar Empties
-  selecionados no Edit Mode, registrar a transicao ja' na entrada (Tab
-  rapido nao depende do timer), restaurar selecao/ativo ao sair e invalidar
-  planta; estado SO' nomes. Peca isolada conserva Tab nativo.
-- Vista local: ray cast ignora ocultos; Tab move rigs por `ferragens`, com referencia na Mesh para undo, espelhos materializados e UVs corrigidas nativamente.
-- Area livre (377: modulo selecionado fixa alvo; primeiro clique e HUD/B ignoram externos, sem ocultar cena): 378: Definir por volume/plano laranja (mesmo estilo/30 px do Criar); captura 3D libera a camera entre cliques (translate so' ate RELEASE, navega por keymap nativo). Definir por volume/plano -> um clique sem vertices -> HUD/centros/G/R/S -> Aplicar area -> clique na frente (volumes). Tres pontos 3D aceitam qualquer ordem: caixa min/max ortogonal ao modulo e frente explicita, com realce da propria face sob o raio nativo; HUD de arraste suspensa durante a escolha. Planos 2D conservados. Empty temporario conserva 8/4 cantos ortogonais; entrega numerica aos assistentes, sem reinterpretar apoios. Undo/load/save/unregister limpam. Volume/B: base na geometria ATUAL ao apertar B, nunca na posicao inicial.
-  O nativo restaura o cursor; `hud_volume.preparar_base_snap` absorve o ultimo
-  movimento e registra o deslocamento acumulado SEM devolver a madeira.
-  Repetir B nao duplica o gap; backup/inicio originais continuam para Esc.
-  Observador antes do evento nativo; todos os eventos passam. O matcher
-  `KeyMapItems.match_event` faz poll de OPERADOR: mapa MODAL tem idname
-  vazio e nunca casa! Consultar espelho NORMAL interno com operador valido
-  e os mesmos atalhos/modificadores, sem mudar o mapa original. A API
-  `new_from_item` recusa modal -> normal; copiar os campos de evento.
-  Invalidar ao remapear; remover espelho/cache junto ao observador.
-  O timer WM encerra o observador mesmo sem mover o mouse; unregister
-  remove-o diretamente. Guardar somente identificador numerico da sessao.
-- Undo/redo: nao consultar selecao/malhas durante `_desfazendo`; fecho apenas
-  libera guarda, referencias voltam no timer normal. Descartar transicoes
-  antigas de Edit Mode/modal. Hover nao pode reter IDs liberados; limpar no
-  undo_pre e conferir `_alvo_vivo`. Contorno so' religa o que ELE desligou;
-  objeto comum na selecao mista devolve o nativo, mesmo sem ser ativo (358).
-- Selecao 369: `selecao.objetos_na_camada` limita clique/Shift/porta/Tab a' View Layer nativa; pai fora dela nao vira ativo. Clique: keyconfig ADDON; objeto comum fica no CLICK
-  nativo. `OBJECT_OT_selecionar.poll` recusa fora de Object Mode ou com
-  `selecao_por_grupo` desligada; props SKIP_SAVE.
-## Gaveta e biblioteca (365: NODE_EDITOR ArchyBuilderMenu/Biblioteca, nunca VIEW_3D)
-- Abas (362): sem espaco (BLF/fonte 12/margem 18), suspenso fixo com aba atual; lista flutuante despacha `aba`. Prefixo dinamico. 375: seis abas; Prateleiras / Divisorias unificada, DIVISORIAS legado e' alias so' visual; controles seguem dono selecionado. areas_criacao guarda sessao numerica por cena: tipo -> volume/pontos -> quantidade -> lacuna opcional -> outro tipo/Sair, mesma area; undo/load/save/unregister descartam sessao, preservam criados.
-- Gaveta por CONTEXTO em toda aba: sem selecao, SO' criar laranja (Modulos:
-  nada); criando, campos etapa a etapa, copia clicavel da caixa atendida
-  pelo modal; selecionado, SO' controles do ITEM. Porta sem dobradica;
-  ferragens = quantidade/afastamento. Dobradica/Converter ficam no F3.
-- Criando/reancorando solda (355), HUD de geometria e hover ficam bloqueados; corrente/regua/snap continuam. Criar/confirmar usa destaque laranja existente. Painel proprio, sem Orcamento; distancia, zero, voltar, aceitar/cancelar. Direito/Esc cancela; Backspace/Ctrl+Z volta; Alt reancora. Sem nome do item, Sincronizar ou Auto-regenerar. Montagem: Criar solda em
-  linha inteira, Corrente e Resetar distancia com texto e icone, empilhados se estreito. Arrastar campo muda; clique digita.
-- editor.py guarda arvore vazia propria para gizmos nativos 4.2; subtipo salva o papel, marca de ponteiro e' consumida ao migrar legado. `executar` leva comandos a' viewport; texto/arraste ficam na origem.
-- Layout devolve `(x, y, w, h, rotulo, acao)`, desenho pinta, evento despacha. 391: medidas com milhar ponto/decimal virgula e unidade MM/CM/M; buffer original/mapa de cursor separados, previa nativa em cache (128). 392: campo abre sem selecao; Backspace normal; Ctrl+A/Shift selecionam com realce so' do texto; Ctrl+Z/Shift+Z/Y usam historico local limitado (80), nunca undo da cena. Sem unidade = padrao, nao vizinho. Caixa preta arredondada. Rolagem (373): independente por painel, abas/rodape fixos; opcoes cobrem barras. Verbo `rolagem` distingue trilho vertical do slider horizontal.
-  Nao hashear acao com dict. Gizmos em pool: ocultar/reusar; nao remover ou
-  religar no redraw. Button2D fixa simbolo no 1o draw: pool por icone/ocorrencia. Campos/corrente/regua conservam operador; atualizar props.
-- Biblioteca: FAIXA no topo (`cabinet_layout=2`: faixa/menu/cena) ou NO MENU
-  (`cabinet_biblioteca_lugar=MENU`, nao migra; troca no timer): nivel = lista suspensa.
-- Niveis sem limite (`niveis`); abas 18 px/fonte 10/intervalo 2. Modos e niveis
-  numa linha em qualquer altura; caixas CINZA, juntas cinza claro/vao 12.
-  Contorno cinza claro SO' no hover de ABA; sem halo na navegacao.
-- Fundo nao rouba clique; roda X/Y. Setas so' com overflow no sentido oculto;
-  sem contagem, ramo vazio some. Shift+roda percorre niveis profundos;
-  chaves de rolagem com hash, maximo 63 bytes.
-- Fotos SO' visiveis, proporcionais a' altura e limitadas pela largura;
-  cache RGBA8 de 64 MiB, indice invalidavel. Nada de abrir .blend no redraw.
-- Material = COR SOLIDA no slot do OBJETO. Grupo (382): catalogo/Ctrl+L preservam puxadores, ferragens e filhos; selecao completa. Individual nativo permitido.
-  Ctrl+L reutiliza menu/motor nativos, filtrando somente MATERIAL. Esfera: clique simples NADA;
-  duplo aplica a' SELECAO; arraste ao de baixo; DIREITO pintura rapida (comodo -> parte). Conservar gestos.
-Validacao: `tests/CLAUDE.md`; GUI so' com PC livre AGORA autorizado; callback com erro falha.
+| Context/layout/fading | gaveta.py `_widgets_gaveta`, `_widgets_interativos`; visibilidade.py `membros`, `verificar` | gaveta, visibilidade, estrutura, snapshot |
+| Persistent editor/3D bridge | editor.py `configurar`, `reparar`, `executar` | editor, biblioteca_faixa |
+| Drawing/identity | gaveta_desenho.py `_desenhar_gaveta`, `_chave_widget` | gaveta, estrutura, gui_interacao |
+| Click/text/units | gaveta_eventos.py `OBJECT_OT_interagir_gaveta`; gaveta_desenho.py `_tecla_no_texto`, `_apresentacao_medida`; opcoes.py `_texto_medida` | medidas, gaveta, hud, gui_interacao |
+| Selection/tab/Tab | selecao.py `OBJECT_OT_selecionar`, `_seguir_selecao_na_gaveta`, `OBJECT_OT_editar_grupo` | operadores, hud, gui_interacao |
+| Dimensions/hover/drag | hud.py `campos_cotas`, `_acertar_hud`, `OBJECT_OT_arrastar_hud` | hud, gaveta, snapshot |
+| Box faces/B snap | hud_volume.py `controles`, `iniciar`, `atualizar`, `terminar` | hud, gui_interacao |
+| Walls/2D/library | paredes_edicao.py `widgets`, `iniciar`, `encerrar`, `preparar_modelo` | paredes_edicao, gaveta |
+| Elevation/editable cabinet dimensions | paredes_composicao.py `widgets`, `desenhar`, `editar_modulo` | paredes_composicao |
+| Undo/outline/timer | eventos.py `_antes_de_desfazer`, `_fim_do_desfazer`, `sincronizar_contornos`, `verificar_periodicamente` | operadores, hud, estrutura |
+| Strip/levels/menu | biblioteca_faixa.py `widgets`, `catalogo`, `rolar`, `abrir_menu_item` | biblioteca_faixa, gui_biblioteca_faixa |
+| Photo/cache | gaveta.py `_guardar_foto_gaveta`, `_desenhar_foto_gaveta`; biblioteca_faixa.py `invalidar` | biblioteca_faixa |
+| Yes/No | gaveta.py `_pergunta_na_gaveta`; perguntas.py `_perguntar` | gaveta, biblioteca_faixa, gui_interacao |
+
+## Interaction decisions
+
+- Masonry 404: orange Edit first; eye beside Ceiling, forced visible when editing. Installation catalog reuses cascade/grid/photos; drag starts in origin; right-drag shares placer. Validate reassociation before writes, transfer own cut only, preserve components. Undo/redo invalidate numeric cache (instalacoes). 403: own Wall/Floor/Ceiling tab, Create first only for undefined meshes, mixed selection ignores existing supports. Edit loads chosen type; button/Enter confirms, Esc cancels; type colors/names only in editor. Cabinets retains 2D/categories. 402: draggable cards, responsive dimensions, bar/wheel opening under control, warnings without blocking; cabinet-design applies.
+- Rooms 399/398: category toggles off only if ALL selected faces already match, otherwise applies to all. No Category clears without color/empty record. Eye toggles labels/colors. 2D categories preserve session/view/isolation, clip hits/previews to active area while applying whole native faces. Equal-column 2D/Categories, red full-width detach below, orange define. Names apply on RELEASE/UNDO; square only edits color, no Set As. Full-width exit/return, 2D selection has no category list. Tab returns 2D; reopening categories starts their own editor. Existing face categories survive G/neighbor removal; new faces start zero. Transient BMesh identity cleared before undo; native projection-depth bias; masonry-only snap.
+- Wall 399: fixed target ignores other objects. Automatic chooses category or uncategorized coplanar region; 2D entry limits plane. Shift toggles face, native Ctrl path/Shift+Ctrl fill; Enter confirms. Native index adds vertex+edge+face counts. Original outside Local View participates only during call, no redraw. Automatic 2D click enters, Enter confirms manual; no method/point controls. Preview never mutates selection; menu/navigation pass. BVH/BMesh copies built in timer, not hover.
+- Wall 299/301/363/368: menu never edits wall dimensions. 2D dimensions belong to cabinets/gaps; click types, Esc cancels. Temporary SOLID/OBJECT/FLAT with black outlines; restore on exit, G/Tab native. Explicit redistribution (outside menu since 338), replacement only after confirm. Orbit -> PERSP. Library fits width/height up to limit, double-click right of last or wall center. Temporary panel show_wire excludes hardware. Only 2D: any part selects cabinet, double isolates leaf. Interior actual evaluated creases gray/alpha behind fronts, timer extraction/numeric redraw. Dimensions theme line over opaque halo, arrows/font>=14, active HUD highlight; draw text after lines. A1/A2/A3 always; A3 depth at corner, separate offset, resize hides only distances.
+- Questions use `_perguntar`: viewport popup, menu black box, library strip question. Never `popup_menu` background. Modal/question actions trigger RELEASE including icons (`solda.OPERADORES_NO_SOLTAR`). Exception: library right-release photo/name Insert/Edit/Lock popup; no under-card buttons, retain lock/protection.
+- Selection decides editing scope. Shift adds, keeping last clicked mesh master for native Ctrl+L (356); sidebar follows owner tab. Body selects cabinet, double isolates panel; outside click ends individual, new simple click returns group, Shift preserves. Corner drag moves cabinet; Ctrl restricts snap to another cabinet/panel corner/curve endpoint.
+- Visibility 388: fixed strip above library, label and compact right eye/pencil, only compatible selection, no blank reservation. Outside scroll/capture; tab groups include aggregates, not isolated hardware. Native white WIRE/opacity retains snap and independent H/Alt+H. Pencil native left includes/right removes, Enter accepts/Esc restores, extra/excluded UIDs on cabinet, no reparenting. Yes to Hide doors? activates same wireframe. Save/unregister restores appearance; undo reconciles in timer. Door click group/double leaf.
+- No finished-door Reposition/Front/Mirror row. Mirror native context group/leaf reverses hinge/opening/handle, whole zigzag chain, sliding travel or lift-up pistons; never mirrors wood.
+- Hardware appears only creating/selected, using real wireframe. Click native selection of all type (370), Shift adds, Alt controller, double isolates part with native Tab/G/X. Drawer rails stay with drawers.
+- Handle 385: double directly isolates; simple click after drawer isolation selects its own handle before wall scope. Otherwise owner/group. Alt drags anchor along edge only inside its group, with line snap.
+- Drawers/shelves 379: scroll while selected V dimension edits quantity only in that gap; Enter confirms/Esc removes preview copies. Shared blocking shows all shelf-segment dimensions; partitions only active orientation, no mixed clutter. Click all in opening, double one; 384 Shift preserves individual units, Shift+double narrows clicked opening. Cabinet absorbs children HUD. Partition click group/double panel; preserve type scope.
+- Tab 383 on Empty includes one/multiple drawer units: native multiobject Edit Mode, actual meshes only, exclude cutters/controls, isolate shared meshes first. Keep Empties selected, record transition at entry (fast Tab independent of timer), restore active/selection, invalidate plan on exit, names only. Isolated part keeps native Tab. Local View rays ignore hidden; rigs move through ferragens with Mesh references for undo, materialized mirrors and native UV correction.
+- Free area 377/378: selected cabinet fixes all snap targets; first point/HUD/B ignore outside geometry without hiding scene. Orange 30 px volume/plane like Create. Translate ends at RELEASE, camera keymaps pass between points. One point -> rectangular numeric reference/HUD/G/R/S -> Apply -> front for volumes. Three unordered 3D points form module-axis min/max box; explicit front native-ray highlight, drag handles suspended. Preserve 2D planes. Empty stores orthogonal 8/4 corners; numeric handoff without support reinterpretation. Undo/load/save/unregister clear.
+- B snap base uses CURRENT geometry, not gesture start. Native cursor restores; `hud_volume.preparar_base_snap` absorbs last motion/accumulated delta without moving wood back. Repeated B never duplicates gap; original backup remains for Esc. Observer runs before native, forwards every event. `KeyMapItems.match_event` polls operators; modal maps have empty idname and cannot match. Internal NORMAL mirror with valid operator copies event fields (new_from_item cannot modal->normal), preserving original shortcuts/modifiers. Remap invalidates; observer/keymap/cache/timer all cleaned, only numeric session ID retained.
+- Undo/redo: never query selection/mesh under `_desfazendo`; completion only releases guard, regular timer restores references. Discard old Edit/modal transitions. Hover clears undo_pre, validates `_alvo_vivo`; outline restores only its own changes, including nonactive ordinary mixed selection (358).
+- Selection 369: `selecao.objetos_na_camada` restricts click/Shift/door/Tab to native View Layer; outside parent never active. ADDON keyconfig, ordinary native CLICK. `OBJECT_OT_selecionar.poll` refuses outside Object Mode or disabled selecao_por_grupo; SKIP_SAVE props.
+
+## Sidebar and library (365: NODE_EDITOR ArchyBuilderMenu/Biblioteca)
+
+- Tabs 362: measured BLF/font 12/margin 18 overflow becomes fixed full-name dropdown, floating list dispatches `aba`; dynamic prefix. 375: six tabs, Shelves/Partitions unified, DIVISORIAS visual alias, selected owner controls. areas_criacao session per scene stores numbers: type -> volume/points -> count -> optional gap -> other type/Exit; cleanup preserves created results.
+- All tabs contextual: no selection only orange Create (Cabinets empty); creating stage fields mirror modal; selected only item controls. No finished-door hinge picker; hardware count/offset. Hinge/Convert stay F3.
+- Joint 355: creation/reanchoring blocks geometry HUD/hover, retains chain/ruler/snap; orange create/confirm, own panel without estimate, distance/zero/back/accept/cancel. Right/Esc cancels, Backspace/Ctrl+Z returns, Alt reanchors. No item name/Sync/Auto-regenerate. Full-width Create above text+icon Chain/Reset, stack narrow; value drag/types.
+- editor.py owns empty 4.2 gizmo tree, subtype persists role, pointer marker consumed by legacy migration. `executar` sends scene commands; text/drag origin retained.
+- Six-tuple layout/draw/event separation. 391 formatting period thousands/comma decimal/MM/CM/M; original buffer/cursor map separate, native preview cache 128. 392 no initial selection, normal Backspace, Ctrl+A/Shift visible text-only selection; Ctrl+Z/Shift+Z/Y bounded local 80, never scene undo. Unitless = configured unit. Black rounded boxes. 373 independent scrolling, fixed tabs/footer, options over bars; `rolagem` distinguishes vertical track from horizontal slider.
+- Never hash action dicts. Pool/hide gizmos; Button 2D by icon/occurrence. Fields/chain/ruler retain operator; update properties only.
+- Library top strip (`cabinet_layout=2`) or menu (`cabinet_biblioteca_lugar=MENU`, no migration, timer switch); menu levels dropdowns. Unlimited `niveis`; 18 px tabs/font 10/gap 2. Modes/levels one row at every height, gray boxes/light-gray joints/gap 12. Border only during category hover; no navigation halo.
+- Background never steals clicks; X/Y wheel. Directional arrows only overflow, no counts, empty branches hidden. Shift+wheel reaches deep levels; hashed scroll keys <=63 bytes. Visible-only proportional photos bounded by width, RGBA8 64 MiB cache/invalidatable index, no redraw file-open.
+- Material solid color in OBJECT slot. Group 382 catalog/Ctrl+L preserve handles/hardware/descendants and full selection; only MATERIAL native menu/engine targets filtered. Individual native material editing allowed. Sphere single click does nothing, double paints selection, drag paints target, right quick-paints room then part; preserve gestures.
+
+Validation: [tests](../../tests/CLAUDE.md), current GUI authorization only;
+callback exceptions fail even when assertions pass.

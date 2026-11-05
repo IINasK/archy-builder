@@ -1,7 +1,7 @@
 """Generate default hardware and opening thumbnails.
 
 Requires an explicitly authorized foreground Blender session for viewport
-capture. Writes archy_builder/fotos/*.png, then closes Blender automatically.
+capture. Writes archy_builder/assets/previews/*.png, then closes Blender automatically.
 Importing this script registers the add-on and schedules capture immediately."""
 from pathlib import Path
 import os
@@ -15,13 +15,13 @@ AQUI = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, AQUI)
 import archy_builder as addon  # noqa: E402
 
-PASTA = os.path.join(AQUI, 'archy_builder', 'fotos')
-LADO_PNG = 256                   # a gaveta desenha ate' ~84 px
-# Cores no modo solido (cor do OBJETO): madeira, porta e metal separados
+PASTA = os.path.join(AQUI, 'archy_builder', "assets/previews")
+LADO_PNG = 256                   # The sidebar draws up to about 84 px.
+# Solid-mode colors (OBJECT color): separate wood, door, and metal.
 COR_MODULO = (0.78, 0.62, 0.43, 1.0)
 COR_PORTA = (0.93, 0.93, 0.91, 1.0)
 COR_METAL = (0.30, 0.30, 0.33, 1.0)
-# sozinha, a dobradica aparece sobre o fundo ESCURO da gaveta: mais clara
+# An isolated hinge appears on the sidebar's DARK background: use a lighter color.
 COR_DOBRADICA = (0.66, 0.66, 0.70, 1.0)
 
 
@@ -49,7 +49,7 @@ def modulo(largura=None, altura=None):
 
 
 def porta(conj, **opcoes):
-    """A mesma porta do snapshot: o vao inteiro do nicho, por EXEC."""
+    """Same door as the snapshot: the whole niche opening, using EXEC."""
     L, A = conj.conj_largura_mm, conj.conj_altura_mm
     P, E = conj.conj_profundidade_mm, conj.conj_espessura_mm
     a = conj.matrix_world @ (Vector((-L / 2 + E, -P / 2, E)) / 1000.0)
@@ -66,9 +66,9 @@ def porta(conj, **opcoes):
 
 
 def cena_puxador(tipo):
-    # um pedaco de porta em pe' (face +Z local virada para a frente) com
-    # o puxador na borda de cima
-    chapa = addon.chapas.nova_chapa('Porta', 260.0, 170.0, 18.0, (0, 0, 0),
+    # An upright door section (local +Z face pointing forward) with
+    # the handle on its top edge.
+    chapa = addon.chapas.nova_chapa("Door", 260.0, 170.0, 18.0, (0, 0, 0),
                                     (90, 0, 0), bpy.context)
     pux = addon.puxadores.criar_puxador(bpy.context, chapa, tipo, 'Y+', 1, 0.5)
     colorir([chapa], COR_PORTA)
@@ -94,8 +94,8 @@ def cena_porta(abertura=None, dobradica='RETA', folhas=1, fracao=0.35,
 
 
 def cena_dobradica():
-    """So' a dobradica (pedido do usuario: isolada, sem o modulo), meio
-    aberta: as pecas da primeira do rig da Reta."""
+    """Hinge only, isolated without the cabinet as requested by the user,
+    half open: components of the first hinge in the straight-hinge rig."""
     conj = modulo(220.0, 180.0)
     grupo = porta(conj, dobradica='RETA', abertura='GIRO')
     for folha in addon.portas._folhas_portas(grupo):
@@ -125,8 +125,8 @@ CENAS = (
     + [('abertura_GIRO', lambda: cena_porta('GIRO', fracao=0.3)),
        ('abertura_BASCULANTE', lambda: cena_porta('BASCULANTE', fracao=0.45)),
        ('abertura_CORRER', lambda: cena_porta('CORRER', 'RETA', 2, 0.0))]
-    # Curva e Super Curva ainda nao tem modelo proprio: usam a foto da
-    # Reta (`FOTOS_PENDENTES` em biblioteca.py)
+    # Curva and Super Curva do not yet have their own model; use the straight
+    # hinge photo (`FOTOS_PENDENTES` in biblioteca.py).
     + [('dobradica_RETA', cena_dobradica)])
 
 
@@ -151,11 +151,11 @@ def fotografar():
                 if not ok:
                     raise RuntimeError(msg)
                 reduzir(destino)
-                print('[fotos] ok', nome)
+                print("[photos] OK", nome)
             except Exception:
                 erros.append(nome)
                 traceback.print_exc()
-    print('[fotos] FIM', 'erros: %s' % erros if erros else 'tudo ok')
+    print("[photos] DONE", "errors: %s" % erros if erros else "all OK")
 
 
 def rodar():

@@ -1,108 +1,105 @@
 <p align="center">
-  <strong>Guia do usuario</strong> &nbsp; | &nbsp;
-  <a href="docs/DEVELOPMENT.md">Desenvolvedores</a>
+  <strong>User guide</strong> &nbsp; | &nbsp;
+  <a href="docs/DEVELOPMENT.md">Developers</a>
 </p>
 
 <p align="center">
-  <img src="docs/welcome.svg" alt="Archy Builder - moveis planejados, arquitetura e interiores no Blender" width="100%">
+  <img src="docs/welcome.svg" alt="Archy Builder - custom cabinetry, architecture and interiors in Blender" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-em_desenvolvimento-f28c28" alt="Em desenvolvimento">
-  <img src="https://img.shields.io/badge/uso-gratuito-26966f" alt="Uso gratuito">
+  <img src="https://img.shields.io/badge/status-in_development-f28c28" alt="In development">
+  <img src="https://img.shields.io/badge/use-free-26966f" alt="Free to use">
 </p>
 
 <p align="center">
   <a href="https://github.com/IINasK/archy-builder/releases">Downloads</a> &nbsp; | &nbsp;
-  <a href="#como-instalar">Como instalar</a> &nbsp; | &nbsp;
-  <a href="#primeiros-passos">Primeiros passos</a> &nbsp; | &nbsp;
-  <a href="https://github.com/IINasK/archy-builder/issues">Ajuda e sugestoes</a>
+  <a href="#installation">Installation</a> &nbsp; | &nbsp;
+  <a href="#getting-started">Getting started</a> &nbsp; | &nbsp;
+  <a href="https://github.com/IINasK/archy-builder/issues">Help and suggestions</a>
 </p>
 
 # Archy Builder
 
-Uma ferramenta gratuita para **moveis planejados, marcenaria, arquitetura e
-interiores no Blender**. Crie armarios, portas, gavetas e prateleiras, ajuste
-medidas e organize o mobiliario nos seus ambientes.
+A free tool for **custom cabinetry, woodworking, architecture and interiors in
+Blender**. Create cabinets, doors, drawers and shelves, adjust their dimensions,
+and arrange furniture in your rooms.
 
-> **Em desenvolvimento.** Algumas funcoes ainda estao sendo aprimoradas.
-> Experimente em uma copia do seu projeto e mantenha seus arquivos salvos.
+> **In development.** Some features are still being refined.
+> Try it on a copy of your project and keep your files saved.
 
-## O que voce pode fazer
+## What you can do
 
-| Recurso | Para que serve |
+| Feature | Purpose |
 | --- | --- |
-| **Moveis e chapas** | Montar armarios e ajustar medidas e espessuras. |
-| **Portas e ferragens** | Configurar folhas, aberturas, puxadores e dobradicas. |
-| **Gavetas e internos** | Criar gavetas, prateleiras, divisorias e fundos. |
-| **Biblioteca** | Escolher modelos e materiais e inserir por arraste. |
-| **Ambientes** | Trabalhar com paredes, piso, teto e posicionamento em vista 2D. |
-| **Instalacoes** | Experimentar blocagens de esquadrias, iluminacao e eletrica em desenvolvimento. |
+| **Cabinets and panels** | Assemble cabinets and adjust dimensions and thicknesses. |
+| **Doors and hardware** | Configure leaves, opening styles, handles and hinges. |
+| **Drawers and interiors** | Create drawers, shelves, partitions and backs. |
+| **Library** | Choose models and materials and drag them into your scene. |
+| **Rooms** | Work with walls, floors, ceilings and placement in a 2D view. |
+| **Installations** | Try simplified opening, lighting and electrical models under development. |
 
-## Como instalar
+## Installation
 
-### 1. Baixe o add-on
+### 1. Download the add-on
 
-Abra a secao [Downloads](https://github.com/IINasK/archy-builder/releases).
-Baixe **`archy_builder.zip`** na lista
-de arquivos daquela versao. Esse e' o pacote pronto para instalar.
+Open [Downloads](https://github.com/IINasK/archy-builder/releases).
+Download **`archy_builder.zip`** from the files attached to the release.
+This is the ready-to-install package.
 
-### 2. Instale o ZIP
+### 2. Install the ZIP
 
-Sem extrair o arquivo, arraste **`archy_builder.zip`** para a viewport do
-Blender e confirme a instalacao.
+Drag **`archy_builder.zip`** into the Blender viewport without extracting it,
+then confirm installation.
 
-Voce tambem pode instalar pelo menu **Edit -> Preferences -> Add-ons ->
-Install from Disk**, selecionando o mesmo ZIP.
+You can also use **Edit -> Preferences -> Add-ons -> Install from Disk**
+and select the same ZIP.
 
-### 3. Ative o Archy Builder
+### 3. Enable Archy Builder
 
-Em **Preferences -> Add-ons**, procure **Archy Builder** e confira se ele
-esta' ativado.
+In **Preferences -> Add-ons**, search for **Archy Builder** and make sure it
+is enabled.
 
-Depois de instalar ou atualizar o add-on, salve seu trabalho e reinicie o Blender.
+After installing or updating the add-on, save your work and restart Blender.
 
-**Versao recomendada: Blender 5.2**, para usar a biblioteca atual de modelos.
-Alguns modelos salvos no Blender 5.x podem nao abrir no Blender 4.2.
+**Recommended version: Blender 5.2**, for the current model library.
+Some models saved in Blender 5.x may not open in Blender 4.2.
 
-## Primeiros passos
+## Getting started
 
-1. No seletor de tipo de editor de uma area, escolha **Archy Builder**.
-2. Escolha um modelo na biblioteca e arraste para a cena.
-3. Selecione o movel para ajustar as medidas e opcoes disponiveis no menu.
-4. Use as abas para trabalhar com portas, gavetas, prateleiras, divisorias,
-   fundos, puxadores e alvenaria.
-5. Salve seu projeto normalmente no Blender.
+1. In an area's editor type selector, choose **Archy Builder**.
+2. Choose a model in the library and drag it into the scene.
+3. Select the cabinet to adjust the dimensions and options available in the menu.
+4. Use the tabs to work with doors, drawers, shelves, partitions, backs,
+   handles and masonry.
+5. Save your project normally in Blender.
 
-Os controles acompanham a selecao. Um clique seleciona o conjunto; dois
-cliques permitem acessar uma peca individual compativel.
+The controls follow your selection. One click selects the assembly;
+double-click to access a supported individual part.
 
-## Atualizacoes
+## Updates
 
-Quando uma nova versao estiver disponivel, baixe o novo **`archy_builder.zip`**
-na secao Downloads e instale por cima da versao anterior. Se voce salvou
-modelos proprios na biblioteca, mantenha uma copia deles antes de atualizar.
+When a new version is available, download the new **`archy_builder.zip`**
+from Downloads and install it over the previous version. If you saved your
+own models in the library, back them up before updating.
 
-## Ajuda e sugestoes
+## Help and suggestions
 
-Encontrou um problema? Abra um relato na secao
-[Issues](https://github.com/IINasK/archy-builder/issues) informando:
+Found a problem? Open a report in
+[Issues](https://github.com/IINasK/archy-builder/issues) and include:
 
-- Versao do Blender e do Archy Builder.
-- O que voce estava tentando fazer e os passos para repetir.
-- O resultado esperado e o que apareceu na tela.
-- Uma imagem ou arquivo pequeno de exemplo, sem dados privados de clientes.
+- Your Blender and Archy Builder versions.
+- What you were trying to do and the steps to reproduce it.
+- The expected result and what appeared on screen.
+- An image or small example file without private client data.
 
-Voce tambem pode sugerir melhorias. Veja [como enviar um relato](CONTRIBUTING.md).
+You can also suggest improvements. See [how to submit a report](CONTRIBUTING.md).
 
-## Uso gratuito
+## Free to use
 
-O Archy Builder e' gratuito para usar. Os avisos de licenca e de terceiros
-acompanham o pacote de instalacao.
+Archy Builder is free to use. License and third-party notices are included in
+its installation package. The project is also open to modification. Environment
+setup, packaging and code contributions are in the [developer guide](docs/DEVELOPMENT.md).
 
-O projeto tambem e' aberto para quem deseja modifica-lo. Preparacao do
-ambiente, empacotamento e contribuicoes ficam no
-[guia de desenvolvimento](docs/DEVELOPMENT.md).
-
-As instalacoes arquitetonicas ainda sao representacoes simplificadas e
-precisam de verificacao tecnica para uso em um projeto executivo.
+Architectural installations are still simplified representations and need
+technical verification before use in construction documents.

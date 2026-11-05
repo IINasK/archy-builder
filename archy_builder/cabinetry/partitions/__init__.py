@@ -1,7 +1,7 @@
-"""Divisorias verticais e apoios dos sistemas internos que atravessam.
+"""Vertical partitions and supports for the internal systems they cross.
 
-O vao pertence ao sistema, e o limite interno pertence a' chapa real.
-Partir nao troca IDs das malhas sobreviventes nem reconstrui prateleiras.
+The system owns its opening; the actual panel owns the internal limit.
+Splitting neither replaces surviving Mesh IDs nor reconstructs shelves.
 """
 import bpy
 import bmesh
@@ -15,7 +15,7 @@ MARCA_DIVISORIA = 'eh_divisoria'
 CHAVE_PARAMETROS = 'divisorias_parametros'
 CHAVE_APOIOS = 'divisorias_apoios'
 CHAVE_BLOCAGEM = 'cabinet_blocagem_uid'
-# Referencia de vao compartilhada; a marca do grupo define quem o edita.
+# Shared opening reference; the group marker determines its editor.
 CHAVE_MARGENS = _gavetas.CHAVE_MARGENS
 CHAVE_REFERENCIA = _gavetas.CHAVE_REFERENCIA
 CHAVE_VAO = _gavetas.CHAVE_VAO
@@ -50,7 +50,7 @@ def garantir_blocagem(grupo):
         return uid
     membros = [grupo]
     if _prateleiras.MARCA_GRUPO in grupo and grupo.parent is not None:
-        # Legado: somente segmentos coplanares ligados ao mesmo apoio real.
+        # Legacy: only coplanar segments linked to the same actual support.
         pendentes = [g for g in grupo.parent.children
                      if _prateleiras.MARCA_GRUPO in g and not g.get(CHAVE_BLOCAGEM) and g != grupo]
         inv = grupo.matrix_world.inverted_safe()
@@ -106,16 +106,16 @@ def linhas_da_blocagem(grupo, chapas, linhas_do_grupo):
 def calcular(largura, altura, p):
     n, e = int(p['quantidade']), float(p['espessura_mm'])
     if not 1 <= n <= MAXIMO_DIVISORIAS or e <= 0 or altura < 50:
-        raise ValueError('Quantidade, espessura ou altura invalida para divisorias')
+        raise ValueError("Invalid partition count, thickness, or height")
     livre = largura - n * e
     g = list(p.get('vaos_mm') or ())
     if len(g) != n + 1:
         g = [livre / (n + 1)] * (n + 1)
     if min(g) < 50 - TOL or abs(sum(g) - livre) > TOL:
-        raise ValueError('As divisorias nao deixam vaos de pelo menos 50 mm')
+        raise ValueError("Partitions leave openings smaller than 50 mm")
     recuo, prof = float(p['recuo_mm']), float(p['profundidade_mm'])
     if prof - recuo < 50:
-        raise ValueError('A divisoria precisa de pelo menos 50 mm de profundidade')
+        raise ValueError("The partition needs at least 50 mm of depth")
     caixas, x = [], 0.0
     for i in range(n):
         x += g[i]
@@ -138,7 +138,7 @@ def linhas_hud(grupo, chapas):
 
 
 def _linhas_hud_grupo(grupo, chapas):
-    """Vao do sistema e distancias livres ate' as faces das divisorias."""
+    """System opening and clear distances to partition faces."""
     largura, altura, prof = medidas(grupo)
     m = grupo.matrix_world
     cantos = [m @ (Vector((i * largura, j * prof, k * altura)) / 1000)
@@ -151,7 +151,7 @@ def _linhas_hud_grupo(grupo, chapas):
     p = parametros(grupo)
     try:
         dados = calcular(largura, altura, p)
-    except ValueError:      # callback de desenho: so' as medidas do vao
+    except ValueError:      # Draw callback: opening dimensions only.
         return cantos, linhas
     caixas = dados['divisorias']
     for k in range(len(dados['vaos'])):
@@ -177,7 +177,7 @@ def _limites_malha(obj, mundo):
 
 
 def limitar_vao(grupo, largura, altura, matriz):
-    """Apoios por UID, no referencial do vao; ausencia conserva o ultimo limite."""
+    """Supports by UID in opening coordinates; absence keeps the last limit."""
     apoios = grupo.get(CHAVE_APOIOS)
     if not apoios:
         return largura, altura, matriz
@@ -198,8 +198,8 @@ def limitar_vao(grupo, largura, altura, matriz):
             extremos[k] = (hi.x if apoio.get('face') == 'max' else lo.x
                            if apoio.get('face') == 'min' else hi.x if k == 0 else lo.x)
         else:
-            # A exclusao da divisoria nao funde sistemas que o usuario
-            # pode ter editado independentemente depois da separacao.
+            # Deleting a partition must not merge systems the user may have
+            # edited independently after splitting.
             origem = matriz.translation
             eixo = matriz.to_3x3().col[0]
             extremos[k] = (Vector(apoio['ponto']) - origem).dot(eixo) * 1000
@@ -229,7 +229,7 @@ def _parametros_largura(dono, grupo, largura, antiga, indice, total, e):
 
 
 def _duplicar(grupo):
-    """Copias nativas: remapear pais, modificadores e alvos do proprio rig."""
+    """Native copies: remap parents, modifiers and the rig's own targets."""
     mapa = {}
     for obj in [grupo, *grupo.children_recursive]:
         novo = obj.copy()
@@ -244,8 +244,8 @@ def _duplicar(grupo):
         mapa[obj] = novo
     for obj, novo in mapa.items():
         novo.parent = mapa.get(obj.parent, obj.parent)
-        # Atribuir parent nativamente zera a inversa: presets importados
-        # conservam a compensacao da montagem, que nao e' identidade.
+        # Native parent assignment resets the inverse; imported presets
+        # retain nonidentity assembly compensation.
         novo.matrix_parent_inverse = obj.matrix_parent_inverse.copy()
         novo.matrix_basis = obj.matrix_basis.copy()
         for bloco in [*novo.modifiers, *novo.constraints]:
@@ -264,7 +264,7 @@ def _duplicar(grupo):
 
 
 def _cortar_chapa(obj, mundo, inicio, fim):
-    """Bisect/cap nativos conservam espessura, recortes, materiais e UV."""
+    """Native bisect/cap preserves thickness, cutouts, materials and UVs."""
     if obj.data.users > 1:
         obj.data = obj.data.copy()
     bm = bmesh.new()
@@ -283,8 +283,8 @@ def _cortar_chapa(obj, mundo, inicio, fim):
                 bmesh.ops.holes_fill(bm, edges=bordas, sides=0)
             eixo = max(range(3), key=lambda k: abs(normal[k]))
             if abs(normal[eixo]) > 1 - 1e-6:
-                # Bisect conserva vertices quase no plano; alinhar a tampa
-                # elimina cunhas de precisao simples antes do Boolean nativo.
+                # Bisect retains vertices nearly on the plane; align the cap to remove
+                # single-precision wedges before native Boolean.
                 tampa = [v for v in bm.verts if abs(v.co[eixo] - ponto[eixo]) < 1e-6]
                 projecao = Matrix.Identity(4)
                 projecao[eixo][eixo] = 0; projecao[eixo][3] = ponto[eixo]
@@ -297,7 +297,7 @@ def _cortar_chapa(obj, mundo, inicio, fim):
 
 
 def _plano(conj, matriz, caixas, alvo=None):
-    """Planeja TODOS os sistemas antes de escrever qualquer peca."""
+    """Plan ALL systems before writing any part."""
     planos = []
     mundo = conj.matrix_world @ matriz
     for dono in (_gavetas, _prateleiras):
@@ -323,7 +323,7 @@ def _plano(conj, matriz, caixas, alvo=None):
                     continue
                 obliqua = abs(abs(transformacao.to_3x3().col[0].normalized().x) - 1) > 1e-5
                 if obliqua and dono is _gavetas:
-                    raise ValueError('A divisoria deve acompanhar a orientacao dos sistemas atravessados')
+                    raise ValueError("The partition must follow the orientation of the systems it crosses")
                 if dono is _prateleiras:
                     indices = {k for k, (baixo, cima) in enumerate(locais)
                                if baixo.x < lo[0] - TOL and cima.x > hi[0] + TOL
@@ -336,9 +336,9 @@ def _plano(conj, matriz, caixas, alvo=None):
                         parciais.add(i)
                 else:
                     if lo[2] > TOL or hi[2] < a - TOL:
-                        raise ValueError('Marque a altura inteira do vao de %s' % grupo.name)
+                        raise ValueError("Mark the full opening height of %s" % grupo.name)
                     if lo[1] > TOL or hi[1] < float(p['profundidade_mm']) - TOL:
-                        raise ValueError('A divisoria deve cobrir a profundidade de %s' % grupo.name)
+                        raise ValueError("The partition must cover the depth of %s" % grupo.name)
                     indices = {None}
                 for k in indices:
                     por_peca[k].append((lo[0], hi[0], i))
@@ -356,7 +356,7 @@ def _plano(conj, matriz, caixas, alvo=None):
                     novo = _parametros_largura(dono, grupo, x1 - x0, l, k, len(segmentos),
                                               caixas[0][1] - caixas[0][0])
                     dono.calcular(x1 - x0, a, novo)
-                # Identidade das chapas evita indices mudando ao separar outro subconjunto.
+                # Panel identity avoids shifting indices when splitting another subset.
                 nomes = {prateleiras[k].name for k in atingidos} if prateleiras else set()
                 planos.append((dono, grupo, l, a, m, segmentos, nomes, parciais))
     return planos
@@ -374,7 +374,7 @@ def _apoios(grupo, m, x0, x1, minimo, maximo, chapas, faces=None):
 
 
 def _separar_prateleiras(fonte, indices):
-    """Uma selecao parcial cria outro vao sem mover as unidades restantes."""
+    """A partial selection creates another opening without moving other units."""
     antigas = _prateleiras.prateleiras_do_grupo(fonte)
     if len(indices) == len(antigas):
         return fonte
@@ -448,8 +448,8 @@ def _partir(conj, planos, chapas, preenchimento='MANTER'):
                         if _chapas.MARCA_PUXADOR in obj:
                             _gavetas._puxadores.posicionar_puxador(obj)
             else:
-                # O grupo desloca sua origem; primeiro conservar as
-                # chapas no referencial ANTERIOR, depois bisectar.
+                # The group moves its origin: first preserve panels in the PREVIOUS
+                # frame, then bisect.
                 bpy.context.view_layer.update()
                 for obj in _prateleiras.prateleiras_do_grupo(grupo):
                     obj.matrix_world = poses[obj.name]
@@ -459,8 +459,8 @@ def _partir(conj, planos, chapas, preenchimento='MANTER'):
                     _cortar_chapa(obj, mundo, x0, x1)
                     _chapas.absorver_malha_editada(obj, reorientar=False)
                     for apoio in recortes:
-                        # O Boolean nativo acompanha mover/resize sem reconstruir a madeira.
-                        corte = obj.modifiers.new('Encaixe divisoria', 'BOOLEAN')
+                        # Native Boolean follows movement/resize without reconstructing wood.
+                        corte = obj.modifiers.new("Partition Joint", 'BOOLEAN')
                         corte.operation = 'DIFFERENCE'; corte.solver = 'EXACT'; corte.object = apoio
                     lo_obj, hi_obj = _limites_malha(obj, conj.matrix_world @ nova)
                     q = dict(_prateleiras.parametros_individuais(p, int(obj[_prateleiras.CHAVE_INDICE])))
@@ -488,7 +488,7 @@ def montar(grupo):
     atuais = pecas(grupo)
     for i, caixa in enumerate(dados['divisorias']):
         obj = atuais[i] if i < len(atuais) else bpy.data.objects.new(
-            'Divisoria %d' % (i + 1), bpy.data.meshes.new('Divisoria'))
+            "Partition %d" % (i + 1), bpy.data.meshes.new("Partition"))
         if i >= len(atuais):
             _gavetas._colecao(grupo).objects.link(obj)
             obj.parent = grupo
@@ -528,7 +528,7 @@ def planejar(conj, margens, p, referencial=None):
 def criar_divisorias(context, conj, margens, p, referencial=None, blocagem_uid=None):
     p, planos = planejar(conj, margens, p, referencial)
     ref = referencial if referencial is not None else Matrix.Identity(3)
-    grupo = bpy.data.objects.new('Divisorias %s' % conj.name, None)
+    grupo = bpy.data.objects.new("Partitions %s" % conj.name, None)
     (_modulos._colecao_do_modulo(conj) or conj.users_collection[0]).objects.link(grupo)
     grupo[MARCA_GRUPO] = 1
     grupo[CHAVE_PARAMETROS] = p
@@ -567,7 +567,7 @@ def prever_lacunas_prateleiras(conj, margens, p, referencial=None):
 
 
 def particionar_grupo(grupo):
-    """Sistemas criados depois tambem respeitam as divisorias existentes."""
+    """Systems created later also respect existing partitions."""
     conj = _gavetas.modulo_do_grupo(grupo)
     if conj is None:
         return
@@ -580,8 +580,8 @@ def particionar_grupo(grupo):
         for chapa in chapas:
             lo, hi = _limites_malha(chapa, div.matrix_world)
             caixas.append((lo.x, hi.x, lo.y, hi.y, lo.z, hi.z))
-        # Preflight e' independente da mutacao; vao estreito nao deixa
-        # metades prontas de um conjunto cuja outra metade falhou.
+        # Preflight is independent of mutation: a narrow opening must not leave
+        # one completed half when the other half failed.
         try:
             for alvo in list(alvos):
                 anteriores = {o.name for o in conj.children}
@@ -592,8 +592,8 @@ def particionar_grupo(grupo):
                 alvos.extend(o for o in conj.children if o.name not in anteriores
                              and (_gavetas.MARCA_GRUPO in o or _prateleiras.MARCA_GRUPO in o))
         except ValueError:
-            # Com 2+ divisorias a 1a ja' partiu quando a 2a recusa: o
-            # chamador so' remove o `grupo`, as copias ficariam orfas.
+            # With 2+ partitions, the first may split before the second rejects:
+            # the caller removes only `grupo`, which would orphan copies.
             for copia in alvos[1:]:
                 for o in list(reversed(copia.children_recursive)):
                     _gavetas._remover(o)
@@ -612,9 +612,9 @@ def atualizar_dependentes():
             try:
                 montar(grupo)
             except ValueError as erro:
-                # vao que deixou de caber: sem isto o timer falhava todo
-                # ciclo e parava o resto da manutencao
-                print("[Archy Builder] divisorias:", erro)
+                # Opening no longer fits: otherwise the timer failed every cycle
+                # and stopped all remaining maintenance.
+                print("[Archy Builder] partitions:", erro)
     pendentes = []
     for grupo in list(bpy.data.objects):
         dono = (_gavetas if _gavetas.MARCA_GRUPO in grupo else
@@ -660,7 +660,7 @@ def editar(context, grupo, nome, valor):
         g[k] = float(valor)
         p['vaos_mm'] = g
     elif nome not in ('espessura_mm', 'profundidade_mm', 'recuo_mm'):
-        return 'Campo de divisoria desconhecido'
+        return "Unknown partition field"
     else:
         p[nome] = float(valor)
         if nome == 'espessura_mm':
@@ -721,7 +721,7 @@ def aplicar(context, grupo, chave, novo, lado=None):
     margens = list(antes)
     l, a, _m = vao(grupo)
     k = (0 if lado == 'max' else 1) if letra == 'L' else (2 if lado == 'max' else 3)
-    # como gavetas/prateleiras: margem negativa poria tudo fora do modulo
+    # As with drawers/shelves: a negative margin would put everything outside the cabinet.
     margens[k] = max(0.0, margens[k] - (float(novo) - (l if letra == 'L' else a)))
     grupo[CHAVE_MARGENS] = margens
     try:
@@ -755,19 +755,19 @@ def _criando():
 
 
 class OBJECT_OT_criar_divisorias(_gavetas.AssistenteDoVao, Operator):
-    """Cria divisorias e segmenta os sistemas que atravessam o vao"""
+    """Create partitions and segment systems crossing the opening."""
     bl_idname = 'object.cabinet_criar_divisorias'
-    bl_label = 'Criar Divisorias'
+    bl_label = "Create Partitions"
     bl_options = {'REGISTER', 'UNDO'}
     _estado = _assistente_divisorias
     RECADOS = {
-        'CANTO1': 'Marque o canto de cima a esquerda do vao',
-        'CANTO2': 'Marque o canto de baixo a direita do vao',
-        'QUANTIDADE': 'Scroll: quantidade de divisorias | clique cria'}
+        'CANTO1': "Mark the top left corner of the opening",
+        'CANTO2': "Mark the bottom right corner of the opening",
+        'QUANTIDADE': "Scroll: partition count | Click: create"}
     MAXIMO = MAXIMO_DIVISORIAS
     ITEM = ('divisoria', 'divisorias')
     ABA = 'DIVISORIAS'
-    FIM_QUANTIDADE = 'clique cria'
+    FIM_QUANTIDADE = "Click to create"
 
     def _parametros_padrao(self):
         return dict(PARAMETROS_PADRAO, vaos_mm=[])
@@ -779,7 +779,7 @@ class OBJECT_OT_criar_divisorias(_gavetas.AssistenteDoVao, Operator):
         return dados['divisorias']
 
     def _comecar_no_modulo(self, conj, ponto):
-        # a profundidade sai de `_definir_vao` no 2o canto (ate' o fundo)
+        # Depth comes from `_definir_vao` at the second corner, up to the back.
         self._w['p']['espessura_mm'] = float(_portas._espessura_do_vao(conj))
 
     def _depois_da_quantidade(self, context):

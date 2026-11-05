@@ -1,4 +1,4 @@
-"""Fundos por vao, canais nativos e acompanhamento dos internos."""
+"""Backs per opening, native grooves and synchronization with internal components."""
 import os
 import sys
 import tempfile
@@ -349,4 +349,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_fundos_') as pasta:
     resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestFundos))
     addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nos fundos')
+        raise RuntimeError("Back tests failed")

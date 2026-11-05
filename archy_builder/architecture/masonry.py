@@ -1,4 +1,4 @@
-"""Classificacao por face e apoio local das instalacoes arquitetonicas."""
+"""Face classification and local support for architectural fixtures."""
 import bpy
 import bmesh
 import blf
@@ -16,7 +16,7 @@ _hud = None
 _eventos = None
 
 TIPOS = ('PAREDE', 'PISO', 'TETO')
-ROTULOS = {'PAREDE': 'Paredes', 'PISO': 'Piso', 'TETO': 'Teto'}
+ROTULOS = {'PAREDE': "Walls", 'PISO': "Floor", 'TETO': "Ceiling"}
 CORES = {'PAREDE': (.20, .54, .94), 'PISO': (.24, .77, .39), 'TETO': (.96, .62, .16)}
 ATR_TIPO = 'cabinet_tipo_superficie'
 ATR_FACE = 'cabinet_face_apoio'
@@ -49,12 +49,12 @@ def superficie(obj, indice, normal, malha=None):
 
 def classificar(obj, tipo, substituir=False):
     if tipo not in TIPOS or obj.mode != 'EDIT':
-        raise ValueError('Selecione faces em modo de edicao')
+        raise ValueError("Select faces in Edit Mode")
     if obj.data.users > 1:
-        raise ValueError('Torne a malha independente antes de classificar as faces')
+        raise ValueError("Make the mesh single-user before classifying faces")
     bm = bmesh.from_edit_mesh(obj.data)
     if not substituir and not any(f.select and not f.hide for f in bm.faces):
-        raise ValueError('Selecione as faces da alvenaria')
+        raise ValueError("Select the masonry faces")
     camada = bm.faces.layers.int.get(ATR_TIPO)
     legado = _paredes.alvenaria_definida(obj) and not obj.get(CHAVE_TIPADA)
     herdadas = {}
@@ -85,7 +85,7 @@ def classificar(obj, tipo, substituir=False):
 
 class OBJECT_OT_classificar_alvenaria(Operator):
     bl_idname = 'object.cabinet_classificar_alvenaria'
-    bl_label = 'Classificar Alvenaria'
+    bl_label = "Classify Masonry"
     bl_options = {'UNDO'}
     tipo: StringProperty(options={'SKIP_SAVE'})
     editar: BoolProperty(options={'SKIP_SAVE'})
@@ -137,10 +137,10 @@ def alvo_novo(context):
 
 def iniciar_edicao(context, tipo, editar=False):
     if tipo not in TIPOS:
-        raise ValueError('Escolha Parede, Piso ou Teto')
+        raise ValueError("Choose Wall, Floor or Ceiling")
     obj = context.object if editar else alvo_novo(context)
     if obj is None or (editar and not _paredes.alvenaria_definida(obj)):
-        raise ValueError('Selecione um objeto compativel com esta operacao')
+        raise ValueError("Select an object compatible with this operation")
     if _paredes_edicao.ativa(context):
         _paredes_edicao.encerrar()
     if context.mode == 'EDIT_MESH' and context.edit_object != obj:
@@ -170,14 +170,14 @@ def iniciar_edicao(context, tipo, editar=False):
 def confirmar(context):
     s = _ambientes._edicao_faces[0]
     if s is None or not s.get('classificar') or _eventos._desfazendo[0]:
-        raise ValueError('Nenhuma selecao de alvenaria ativa')
+        raise ValueError("No active masonry selection")
     obj = context.edit_object
     if obj is None or obj.name != s['objeto'] or context.scene.name != s['cena']:
-        raise ValueError('A selecao de alvenaria perdeu o objeto de origem')
-    # A selecao pelo teclado nativo pode terminar antes do proximo timer.
+        raise ValueError("The masonry selection lost its source object")
+    # Native keyboard selection may finish before the next timer tick.
     _ambientes.guardar_selecao(obj)
     if not s['selecionadas'] and not s.get('substituir_tipo'):
-        raise ValueError('Selecione pelo menos uma face')
+        raise ValueError("Select at least one face")
     classificar(obj, s['classificar'], substituir=s.get('substituir_tipo', False))
     _ambientes.encerrar_selecao()
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -187,7 +187,7 @@ def confirmar(context):
 
 class OBJECT_OT_confirmar_alvenaria(Operator):
     bl_idname = 'object.cabinet_confirmar_alvenaria'
-    bl_label = 'Confirmar selecao'
+    bl_label = "Confirm selection"
     bl_options = {'UNDO'}
 
     @classmethod
@@ -237,7 +237,7 @@ def atualizar_visual(obj):
 
 
 def visual_da_malha(bm, valores):
-    """A mesma copia numerica alimenta edicao, olho e contornos por tipo."""
+    """The same numeric copy drives editing, visibility, and outlines by type."""
     visual = bm.faces.layers.int.new('tipo_visual')
     for face in bm.faces:
         face[visual] = valores[face.index]
@@ -308,7 +308,7 @@ def desenhar_tipos(context):
 
 class OBJECT_OT_visualizar_alvenaria(Operator):
     bl_idname = 'object.cabinet_visualizar_alvenaria'
-    bl_label = 'Mostrar tipos da Alvenaria'
+    bl_label = "Show Masonry types"
     bl_options = {'UNDO'}
 
     def execute(self, context):
@@ -396,7 +396,7 @@ def _identificar_face(apoio, indice):
 
 def vincular(obj, apoio, indice, matriz, tipo):
     if apoio.data.is_editmode or not 0 <= indice < len(apoio.data.polygons):
-        raise ValueError('Selecione uma face de apoio valida')
+        raise ValueError("Select a valid support face")
     obj[CHAVE_VINCULO] = dict(
         uid=_paredes._uid_da_parede(apoio), nome=apoio.name, tipo=tipo,
         face=_identificar_face(apoio, indice),
@@ -478,7 +478,7 @@ def destino_cota(obj, lado, valor):
     resolvido = resolver(obj)
     medidas = cotas(obj, resolvido) if resolvido else {}
     if lado not in medidas:
-        raise ValueError('A instalacao precisa de um apoio valido')
+        raise ValueError("The installation requires a valid support surface")
     apoio, matriz, indice, _ = resolvido
     eixo = 0 if lado in {'esquerda', 'direita'} else 1
     sinal = 1 if lado in {'esquerda', 'abaixo'} else -1
@@ -573,12 +573,12 @@ def widgets_classificar(context, itens, x, y, w):
     tela = getattr(context, 'screen', None)
     aberto = bool(tela and tela.get(CHAVE_ABRIR))
     y -= 30
-    itens.append((x, y, w, 30, 'Criar Alvenaria',
+    itens.append((x, y, w, 30, "Create Masonry",
                   ('escolha', 'criar_alvenaria', not aberto, aberto, True, ALVO_TIPO)))
     y -= 6
     if aberto:
         y -= 25
-        for i, (tipo, rotulo) in enumerate(zip(TIPOS, ('Parede', 'Piso', 'Teto'))):
+        for i, (tipo, rotulo) in enumerate(zip(TIPOS, ("Wall", "Floor", "Ceiling"))):
             coluna = (w - 12) / 3
             itens.append((x + i * (coluna + 6), y, coluna, 25, rotulo,
                           ('escolha', 'tipo_alvenaria', tipo, False, True, ALVO_TIPO)))
@@ -589,12 +589,12 @@ def widgets_classificar(context, itens, x, y, w):
 def painel(context, itens, x, y, w):
     s = _ambientes._edicao_faces[0]
     if s and s.get('classificar') and s['cena'] == context.scene.name:
-        y = _gaveta._titulo_secao(itens, x, y+26, w, 'Editar ' + ROTULOS[s['classificar']])
+        y = _gaveta._titulo_secao(itens, x, y+26, w, "Edit " + ROTULOS[s['classificar']])
         y -= 30
-        itens.append((x, y, w, 30, 'Confirmar selecao',
+        itens.append((x, y, w, 30, "Confirm selection",
                       ('operador', 'object.cabinet_confirmar_alvenaria')))
         y -= 26
-        itens.append((x, y, w, 20, 'Enter confirma | Esc cancela', None))
+        itens.append((x, y, w, 20, "Enter confirms | Esc cancels", None))
         return y-12
     y = widgets_classificar(context, itens, x, y+30, w)
     if candidatos(context):
@@ -604,7 +604,7 @@ def painel(context, itens, x, y, w):
         return y
     tipo = context.screen.get(_instalacoes.CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
     y -= 30
-    itens.append((x, y, w, 30, 'Editar',
+    itens.append((x, y, w, 30, "Edit",
                   ('escolha', 'editar_alvenaria', tipo, False, True, ALVO_TIPO)))
     y = _instalacoes.widgets_seletor(context, itens, x, y-8, w)
     return _instalacoes.widgets_modelos(context, itens, x, y, w, tipo)
@@ -628,14 +628,14 @@ def widgets(context, itens, x, y, w):
     medidas = _cotas_menu[0].get(obj.name, {})
     if not medidas:
         if obj.get(CHAVE_SEM_APOIO):
-            itens.append((x, y - 20, w, 20, 'Selecione um novo apoio', None))
+            itens.append((x, y - 20, w, 20, "Select a new support surface", None))
             return y - 32
         return y
     colunas = min(2, _gaveta._colunas_medidas(context, w+24, 2))
     largura = (w - (colunas-1)*6) / colunas
     for i, (chave, mm) in enumerate((k, medidas[k] * 1000)
                                     for k in ('esquerda', 'direita', 'acima', 'abaixo')):
-        rotulo = chave.capitalize()
+        rotulo = _opcoes.DIRECTION_LABELS[chave.upper()]
         itens.append((x + i % colunas * (largura + 6), y - 37 - i // colunas * 43,
                       largura, 37, rotulo + ': ' + _opcoes._texto_medida(mm),
                       ('medida', 'instalacao', chave, rotulo, mm)))

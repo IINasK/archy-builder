@@ -1,4 +1,4 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_importing_blender.py"""
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_importing_blender.py"""
 import math
 import os
 import sys
@@ -13,7 +13,7 @@ import archy_builder as addon
 
 
 def caixa(nome, dims, centro, rot_z=0.0):
-    """Malha de caixa como viria de um arquivo de fora: sem marcador."""
+    """Create an external-file-style box mesh without a marker."""
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
@@ -47,9 +47,7 @@ def limites(objs):
 
 
 def relativo(bloco):
-    """O bloco com y relativo ao 1o widget: na aba Portas ele desce para
-    caber o "Criar Portas" no topo (Epico 2.3); o CONTEUDO e as posicoes
-    entre os campos continuam identicos."""
+    """Return the block with y relative to its first widget. In the Doors tab it moves down to accommodate Create Doors at the top (Epic 2.3); content and relative field positions remain identical."""
     if not bloco:
         return bloco
     y0 = bloco[0][1]
@@ -57,7 +55,7 @@ def relativo(bloco):
 
 
 def _faces_da_caixa(lo, hi):
-    """12 triangulos de uma caixa (como o Promob exporta), em mm."""
+    """Return a box's 12 triangles in mm, as exported by Promob."""
     x0, y0, z0 = lo
     x1, y1, z1 = hi
     v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
@@ -69,10 +67,7 @@ def _faces_da_caixa(lo, hi):
 
 
 def dxf_promob(caminho, caixas, polyfaces=(), cores=None):
-    """DXF no formato do Promob: uma CAMADA por peca; 3DFACE para as
-    caixas e POLYLINE polyface (70 = 64) para as recortadas. `cores` =
-    {camada: cor} vai na tabela de camadas (7 chapa, 253 ferragem, 254
-    aluminio), como o Promob grava."""
+    """Write Promob-format DXF: one layer per part, 3DFACE for boxes and POLYLINE polyface (70 = 64) for cutout parts. cores = {layer: color} populates the layer table as Promob does: 7 for panels, 253 for hardware, 254 for aluminum."""
     out = []
     if cores:
         out += ['0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', str(len(cores))]
@@ -102,7 +97,7 @@ def dxf_promob(caminho, caixas, polyfaces=(), cores=None):
 
 
 def base_em_l(lado=600.0, recorte=300.0, e=15.0, z=0.0):
-    """Prisma em L (a base de um canto do Promob): 12 vertices."""
+    """Create an L-shaped prism, like a Promob corner base, with 12 vertices."""
     contorno = [(0, 0), (lado, 0), (lado, recorte), (recorte, recorte),
                 (recorte, lado), (0, lado)]
     vs = [(x, y, z) for x, y in contorno] + [(x, y, z + e) for x, y in contorno]
@@ -166,7 +161,7 @@ class TestImportacao(unittest.TestCase):
         return next(o for o in para.objects if addon.chapas.MARCA_CONJUNTO in o)
 
     def _volume_intersecao_nativa(self,folha,corpo,matriz):
-        # Oraculo independente: Boolean EXACT do Blender em copias.
+        # Independent oracle: Blender's EXACT Boolean on copies.
         def copiar(o,m):
             me=o.data.copy();me.transform(m)
             bm=bmesh.new();bm.from_mesh(me)
@@ -256,8 +251,8 @@ class TestImportacao(unittest.TestCase):
     def test_inserir_curva_legada_migra_copia_sem_alterar_arquivo_e_sem_rna_morto(self):
         if bpy.app.version < (5,):self.skipTest('Preset gravado no Blender 5.x')
         import hashlib
-        # o preset saiu da biblioteca (porta curva, pedido do usuario); a
-        # copia dele em fixtures segue testando a migracao da curva legada
+        # The curved-door preset was removed from the library at the user's request;
+        # its fixture copy still tests legacy curve migration.
         pasta=os.path.join(os.path.dirname(__file__),'fixtures');arquivo='Bancada_Quarto_02_300x720x556.blend'
         with open(os.path.join(pasta,arquivo),'rb') as arq:antes=hashlib.sha256(arq.read()).digest()
         novos,raizes,erro=addon.biblioteca.inserir_preset(bpy.context,pasta,arquivo,'modulo',destino=Vector((2,3,0)))
@@ -280,10 +275,10 @@ class TestImportacao(unittest.TestCase):
                 ('B',(0,0,0),(585,600,15)),('T',(0,0,685),(585,600,700)),
                 ('H1',(558,245,80),(589,247,100)),('H2',(558,245,550),(589,247,592))]
         caminho=os.path.join(tempfile.mkdtemp(),'CurvaRodape.dxf')
-        poly=[(nome,[(x,y,z) for z in alturas for x,y in contorno],fs) for nome,alturas in (('F',(5,695)),('Rodape',(0,75)))]
+        poly=[(nome,[(x,y,z) for z in alturas for x,y in contorno],fs) for nome,alturas in (('F',(5,695)),("Toe Kick",(0,75)))]
         dxf_promob(caminho,[(c,_faces_da_caixa(lo,hi)) for c,lo,hi in caixas],poly,
-                   cores={**{c:253 if c.startswith('H') else 7 for c,lo,hi in caixas},'F':7,'Rodape':7})
-        (conj,),info=addon.importacao.importar_dxf_promob(bpy.context,caminho,'Curva')
+                   cores={**{c:253 if c.startswith('H') else 7 for c,lo,hi in caixas},'F':7,"Toe Kick":7})
+        (conj,),info=addon.importacao.importar_dxf_promob(bpy.context,caminho,"Curve")
         self.assertEqual(info['portas'],1)
         self.assertEqual(len(addon.portas._portas_do_conjunto(conj)),1)
 
@@ -295,8 +290,8 @@ class TestImportacao(unittest.TestCase):
         for z in (0,.685):
             vs=[(x,y,h) for h in (z,z+.015) for x,y in contorno]
             fs=[tuple(range(n-1,-1,-1)),tuple(range(n,2*n))]+[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
-            malha=bpy.data.meshes.new('Tampo');malha.from_pydata(vs,[],fs)
-            o=bpy.data.objects.new('Tampo',malha);bpy.context.collection.objects.link(o);cs.append(o)
+            malha=bpy.data.meshes.new("Top");malha.from_pydata(vs,[],fs)
+            o=bpy.data.objects.new("Top",malha);bpy.context.collection.objects.link(o);cs.append(o)
         bpy.context.view_layer.update()
         for o in cs:addon.importacao.converter_em_chapa(o)
         conj=addon.modulos.agrupar_chapas(bpy.context,cs,'Diagonal modelada')
@@ -314,14 +309,14 @@ class TestImportacao(unittest.TestCase):
         bpy.context.view_layer.update()
         return conj,g,f
 
-    # Regressao (era BUG, corrigido na 305): o perfil na borda X da folha
-    # curva (linha da frente) ia pela caixa e caia na corda, fora da madeira.
+    # Regression, fixed in v305: a profile on a curved leaf's X edge, the front line,
+    # followed its bounding box and landed on the chord outside the wood.
     def test_perfil_na_borda_reta_da_folha_curva_senta_na_madeira(self):
         from unittest.mock import patch
         conj,g,f=self._diagonal_modelada()
         self.assertTrue(addon.promob.alinhar_frente_ao_corpo(g))
         pux,=[o for o in f.children if addon.chapas.MARCA_PUXADOR in o]
-        # como as folhas curvas da biblioteca: sem a referencia nova das frentes
+        # Like curved library leaves: without the new front reference.
         with patch.object(addon.frentes,'referencia',return_value=None):
             addon.puxadores._trocar_modelo_puxador(pux,'PERFIL')
         bpy.context.view_layer.update()
@@ -330,8 +325,8 @@ class TestImportacao(unittest.TestCase):
         self.assertLess((co-local).length,.002)
         self.assertAlmostEqual(max(pux.dimensions),f.chapa_comprimento_mm/1000,delta=.002)
 
-    # Mesmo BUG, folha curva SEM linha: o raio de recuo 0 passava rente a'
-    # ponta e o perfil ficava no lugar da caixa, solto no ar.
+    # Same bug on a curved leaf without a line: the zero-recess ray grazed its end,
+    # leaving the profile at the bounding-box position, floating in space.
     def test_perfil_na_folha_curva_sem_linha_senta_na_madeira(self):
         from unittest.mock import patch
         conj,g,f=self._diagonal_modelada()
@@ -345,9 +340,9 @@ class TestImportacao(unittest.TestCase):
         _hit,co,_n,_i=f.closest_point_on_mesh(local)
         self.assertLess((co-local).length,.002)
 
-    # Regressao (era BUG, corrigido na 307): "Definir como Frente" numa
-    # porta curva tirava o vao da caixa da folha e a deslocava 10-76 cm.
-    # Agora a madeira fica; lado, coberturas e o abrir trocam de sentido.
+    # Regression, fixed in v307: setting a curved door's front derived its opening
+    # from the leaf box and displaced it 10-76 cm. Now the wood stays put,
+    # while side, coverage and opening direction reverse.
     def test_virar_frente_da_porta_curva_nao_mexe_na_madeira(self):
         from unittest.mock import patch
         conj,g,f=self._diagonal_modelada()
@@ -375,7 +370,7 @@ class TestImportacao(unittest.TestCase):
         q=g['porta_parametros']
         self.assertEqual(q['dobradica_lado'],lado)
         self.assertEqual((q['cobertura_esq_e'],q['cobertura_dir_e']),(.5,1.0))
-        self.assertLess((centro(.5)-centro(0)).dot(passo),0)    # abre para o outro lado
+        self.assertLess((centro(.5)-centro(0)).dot(passo),0)    # Opens in the opposite direction.
 
     def test_diagonal_modelada_alinha_perfil_normal_abertura_e_apoios(self):
         conj,g,f=self._diagonal_modelada()
@@ -385,7 +380,8 @@ class TestImportacao(unittest.TestCase):
         linha=[addon.ferragens._matriz_fechada(f)@Vector(v) for v in f['porta_linha_frente']]
         self.assertAlmostEqual(linha[0].y,-.017,delta=.00005)
         self.assertAlmostEqual((linha[-1]-linha[-2]).normalized().dot(Vector((135,100,0)).normalized()),1,places=5)
-        bases=[o for o in g.children if o.name.startswith('Dobradica Base')]
+        bases=[o for o in g.children if o.type == 'MESH'
+               and o.get(addon.ferragens.CHAVE_ID_FERRAGEM, '').startswith('DOBRADICA_')]
         self.assertEqual(len(bases),2)
         for base in bases:
             erros=[]
@@ -441,11 +437,11 @@ class TestImportacao(unittest.TestCase):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
         from mathutils.kdtree import KDTree
-        # Modelo descontinuado na biblioteca; a fixture conserva a regressao.
+        # Library model discontinued; the fixture preserves regression coverage.
         caminho = os.path.join(os.path.dirname(__file__), 'fixtures',
                                'Diagonal_Quarto_Armario_06_350x2503x550.blend')
-        # Append nativo evita o preparo do posicionador e o tique do timer:
-        # a referencia tem de nascer ANTES de a primeira deformacao ocorrer.
+        # Native append skips positioner preparation and timer ticks: the reference
+        # must exist before the first deformation occurs.
         with bpy.data.libraries.load(caminho, link=False) as (origem, destino):
             destino.collections = list(origem.collections)
             destino.objects = list(origem.objects)
@@ -464,11 +460,12 @@ class TestImportacao(unittest.TestCase):
         antes = {}
         for obj in chapas:
             matriz = addon.ferragens._matriz_fechada(obj) if obj == folha else obj.matrix_world
-            antes[obj.name] = [matriz@v.co for v in obj.data.vertices]
+            antes[obj.as_pointer()] = [matriz@v.co for v in obj.data.vertices]
 
         def conferir_apoios():
             bpy.context.view_layer.update()
-            bases = [o for o in grupo.children if o.name.startswith('Dobradica Base')]
+            bases = [o for o in grupo.children if o.type == 'MESH'
+                     and o.get(addon.ferragens.CHAVE_ID_FERRAGEM, '').startswith('DOBRADICA_')]
             self.assertEqual(len(bases), 3)
             for base in bases:
                 erros = []
@@ -484,7 +481,7 @@ class TestImportacao(unittest.TestCase):
 
         def conferir_retorno():
             for obj in chapas:
-                pontos = antes[obj.name]
+                pontos = antes[obj.as_pointer()]
                 matriz = addon.ferragens._matriz_fechada(obj) if obj == folha else obj.matrix_world
                 atuais = [matriz@v.co for v in obj.data.vertices]
                 self.assertEqual(len(atuais), len(pontos), obj.name)
@@ -533,7 +530,7 @@ class TestImportacao(unittest.TestCase):
         self.assertEqual(len(desenho['vao']),6)
         pontos,arestas=addon.portas_viewport._contorno_da_folha(f)
         for i,j in arestas:
-            self.assertFalse(abs(i-j)==2, 'Corda atravessando as duas faces')
+            self.assertFalse(abs(i-j)==2, "Chord crosses both faces")
         for p in pontos:
             self.assertLess(min((f.matrix_world@v.co-p).length for v in f.data.vertices),1e-7)
         antes=[p.copy() for p in pontos]
@@ -582,7 +579,7 @@ class TestImportacao(unittest.TestCase):
     def test_diagonal_curva_real_nao_atravessa_lateral_ou_tampo(self):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
-        # copia do preset que saiu da biblioteca (porta curva)
+        # Copy of the curved-door preset removed from the library.
         path=os.path.join(os.path.dirname(__file__),'fixtures',
                           'Diagonal_Sup_Alto_02_300x1056x350.blend')
         with bpy.data.libraries.load(path,link=False) as (de,para):
@@ -612,10 +609,10 @@ class TestImportacao(unittest.TestCase):
     def test_destinos_das_novas_bibliotecas_nao_colidem_com_cozinha(self):
         raiz=os.path.join('D:',os.sep,'Promob')
         def destino(*p):return addon.importacao.destino_categoria_promob(os.path.join(raiz,*p),raiz)
-        q,n=destino('Quartos','Armarios','Cantos','Cantos.dxf')
-        self.assertEqual(q,('Armarios','Quartos','Armarios','Cantos'))
-        self.assertNotEqual(n,destino('Cozinha','Cantos','Cantos.dxf')[1])
-        self.assertEqual(destino('Cozinha','Portas','Madeira.dxf')[0],('Armarios','Cozinha','Portas','Madeira'))
+        q,n=destino("Bedrooms","Cabinets","Corners",'Cantos.dxf')
+        self.assertEqual(q,("Cabinets","Bedrooms","Cabinets","Corners"))
+        self.assertNotEqual(n,destino("Kitchen","Corners",'Cantos.dxf')[1])
+        self.assertEqual(destino("Kitchen","Doors",'Madeira.dxf')[0],("Cabinets","Kitchen","Doors","Wood"))
 
     def test_mostruario_de_portas_vira_folha_nativa_sem_caixa_inventada(self):
         import tempfile
@@ -625,7 +622,7 @@ class TestImportacao(unittest.TestCase):
                ('V',_faces_da_caixa((1010,5,10),(1390,10,670))),
                ('H',_faces_da_caixa((10,15,100),(40,17,142)))]
         dxf_promob(path,dados,cores={'F':7,'Q':254,'V':254,'H':253})
-        grupos,info=addon.importacao.importar_portas_avulsas(bpy.context,path,'Porta')
+        grupos,info=addon.importacao.importar_portas_avulsas(bpy.context,path,"Door")
         self.assertEqual(len(grupos),2)
         self.assertTrue(all(addon.chapas.MARCA_PORTAS in g for g in grupos))
         self.assertFalse(any(addon.chapas.MARCA_CONJUNTO in g for g in grupos))
@@ -638,31 +635,31 @@ class TestImportacao(unittest.TestCase):
         self.assertEqual(len(f.data.vertices),8)
 
     def test_modulos_do_promob_so_com_as_chapas(self):
-        # pedido do usuario: os modulos prontos do Promob, exportados em
-        # DXF (uma camada por peca); dobradica, plaquinha de 2 mm e piso
-        # ficam de fora, a base em L continua em L
+        # User request: ready-made Promob cabinets exported as DXF, one layer per part.
+        # Exclude hinges, 2 mm plates and floor; preserve the L-shaped base
+        # as an L shape.
         import tempfile
         caminho = os.path.join(tempfile.mkdtemp(), 'Cantos.dxf')
         vs_l, fs_l = base_em_l()
         dxf_promob(caminho, [
-            ('LAYER0', _faces_da_caixa((-100, -100, -5), (3000, 900, 0))),      # piso
-            ('LAYER1', _faces_da_caixa((0, 0, 15), (15, 600, 700))),           # lateral
-            ('LAYER2', _faces_da_caixa((15, 585, 15), (600, 600, 700))),       # lateral
-            ('LAYER3', _faces_da_caixa((15, 200, 300), (38, 243, 352))),       # dobradica
-            ('LAYER4', _faces_da_caixa((15, 300, 500), (17, 331, 542))),       # placa 2 mm
-            ('LAYER10', _faces_da_caixa((2000, 0, 0), (2015, 400, 700))),      # outro modulo
+            ('LAYER0', _faces_da_caixa((-100, -100, -5), (3000, 900, 0))),      # Floor.
+            ('LAYER1', _faces_da_caixa((0, 0, 15), (15, 600, 700))),           # Side panel.
+            ('LAYER2', _faces_da_caixa((15, 585, 15), (600, 600, 700))),       # Side panel.
+            ('LAYER3', _faces_da_caixa((15, 200, 300), (38, 243, 352))),       # Hinge.
+            ('LAYER4', _faces_da_caixa((15, 300, 500), (17, 331, 542))),       # 2 mm plate.
+            ('LAYER10', _faces_da_caixa((2000, 0, 0), (2015, 400, 700))),      # Another cabinet.
             ('LAYER11', _faces_da_caixa((2015, 0, 0), (2500, 400, 15))),
         ], [('LAYER5', vs_l, fs_l)])
         modulos, info = addon.importacao.importar_dxf_promob(
-            bpy.context, caminho, addon.importacao.prefixo_da_categoria('Cantos'))
+            bpy.context, caminho, addon.importacao.prefixo_da_categoria("Corners"))
         self.assertEqual(info, {'pecas': 8, 'chapas': 5, 'curvas': 0, 'descartadas': 2,
                                 'piso': 1, 'portas': 0, 'gavetas': 0, 'correr': 0, 'prateleiras': 0})
         self.assertEqual(len(modulos), 2)
         canto, outro = modulos
-        self.assertTrue(canto.name.startswith('Canto 01 '), canto.name)
+        self.assertTrue(canto.name.startswith('Corner 01 '), canto.name)
         self.assertEqual(len(addon.modulos._chapas_do_conjunto(canto)), 3)
         self.assertEqual(len(addon.modulos._chapas_do_conjunto(outro)), 2)
-        # a base em L e' chapa de 15 mm com a malha PRESERVADA, no mesmo lugar
+        # The L-shaped base becomes a 15 mm panel with its mesh and position preserved.
         base = next(c for c in addon.modulos._chapas_do_conjunto(canto)
                     if not addon.chapas._malha_e_caixa(c.data))
         self.assertAlmostEqual(base.chapa_espessura_mm, 15.0, places=3)
@@ -670,27 +667,27 @@ class TestImportacao(unittest.TestCase):
         pts = [base.matrix_world @ v.co * 1000.0 for v in base.data.vertices]
         self.assertPerto([min(p[k] for p in pts) for k in range(3)], (0, 0, 0), 3)
         self.assertPerto([max(p[k] for p in pts) for k in range(3)], (600, 600, 15), 3)
-        # as retangulares viram a caixa parametrica
+        # Rectangular parts become parametric boxes.
         lateral = next(c for c in addon.modulos._chapas_do_conjunto(canto)
                        if addon.chapas._malha_e_caixa(c.data))
         self.assertEqual(sorted(round(v) for v in (lateral.chapa_largura_mm,
                                                    lateral.chapa_comprimento_mm,
                                                    lateral.chapa_espessura_mm)),
                          [15, 585, 685] if lateral.chapa_comprimento_mm < 600 else [15, 600, 685])
-        # o operador (cabinet_importar_promob) faz o mesmo na cena
+        # cabinet_importar_promob performs the same conversion in the scene.
         for o in list(bpy.data.objects):
             bpy.data.objects.remove(o, do_unlink=True)
         self.assertEqual(bpy.ops.object.cabinet_importar_promob(
             'EXEC_DEFAULT', filepath=caminho), {'FINISHED'})
         self.assertEqual(len([o for o in bpy.data.objects
                               if addon.chapas.MARCA_CONJUNTO in o]), 2)
-        self.assertEqual(addon.importacao.prefixo_da_categoria('Inferiores'), 'Inferior')
+        self.assertEqual(addon.importacao.prefixo_da_categoria("Base Cabinets"), "Base Cabinet")
 
     def test_promob_traz_a_porta_curva_e_a_prateleira_redonda(self):
-        # pedido do usuario: o raio das cantoneiras/diagonais e' editavel,
-        # entao a porta CURVA vem junto (acessorio que deforma) e a
-        # prateleira de quina redonda e' chapa (contorno preservado). O
-        # micro-ondas (caixa com moldura) nao e' peca curva.
+        # User request: corner/diagonal radii are editable, so include the curved door
+        # as a deforming accessory and classify the round-corner shelf as a panel
+        # with its outline preserved. A microwave box with a frame
+        # is not a curved part.
         import tempfile
         caminho = os.path.join(tempfile.mkdtemp(), 'Diagonais.dxf')
         arco = lambda r: [(150 + r * math.cos(math.radians(180 + 7.5 * i)),
@@ -709,15 +706,15 @@ class TestImportacao(unittest.TestCase):
                  [(i, (i + 1) % m, m + (i + 1) % m, m + i) for i in range(m)]
                  + [(i, i + 1, m - 2 - i, m - 1 - i) for i in range(12)]
                  + [(m + i, m + m - 1 - i, m + m - 2 - i, m + i + 1) for i in range(12)])
-        # micro-ondas: caixa de 450 x 300 x 15 com um vao (moldura)
+        # Microwave: a 450 x 300 x 15 box with an opening, forming a frame.
         moldura = [(2000, 0), (2450, 0), (2450, 300), (2000, 300)]
         dxf_promob(caminho, [
-            ('LAYER0', _faces_da_caixa((-500, -500, -5), (3000, 2000, 0))),     # piso
+            ('LAYER0', _faces_da_caixa((-500, -500, -5), (3000, 2000, 0))),     # Floor.
             ('LAYER1', _faces_da_caixa((300, 0, 0), (315, 565, 700))),
             ('LAYER2', _faces_da_caixa((0, 550, 0), (300, 565, 700))),
             ('LAYER9', _faces_da_caixa((2000, 0, 0), (2015, 400, 700))),
             ('LAYER10', _faces_da_caixa((2015, 0, 0), (2450, 400, 15))),
-            ('LAYER11', _faces_da_caixa((2015, 0, 100), (2450, 20, 400))),     # micro-ondas
+            ('LAYER11', _faces_da_caixa((2015, 0, 100), (2450, 20, 400))),     # Microwave.
         ], [('LAYER3', *prateleira), ('LAYER4', *porta)])
         modulos, info = addon.importacao.importar_dxf_promob(bpy.context, caminho, 'Diagonal')
         self.assertEqual((info['chapas'], info['curvas']), (6, 1))
@@ -733,31 +730,31 @@ class TestImportacao(unittest.TestCase):
         self.assertFalse(any(l.get('letra')=='R' for l in geo['linhas']))
 
     def test_categorias_do_promob_pela_pasta_e_pelo_arquivo(self):
-        # pedido do usuario: a PASTA e' a aba do Promob, o ARQUIVO a
-        # categoria; as primeiras exportacoes (Cantos/, Bifond/) sao Inferiores
+        # User request: directory identifies the Promob tab, file identifies category;
+        # early exports (Cantos/, Bifond/) belong to Inferiores.
         cat = addon.importacao.categoria_promob
-        raiz = os.path.join('Promob', 'Cozinha')
+        raiz = os.path.join('Promob', "Kitchen")
         self.assertEqual(cat(os.path.join(raiz, 'Bifond', 'Balcões.dxf')),
-                         ('Inferiores', 'Balcoes', 'Balcao'))
+                         ("Base Cabinets", "Base Cabinets", "Base Cabinet"))
         self.assertEqual(cat(os.path.join(raiz, 'Bifond', 'Bifond.dxf')),
-                         ('Inferiores', 'Cantos Bifold', 'Bifold'))
+                         ("Base Cabinets", "Bifold Corners", 'Bifold'))
         self.assertEqual(cat(os.path.join(raiz, 'Bifond', 'PEletros.dxf')),
-                         ('Inferiores', 'Para Eletros', 'Eletro'))
-        self.assertEqual(cat(os.path.join(raiz, 'Cantos', 'Cantos.dxf')),
-                         ('Inferiores', 'Cantos', 'Canto'))
-        # fora de Inferiores o nome leva a aba: nao grava por cima
-        self.assertEqual(cat(os.path.join(raiz, 'Sup Baixos', 'Cantos.dxf')),
-                         ('Sup Baixos', 'Cantos', 'Canto Sup Baixo'))
-        self.assertEqual(cat(os.path.join(raiz, 'Altos', 'Torres.dxf')),
-                         ('Altos', 'Torres', 'Torre Alto'))
-        self.assertEqual(cat(os.path.join(raiz, 'Ilhas', 'Inferiores.dxf')),
-                         ('Ilhas', 'Inferiores', 'Inferior Ilha'))
-        self.assertEqual(addon.importacao.prefixo_da_categoria('Diagonais'), 'Diagonal')
+                         ("Base Cabinets", "For Appliances", "Appliance"))
+        self.assertEqual(cat(os.path.join(raiz, "Corners", 'Cantos.dxf')),
+                         ("Base Cabinets", "Corners", "Corner"))
+        # Outside Inferiores, include the tab in the name to avoid overwrites.
+        self.assertEqual(cat(os.path.join(raiz, "Short Wall Cabinets", 'Cantos.dxf')),
+                         ("Short Wall Cabinets", "Corners", 'Short Corner Wall Cabinet'))
+        self.assertEqual(cat(os.path.join(raiz, "Tall Cabinets", 'Torres.dxf')),
+                         ("Tall Cabinets", "Tower Cabinets", 'Tall Tower Cabinet'))
+        self.assertEqual(cat(os.path.join(raiz, "Islands", 'Inferiores.dxf')),
+                         ("Islands", "Base Cabinets", 'Island Base Cabinet'))
+        self.assertEqual(addon.importacao.prefixo_da_categoria("Diagonals"), 'Diagonal')
 
     def test_piso_fino_sai_mesmo_com_modulos_fora_dele(self):
-        # Especiais do Promob: os modulos passam da borda do piso (72% em
-        # cima); fino assim (5 mm) e grande, e' piso -- senao ele juntava
-        # todos os modulos num so'
+        # Promob special units extend beyond the floor edge with 72% overlap.
+        # Such a large, thin 5 mm part is floor; otherwise it incorrectly merges
+        # all cabinets into one.
         import tempfile
         caminho = os.path.join(tempfile.mkdtemp(), 'Especiais.dxf')
         caixas = [('LAYER0', _faces_da_caixa((0, 0, -5), (2000, 1000, 0)))]
@@ -765,14 +762,14 @@ class TestImportacao(unittest.TestCase):
             caixas += [('LAYER%d' % (10 * n + 1), _faces_da_caixa((x, 100, 0), (x + 15, 600, 700))),
                        ('LAYER%d' % (10 * n + 2), _faces_da_caixa((x + 15, 100, 0), (x + 400, 600, 15)))]
         dxf_promob(caminho, caixas)
-        modulos, info = addon.importacao.importar_dxf_promob(bpy.context, caminho, 'Especial')
+        modulos, info = addon.importacao.importar_dxf_promob(bpy.context, caminho, "Special")
         self.assertEqual(info['piso'], 1)
         self.assertEqual(len(modulos), 3)
 
     def test_peca_girada_e_recortada_fica_no_lugar_ao_virar_chapa(self):
-        # Regressao: `converter_em_chapa` trocava a matriz sem levar os
-        # vertices -- a peca recortada ia para outro lugar, e a caixa a 45
-        # graus (porta de canto do Promob) nao era reconhecida como caixa
+        # Regression: converter_em_chapa changed the matrix without moving vertices,
+        # displacing the cutout part; a 45-degree box such as a Promob corner door
+        # was not recognized as a box.
         malha = bpy.data.meshes.new('Diagonal')
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Rotation(math.radians(45), 4, 'Z')
@@ -805,7 +802,7 @@ class TestImportacao(unittest.TestCase):
         for x, y in zip(a, b):
             self.assertAlmostEqual(x, y, places=casas)
 
-    # ------------------------------------------------------ classificador
+    # ------------------------------------------------------ Classifier
     def test_classifica_chapa_e_acessorio(self):
         placa = caixa('Placa', (0.6, 0.4, 0.018), (0, 0, 0))
         cubo = caixa('Cubo', (0.3, 0.3, 0.3), (1, 0, 0))
@@ -818,8 +815,8 @@ class TestImportacao(unittest.TestCase):
             self.assertFalse(addon.importacao._analisar_peca(obj)['chapa'], obj.name)
 
     def test_lateral_em_pe_girada_vira_chapa_sem_sair_do_lugar(self):
-        # REGRESSAO: a conversao lia obj.dimensions em eixos de mundo e
-        # tomava Z como espessura -- esta lateral virava chapa de 30 mm.
+        # Regression: conversion read obj.dimensions in world axes and treated Z
+        # as thickness, turning this side into a 30 mm panel.
         lateral = caixa('Lateral', (0.018, 0.4, 0.7), (1, 2, 3),
                         rot_z=math.radians(30))
         antes = limites([lateral])
@@ -834,7 +831,7 @@ class TestImportacao(unittest.TestCase):
         depois = limites([lateral])
         self.assertPerto(antes[0], depois[0])
         self.assertPerto(antes[1], depois[1])
-        # local Z = espessura (invariante 1)
+        # Local Z = thickness, invariant 1.
         z = lateral.matrix_world.to_3x3().col[2].normalized()
         self.assertAlmostEqual(abs(z.dot(Vector((math.cos(math.radians(30)),
                                                  math.sin(math.radians(30)),
@@ -858,13 +855,13 @@ class TestImportacao(unittest.TestCase):
         self.assertAlmostEqual(placa.chapa_comprimento_mm, 400.0, places=3)
         self.assertPerto(placa.rotation_euler, (0, 0, 0))
 
-    # ------------------------------------------------------------- modulo
+    # ------------------------------------------------------------- Cabinet
     def armario(self):
-        """Laterais, base, tampo e um pe' cilindrico do lado direito."""
+        """Create sides, base, top and a cylindrical foot on the right."""
         pecas = [caixa('Lat_E', (0.018, 0.4, 0.7), (-0.291, 0, 0.35)),
                  caixa('Lat_D', (0.018, 0.4, 0.7), (0.291, 0, 0.35)),
                  caixa('Base', (0.564, 0.4, 0.018), (0, 0, 0.009)),
-                 caixa('Tampo', (0.564, 0.4, 0.018), (0, 0, 0.691))]
+                 caixa("Top", (0.564, 0.4, 0.018), (0, 0, 0.691))]
         bpy.ops.mesh.primitive_cylinder_add(radius=0.02, depth=0.08,
                                             location=(0.25, 0, 0.04))
         pe = bpy.context.object
@@ -889,13 +886,13 @@ class TestImportacao(unittest.TestCase):
         bpy.ops.object.cabinet_converter_modulo()
         conj = bpy.context.object
         antes = addon.portas._centro_mundo(pe)
-        conj.conj_largura_mm += 100     # cresce a partir da esquerda
+        conj.conj_largura_mm += 100     # Grow from the left.
         bpy.context.view_layer.update()
         depois = addon.portas._centro_mundo(pe)
-        # o pe' esta' perto da DIREITA: anda junto com ela
+        # The foot is near the right side and moves with it.
         self.assertAlmostEqual(depois.x - antes.x, 0.1, places=4)
         self.assertAlmostEqual(depois.z, antes.z, places=4)
-        conj.conj_altura_mm += 200      # base parada: o pe' tambem
+        conj.conj_altura_mm += 200      # Base stationary: foot stationary too.
         bpy.context.view_layer.update()
         self.assertAlmostEqual(addon.portas._centro_mundo(pe).z, antes.z, places=4)
 
@@ -907,13 +904,13 @@ class TestImportacao(unittest.TestCase):
         self.assertIn(addon.chapas.MARCA_CHAPA, a)
         self.assertIn(addon.chapas.MARCA_CHAPA, b)
 
-    # --------------------------------------------- porta a partir de objetos
+    # --------------------------------------------- Door from objects
     def porta_importada(self, x=0.0, largura=0.4, altura=0.7, z=0.35,
                         y=-0.2, puxador=True):
         placa = caixa('Placa', (largura, 0.018, altura), (x, y - 0.009, z))
         objs = [placa]
         if puxador:
-            objs.append(caixa('Puxador', (0.02, 0.03, 0.15),
+            objs.append(caixa("Handle", (0.02, 0.03, 0.15),
                               (x + largura / 2 - 0.03, y - 0.033, z)))
         selecionar(*objs)
         self.assertEqual(bpy.ops.object.cabinet_folha_de_objetos(), {'FINISHED'})
@@ -921,7 +918,7 @@ class TestImportacao(unittest.TestCase):
 
     def test_folha_de_objetos_fica_no_lugar_com_o_puxador(self):
         placa = caixa('Placa', (0.4, 0.018, 0.7), (0, -0.209, 0.35))
-        pux = caixa('Puxador', (0.02, 0.03, 0.15), (0.17, -0.233, 0.35))
+        pux = caixa("Handle", (0.02, 0.03, 0.15), (0.17, -0.233, 0.35))
         antes = limites([placa]), limites([pux])
         selecionar(placa, pux)
         bpy.ops.object.cabinet_folha_de_objetos()
@@ -935,7 +932,7 @@ class TestImportacao(unittest.TestCase):
             lo2, hi2 = limites([obj])
             self.assertPerto(lo, lo2, 4)
             self.assertPerto(hi, hi2, 4)
-        # a frente vai para o lado do puxador (-Y)
+        # The front points toward the handle (-Y).
         normal = grupo.matrix_world.to_3x3().col[2].normalized()
         self.assertAlmostEqual(normal.y, -1.0, places=5)
 
@@ -1021,7 +1018,7 @@ class TestImportacao(unittest.TestCase):
         with self.assertRaises(ValueError):
             addon.importacao._definir_frente_porta(bpy.context, grupo, Vector((0, 0, 1)))
 
-    # ---------------------------------------------- vincular porta + modulo
+    # ---------------------------------------------- Link door and cabinet
     def nicho(self):
         bpy.ops.object.cabinet_criar_nicho()
         bpy.ops.object.select_all(action='SELECT')
@@ -1035,14 +1032,14 @@ class TestImportacao(unittest.TestCase):
         E = addon.portas._caixa_do_modulo(conj)[3]
         if embutida:
             L, A = hi.x - lo.x - 2 * E, hi.z - lo.z - 2 * E
-            y = lo.y + 9          # atras da face, dentro do vao
+            y = lo.y + 9          # Behind the face, inside the opening.
         else:
             L, A = hi.x - lo.x, hi.z - lo.z
-            y = lo.y - 9          # na frente, cobrindo as laterais
+            y = lo.y - 9          # In front, covering the sides.
         centro = conj.matrix_world @ (Vector(((lo.x + hi.x) / 2, y,
                                               (lo.z + hi.z) / 2)) / 1000)
-        placa = caixa('Frente', (L / 1000, 0.018, A / 1000), centro)
-        pux = caixa('Puxador', (0.02, 0.03, 0.15),
+        placa = caixa("Front", (L / 1000, 0.018, A / 1000), centro)
+        pux = caixa("Handle", (0.02, 0.03, 0.15),
                     centro + Vector((L / 2000 - 0.04, -0.03, 0)))
         selecionar(placa, pux)
         bpy.ops.object.cabinet_folha_de_objetos()
@@ -1066,7 +1063,7 @@ class TestImportacao(unittest.TestCase):
         bpy.context.view_layer.update()
         lo, hi = limites([placa])
         self.assertAlmostEqual(hi[0] - lo[0], (L + 200) / 1000, places=4)
-        # o puxador travado continua perto da borda direita
+        # The locked handle remains near the right edge.
         self.assertAlmostEqual(hi[0] - limites([pux])[1][0], 0.03, places=4)
 
     def test_vincular_deduz_embutida(self):
@@ -1099,11 +1096,11 @@ class TestImportacao(unittest.TestCase):
         self.assertEqual(grupo[addon.portas.CHAVE_MODULO_PORTA], conj.name)
         self.assertEqual(addon.portas._folhas_portas(grupo), [placa])
 
-    # ------------------------------------------------------------ gaveta
+    # ------------------------------------------------------------ Sidebar
     def test_cabecalho_tem_sete_abas_com_alvenaria_e_internos_juntos(self):
-        # As correntes entre as abas foram descontinuadas (pedido do
-        # usuario): nenhum widget de operador no cabecalho. A aba Gavetas
-        # e as Prateleiras/Divisorias vem antes de Puxadores.
+        # Chains between tabs were discontinued at the user's request: no operator
+        # widget remains in the header. Drawers, Shelves and Partitions tabs
+        # precede Handles.
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1200)
             cabecalho = addon.gaveta._partes_gaveta(widgets)[0]
@@ -1119,7 +1116,7 @@ class TestImportacao(unittest.TestCase):
                                  and w[1] > 1200 - 48 for w in widgets))
             fim = cabecalho[-1]
             self.assertAlmostEqual(fim[0] + fim[2], 12 + min(540, largura - 24))
-        # sem selecao, as correntes nao tem o que ligar
+        # Without selection, chains have nothing to link.
         selecionar(caixa('X', (0.1, 0.1, 0.1), (0, 0, 0)))
         self.assertFalse(addon.gaveta_eventos._poll_operador('object.cabinet_vincular_porta'))
         self.assertFalse(addon.gaveta_eventos._poll_operador('object.cabinet_vincular_puxador'))
@@ -1137,13 +1134,13 @@ class TestImportacao(unittest.TestCase):
             return [v[:4] + (v[5][0],) for v in widgets
                     if v[5] and v[5][0] in alvo]
 
-        # o puxador e' da aba Puxadores (pedido do usuario: cada menu
-        # mostra o que vale para a selecao); nas outras, nada dele
+        # Handles appear only in the Handles tab, as requested: each menu shows
+        # settings applicable to the selection, with no handle settings in other tabs.
         puxadores = bloco('PUXADORES')
         self.assertEqual(sum(1 for b in puxadores if b[4] == 'cadeado'), 3)
         self.assertEqual(bloco('PORTAS'), [])
         self.assertEqual(bloco('MODULOS'), [])
-        # editar uma medida escala so' aquele eixo do puxador
+        # Editing a dimension scales only that handle axis.
         altura_antes = limites([pux])[1][2] - limites([pux])[0][2]
         self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta(
             'EXEC_DEFAULT', dono='puxador', objeto=pux.name,
@@ -1162,13 +1159,13 @@ class TestImportacao(unittest.TestCase):
                 for bx, by, bw, bh in caixas[i + 1:]:
                     sobrepoe = (ax < bx + bw - 0.01 and bx < ax + aw - 0.01
                                 and ay < by + bh - 0.01 and by < ay + ah - 0.01)
-                    self.assertFalse(sobrepoe, 'largura %d' % largura)
+                    self.assertFalse(sobrepoe, "Width %d" % largura)
 
-    # ------------------------------------------- Promob -> sistemas nossos
-    # Pedido do usuario: "integracao, nao importacao bruta". A frente com
-    # dobradica vira PORTA nativa, a com caixa atras GAVETAS nativas, o
-    # quadro de aluminio porta de CORRER (folha Quadro); trilho, dobradica
-    # e quadro do Promob nunca viram chapa. Caixas em mm, frente em -Y.
+    # ------------------------------------------- Promob -> native systems
+    # User request: integration rather than raw import. A front with hinges becomes
+    # a native door, one with a box behind becomes native drawers, and an aluminum
+    # frame becomes a sliding door with a framed leaf. Promob tracks, hinges and
+    # frames never become panels. Boxes use mm, with the front at -Y.
     def importar(self, nome, caixas, cores):
         import tempfile
         caminho = os.path.join(tempfile.mkdtemp(), nome)
@@ -1176,7 +1173,7 @@ class TestImportacao(unittest.TestCase):
                    cores=cores)
         return addon.importacao.importar_dxf_promob(bpy.context, caminho, 'Teste')
 
-    CORPO_400 = [   # 400 x 700, corpo de 15 de y 15 a 565 (a porta na frente)
+    CORPO_400 = [   # 400 x 700, 15 mm carcass from y = 15 to 565, with the door in front.
         ('LAYER1', (0, 15, 0), (15, 565, 700)),
         ('LAYER2', (385, 15, 0), (400, 565, 700)),
         ('LAYER3', (15, 15, 0), (385, 565, 15)),
@@ -1202,7 +1199,7 @@ class TestImportacao(unittest.TestCase):
 
     def test_promob_fundo_rente_na_fonte_importa_recuado_sem_atravessar_prateleira(self):
         caixas=self.CORPO_400+[
-            ('Fundo',(10,559,10),(390,565,690)),
+            ("Back Panel",(10,559,10),(390,565,690)),
             ('Prateleira',(15,20,300),(385,559,315))]
         (conj,),info=self.importar('FundoRente.dxf',caixas,{c:7 for c,lo,hi in caixas})
         fundo=addon.modulos.fundo_do_modulo(conj)
@@ -1226,31 +1223,31 @@ class TestImportacao(unittest.TestCase):
 
     def test_promob_frente_com_dobradica_vira_porta_nativa(self):
         caixas = self.CORPO_400 + [
-            ('LAYER5', (10, 541, 10), (390, 547, 690)),       # fundo de 6
-            ('LAYER6', (5, 0, 5), (395, 15, 695)),            # a frente
-            ('LAYER7', (367, 14, 100), (390, 57, 152)),       # dobradicas
+            ('LAYER5', (10, 541, 10), (390, 547, 690)),       # 6 mm back.
+            ('LAYER6', (5, 0, 5), (395, 15, 695)),            # The front.
+            ('LAYER7', (367, 14, 100), (390, 57, 152)),       # Hinges.
             ('LAYER8', (367, 14, 550), (390, 57, 602)),
-            ('LAYER9', (354, 15, 105), (385, 17, 147)),       # placa 2 mm
+            ('LAYER9', (354, 15, 105), (385, 17, 147)),       # 2 mm plate.
         ]
         cores = {c: 7 for c, _lo, _hi in caixas}
         cores.update(LAYER7=253, LAYER8=253, LAYER9=253)
         modulos, info = self.importar('Balcoes.dxf', caixas, cores)
         self.assertEqual((len(modulos), info['portas']), (1, 1), info)
         conj = modulos[0]
-        # a frente saiu do corpo: P = 550, e o E e' o da caixa (nao o fundo de 6)
+        # The front is excluded from the carcass: P = 550, E from the carcass, not the 6 mm back.
         self.assertAlmostEqual(conj.conj_profundidade_mm, 550.0, places=1)
         self.assertAlmostEqual(conj.conj_espessura_mm, 15.0, places=3)
         grupo, = addon.portas._portas_do_conjunto(conj)
         p = dict(grupo['porta_parametros'])
-        # dobradicas a' direita; cobre 10 de 15 (o Promob deixa 5) = RETA nossa
+        # Right hinges; 10 of 15 mm overlay because Promob leaves 5 mm = our RETA type.
         self.assertEqual((p['abertura'], p['folhas'], p['dobradica_lado'], p['dobradica']),
                          ('GIRO', 1, 'ESQUERDA', 'RETA'))
-        # o fundo fino e' o FUNDO dependente (refeito pela caixa, em canal)
+        # The thin back becomes the dependent back, rebuilt from the carcass in a groove.
         fundo = addon.modulos.fundo_do_modulo(conj)
         self.assertIsNotNone(fundo)
         self.assertAlmostEqual(fundo.chapa_espessura_mm, 6.0, places=1)
         self.assertAlmostEqual(fundo.chapa_largura_mm, 400 - 30 + 14, places=1)
-        # nenhuma ferragem do Promob virou peca
+        # No Promob hardware became a panel part.
         self.assertFalse([o for o in bpy.data.objects if o.name in ('Peca LAYER7', 'Peca LAYER9')])
 
     def test_promob_dupla_articula_nas_bordas_externas_e_preserva_alturas(self):
@@ -1262,8 +1259,8 @@ class TestImportacao(unittest.TestCase):
         corpo[3] = ('LAYER4', (15, 15, 685), (785, 565, 700))
         caixas = corpo + [('F1', (5, 0, 5), (399, 15, 695)),
                           ('F2', (401, 0, 5), (795, 15, 695))]
-        # Placa e braco sao UMA dobradica. As duas folhas tem margens
-        # assimetricas diferentes; nao substituir pelo padrao de 100 mm.
+        # Plate and arm form one hinge. Both leaves have different asymmetric margins;
+        # do not replace them with the 100 mm default.
         for lado, x, zs in [('E', 10, (120, 530)), ('D', 767, (140, 580))]:
             for i, z in enumerate(zs):
                 caixas += [(lado + str(i), (x, 14, z - 26), (x + 23, 57, z + 26)),
@@ -1283,7 +1280,7 @@ class TestImportacao(unittest.TestCase):
                 self.assertLess(abs(r.matrix_world.translation.x * 1000 - (15 if indice == 0 else 785)), 3)
             fechado = folhas[indice].matrix_world.copy()
             addon.ferragens._definir_abertura(bpy.context, folhas[indice], .7)
-            # A borda articulada fica junto ao apoio; a borda livre avanca.
+            # The hinged edge stays by its support while the free edge advances.
             l = folhas[indice].chapa_largura_mm / 2000
             articulada = Vector((-l if indice == 0 else l, 0, 0))
             livre = -articulada
@@ -1319,7 +1316,7 @@ class TestImportacao(unittest.TestCase):
         self.assertIn(addon.portas.CHAVE_VAO_ORIENTADO, grupo)
         normal = grupo.matrix_world.to_3x3().col[2].copy()
         matriz = grupo.matrix_world.copy()
-        # Refazer uma caixa pode trocar os indices; a ancora e' a QUINA.
+        # Rebuilding a box may change indices; the anchor is the corner itself.
         for obj in set(grupo.get('porta_vao_apoio_%d' % i) for i in range(3)):
             if obj is None or len(obj.data.vertices) != 8:
                 continue
@@ -1389,8 +1386,8 @@ class TestImportacao(unittest.TestCase):
         self.assertLess((filha.matrix_world.translation - fechada.translation).length, 1e-6)
 
     def _canto_cego(self):
-        # Regressao: 40/15 < 3 era descartado como ferragem e 49,9998 < 50
-        # apagava o arremate. Sem apoio o painel fixo virava articulacao.
+        # Regression: 40/15 < 3 was discarded as hardware, and 49.9998 < 50 removed
+        # the trim. Without support, the fixed panel became a hinge.
         caixas = [('L',(0,15,0),(15,365,706)),('R',(785,15,0),(800,365,706)),
                   ('B',(15,15,3),(785,365,18)),('T',(15,15,688),(785,365,703)),
                   ('A',( -3,0,0),(433,15,706)),
@@ -1416,7 +1413,7 @@ class TestImportacao(unittest.TestCase):
         self.assertFalse(grupo['porta_parametros'].get('dobradica_articulada'))
         self.assertFalse(grupo.get('porta_apoio_folha'))
         folha,=addon.portas._folhas_portas(grupo)
-        self.assertFalse(any('Articulada' in o.name for o in grupo.children_recursive))
+        self.assertFalse(any("Articulated" in o.name for o in grupo.children_recursive))
         self.assertTrue(any(o.get('cabinet_peca')=='cabeca'
                             for o in grupo.children_recursive))
         arremate=next(o for o in chapas if o.name=='Peca A')
@@ -1440,8 +1437,8 @@ class TestImportacao(unittest.TestCase):
         matriz = folha.matrix_world.copy()
         largura = folha.chapa_largura_mm
         gap = (limites([folha])[0][0]-limites([ripa])[1][0])*1000
-        # Preset antigo sem referencia: a migracao acontece ANTES de mover
-        # a ripa e so' uma vez, nao durante desenho/abertura.
+        # Old preset without a reference: migrate before moving the slat and only once,
+        # never during drawing or opening.
         for k in list(grupo.keys()):
             if k.startswith('porta_vao_') and k not in ('porta_vao_largura_mm','porta_vao_altura_mm'):
                 del grupo[k]
@@ -1458,7 +1455,7 @@ class TestImportacao(unittest.TestCase):
     def test_ancora_da_porta_no_meio_da_face_usa_interpolacao_nativa(self):
         conj, _ = self._canto_cego()
         grupo, = addon.portas._portas_do_conjunto(conj)
-        # Vao parcial em altura, longe dos vertices da lateral.
+        # Partial-height opening, far from side-panel vertices.
         grupo.matrix_world.translation.z += .2
         grupo['porta_vao_altura_mm'] = 300
         bpy.context.view_layer.update()
@@ -1481,7 +1478,7 @@ class TestImportacao(unittest.TestCase):
         lo = Vector(tuple(min(v.co[k] for v in folha.data.vertices) for k in range(3)))
         hi = Vector(tuple(max(v.co[k] for v in folha.data.vertices) for k in range(3)))
         grafo = bpy.context.evaluated_depsgraph_get()
-        copos = [o for o in grupo.children_recursive if o.type=='MESH' and o.name.startswith('Dobradica Copo')]
+        copos = [o for o in grupo.children_recursive if o.type=='MESH' and o.name.startswith('Hinge Cup')]
         self.assertEqual(len(copos),2)
         for obj in copos:
             avaliado = obj.evaluated_get(grafo)
@@ -1497,7 +1494,7 @@ class TestImportacao(unittest.TestCase):
     def test_canto_real_reduz_largura_em_etapas_sem_perder_referencia(self):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
-        lib=os.path.join(os.path.dirname(os.path.dirname(__file__)),'archy_builder','biblioteca')
+        lib=os.path.join(os.path.dirname(os.path.dirname(__file__)),'archy_builder',"assets/library")
         ns,_,erro=addon.biblioteca.inserir_preset(bpy.context,lib,
             'Canto_Sup_Medio_01_800x706x800.blend','modulo')
         self.assertFalse(erro)
@@ -1529,9 +1526,9 @@ class TestImportacao(unittest.TestCase):
         secundaria, = [g for g in grupos if g.get('porta_apoio_folha')]
         apoio = secundaria['porta_apoio_folha']
         self.assertTrue(secundaria['porta_parametros']['dobradica_articulada'])
-        corpos = [o for o in secundaria.children if o.get(addon.ferragens.CHAVE_FERRAGEM) == 'DOBRADICA' and 'Placa Apoio' in o.name]
+        corpos = [o for o in secundaria.children if o.get(addon.ferragens.CHAVE_FERRAGEM) == 'DOBRADICA' and 'Plate Support' in o.name]
         self.assertEqual(len(corpos), 2)
-        # Pelo menos uma face da placa nativa toca a folha de apoio.
+        # At least one face of the native plate touches the supporting leaf.
         inversa = apoio.matrix_world.inverted()
         for corpo in corpos:
             distancias = [apoio.closest_point_on_mesh(inversa @ (corpo.matrix_world @ v.co))
@@ -1566,7 +1563,7 @@ class TestImportacao(unittest.TestCase):
         self.assertLess(folha.matrix_world.translation.x,outra.matrix_world.translation.x)
         self.assertEqual(secundaria['porta_apoio_folha'],folha)
         inversa=folha.matrix_world.inverted()
-        corpos=[o for o in secundaria.children if 'Placa Apoio' in o.name]
+        corpos=[o for o in secundaria.children if 'Plate Support' in o.name]
         self.assertTrue(corpos)
         for corpo in corpos:
             self.assertLess(min((inversa@(corpo.matrix_world@v.co)-folha.closest_point_on_mesh(inversa@(corpo.matrix_world@v.co))[1]).length
@@ -1602,7 +1599,7 @@ class TestImportacao(unittest.TestCase):
         frentes = ((5, 230), (235, 460), (465, 695))
         for i, (z0, z1) in enumerate(frentes):
             caixas.append(('LAYER1%d' % i, (5, 0, z0), (395, 15, z1)))
-            # a caixa do Promob nasce DENTRO da frente (y 12): encosta nela
+            # The Promob drawer box starts inside its front at y = 12, touching it.
             caixas += [('LAYER2%d' % i, (28, 12, z0 + 20), (43, 500, z0 + 150)),
                        ('LAYER3%d' % i, (357, 12, z0 + 20), (372, 500, z0 + 150)),
                        ('LAYER4%d' % i, (43, 15, z0 + 20), (357, 30, z0 + 150)),
@@ -1610,14 +1607,14 @@ class TestImportacao(unittest.TestCase):
         modulos, info = self.importar('Gaveteiros.dxf', caixas, {c: 7 for c, _l, _h in caixas})
         conj, = modulos
         self.assertEqual(info['gavetas'], 1, info)
-        # a caixa do Promob saiu: o modulo e' so' o corpo
+        # The Promob drawer box is removed; the cabinet contains only the carcass.
         self.assertEqual(len(addon.modulos._chapas_do_conjunto(conj)), 4)
         grupo, = addon.gavetas.grupos_do_modulo(conj)
         p = addon.gavetas.parametros(grupo)
         self.assertEqual((p['quantidade'], p['cobertura'], p['trilho']),
                          (3, 'SOBREPOSTA', 'TELESCOPICO'))
-        # as alturas DESIGUAIS do Promob ficam (proporcao), e as frentes
-        # nascem onde estavam
+        # Preserve Promob's unequal heights as proportions, creating fronts
+        # at their original positions.
         alturas = [addon.gavetas.frente_da_gaveta(g).chapa_comprimento_mm
                    for g in addon.gavetas.gavetas_do_grupo(grupo)]
         self.assertAlmostEqual(alturas[2] / alturas[0], 230.0 / 225.0, places=2)
@@ -1628,18 +1625,18 @@ class TestImportacao(unittest.TestCase):
         caixas = [
             ('LAYER1', (0, 0, 0), (15, 550, 1356)), ('LAYER2', (1185, 0, 0), (1200, 550, 1356)),
             ('LAYER3', (15, 0, 3), (1185, 550, 18)), ('LAYER4', (15, 0, 1338), (1185, 550, 1353)),
-            ('LAYER5', (15, 0, 18), (1185, 60, 24)),           # trilho de baixo (6 mm)
-            ('LAYER6', (15, 0, 1298), (1185, 80, 1338)),       # trilho de cima
-            ('LAYER7', (16, 7, 26), (616, 30, 1320)),          # quadros de 23
+            ('LAYER5', (15, 0, 18), (1185, 60, 24)),           # Lower track, 6 mm.
+            ('LAYER6', (15, 0, 1298), (1185, 80, 1338)),       # Upper track.
+            ('LAYER7', (16, 7, 26), (616, 30, 1320)),          # 23 mm frames.
             ('LAYER8', (599, 37, 26), (1184, 60, 1320)),
-            ('LAYER9', (21, 13, 32), (609, 18, 1314)),         # vidro de 5
+            ('LAYER9', (21, 13, 32), (609, 18, 1314)),         # 5 mm glass.
         ]
         cores = {c: 7 for c, _l, _h in caixas}
         cores.update(LAYER5=253, LAYER6=253, LAYER7=254, LAYER8=254, LAYER9=254)
         modulos, info = self.importar('Despenseiros.dxf', caixas, cores)
         conj, = modulos
         self.assertEqual(info['correr'], 1, info)
-        # o trilho de 6 mm passava como chapa: agora e' ferragem e sai
+        # The 6 mm track previously passed as a panel; it is now hardware and removed.
         self.assertEqual(sorted(round(c.chapa_espessura_mm) for c in
                                 addon.modulos._chapas_do_conjunto(conj)), [15, 15, 15, 15])
         grupo, = addon.portas._portas_do_conjunto(conj)
@@ -1651,26 +1648,26 @@ class TestImportacao(unittest.TestCase):
 
     def test_promob_travessas_do_topo_viram_dependentes(self):
         caixas = self.CORPO_400[:3] + [
-            ('LAYER4', (15, 15, 685), (385, 85, 700)),          # travessa da frente
-            ('LAYER5', (15, 495, 685), (385, 565, 700)),        # e a de tras
+            ('LAYER4', (15, 15, 685), (385, 85, 700)),          # Front stretcher.
+            ('LAYER5', (15, 495, 685), (385, 565, 700)),        # And rear stretcher.
         ]
         modulos, _info = self.importar('Balcoes.dxf', caixas, {c: 7 for c, _l, _h in caixas})
         conj, = modulos
         lados = sorted(t[addon.modulos.CHAVE_LADO_TRAVESSA]
                        for t in addon.modulos.travessas_do_modulo(conj))
         self.assertEqual(lados, ['FRENTE', 'TRAS'])
-        # a travessa refeita pela caixa: entre as laterais, E do modulo
+        # Rebuild the stretcher from the carcass, between sides and using cabinet E.
         for t in addon.modulos.travessas_do_modulo(conj):
             self.assertAlmostEqual(t.chapa_largura_mm, 370.0, places=1)
             self.assertAlmostEqual(t.chapa_espessura_mm, 15.0, places=1)
-        # o modulo continua 400 x 700 (sem crescer pela travessa)
+        # The cabinet remains 400 x 700 without growing to include the stretcher.
         self.assertAlmostEqual(conj.conj_largura_mm, 400.0, places=1)
         self.assertAlmostEqual(conj.conj_altura_mm, 700.0, places=1)
 
     def test_promob_vao_sem_chapa_entre_gavetas_e_porta(self):
-        # gavetas embaixo de uma basculante, sem travessa entre elas: o
-        # vao das gavetas para na frente delas (menos a cobertura dos
-        # lados), nao sobe ate' o tampo (`promob.vao_atras`)
+        # Drawers beneath a lift-up door without an intervening stretcher: their opening
+        # ends at their front extent minus side coverage, rather than rising
+        # to the top (promob.vao_atras).
         P = addon.promob
         corpo = [P.peca(None, (0, 15, 0), (15, 565, 1356), 0),
                  P.peca(None, (785, 15, 0), (800, 565, 1356), 0),
@@ -1721,7 +1718,7 @@ class TestImportacao(unittest.TestCase):
         conj.rotation_euler = (.2, .3, .7)
         bpy.context.view_layer.update()
         uid = base['chapa_uid']
-        # Recriar so' o recuo de 3 no eixo Z do modulo girado.
+        # Recreate only the 3 mm recess on the rotated cabinet's Z axis.
         m = base.matrix_world.copy()
         m.translation += conj.matrix_world.to_3x3() @ Vector((0, 0, .003))
         base.matrix_world = m
@@ -1778,7 +1775,7 @@ class TestImportacao(unittest.TestCase):
         caixas = list(self.CORPO_400) + [('F', (5,0,500),(395,15,695)),
             ('E', (28,15,520),(43,330,670)), ('D', (357,15,520),(372,330,670)),
             ('B', (28,15,514),(372,330,520)), ('T', (28,320,520),(372,335,670))]
-        # Caixa metalica tambem informa gaveta; trilhos gerados sao nossos.
+        # A metal box also identifies a drawer; generated rails are our own.
         cores = {n: (254 if n in ('E','D') else 7) for n,lo,hi in caixas}
         (conj,), info = self.importar('Mista.dxf', caixas, cores)
         grupo, = addon.gavetas.grupos_do_modulo(conj)
@@ -1787,8 +1784,8 @@ class TestImportacao(unittest.TestCase):
         self.assertTrue(all(o.name not in ('Peca E','Peca D') for o in conj.children_recursive))
 
     def test_promob_prateleiras_adotam_uid_material_forma_e_funcoes(self):
-        # As prateleiras avancam 5 mm alem do corpo: adotar nao pode
-        # trocar o referencial do vao e desloca-las para tras.
+        # Shelves project 5 mm beyond the carcass; adoption must not change
+        # the opening reference frame and displace them backward.
         caixas = list(self.CORPO_400) + [('P1',(15,10,200),(385,540,215)), ('P2',(15,10,450),(385,540,465))]
         (conj,), info = self.importar('Prateleiras.dxf', caixas, {n:7 for n,lo,hi in caixas})
         self.assertEqual(info['prateleiras'], 1)
@@ -1815,7 +1812,7 @@ class TestImportacao(unittest.TestCase):
                          ('B', _faces_da_caixa((15,0,0),(600,600,15))),
                          ('T', _faces_da_caixa((15,0,685),(600,600,700)))],
                    [('P', vs, fs)])
-        (conj,), info = addon.importacao.importar_dxf_promob(bpy.context, path, 'Recorte')
+        (conj,), info = addon.importacao.importar_dxf_promob(bpy.context, path, "Cutout")
         grupo, = addon.prateleiras.grupos_do_modulo(conj)
         obj, = addon.prateleiras.prateleiras_do_grupo(grupo)
         self.assertFalse(addon.chapas._malha_e_caixa(obj.data))
@@ -1896,7 +1893,7 @@ class TestImportacao(unittest.TestCase):
         contorno=[(595-r*math.cos(i*math.pi/32),r*math.sin(i*math.pi/32))
                   for r,indices in ((245,range(17)),(230,range(16,-1,-1))) for i in indices]
         vs=[(x,y,z) for z in (5,695) for x,y in contorno];n=len(contorno)
-        # Polyface DXF admite so' quatro indices por face.
+        # DXF polyface supports only four indices per face.
         fs=[(i,i+1,n-2-i,n-1-i) for i in range(16)]
         fs += [(n+i,2*n-1-i,2*n-2-i,n+i+1) for i in range(16)]
         fs += [(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
@@ -1906,7 +1903,7 @@ class TestImportacao(unittest.TestCase):
         caminho=os.path.join(tempfile.mkdtemp(),'CurvaFuncional.dxf')
         dxf_promob(caminho,[(c,_faces_da_caixa(lo,hi)) for c,lo,hi in caixas],
                    [('F',vs,fs)],cores={**{c:253 if c.startswith('H') else 7 for c,lo,hi in caixas},'F':7})
-        (conj,),info=addon.importacao.importar_dxf_promob(bpy.context,caminho,'Curva')
+        (conj,),info=addon.importacao.importar_dxf_promob(bpy.context,caminho,"Curve")
         self.assertEqual(info['portas'],1)
         grupo,=addon.portas._portas_do_conjunto(conj);folha,=addon.portas._folhas_portas(grupo)
         self.assertTrue(folha.get('porta_curva_modelada'))
@@ -1952,4 +1949,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestImportacao)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de importacao')
+    raise RuntimeError("Import tests failed")

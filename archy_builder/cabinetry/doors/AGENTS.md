@@ -8,7 +8,7 @@ Creation: [assistant](../door_assistant.py); rigs: [hardware](../hardware.py); h
 Sliders/corners: [controls](../../ui/door_controls.py); shared [fronts](../fronts.py) and [contract](../../../FRONT_GEOMETRY.md).
 Read [UI](../../ui/AGENTS.md), [interface archive](../../../docs/reference/interface.md),
 [integration archive](../../../docs/reference/integration.md) and [tools](../../../tools/AGENTS.md) as relevant.
-Legacy addon.portas and canonical doors are the SAME owner module; retain Portuguese functions, UI text, IDs and placeholders.
+Legacy addon.portas and canonical doors are the SAME owner module; retain internal function names, IDs and placeholders. UI text uses English.
 
 | Task | Entry point |
 |---|---|
@@ -60,7 +60,7 @@ Legacy addon.portas and canonical doors are the SAME owner module; retain Portug
   Deduplicate Mesh by native equality AFTER checking attribute names/domains/types: incompatible attributes crash 4.2; Tab can preserve asset markers.
 - Reverse modeled curved fronts by reference, keeping world vertices; _vao_inverso must not displace them. Inversion puts hinges outside/opening inward.
   Copy nested ID props RECURSIVELY before replacement: shallow copies/stale accesses could crash 5.2.
-- New leaf/track text reaches _carregar_portas_na_cena and _valores_portas in ../../ui/sidebar.py; existing UI/functions remain Portuguese.
+- New leaf/track text reaches _carregar_portas_na_cena and _valores_portas in ../../ui/sidebar.py; UI text uses English; internal function identifiers remain stable.
 - Hardware appears as real-piece wireframe only during creation/selection: click all of type, Shift adds, Alt controller, double-click native piece.
   Group Tab moves whole parts through the hinge root, holes/IK/spring included; partial modeling stays native. Numeric Mesh references recover undo offsets.
   Materialize mirrors on unique copies before Tab, in stack order, avoiding clipping that pins half a hinge. Handle edits preserve Mesh/UVs.

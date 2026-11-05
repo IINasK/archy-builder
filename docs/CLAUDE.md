@@ -1,7 +1,7 @@
 # Documentation
 
 Mirror these instructions in CLAUDE.md. Keep technical paths and context guides
-in English; the user guide and existing Portuguese UI stay localized.
+in English. User guides, UI text, comments and commit messages use English too.
 
 README.md is for end users. DEVELOPMENT.md is the separate developer entry point.
 ARCHITECTURE.md at the repository root owns current task routing. Sector guides

@@ -1,8 +1,8 @@
-"""Referencia geometrica comum das frentes, em coordenadas da Mesh.
+"""Shared front geometry reference in Mesh coordinates.
 
-Faces semanticas acompanham subdivisao/edicao nativa. Coordenadas derivadas
-sao preparadas na montagem ou apos editar; desenho e hover so' leem cache.
-Nao conserva objetos em estado global nem usa indices gravados em presets.
+Semantic faces follow native subdivision/editing. Prepare derived
+coordinates at assembly or after editing; drawing and hover only read
+the cache. Retain no global objects or preset-stored indices.
 """
 import hashlib
 import math
@@ -18,7 +18,7 @@ CHAVE = 'cabinet_frente_referencia'
 ATR_FACE = 'cabinet_frente_face'
 ATR_BORDA = 'cabinet_frente_borda'
 VERSAO = 1
-_pendentes = set()  # nomes, nunca RNA que o undo pode liberar
+_pendentes = set()  # Names only, never RNA that undo may free.
 _cena_pendente = [False]
 
 
@@ -33,9 +33,9 @@ def _digital(malha):
 
 
 def copiar_rotulos(origem,destino):
-    """Migra copias nativas anteriores ao esquema, sem trocar a referencia
-    original de resize. So' topologias identicas permitem copiar atributos;
-    coordenadas podem diferir, pois a copia conserva a medida de origem.
+    """Migrate native copies predating this schema without replacing the
+    original resize reference. Copy attributes only for identical topology;
+    coordinates may differ because copies retain original dimensions.
     """
     faltantes=[chave for chave in (ATR_FACE,ATR_BORDA,_solda.ATR_VERTICE_SOLDA)
                if origem.attributes.get(chave) is not None and destino.attributes.get(chave) is None]
@@ -76,7 +76,7 @@ def encerrar():
 
 
 def referencia(chapa):
-    """Leitura barata: nenhuma extracao, hash, BMesh ou ray cast aqui."""
+    """Cheap read: no extraction, hash, BMesh or ray cast here."""
     if (chapa is None or chapa.type != 'MESH' or
             chapa.data.get(CHAVE+'_invalida',False)):
         return None
@@ -114,9 +114,9 @@ def _expandir(sementes, proibidas=(),sinal=None,coplanar=False,elegiveis=None):
 
 
 def _sementes_por_solido(bm,sinal,proibidas=(),elegiveis=None):
-    """Quadro/painel podem compartilhar a Mesh sem compartilhar vertices.
-    Cada solido contribui sua superficie, em vez de o vidro maior ocultar
-    o perfil menor. Componentes sao reconhecidos so' durante o preparo.
+    """Frames/panels may share a Mesh without sharing vertices. Each solid
+    contributes its surface so larger glass cannot hide a smaller profile.
+    Recognize components only during preparation.
     """
     restantes=set(bm.faces)
     sementes=[]
@@ -136,9 +136,9 @@ def _sementes_por_solido(bm,sinal,proibidas=(),elegiveis=None):
 
 
 def _faces_opostas(bm):
-    """A espessura atravessa superficies opostas; uma tampa radial
-    encontra a curva transversalmente. A consulta nativa distingue ambas
-    sem limitar tamanho de segmento nem supor uma espessura constante.
+    """Thickness spans opposite surfaces; a radial cap intersects the curve
+    transversely. Native queries distinguish them without segment-size
+    limits or an assumption of constant thickness.
     """
     candidatas=[f for f in bm.faces if abs(f.normal.y)<.5]
     if not any(.001<abs(f.normal.z)<.999 for f in candidatas):
@@ -156,9 +156,9 @@ def _faces_opostas(bm):
             amostras[face]=(area,(a+b+c)/3,normal.normalized())
     elegiveis=set()
     for face,(_area,ponto,direcao) in amostras.items():
-        # Num quad torcido, o centro medio pode estar fora da superficie:
-        # o raio acertava a propria face e cortava o arco. A tessellacao
-        # nativa fornece um ponto SOBRE a face sem mudar a Mesh modelada.
+        # A twisted quad's average center can lie off the surface:
+        # the ray hit the same face and cut the arc. Native tessellation supplies
+        # a point ON the face without changing the modeled Mesh.
         co,normal,_indice,_dist=arvore.ray_cast(ponto-direcao*1e-7,-direcao)
         if co is not None and normal.dot(direcao)<-.95:
             elegiveis.add(face)
@@ -166,7 +166,7 @@ def _faces_opostas(bm):
 
 
 def _ordenar(segmentos):
-    """Maior cadeia de coordenadas, independente dos indices da malha."""
+    """Longest coordinate chain, independent of mesh indices."""
     vizinhos = {}
     for a,b in segmentos:
         a,b = tuple(a),tuple(b)
@@ -196,17 +196,17 @@ def _ordenar(segmentos):
 
 
 def contorno_tem_curva(segmentos,tolerancia=.05,extensao_minima=30.):
-    """Segmentos em mm: varias mudancas graduais, nao uma reta tessellada.
-    Sem ajustar circulo: reconhece tambem arcos elipticos e editados por Tab.
-    Cortes pequenos de acabamento nao mudam a referencia do movel inteiro.
+    """Segments in mm: multiple gradual turns, not a tessellated straight line.
+    No circle fitting, so elliptical and Tab-edited arcs also work. Small
+    finishing cuts must not redefine the whole cabinet reference.
     """
     ps=_ordenar(segmentos)
     if len(ps)<5:return False
     fechado=any((a-ps[0]).length<tolerancia and (b-ps[-1]).length<tolerancia
                  or (b-ps[0]).length<tolerancia and (a-ps[-1]).length<tolerancia
                  for a,b in segmentos)
-    # Colapsar colineares antes de contar mudancas: densidade da Mesh
-    # nao decide se a borda e' curva. A mesma regra vale no fecho do anel.
+    # Collapse collinear segments before counting turns: Mesh density must
+    # not decide whether an edge is curved. Apply the rule at ring closure too.
     mudou=True
     while mudou and len(ps)>3:
         mudou=False
@@ -258,8 +258,8 @@ def _dados_patch(patch,camada_borda,papel):
         segmentos = [(e.verts[0].co.copy(),e.verts[1].co.copy()) for e in elegiveis]
         caminho = _ordenar(segmentos)
         if len(caminho)<2:
-            # Uma borda recortada pode nao ter um trecho horizontal inteiro.
-            # A secao central da superficie conserva o percurso da frente.
+            # A cut edge may lack a complete horizontal section.
+            # The surface's middle section preserves the front path.
             meio = (baixo+cima)/2
             segmentos = []
             for f in patch:
@@ -297,7 +297,7 @@ def _dados_patch(patch,camada_borda,papel):
 
 
 def _retangular_canonica(baixo,cima,contorno):
-    """Subdividir uma borda reta nao transforma uma caixa em curva."""
+    """Subdividing a straight edge must not turn a box into a curve."""
     a,b,c,d=baixo[0],baixo[-1],cima[-1],cima[0]
     if (abs(a.y-b.y)>1e-7 or abs(c.y-d.y)>1e-7 or
             max(p.z for p in (a,b,c,d))-min(p.z for p in (a,b,c,d))>1e-7 or
@@ -315,10 +315,10 @@ def _retangular_canonica(baixo,cima,contorno):
 
 
 def preparar(chapa, forcar=False):
-    """Reconhece a superficie uma vez e guarda faces semanticas nativas.
+    """Recognize the surface once and store native semantic faces.
 
-    O guia legado so' semeia a primeira migracao. Toda reconstrucao posterior
-    usa atributos de faces, que o Blender transporta ao editar a topologia.
+    The legacy guide seeds only initial migration. Later reconstruction
+    uses face attributes transported by Blender during topology edits.
     """
     if (chapa is None or chapa.type != 'MESH' or chapa.mode == 'EDIT'
             or chapa.data.is_editmode):
@@ -349,9 +349,9 @@ def preparar(chapa, forcar=False):
         migrar=not anterior or not anterior.get('amostragem_triangular')
         elegiveis=_faces_opostas(bm) if migrar or not frente or not tras else None
         if migrar and elegiveis is not None:
-            # Os rotulos antigos tambem guardam o corte causado pelo raio.
-            # Conservam o lado semantico, mas precisam completar o percurso
-            # uma vez, inclusive quando o hash geometrico nao mudou.
+            # Old labels also retain the cut caused by the ray.
+            # They preserve semantic sides but need their path completed once,
+            # even if the geometry hash is unchanged.
             frente=_expandir(frente,tras,elegiveis=elegiveis)
             tras=_expandir(tras,frente,elegiveis=elegiveis)
         if not frente:
@@ -381,8 +381,8 @@ def preparar(chapa, forcar=False):
             _sem_referencia(malha,digital)
             return None
         if costas is None:
-            # Superficie aberta continua selecionavel. A espessura nominal
-            # fornece o verso ate' existir geometria fechada novamente.
+            # Open surfaces remain selectable. Nominal thickness supplies
+            # the rear surface until closed geometry exists again.
             esp = float(chapa.chapa_espessura_mm)/1000
             costas = ([v-Vector((0,0,esp)) for v in dados[0]],
                       [v-Vector((0,0,esp)) for v in dados[1]],[],
@@ -402,9 +402,9 @@ def preparar(chapa, forcar=False):
         montagem = [[p.copy() for p in ps] for ps in (caminho,topo,costas[0],costas[1])]
         cortes=set(filter(None,str(chapa.get('chapa_rebaixos','')).split(',')))
         if cortes:
-            # O perfil ocupa a faixa retirada pela montagem parametrica.
-            # Contorno/selecionar usam madeira real; acoplar usa sua borda
-            # nominal, conservada explicitamente pelo proprio corte.
+            # The profile occupies the strip removed by parametric assembly.
+            # Outline/selection use actual wood; attachment uses its nominal edge,
+            # explicitly preserved by the cut itself.
             hx=float(chapa.chapa_largura_mm)/2000
             hy=float(chapa.chapa_comprimento_mm)/2000
             for i,ps in enumerate(montagem):
@@ -436,8 +436,8 @@ def preparar(chapa, forcar=False):
 
 
 def _sem_referencia(malha,digital):
-    # Uma superficie incompleta nao pode provocar extracao infinita no
-    # timer. Outra edicao muda a assinatura e permite reconhece-la de novo.
+    # An incomplete surface must not cause endless timer extraction.
+    # Another edit changes the signature and allows recognition again.
     malha[CHAVE]=dict(versao=VERSAO,amostragem_triangular=True,digital=digital,valida=False,
                       vertices=len(malha.vertices),poligonos=len(malha.polygons))
     malha[CHAVE+'_invalida']=False
@@ -560,14 +560,14 @@ def lugar(chapa,borda,face,fracao,comprimento_mm,recuo_mm,inteiro=False):
             comprimento=altura
         livre=max(0,altura-comprimento)/2
         ponto.y=centro_y+max(-livre,min(livre,(fracao-.5)*altura))*sinal*(1 if face>=0 else -1)
-        recuo=0  # ja' percorrido sobre o perfil, nao sobre sua corda
+        recuo=0  # Distance along the profile, not its chord.
     matriz=Matrix((ao_longo,dentro,fora)).transposed().to_4x4()
     matriz.translation=ponto+dentro*recuo
     return matriz,comprimento*1000
 
 
 def migrar_puxadores(chapa):
-    """Traduz uma vez a coordenada antiga, nunca um desvio acumulado."""
+    """Convert legacy coordinates once, never accumulate an offset."""
     for pux in chapa.children:
         if ('eh_puxador' not in pux or pux.get('puxador_referencia_versao',0)>=1):
             continue
@@ -578,13 +578,13 @@ def migrar_puxadores(chapa):
             pux['puxador_fracao']=1-float(pux.get('puxador_fracao',.5))
         pux['puxador_referencia_versao']=1
         if pux.type=='MESH' and _puxadores is not None:
-            # Aplica a migracao tambem aos exemplares ja' inseridos. A
-            # referencia ja' existe e a marca precede a montagem: sem ciclo.
+            # Migrate already inserted instances too. The reference already exists
+            # and the marker precedes assembly, avoiding a cycle.
             _puxadores.posicionar_puxador(pux)
 
 
 def fracao_do_ponto(chapa,borda,face,ponto):
-    """Projecao LOCAL comum a adocao de pecas e ao posicionamento novo."""
+    """LOCAL projection shared by part adoption and new placement."""
     linhas=_linhas(chapa,face,montagem=True)
     if linhas is None:
         return None
@@ -637,10 +637,10 @@ def preparar_conjunto(conj):
 
 
 def transportar(chapa,pontos,matriz):
-    """Captura referencia da geometria transportada antes de mudar o rig.
+    """Capture transported geometry before changing the rig.
 
-    Opera numa copia nativa para nao substituir a malha editada. Retorna
-    o percurso fechado em MUNDO, preservando correspondencia por faces.
+    Use a native copy to avoid replacing the edited mesh. Return the
+    closed path in WORLD space, preserving face correspondence.
     """
     copia=chapa.copy(); copia.data=chapa.data.copy()
     try:

@@ -1,4 +1,4 @@
-"""Areas livres retangulares: forma fixa, HUD nativa e entrega aos dominios."""
+"""Rectangular free areas: fixed shape, native HUD and handoff to domain owners."""
 import os
 import sys
 import math
@@ -65,8 +65,8 @@ class TestAreasCriacao(unittest.TestCase):
                     self.assertIn('portas_verificadas',getattr(bpy.ops.object,comando.split('.')[1]).get_rna_type().properties)
                 self.assertEqual(resultado,{'FINISHED'})
                 pergunta=addon.perguntas._pergunta_atual[0]
-                self.assertEqual(pergunta['texto'],'Esconder portas?')
-                self.assertEqual([o[0] for o in pergunta['opcoes']],['Sim','Nao'])
+                self.assertEqual(pergunta['texto'],"Hide doors?")
+                self.assertEqual([o[0] for o in pergunta['opcoes']],["Yes","No"])
                 self.assertTrue(all(o[2]=='object.cabinet_portas_internos' for o in pergunta['opcoes']))
                 self.assertIsNone(addon.gavetas._assistente_gavetas[0])
                 self.assertIsNone(addon.prateleiras._assistente_prateleiras[0])
@@ -82,7 +82,7 @@ class TestAreasCriacao(unittest.TestCase):
         objetos=A.portas_do_interno(bpy.context)
         self.assertTrue(A.perguntar_portas(bpy.context,'object.cabinet_criar_gavetas'))
         with patch.object(addon.editor,'executar',return_value={'RUNNING_MODAL'}) as executar:
-            # O respondedor existente chama a continuacao pelo editor.
+            # The existing response operator calls the continuation through the editor.
             props=addon.perguntas._pergunta_atual[0]['opcoes'][0][3]
             self.assertEqual(bpy.ops.object.cabinet_portas_internos(**props),{'FINISHED'})
             executar.assert_called_once_with(bpy.context,'object.cabinet_criar_gavetas',portas_verificadas=True)
@@ -182,7 +182,7 @@ class TestAreasCriacao(unittest.TestCase):
             self.assertEqual(A.OBJECT_OT_definir_area.invoke(op,bpy.context,None),{'FINISHED'})
             self.assertIsNone(A._estado[0])
             pergunta=addon.perguntas._pergunta_atual[0]
-            self.assertEqual(pergunta['texto'],'Esconder portas?')
+            self.assertEqual(pergunta['texto'],"Hide doors?")
             if aba=='PRATELEIRAS':self.assertEqual(pergunta['opcoes'][0][3]['metodo'],'VOLUME')
 
     def test_pergunta_do_menu_fica_na_gaveta_com_as_duas_respostas(self):
@@ -192,7 +192,7 @@ class TestAreasCriacao(unittest.TestCase):
         finally:addon.perguntas._na_gaveta[0]=False
         bpy.context.scene.cabinet_aba='GAVETAS'
         widgets=addon.gaveta._widgets_aba_gaveta(bpy.context,320,900,0)
-        self.assertEqual([v[4] for v in widgets if v[5] and v[5][0]=='resposta'],['Sim','Nao'])
+        self.assertEqual([v[4] for v in widgets if v[5] and v[5][0]=='resposta'],["Yes","No"])
         self.assertIsNone(addon.gavetas._assistente_gavetas[0])
 
     def test_responder_no_menu_preserva_pergunta_de_tipo_no_mesmo_menu(self):
@@ -202,7 +202,7 @@ class TestAreasCriacao(unittest.TestCase):
         finally:addon.perguntas._na_gaveta[0]=False
         self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=1),{'FINISHED'})
         pergunta=addon.perguntas._pergunta_atual[0]
-        self.assertEqual(pergunta['texto'],'Criar prateleiras ou divisorias?')
+        self.assertEqual(pergunta['texto'],"Create shelves or partitions?")
         self.assertTrue(pergunta['na_gaveta'])
         self.assertFalse(addon.perguntas._na_gaveta[0])
 
@@ -245,7 +245,7 @@ class TestAreasCriacao(unittest.TestCase):
         self.assertTrue(all(addon.visibilidade.esmaecido(bpy.data.objects[n]) for n in folhas))
         self.modulo=bpy.data.objects[nome]
 
-    # Regressao (era BUG, corrigido na 386): modal consumia H/Alt+H entre cliques.
+    # Regression, fixed in v386: the modal operator consumed H/Alt+H between clicks.
     def test_captura_de_pontos_repassa_ocultacao_do_keymap_nativo(self):
         g=addon.gavetas
         self.assertFalse(g.evento_de_ocultacao(SimpleNamespace(),SimpleNamespace(type='TIMER')))
@@ -368,7 +368,7 @@ class TestAreasCriacao(unittest.TestCase):
     def test_aplicar_volume_pede_frente_e_suspende_alcas_sem_criar(self):
         self.referencia()
         A._estado[0].pop('frente')
-        with self.assertRaisesRegex(ValueError, 'frente'):
+        with self.assertRaisesRegex(ValueError, 'front'):
             A.preparar_entrega(bpy.context)
         with patch.object(addon.editor, 'executar') as executar:
             self.assertEqual(bpy.ops.object.cabinet_aplicar_area(), {'FINISHED'})
@@ -377,7 +377,7 @@ class TestAreasCriacao(unittest.TestCase):
             self.assertIsNone(addon.hud._alvo_hud(bpy.context))
             executar.assert_not_called()
         itens = A.widgets(bpy.context, [], 12, 600, 200)
-        self.assertTrue(any('frente' in i[4] for i in itens))
+        self.assertTrue(any('front' in i[4] for i in itens))
 
     def test_clique_na_frente_entrega_e_encerra_modal_pai(self):
         self.referencia(); A.solicitar_frente(bpy.context)
@@ -528,7 +528,7 @@ class TestAreasCriacao(unittest.TestCase):
             addon.hud_volume.atualizar(bpy.context)
             self.assertAlmostEqual(A.valor(obj, ('L',)), 500, places=3)
             addon.hud_volume.preparar_base_snap(bpy.context)
-            # Ao escolher a base, o translate nativo zera seu delta original.
+            # Choosing the base resets the native translate operator's original delta.
             bpy.context.scene.cursor.location = inicio + Vector((.05, 0, 0))
             addon.hud_volume.atualizar(bpy.context)
             self.assertAlmostEqual(A.valor(obj, ('L',)), 550, places=3)
@@ -573,7 +573,7 @@ class TestAreasCriacao(unittest.TestCase):
         self.assertEqual(bpy.ops.object.cabinet_internos(acao='INICIAR'),{'FINISHED'})
         self.assertEqual(A._internos[0]['etapa'],'TIPO')
         pergunta=addon.perguntas._pergunta_atual[0]
-        self.assertEqual([o[0] for o in pergunta['opcoes']],['Prateleiras','Divisorias','Sair'])
+        self.assertEqual([o[0] for o in pergunta['opcoes']],["Shelves","Partitions","Exit"])
         with patch.object(addon.editor,'executar',return_value={'RUNNING_MODAL'}) as executar:
             self.assertEqual(bpy.ops.object.cabinet_internos(acao='TIPO',valor='DIVISORIAS'),{'FINISHED'})
         self.assertEqual(executar.call_args.args[1],'object.cabinet_criar_divisorias')
@@ -610,7 +610,7 @@ class TestAreasCriacao(unittest.TestCase):
         self.assertEqual(len(addon.divisorias.pecas(divisorias)),1)
         self.assertEqual(sum(len(addon.prateleiras.prateleiras_do_grupo(g)) for g in addon.prateleiras.grupos_do_modulo(self.modulo)),2)
         nomes=set(bpy.data.objects.keys())
-        self.assertEqual([o[0] for o in addon.perguntas._pergunta_atual[0]['opcoes']],['Sair'])
+        self.assertEqual([o[0] for o in addon.perguntas._pergunta_atual[0]['opcoes']],["Exit"])
         self.assertEqual(bpy.ops.object.cabinet_internos(acao='CONTINUAR',valor='DIVISORIAS'),{'CANCELLED'})
         bpy.ops.object.cabinet_internos(acao='SAIR')
         self.assertIsNone(A._internos[0]);self.assertEqual(set(bpy.data.objects.keys()),nomes)
@@ -672,7 +672,7 @@ class TestAreasCriacao(unittest.TestCase):
             bpy.context.scene.cabinet_aba=tipo
             self.assertEqual(g._aba_no_menu(bpy.context.scene),'PRATELEIRAS')
             cab=g._cabecalho_gaveta(bpy.context,12,860,166)
-            self.assertEqual(cab[0][4],'Prateleiras / Divisorias')
+            self.assertEqual(cab[0][4],"Shelves / Partitions")
 
     def test_area_cria_gavetas_sem_pontos_de_malha_nem_recalcular_profundidade(self):
         obj = self.referencia()
@@ -889,7 +889,7 @@ class TestAreasCriacao(unittest.TestCase):
         self.assertFalse(any(A.MARCA in o for o in bpy.data.objects))
 
     def test_menu_oferece_volume_e_plano_e_campos_usam_mesmas_cotas(self):
-        for aba, rotulo in (('GAVETAS', 'Definir por volume'), ('PRATELEIRAS', 'Definir por volume'), ('PORTAS', 'Definir por plano')):
+        for aba, rotulo in (('GAVETAS', "Define by Volume"), ('PRATELEIRAS', "Define by Volume"), ('PORTAS', "Define by Plane")):
             bpy.context.scene.cabinet_aba = aba
             itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 320, 1000, 0)
             self.assertTrue(any(i[4] == rotulo for i in itens))
@@ -897,7 +897,7 @@ class TestAreasCriacao(unittest.TestCase):
         itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 320, 1000, 0)
         campos = [i for i in itens if i[5] and i[5][0] == 'medida']
         self.assertEqual({i[5][2] for i in campos}, {'L', 'A', 'P'})
-        self.assertTrue(any(i[4] == 'Aplicar area' for i in itens))
+        self.assertTrue(any(i[4] == "Apply Area" for i in itens))
         self.assertEqual(bpy.ops.object.cabinet_editar_medida_gaveta('EXEC_DEFAULT',
             dono='area_criacao', propriedade='L', valor=.55), {'FINISHED'})
         self.assertAlmostEqual(A.valor(obj, ('L',)), 550, places=3)
@@ -915,4 +915,4 @@ with tempfile.TemporaryDirectory(prefix='areas_criacao_') as pasta, \
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nas areas de criacao')
+        raise RuntimeError("Creation-area tests failed")

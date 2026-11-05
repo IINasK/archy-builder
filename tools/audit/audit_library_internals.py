@@ -1,6 +1,6 @@
 """Audit cabinet internal clearances and intersections without changing the library.
 
---destino must be outside the library. Contacts up to 0.25 mm are tolerated;
+--destination must be outside the library. Contacts up to 0.25 mm are tolerated;
 cut shelf envelopes can overlap without a corresponding physical collision."""
 import argparse
 from collections import Counter
@@ -43,7 +43,7 @@ def caixa(matriz, dimensoes):
 
 
 def intersecao_de_envelopes(a, b, tolerancia=TOLERANCIA_MM):
-    """SAT: eixos das duas caixas e seus produtos cruzados, inclusive giradas."""
+    """SAT: both boxes' axes and their cross products, including rotated boxes."""
     eixos = a['eixos'] + b['eixos'] + [x.cross(y) for x in a['eixos'] for y in b['eixos']]
     menor = float('inf')
     for eixo in eixos:
@@ -59,7 +59,7 @@ def intersecao_de_envelopes(a, b, tolerancia=TOLERANCIA_MM):
 
 
 def dentro(ponto, dados, tolerancia=TOLERANCIA_MM / 4):
-    """Paridade do ray cast nativo independe da orientacao das normais do DXF."""
+    """Native raycast parity is independent of DXF normal orientation."""
     arvore = dados['arvore']
     proximo = arvore.find_nearest(ponto)
     if proximo[0] is None or proximo[3] <= tolerancia:
@@ -72,11 +72,11 @@ def dentro(ponto, dados, tolerancia=TOLERANCIA_MM / 4):
             return bool(cruzamentos % 2)
         cruzamentos += 1
         origem = local + direcao * .001
-    raise RuntimeError('Malha exige mais de 256 cruzamentos para testar interior')
+    raise RuntimeError("Mesh requires more than 256 crossings to test its interior")
 
 
 def ponto_de_colisao(a, b):
-    """Exige um ponto estritamente dentro dos dois solidos; tocar nao basta."""
+    """Require a point strictly inside both solids; touching is insufficient."""
     if not a['fechada'] or not b['fechada']:
         return None
     if intersecao_de_envelopes(a, b) is None:
@@ -90,8 +90,8 @@ def ponto_de_colisao(a, b):
     for p in candidatos:
         if dentro(p, a) and dentro(p, b):
             return list(p)
-    # Cruzar placas pode nao deixar vertices dentro da outra. As arestas
-    # que atravessam sua superficie fornecem uma amostra no volume comum.
+    # Crossing plates may leave no vertices inside each other. Edges
+    # crossing the surface supply a sample in the common volume.
     for origem, destino in ((a, b), (b, a)):
         pares = origem['arvore'].overlap(destino['arvore'])
         faces = {i for i, _j in pares}
@@ -108,8 +108,8 @@ def ponto_de_colisao(a, b):
                     continue
                 direcao.normalize()
                 interior = (centro_face - (inicio+fim)/2).normalized()
-                # O raio exatamente na aresta pode ser coplanar a' outra
-                # placa. Desloca-lo antes do ray cast evita perder a cruz.
+                # A ray exactly on an edge may be coplanar with the other
+                # plate. Offset it before raycasting to detect the crossing.
                 for lado in (-1, 1):
                     desloc = (interior + normal * lado) * TOLERANCIA_MM / 2
                     local, _n, _f, _d = destino['arvore'].ray_cast(
@@ -197,7 +197,7 @@ def auditar_modulo(objetos):
         if na not in donos and nb not in donos:
             continue
         oa, ob = bpy.data.objects[na], bpy.data.objects[nb]
-        # Encaixes da propria caixa nao sao interferencia entre sistemas.
+        # Joints within the box itself are not interference between systems.
         if (donos.get(na) == donos.get(nb) and oa.parent == ob.parent
                 and oa.parent is not None and oa.parent.get('eh_gaveta')):
             continue
@@ -232,10 +232,10 @@ def auditar(biblioteca, destino):
             resultado.update(arquivo=item['arquivo'], niveis=list(addon.biblioteca.caminho_de(item)))
             resultados.append(resultado)
             if i % 25 == 0 or i == len(itens):
-                print('[auditoria internos]', i, '/', len(itens), flush=True)
+                print("[internal audit]", i, '/', len(itens), flush=True)
         depois = {p.name: _base.digital(p) for p in biblioteca.iterdir() if p.is_file()}
         if antes != depois:
-            raise RuntimeError('A biblioteca mudou durante a auditoria')
+            raise RuntimeError("The library changed during the audit")
         tipos = Counter(g['tipo'] for r in resultados for g in r['grupos'])
         resumo = dict(modulos=len(resultados), grupos=dict(tipos),
             modulos_com_sobreposicao=sum(bool(r['sobreposicoes_de_envelopes']) for r in resultados),
@@ -257,8 +257,8 @@ def auditar(biblioteca, destino):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--biblioteca', default=str(RAIZ / 'archy_builder/biblioteca'))
-    parser.add_argument('--destino', required=True)
+    parser.add_argument('--library', default=str(RAIZ / "archy_builder/assets/library"), dest='biblioteca', metavar='LIBRARY')
+    parser.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
     args = parser.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
     auditar(args.biblioteca, args.destino)
 

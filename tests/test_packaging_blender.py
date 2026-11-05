@@ -1,4 +1,4 @@
-"""Distribuicao da licenca e reconstrucao do ZIP em pasta descartavel."""
+"""License distribution and ZIP rebuilding in a disposable directory."""
 import contextlib
 import io
 import os
@@ -70,4 +70,4 @@ class TestEmpacotamento(unittest.TestCase):
 
 
 resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestEmpacotamento))
-if not resultado.wasSuccessful():raise RuntimeError('Falha nas provas de empacotamento')
+if not resultado.wasSuccessful():raise RuntimeError("Packaging tests failed")

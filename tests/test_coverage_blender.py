@@ -1,39 +1,39 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_coverage_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_coverage_blender.py
 
-TRAVA DE COBERTURA do harness. Falha quando:
-- uma classe registrada (operador, gizmo, painel, prateleira...) nao e'
-  citada por NENHUM teste e nao esta' em SEM_TESTE_ACEITO com motivo;
-- uma entrada de SEM_TESTE_ACEITO ja' ganhou teste (a lista so' encolhe);
-- uma suite nao tem piso no executor (teste apagado passaria calado);
-- um snapshot gravado nao e' mais conferido por ninguem.
+Harness coverage contract. Fail when:
+- No test mentions a registered class (operator, gizmo, panel, shelf, etc.) and SEM_TESTE_ACEITO has no justified exemption.
+- An entry in SEM_TESTE_ACEITO has gained coverage; this list may only shrink.
+- A suite has no runner floor, which would let deleted tests pass silently.
+- No test checks a stored snapshot.
 
-Funcionalidade nova sem teste quebra AQUI, no dia em que entra -- nao
-meses depois, quando alguem percebe que parou de funcionar.
-"""
+Untested functionality fails here on introduction, rather than months later when someone notices it stopped working."""
 import glob
 import os
 import re
 import sys
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
+import importlib.util
 
-import bpy  # noqa: F401  (o executor roda tudo dentro do Blender)
+import bpy  # noqa: F401  (the runner executes everything inside Blender)
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(AQUI))
 import archy_builder as addon  # noqa: E402
 
-# Classe -> por que ainda nao tem teste. So' pode ENCOLHER: ao cobrir
-# uma delas, apague a linha (o teste abaixo cobra isso).
+# Class -> reason it is not yet tested. This list may only shrink:
+# remove each entry when covered; the test below enforces this.
 SEM_TESTE_ACEITO = {
     'OBJECT_OT_abrir_asset_browser':
-        "so' o painel legado (nao registrado) chama; divide area",
-    'VIEW3D_AST_archy_builder': 'AssetShelf: arraste nativo do Blender',
+        'Only the unregistered legacy panel calls it; splits an area',
+    'VIEW3D_AST_archy_builder': 'AssetShelf: native Blender drag',
     'OBJECT_OT_registrar_bibliotecas':
-        'mexe nas preferencias do USUARIO (asset_libraries)',
+        'Changes USER preferences (asset_libraries)',
     'OBJECT_OT_modo_medidas':
-        "so' o painel legado (nao registrado) chama",
+        'Only the unregistered legacy panel calls it',
     'OBJECT_OT_definir_tamanho':
-        "so' o painel legado (nao registrado) chama",
+        'Only the unregistered legacy panel calls it',
 }
 
 
@@ -53,13 +53,25 @@ def _chaves(classe):
     if '.' in idname:
         chaves.add(idname.split('.', 1)[1])      # cabinet_xxx
     elif idname and idname not in (classe.__name__, addon.__name__):
-        # o bl_idname das Preferencias e' o nome do PACOTE, que aparece em
-        # todo 'import archy_builder': contaria como teste sem ser
+        # The preferences bl_idname is the package name, present in every
+        # 'import archy_builder'; that would count as coverage without testing it.
         chaves.add(idname)
     return chaves
 
 
 class TestCobertura(unittest.TestCase):
+
+    def test_library_timeout_survives_english_suite_rename(self):
+        spec = importlib.util.spec_from_file_location(
+            'archy_test_runner', os.path.join(AQUI, 'run_tests.py'))
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        output = SimpleNamespace(stdout='Ran 100 tests\nOK\n', stderr='', returncode=0)
+        with patch.object(runner.subprocess, 'run', return_value=output) as execute:
+            for name, seconds in (('library', 600), ('coverage', 300)):
+                with self.subTest(suite=name):
+                    self.assertTrue(runner._rodar('blender', name, 'suite.py', False)['ok'])
+                    self.assertEqual(execute.call_args.kwargs['timeout'], seconds)
 
     def setUp(self):
         self.texto = _texto_dos_testes()
@@ -72,19 +84,16 @@ class TestCobertura(unittest.TestCase):
         sem = sorted(c.__name__ for c in addon.CLASSES
                      if not self.citado(c)
                      and c.__name__ not in SEM_TESTE_ACEITO)
-        self.assertFalse(sem, 'classe(s) sem NENHUM teste: %s -- escreva o '
-                         'teste (ou justifique em SEM_TESTE_ACEITO)' % sem)
+        self.assertFalse(sem, "Class(es) with no test coverage: %s -- add a test or justify an exemption in SEM_TESTE_ACEITO" % sem)
 
     def test_lista_de_excecoes_so_encolhe(self):
         nomes = {c.__name__ for c in addon.CLASSES}
         sobrando = sorted(n for n in SEM_TESTE_ACEITO if n not in nomes)
-        self.assertFalse(sobrando, 'excecao para classe que nao existe '
-                         'mais: %s' % sobrando)
+        self.assertFalse(sobrando, "Exemption for a class that no longer exists: %s" % sobrando)
         ja_cobertas = sorted(c.__name__ for c in addon.CLASSES
                              if c.__name__ in SEM_TESTE_ACEITO
                              and self.citado(c))
-        self.assertFalse(ja_cobertas, "ja' tem teste, tire de "
-                         'SEM_TESTE_ACEITO: %s' % ja_cobertas)
+        self.assertFalse(ja_cobertas, "Already covered; remove from SEM_TESTE_ACEITO: %s" % ja_cobertas)
 
     def test_toda_suite_tem_piso_no_executor(self):
         with open(os.path.join(AQUI, 'run_tests.py'), encoding='utf-8') as f:
@@ -95,7 +104,7 @@ class TestCobertura(unittest.TestCase):
         suites += [os.path.splitext(os.path.basename(c))[0]
                    for c in glob.glob(os.path.join(AQUI, 'gui_*.py'))]
         sem_piso = sorted(s for s in suites if "'%s'" % s not in piso)
-        self.assertFalse(sem_piso, 'suite sem piso em rodar_testes.PISO: %s'
+        self.assertFalse(sem_piso, "Suite without a floor in run_tests.PISO: %s"
                          % sem_piso)
 
     def test_todo_snapshot_e_conferido(self):
@@ -106,7 +115,7 @@ class TestCobertura(unittest.TestCase):
             os.path.splitext(os.path.basename(c))[0]
             for c in glob.glob(os.path.join(AQUI, 'snapshots', '*.json'))
             if "'%s'" % os.path.splitext(os.path.basename(c))[0] not in suite)
-        self.assertFalse(orfaos, 'snapshot que ninguem confere: %s' % orfaos)
+        self.assertFalse(orfaos, "Snapshot not checked by any test: %s" % orfaos)
 
 
 addon.register()
@@ -114,4 +123,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestCobertura)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha na trava de cobertura')
+    raise RuntimeError("Coverage contract failed")

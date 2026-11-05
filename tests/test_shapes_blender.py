@@ -1,11 +1,6 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_shapes_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_shapes_blender.py
 
-Formas de planta (pedido do usuario): o modulo do Promob que nao e' caixa
--- canto em L e diagonal (triangular) -- tem a linha branca da HUD
-seguindo a planta; a profundidade de CADA lado (P1/P2) muda sozinha, o
-R da diagonal e' editavel e L/P totais esticam sem deformar o
-canto. Os modulos saem de DXFs no formato do Promob, como os de verdade.
-"""
+Plan shapes, as requested: non-box Promob cabinets (L-shaped and diagonal triangular corners) have white HUD outlines following their footprint. Each arm's depth P1/P2 changes independently; diagonal R is editable, and overall L/P stretch without deforming the corner. Cabinets come from Promob-format DXFs like real exports."""
 import math
 import os
 import sys
@@ -22,8 +17,7 @@ F = addon.formas
 
 
 def prisma(contorno, z0, z1, convexo=True):
-    """Peca em pe' de um contorno 2D (mm): tampas em leque (convexo) e
-    laterais em quadrados -- polyface de ate' 4 vertices, como no DXF."""
+    """Create an upright part from a 2D outline in mm, with convex fan caps and quad sides: polyface faces of at most four vertices, as in DXF."""
     n = len(contorno)
     vs = [(x, y, z0) for x, y in contorno] + [(x, y, z1) for x, y in contorno]
     faces = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
@@ -34,8 +28,7 @@ def prisma(contorno, z0, z1, convexo=True):
 
 
 def faixa(externo, interno, z0, z1):
-    """Prisma de uma FAIXA (porta curva): tampas em quadrados entre o
-    contorno de fora e o de dentro."""
+    """Create a strip prism for a curved door, using quad caps between outer and inner outlines."""
     vs, faces = prisma(externo + interno[::-1], z0, z1, convexo=False)
     n, m = len(externo) + len(interno), len(externo)
     for i in range(m - 1):
@@ -56,7 +49,7 @@ def arco(cx, cy, raio, de, ate, passos=12):
 
 
 def dxf(pecas, piso=True):
-    """[(vertices, faces)] -> caminho de um DXF do Promob (camada = peca)."""
+    """Write [(vertices, faces)] to a Promob DXF and return its path; each layer is a part."""
     out = ['0', 'SECTION', '2', 'ENTITIES']
     if piso:
         pecas = [caixa(-2000, -2000, -5, 3000, 3000, 0)] + list(pecas)
@@ -85,29 +78,27 @@ def importar(pecas):
 
 
 def canto_em_l():
-    """Canto 900 x 900, bracos de 500 (recorte de 400 na quina de tras
-    a direita, x/y maximos), 15 mm, 700 de altura."""
+    """Create a 900 x 900 corner with 500 mm arms, a 400 mm cutout at the rear-right corner (maximum x/y), 15 mm thickness and 700 mm height."""
     l_base = [(0, 0), (900, 0), (900, 500), (500, 500), (500, 900), (0, 900)]
     vs, faces = prisma(l_base, 0, 15, convexo=False)
     n = len(l_base)
     faces += [(0, 3, 2, 1), (0, 5, 4, 3), (n, n + 1, n + 2, n + 3), (n, n + 3, n + 4, n + 5)]
     return importar([
         (vs, faces),
-        caixa(0, 0, 15, 15, 900, 700),            # lateral esquerda
-        caixa(15, 0, 15, 885, 15, 700),           # costas
-        caixa(885, 0, 15, 900, 500, 700),         # ponta do braco A
-        caixa(0, 885, 15, 500, 900, 700),         # ponta do braco B
-        caixa(500, 485, 15, 885, 500, 700),       # face interna do braco A
-        caixa(485, 500, 15, 500, 885, 700),       # face interna do braco B
+        caixa(0, 0, 15, 15, 900, 700),            # Left side.
+        caixa(15, 0, 15, 885, 15, 700),           # Back.
+        caixa(885, 0, 15, 900, 500, 700),         # Arm A endpoint.
+        caixa(0, 885, 15, 500, 900, 700),         # Arm B endpoint.
+        caixa(500, 485, 15, 885, 500, 700),       # Arm A inner face.
+        caixa(485, 500, 15, 500, 885, 700),       # Arm B inner face.
     ])
 
 
 def canto_diagonal():
-    """Canto 900 x 900 com a quina (900, 900) cortada por uma porta
-    diagonal: pernas de 350."""
+    """Create a 900 x 900 corner with corner (900, 900) cut by a diagonal door with 350 mm legs."""
     contorno = [(0, 0), (900, 0), (900, 550), (550, 900), (0, 900)]
     d = Vector((-350, 350)).normalized()
-    normal = Vector((d.y, -d.x)) * 15          # para fora
+    normal = Vector((d.y, -d.x)) * 15          # Outward.
     a, b = Vector((900, 550)), Vector((550, 900))
     porta = [tuple(a), tuple(b), tuple(b - normal), tuple(a - normal)]
     return importar([
@@ -121,36 +112,32 @@ def canto_diagonal():
 
 
 def diagonal_inteira():
-    """Modulo 900 x 600 cuja ESQUERDA e' uma diagonal inteira (o print do
-    usuario): da quina de tras (0, 600) ate' a frente em x = 400."""
+    """Create the user's 900 x 600 cabinet with an entirely diagonal left side, from rear corner (0, 600) to the front at x = 400."""
     contorno = [(400, 0), (900, 0), (900, 600), (0, 600)]
     d = Vector((-400, 600)).normalized()
-    normal = Vector((-d.y, d.x)) * 15          # para fora (esquerda)
+    normal = Vector((-d.y, d.x)) * 15          # Outward, to the left.
     a, b = Vector((400, 0)), Vector((0, 600))
     lateral = [tuple(a), tuple(b), tuple(b - normal), tuple(a - normal)]
     return importar([
         prisma(contorno, 0, 15),
-        caixa(415, 0, 15, 885, 15, 700),          # frente reta
-        caixa(885, 0, 15, 900, 600, 700),         # lateral direita
-        caixa(30, 585, 15, 885, 600, 700),        # costas
+        caixa(415, 0, 15, 885, 15, 700),          # Straight front.
+        caixa(885, 0, 15, 900, 600, 700),         # Right side.
+        caixa(30, 585, 15, 885, 600, 700),        # Back.
         prisma(lateral, 15, 700),
     ])
 
 
 def cantoneira_de_ponta():
-    """A cantoneira do Promob (print do usuario): 300 x 550, prateleiras
-    triangulares que acabam na FACE DE DENTRO da lateral direita de 15 --
-    a ponta nao e' afiada, fica a espessura dela (285 a 300)."""
+    """Create the Promob corner unit from the user's screenshot: 300 x 550, triangular shelves ending at the inner face of the 15 mm right side. The tip is blunt, retaining that thickness from 285 to 300."""
     prateleira = [(285, 0), (285, 535), (0, 535), (0, 299)]
     pecas = [prisma(prateleira, z, z + 15) for z in (3, 346, 688)]
-    pecas += [caixa(285, 0, 0, 300, 550, 706),       # lateral direita
-              caixa(0, 535, 0, 285, 550, 706)]       # costas
+    pecas += [caixa(285, 0, 0, 300, 550, 706),       # Right side.
+              caixa(0, 535, 0, 285, 550, 706)]       # Back.
     return importar(pecas)
 
 
 def cantoneira(com_porta=False):
-    """Prateleiras de 300 x 550 com a quina (0, 0) redonda, raio 150;
-    lateral e costas do lado oposto."""
+    """Create 300 x 550 shelves with corner (0, 0) rounded to radius 150, with side and back on the opposite side."""
     contorno = arco(150, 150, 150, 180, 270) + [(300, 0), (300, 550), (0, 550)]
     pecas = [prisma(contorno, z, z + 15) for z in (0, 340, 685)]
     pecas += [caixa(300, 0, 0, 315, 565, 700), caixa(0, 550, 0, 300, 565, 700)]
@@ -427,7 +414,7 @@ class TestFormas(unittest.TestCase):
             addon.hud._geometria_do_item(conj,'GRUPO',pecas)
             addon.hud._geometria_do_item(conj,'GRUPO',pecas)
         originais={o:([v.co.copy() for v in o.data.vertices],o.matrix_world.copy()) for o in pecas}
-        # Trocar o arco pela corda sem mudar IDs/numero de vertices/L/A/P.
+        # Replace the arc with its chord without changing IDs, vertex count or L/A/P.
         for o in pecas:
             if len(o.data.vertices)<30:continue
             bpy.ops.object.select_all(action='DESELECT');o.select_set(True);bpy.context.view_layer.objects.active=o
@@ -509,8 +496,8 @@ class TestFormas(unittest.TestCase):
                  caixa(-285,-275,705,285,-205,720),
                  caixa(-285,205,705,285,275,720)]
         for indice,(vs,fs) in enumerate(volumes):
-            # Mesmo estado da cena: cantos superiores movidos em dois
-            # planos; prateleiras internas ainda guardam a forma anterior.
+            # Same scene state: upper corners moved in two planes;
+            # internal shelves still retain the previous shape.
             novos=[]
             for x,y,z in vs:
                 if indice in (0,1,4,5) and z>700:
@@ -527,7 +514,7 @@ class TestFormas(unittest.TestCase):
         bpy.context.view_layer.update()
         return conj,pecas
 
-    # Regressao (era BUG, corrigido na 258): chapa reta nao vira arco.
+    # Regression, fixed in v258: a straight panel must not become an arc.
     def test_inclinacao_composta_nao_inventa_curva_nem_diagonal_sem_apoio(self):
         conj,pecas=self._armario_inclinado_em_dois_planos()
         for plano in ('XY','XZ','YZ'):
@@ -573,8 +560,8 @@ class TestFormas(unittest.TestCase):
         self.assertTrue(contorno)
         for e in contorno:
             a,b=[inv@(Vector(e[k])/1000) for k in ('a','b')]
-            # Caixa: cada aresta real varia em apenas um eixo. A diagonal
-            # de triangulos opostos e' coplanar, apesar do sinal da normal.
+            # Box: each real edge varies along only one axis. Opposite-triangle diagonals
+            # are coplanar regardless of normal sign.
             self.assertEqual(sum(abs(x)>.00001 for x in b-a),1)
 
     def _armario_livre_por_tab(self):
@@ -595,7 +582,7 @@ class TestFormas(unittest.TestCase):
         conj=addon.modulos.agrupar_chapas(bpy.context,pecas,'Canto livre editado')
         for o in bpy.context.selected_objects:o.select_set(False)
         conj.select_set(True);bpy.context.view_layer.objects.active=conj
-        # A HUD ja' mediu o armario antes do Tab: reproduz cache existente.
+        # The HUD measured the cabinet before Tab; reproduce that existing cache.
         addon.hud._geometria_do_item(conj,'GRUPO',pecas)
         self.assertIn('FINISHED',bpy.ops.object.cabinet_editar_grupo())
         addon.chapas.absorver_edicoes_de_malha()
@@ -630,7 +617,7 @@ class TestFormas(unittest.TestCase):
                 self.assertTrue(all(lo[i]-.00001<=ponto[i]<=hi[i]+.00001 for i in range(3)))
 
 
-    # Regressao (era BUG, corrigido na 257): Tab/G deixava caixa no vazio.
+    # Regression, fixed in v257: Tab/G left a box floating in empty space.
     def test_tab_g_tab_formato_livre_grade_sobre_arestas_nativas(self):
         conj,pecas=self._armario_livre_por_tab()
         self.assertIsNone(F.forma_do_modulo(conj))
@@ -638,7 +625,7 @@ class TestFormas(unittest.TestCase):
         self.assertEqual(bpy.context.object,conj)
         geo=addon.hud._geometria_do_item(conj,'GRUPO',pecas)
         self._conferir_caixa_do_modulo(geo,pecas)
-        # Esquecer e recalcular deve produzir exatamente o mesmo contorno.
+        # Forgetting and recalculating must produce exactly the same outline.
         F.esquecer()
         nova=addon.hud._geometria_do_item(conj,'GRUPO',pecas)
         self.assertEqual([l['pontos'] for l in geo['linhas']],[l['pontos'] for l in nova['linhas']])
@@ -664,7 +651,7 @@ class TestFormas(unittest.TestCase):
             self.assertEqual(uvs[o],[(camada.name,[tuple(l.uv) for l in camada.data])
                                     for camada in o.data.uv_layers])
         self.assertEqual(pecas[0].data.materials[0],material)
-        # O Tab ja' criou o mapa metrico; o mapa do usuario pode ser o segundo.
+        # Tab already created the metric map; the user's map may be second.
         self.assertIn('UV preservada',pecas[0].data.uv_layers)
 
     def test_grade_livre_grupo_girado_segue_a_geometria(self):
@@ -701,7 +688,7 @@ class TestFormas(unittest.TestCase):
         self.assertAlmostEqual(conj.conj_largura_mm,inicial+100,delta=.01)
         geo=h._geometria_do_item(conj,'GRUPO',pecas)
         self._conferir_caixa_do_modulo(geo,pecas)
-        # A identidade geometrica da aresta deve sobreviver a L/A/P.
+        # Edge geometry identity must survive L/A/P changes.
         self.assertTrue(any(h._identidade_hud(l)==h._identidade_hud(alvo) for l in geo['linhas']))
         with patch.object(h,'gpu'),patch.object(h,'batch_for_shader'),patch.object(h,'_projetar_hud',side_effect=lambda _c,p:p.xy*1000),patch.object(h,'_triangulos_seta_hud',return_value=[]) as seta:
             h._desenhar_seta_hud(bpy.context,alvo,geo)
@@ -723,7 +710,7 @@ class TestFormas(unittest.TestCase):
         alvo=next(l for l in geometria['linhas'] if l.get('plano')==plano and l.get('face')==('ANG',3,'B'))
         return conj,tampo,fundo,alvo,pontos,angulo
 
-    # Regressao (era BUG, corrigido na 256): o solver nao se limita a XY.
+    # Regression, fixed in v256: the solver is not restricted to XY.
     def test_solver_legado_inclinacao_vertical_xz_yz_90_exato_fundo_e_retorno(self):
         for plano in ('XZ','YZ'):
             with self.subTest(plano=plano):
@@ -772,8 +759,8 @@ class TestFormas(unittest.TestCase):
         self.assertFalse(any(o.data.attributes.get(F.ATR_ANGULO) for o in F._pecas(conj)))
         self.assertEqual(alvo['plano'],'YZ')
         del conj[F.CHAVE_EDICAO]
-        # Uma referencia nova pode partir da chapa retangular: nao
-        # transformar o trapezio de volta em caixa depois da deformacao.
+        # A new reference may start from the rectangular panel; do not turn
+        # the trapezoid back into a box after deformation.
         F.aplicar_angulo_interno(bpy.context,conj,3,'B',original,'YZ')
         self.assertAlmostEqual(angulo(),original,delta=.01)
 
@@ -869,7 +856,7 @@ class TestFormas(unittest.TestCase):
         conj,pecas=self._perfil_vertical_pequeno('YZ')
         forma=F.forma_do_modulo(conj,'YZ')
         antes=F.dados_angulo_da_ponta(forma,3,'B')[0]
-        # Editar as duas laterais sem alterar seus extremos L/A/E.
+        # Edit both sides without changing their L/A/E extremes.
         for o in pecas:
             for p in bpy.context.selected_objects:p.select_set(False)
             o.select_set(True);bpy.context.view_layer.objects.active=o
@@ -909,8 +896,8 @@ class TestFormas(unittest.TestCase):
             F.aplicar_angulo_interno(bpy.context,copia,3,'B',original,'YZ')
             self.assertAlmostEqual(F.dados_angulo_da_ponta(F.forma_do_modulo(copia,'YZ'),3,'B')[0],original,delta=.01)
             self.assertAlmostEqual(F.dados_angulo_da_ponta(F.forma_do_modulo(conj,'YZ'),3,'B')[0],90.,delta=.01)
-            # A origem foi recentrada; comparar a peca em MUNDO remove
-            # essa compensacao usando a pose inicial gravada no solver.
+            # The origin was recentered; compare in world space to remove this compensation
+            # using the initial pose stored in the solver.
             inicio=F._matriz_gravada(copia[F.CHAVE_EDICAO]['inicio'])
             for o in F._pecas(copia):
                 atuais=[inicio.inverted()@o.matrix_world@v.co for v in o.data.vertices]
@@ -926,8 +913,8 @@ class TestFormas(unittest.TestCase):
         projetar=lambda _c,p:Vector((p.y*1000,p.z*1000))
         for _ in range(2):
             atual=next(l for l in geo['linhas'] if h._identidade_hud(l)==h._identidade_hud(alvo) and l.get('cantos')==alvo.get('cantos'))
-            # Uma lista de quinas diferente nao muda a aresta da seta.
-            # O alvo conserva os pontos anteriores durante o arraste.
+            # A different corner list does not change the arrow's edge.
+            # The target retains previous points during dragging.
             geo['cantos']=[Vector((99,99,99))]*20
             for lado in ('min','max'):
                 alvo['lado']=lado
@@ -962,7 +949,7 @@ class TestFormas(unittest.TestCase):
         peca('Frente reta', caixa(15,0,15,485,15,685))
         peca('Costas retas', caixa(285,585,15,585,600,685))
         conj = addon.modulos.agrupar_chapas(bpy.context, objetos, 'Diagonal perna 35')
-        # A chapa de 5 mm acompanha o apoio, mas nao define o envelope.
+        # The 5 mm panel follows the support but does not define the envelope.
         a,b = Vector((0,565)),Vector((270,600))
         direcao = (b-a).normalized()
         normal = Vector((-direcao.y,direcao.x))
@@ -979,7 +966,7 @@ class TestFormas(unittest.TestCase):
         bpy.context.view_layer.update()
         addon.modulos.guardar_formato_fundo(conj, fundo)
         F.esquecer()
-        # Nomes de pontos apenas na fixture; nenhum indice persistido no asset.
+        # Point names exist only in the fixture; no index is persisted in the asset.
         alvos = ((270,600,700),(0,565,700),(0,0,700))
         indices = [min(range(len(tampo.data.vertices)),
                        key=lambda i:(tampo.matrix_world@tampo.data.vertices[i].co-Vector(p)/1000).length)
@@ -997,7 +984,7 @@ class TestFormas(unittest.TestCase):
         self.assertAlmostEqual(addon.hud._valor_hud(alvo),angulo_nativo(),delta=.001)
         return conj,tampo,fundo,alvo,pontos_topo,angulo_nativo
 
-    # Regressao (era BUG, corrigido na 255): 90 interno sem perna minima.
+    # Regression, fixed in v255: internal 90-degree angle without a minimum leg.
     def test_solver_legado_hud_angulo_interno_90_na_perna_35_retorna_sem_acumulo(self):
         conj,tampo,fundo,alvo,pontos_topo,angulo = self._diagonal_perna_35_com_fundo_dependente()
         original = angulo()
@@ -1005,7 +992,7 @@ class TestFormas(unittest.TestCase):
         antes = {o:[o.matrix_world@v.co for v in o.data.vertices] for o in pecas}
         for _ in range(2):
             self._aplicar_solver_legado(alvo,90.)
-            # Aos 90 o chanfro/arco pode desaparecer; a Mesh continua medivel.
+            # At 90 degrees the chamfer/arc may disappear; the Mesh remains measurable.
             self.assertAlmostEqual(angulo(),90.,delta=.01)
             self._aplicar_solver_legado(alvo,original)
             self.assertAlmostEqual(angulo(),original,delta=.01)
@@ -1015,7 +1002,7 @@ class TestFormas(unittest.TestCase):
                 self.assertLess(max((a-b).length for a,b in zip(pontos,atuais)),.00005,obj.name)
 
 
-    # Regressao (era BUG, corrigido na 255): fundo segue o apoio sem perder E.
+    # Regression, fixed in v255: the back follows its support without losing E.
     def test_solver_legado_fundo_obliquo_acompanha_angulo_90_preserva_espessura_e_retorna(self):
         conj,tampo,fundo,alvo,pontos_topo,angulo = self._diagonal_perna_35_com_fundo_dependente()
         original = angulo()
@@ -1059,7 +1046,7 @@ class TestFormas(unittest.TestCase):
                 self.assertLess((a-b).length,1e-5)
 
 
-    # Regressao (era BUG, corrigido na 255): fundo cabe no apoio e nos canais.
+    # Regression, fixed in v255: the back fits its support and grooves.
     def test_solver_legado_fundo_alongado_por_tab_cabe_no_apoio_mais_canais_sem_acumulo(self):
         import bmesh
         conj,tampo,fundo,alvo,pontos_topo,angulo = self._diagonal_perna_35_com_fundo_dependente()
@@ -1090,7 +1077,7 @@ class TestFormas(unittest.TestCase):
             inversa=fundo.matrix_world.inverted()
             for v in bm.verts:
                 p=fundo.matrix_world@v.co
-                # Tambem descentra a chapa: limitar so' o comprimento nao basta.
+                # Also offset the panel center; limiting length alone is insufficient.
                 v.co=inversa@(p+tangente*((p-centro).dot(tangente)*(fator-1)+.025))
             bmesh.update_edit_mesh(fundo.data)
         finally:
@@ -1112,7 +1099,7 @@ class TestFormas(unittest.TestCase):
             normal=cima.cross(direcao).normalized()
             atuais=[fundo.matrix_world@v.co for v in fundo.data.vertices]
             limites=[(p-pb).dot(direcao) for p in atuais]
-            # Planos reais das pontas: permite 7 mm no canal de cada lateral.
+            # Real endpoint planes allow 7 mm of groove engagement in each side.
             self.assertGreaterEqual(min(limites),-.007-.00005)
             self.assertLessEqual(max(limites),apoio+.007+.00005)
             self.assertAlmostEqual(max(limites)-min(limites),apoio+.014,delta=.00005)
@@ -1132,7 +1119,7 @@ class TestFormas(unittest.TestCase):
                                for i in (0,1)),.35)
 
 
-    # Regressao (era BUG, corrigido na 255): EDGE conserva a medida real apos Tab.
+    # Regression, fixed in v255: EDGE retains its real dimension after Tab.
     def test_solver_legado_hud_angulo_real_apos_tab_com_vizinho_obliquo(self):
         import bmesh
         conj,tampo,fundo,alvo,pontos_topo,angulo = self._diagonal_perna_35_com_fundo_dependente()
@@ -1153,7 +1140,7 @@ class TestFormas(unittest.TestCase):
         bpy.ops.object.cabinet_editar_grupo()
         addon.eventos.verificar_periodicamente()
         original = angulo()
-        # A aresta vizinha real gira, embora os limites X/Y continuem iguais.
+        # The actual neighboring edge rotates even though X/Y bounds remain unchanged.
         self.assertGreater(abs(original-(90+math.degrees(math.atan2(35,270)))),1.)
         geometria = self._geometria_solver_legado(conj)
         alvo, = [l for l in geometria['linhas'] if l.get('face')==('ANG',3,'B')]
@@ -1163,14 +1150,14 @@ class TestFormas(unittest.TestCase):
             try:
                 self._aplicar_solver_legado(alvo,pedido)
             except ValueError as erro:
-                self.fail('Pedido %.6f apos Tab (original %.6f): %s' % (pedido,original,erro))
+                self.fail("Requested %.6f after Tab (original %.6f): %s" % (pedido,original,erro))
             self.assertAlmostEqual(angulo(),pedido,delta=.01)
         atuais = [tampo.matrix_world@v.co for v in tampo.data.vertices]
         self.assertEqual(len(antes),len(atuais))
         self.assertLess(max((a-b).length for a,b in zip(antes,atuais)),.00005)
 
 
-    # Regressao (era BUG, corrigido na 255): rebase conserva E real sem arredondar.
+    # Regression, fixed in v255: rebase retains actual E without rounding.
     def test_rebase_fundo_inclinado_preserva_mundo_mesh_uv_material_e_filho(self):
         import bmesh
         from mathutils import Matrix
@@ -1242,7 +1229,7 @@ class TestFormas(unittest.TestCase):
                 for escala in obj.scale:
                     self.assertAlmostEqual(escala,1.,delta=1e-6)
 
-    # Regressao (era BUG, corrigido na 255): rebase sincroniza todos os usuarios.
+    # Regression, fixed in v255: rebase synchronizes all users.
     def test_rebase_mesh_compartilhada_preserva_usuarios_pais_filhos_uv_e_materiais(self):
         import bmesh
         from mathutils import Matrix
@@ -1374,7 +1361,7 @@ class TestFormas(unittest.TestCase):
             p[P.CHAVE_MODULO_PORTA]=conj.name;p[P.CHAVE_FOLGAS_PORTA]=(1,1,1,1)
             P.gravar_vao_orientado(p,conj)
             portas.append(p)
-        # O problema real: uma face nao tem nenhuma ancora perto.
+        # The actual issue: one face has no nearby anchor.
         for k in list(portas[0].keys()):
             if k.startswith('porta_vao_apoio_'):del portas[0][k]
         ref=Matrix(((0,1,0),(-1,0,0),(0,0,1))).transposed()
@@ -1436,8 +1423,8 @@ class TestFormas(unittest.TestCase):
         m = self.medidas(conj)
         self.assertEqual(m[('L',)], 900.0)
         self.assertEqual(m[('P',)], 900.0)
-        self.assertEqual(m[('P1', 2)], 500.0)      # profundidade do braco A
-        self.assertEqual(m[('P2', 2)], 500.0)      # do braco B
+        self.assertEqual(m[('P1', 2)], 500.0)      # Arm A depth.
+        self.assertEqual(m[('P2', 2)], 500.0)      # Arm B depth.
 
     def test_caixa_comum_nao_tem_forma(self):
         conj = importar([caixa(0, 0, 0, 15, 550, 700), caixa(585, 0, 0, 600, 550, 700),
@@ -1453,9 +1440,9 @@ class TestFormas(unittest.TestCase):
         F.aplicar(bpy.context, conj, ('P1', 2), 650.0)
         m = self.medidas(conj)
         self.assertEqual(m[('P1', 2)], 650.0)
-        self.assertEqual(m[('P2', 2)], 500.0)      # o outro braco nao mexe
+        self.assertEqual(m[('P2', 2)], 500.0)      # The other arm does not move.
         self.assertEqual((m[('L',)], m[('P',)]), (900.0, 900.0))
-        # a face interna do braco A so' andou (inteira); a do B encurtou
+        # Arm A's inner face only translates as a whole; B's inner face shortens.
         medidas = sorted(sorted((round(c.chapa_largura_mm), round(c.chapa_comprimento_mm)))
                          for c in addon.modulos._chapas_do_conjunto(conj))
         self.assertIn([385, 685], medidas)
@@ -1492,11 +1479,11 @@ class TestFormas(unittest.TestCase):
         m = self.medidas(conj)
         self.assertAlmostEqual(m[('P1', 2)], 650.0, delta=1.0)
         self.assertAlmostEqual(m[('P2', 2)], 550.0, delta=1.0)
-        # a porta GIROU (ponta foi junto com o lado) e continua 15 mm
+        # The door rotates with the side's endpoint and remains 15 mm thick.
         self.assertGreater(abs(eixo(porta).angle_signed(antes)), math.radians(5))
         self.assertEqual(self.espessuras(conj), [15.0])
         self.assertTrue(addon.chapas._malha_e_caixa(porta.data))
-        # R deixa as duas pernas iguais
+        # R makes both legs equal.
         F.aplicar(bpy.context, conj, ('R', 2), 300.0)
         f = F.forma_do_modulo(conj)['cantos'][2]
         self.assertAlmostEqual(f['a'], 300.0, delta=2.0)
@@ -1579,8 +1566,8 @@ class TestFormas(unittest.TestCase):
         self.assertIsNot(F.forma_do_modulo(conj), primeira)
 
     def test_encolher_a_100_e_devolver_nao_acumula_deformacao(self):
-        # Regressao: a faixa da frente alcancava as costas e trocava os
-        # vertices que se moviam no retorno. Verificar coordenadas reais.
+        # Regression: the front strip reached the back and changed which vertices
+        # moved on return. Check actual coordinates.
         for criar in (canto_em_l, canto_diagonal):
             conj=criar()
             pecas=addon.modulos._chapas_do_conjunto(conj)
@@ -1614,14 +1601,14 @@ class TestFormas(unittest.TestCase):
         from mathutils import Matrix
         conj=canto_em_l();G=addon.gavetas
         ref=Matrix.Diagonal(Vector((-1,-1,1)))
-        # importar(..., na_origem=True) centraliza X/Y em torno de zero.
+        # importar(..., na_origem=True) centers X/Y around zero.
         margens=G.margens_do_vao(conj,Vector((435,50,15))/1000,Vector((65,50,685))/1000,ref)
         grupo=G.criar_gavetas(bpy.context,conj,margens,dict(quantidade=3,profundidade_mm=500),ref)
         bpy.context.view_layer.update()
         origem=grupo.matrix_world.translation.copy()
         pecas=list(grupo.children_recursive)
         F.aplicar(bpy.context,conj,('P1',2),100)
-        # 100 nao comporta trilho de 250 + 10 mm: limita sem esmagar.
+        # 100 mm cannot fit a 250 mm rail plus 10 mm; clamp without crushing.
         self.assertGreaterEqual(F.valor(conj,('P1',2)),259.9)
         self.assertAlmostEqual(G.parametros(grupo)['profundidade_mm'],260,delta=.1)
         self.assertAlmostEqual(grupo.matrix_world.translation.y,-.190,delta=.001)
@@ -1636,4 +1623,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestFormas)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de formas')
+    raise RuntimeError("Shape tests failed")

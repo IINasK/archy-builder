@@ -1,4 +1,4 @@
-"""Vista de parede, isolamento nativo, distribuicao e rollback (sem biblioteca real)."""
+"""Wall view, native isolation, distribution and rollback without the real library."""
 import math
 import os
 import sys
@@ -48,7 +48,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.area = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
         self.regiao = next(r for r in self.area.regions if r.type == 'WINDOW')
         self.area.spaces.active.region_3d.view_rotation = Quaternion((1, 0, 0), math.pi / 2)
-        self.parede = caixa('Parede', (3, .15, 2.7), (0, 1.075, 1.35))
+        self.parede = caixa("Wall", (3, .15, 2.7), (0, 1.075, 1.35))
         self.extra = caixa('Outro objeto', (.2, .2, .2), (5, 0, 0))
         self.parede.select_set(True)
         bpy.context.view_layer.objects.active = self.parede
@@ -185,14 +185,14 @@ class TestEdicaoParedes(unittest.TestCase):
     def test_painel_aparece_para_malha_generica(self):
         bpy.context.scene.cabinet_aba = 'MODULOS'
         itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 400, 700, 0)
-        self.assertEqual(itens[addon.gaveta._tamanho_cabecalho(itens)][4], 'Criar Alvenaria')
-        self.assertIn('Criar Alvenaria', [item[4] for item in itens])
+        self.assertEqual(itens[addon.gaveta._tamanho_cabecalho(itens)][4], "Create Masonry")
+        self.assertIn("Create Masonry", [item[4] for item in itens])
         self.assertNotIn('object.cabinet_editar_parede', str(itens))
 
     def test_entrar_e_sair_da_parede_em_destaque_como_criar(self):
         self.parede[P.CHAVE_ALVENARIA]=True
-        # Pedido do usuario: o mesmo padrao do "Criar Prateleiras" (laranja,
-        # 30 px, texto centrado); sair = laranja forte da etapa em andamento.
+        # User request: match Create Shelves with orange, 30 px height and centered text;
+        # exit uses the strong orange of an active step.
         import inspect
         G = addon.gaveta
         itens = []
@@ -206,13 +206,13 @@ class TestEdicaoParedes(unittest.TestCase):
         sair = next(i for i in itens if i[5] == ('operador', 'object.cabinet_sair_parede'))
         self.assertEqual(sair[3], 30)
         self.assertEqual(sair[5][1], G.OPERADOR_DESTAQUE_ATIVO)
-        self.assertIsInstance(G.OPERADORES_DESTAQUE, tuple)     # nunca hashear a acao
+        self.assertIsInstance(G.OPERADORES_DESTAQUE, tuple)     # Never hash an action.
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertIn('OPERADORES_DESTAQUE', fonte)
         self.assertIn('COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO', fonte)
 
     def test_menu_da_parede_sem_folgas_esquerda_direita_espacamento(self):
-        # Print do usuario: "remover esses controladores do menu da parede".
+        # User screenshot requested removal of these controls from the wall menu.
         s = self.modelo()
         self.assertTrue(E.ativa(bpy.context))
         for modelo in (s['modelo'], None):
@@ -221,7 +221,7 @@ class TestEdicaoParedes(unittest.TestCase):
             E.widgets(bpy.context, itens, 12, 2000, 400)
             nomes = {i[5][2] for i in itens if i[5] and i[5][:2] == ('medida', 'paredes')}
             self.assertFalse(nomes & {'esquerda', 'direita', 'espacamento'})
-            self.assertFalse([i for i in itens if i[4].split(':')[0] in {'Esquerda', 'Direita', 'Espacamento'}])
+            self.assertFalse([i for i in itens if i[4].split(':')[0] in {"Left", "Right", "Spacing"}])
 
     def test_modelo_e_inspecionado_sem_residuos(self):
         s = self.modelo()
@@ -229,7 +229,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertGreater(s['altura'], 20)
         self.assertEqual({o.name for o in bpy.context.scene.objects
                           if addon.paredes_composicao.MARCA_OBJETO_GUIAS not in o},
-                         {'Parede', 'Outro objeto'})
+                         {"Wall", 'Outro objeto'})
         self.assertFalse(any(addon.chapas.MARCA_CONJUNTO in o for o in bpy.data.objects))
 
     def test_distribuicao_desconta_folgas_e_espacamentos(self):
@@ -291,7 +291,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertTrue(E.obstaculos(bpy.context, s, 1.8, 2.6, .5))
 
     def test_piso_continuo_define_base_de_cotas_guias_proxy_e_arraste(self):
-        # Regressao (era BUG, corrigido na 367): o retangulo incluia 100 mm enterrados.
+        # Regression, fixed in v367: the rectangle included 100 mm below the surface.
         caixa('Piso real', (3, 2, .1), (0, 0, .05))
         modulo = self.modulo()
         P.colocar_na_parede(modulo, self.parede, Vector((0, 1, .3)), Vector((0, -1, 0)))
@@ -379,7 +379,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.modelo()
         self.assertIsNone(addon.gaveta_eventos.aplicar_medida(bpy.context, 'paredes', '', 'esquerda', .025))
         self.assertIsNone(addon.gaveta_eventos._aplicar_contador(bpy.context,
-                         ('contador', E.ALVO_QUANTIDADE, 1, 1, 100, '', 'Quantidade'), 3))
+                         ('contador', E.ALVO_QUANTIDADE, 1, 1, 100, '', "Quantity"), 3))
         self.assertEqual(E._sessao[0]['esquerda'], 25)
         self.assertEqual(E._sessao[0]['quantidade'], 3)
 
@@ -396,7 +396,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertIsNotNone(E.editar_parametro('esquerda', -1))
 
     def test_cancelamento_e_operadores_de_entrada(self):
-        # Contratos registrados: ambas entradas compartilham o mesmo operador.
+        # Registered contracts: both entries share the same operator.
         self.assertTrue(hasattr(bpy.types, 'VIEW3D_MT_parede_cabinet'))
         self.assertIn(E.OBJECT_OT_editar_parede, addon.CLASSES)
         self.assertIn(E.OBJECT_OT_observar_parede, addon.CLASSES)
@@ -491,11 +491,11 @@ class TestEdicaoParedes(unittest.TestCase):
         s = self.modelo()
         s['escolhendo'] = True
         antes = E._dados_antes()
-        self.assertIn('Clique no vao', E.criar_modulos(bpy.context))
+        self.assertIn('Click the wall opening', E.criar_modulos(bpy.context))
         self.assertEqual(antes, E._dados_antes())
 
     def test_contexto_direito_nao_reutiliza_parede_de_outro_clique(self):
-        E._ultima_face[0] = ('Parede', (0, 0, 0), (0, -1, 0), 0)
+        E._ultima_face[0] = ("Wall", (0, 0, 0), (0, -1, 0), 0)
         with patch.object(addon.hud, '_raio_cru', return_value=None):
             E.lembrar_face(bpy.context, (0, 0), contexto=True)
         self.assertEqual(E._alvo_contexto[0], '')
@@ -540,7 +540,7 @@ class TestEdicaoParedes(unittest.TestCase):
             E.verificar(atualizar_previa=False)
         self.assertTrue(E.ativa())
 
-    # Regressao (era BUG, corrigido na 298): o modo 2D deixava a orbita em ORTHO.
+    # Regression, fixed in v298: leaving 2D mode kept orbit in ORTHO.
     def test_orbita_volta_a_perspectiva_sem_desfazer_o_gesto(self):
         self.area.spaces.active.region_3d.view_perspective = 'PERSP'
         self.iniciar()
@@ -624,7 +624,7 @@ class TestEdicaoParedes(unittest.TestCase):
         bpy.context.view_layer.update()
         self.iniciar()
         antes = E._dados_antes()
-        self.assertIn('tamanho original', E.inserir_modelo(bpy.context, self.tmp.name, os.path.basename(caminho), 'modulo'))
+        self.assertIn('original model size', E.inserir_modelo(bpy.context, self.tmp.name, os.path.basename(caminho), 'modulo'))
         self.assertEqual(E._dados_antes(), antes)
 
     def test_insercao_pelo_operador_nao_prepara_distribuicao_automatica(self):
@@ -652,8 +652,8 @@ class TestEdicaoParedes(unittest.TestCase):
             metodo = getattr(addon.biblioteca.OBJECT_OT_arrastar_preset, nome)
             if callable(metodo) and not nome.startswith('__'):
                 setattr(op, nome, MethodType(metodo, op))
-        # Apenas o registro no event loop e' substituido; append, preview,
-        # cancelamento e associacao usam seus contratos reais do Blender.
+        # Replace only event-loop registration; append, preview, cancellation
+        # and association use their real Blender contracts.
         class ContextoDoArraste:
             window_manager = SimpleNamespace(modal_handler_add=lambda op: None,
                                              event_timer_add=lambda *a, **k: object(),
@@ -667,33 +667,33 @@ class TestEdicaoParedes(unittest.TestCase):
 
     def test_arraste_com_caixa_no_indice_so_carrega_ao_soltar(self):
         self.parede[P.CHAVE_ALVENARIA]=True
-        # Pedido do usuario (cena real travava): com a caixa gravada no
-        # indice o arraste e' so' o wireframe; o .blend carrega ao soltar,
-        # depois do aviso "Carregando...".
+        # User request after real-scene freezes: with the box stored in the index,
+        # drag only a wireframe. Load the .blend on release,
+        # after showing the loading message.
         B = addon.biblioteca
         caminho = self.fixture(math.pi / 2)
         arquivo = os.path.basename(caminho)
-        B.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        B.registrar_no_indice(self.tmp.name, "Model", caminho, 'A', 'B', 'C', 'modulo')
         self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))
         with bpy.context.temp_override(area=self.area, region=self.regiao):
-            op = self.arraste_de_teste(caminho)      # 1o: carrega e grava a caixa
+            op = self.arraste_de_teste(caminho)      # First pass: load and save the box.
             op._cancelar(bpy.context)
         registro = B.caixa_do_preset(self.tmp.name, arquivo)
         self.assertIsNotNone(registro)
         self.assertIn('modulo', registro)
-        # o lado das costas vai no registro: a previa nao tem a porta
+        # Record the back side because the preview does not contain the door.
         self.assertEqual(registro['modulo']['costas'], 'POS_Y')
         antigo = dict(registro, modulo={k: v for k, v in registro['modulo'].items()
                                         if k != 'costas'})
         B._atualizar_item(self.tmp.name, arquivo, {B.CHAVE_CAIXA: antigo})
-        self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))   # mede de novo
+        self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))   # Measure again.
         B._atualizar_item(self.tmp.name, arquivo, {B.CHAVE_CAIXA: registro})
         acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
         objetos = len(bpy.data.objects)
         with bpy.context.temp_override(area=self.area, region=self.regiao):
             op = self.arraste_de_teste(caminho)
             self.assertIsNotNone(op._previa)
-            self.assertEqual(len(bpy.data.objects), objetos)    # nada carregado
+            self.assertEqual(len(bpy.data.objects), objetos)    # Nothing loaded.
             op._arrastando, op._moveu = True, True
             evento = SimpleNamespace(type='LEFTMOUSE', value='RELEASE',
                       mouse_x=self.regiao.x + 300, mouse_y=self.regiao.y + 300)
@@ -702,13 +702,13 @@ class TestEdicaoParedes(unittest.TestCase):
             self.assertTrue(op._valido)
             self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
             self.assertTrue(op._carregando)
-            self.assertEqual(len(bpy.data.objects), objetos)    # so' o aviso
+            self.assertEqual(len(bpy.data.objects), objetos)    # Only the message.
             evento.type, evento.value = 'MOUSEMOVE', 'NOTHING'
             self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
             evento.type = 'TIMER'
             self.assertEqual(op.modal(bpy.context, evento), {'FINISHED'})
         self.assertIsNone(op._handler_aviso)
-        modulo = bpy.context.object     # o operador terminado ja' soltou os dados
+        modulo = bpy.context.object     # The finished operator has already released its data.
         self.assertEqual(P.parede_do_modulo(modulo), self.parede)
         bpy.context.view_layer.update()
         lo, hi = P.caixa_do_modulo(modulo)
@@ -717,7 +717,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=4)
         self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2, -.4, places=4)
         self.assertAlmostEqual((min(p.z for p in pontos) + max(p.z for p in pontos)) / 2, 1.2, places=4)
-        # Duplo clique na foto (cursor 3D) tambem so' carrega no tique.
+        # Photo double-click placement at the 3D cursor also waits until the tick to load.
         cursor = bpy.context.scene.cursor
         cursor.location = (1.0, -2.0, .5)
         with bpy.context.temp_override(area=self.area, region=self.regiao):
@@ -728,16 +728,16 @@ class TestEdicaoParedes(unittest.TestCase):
         for real, esperado in zip(((lo + hi) / 2).xy[:] + (lo.z,), (1.0, -2.0, .5)):
             self.assertAlmostEqual(real, esperado, places=4)
         cursor.location = (0, 0, 0)
-        # .blend alterado (outro tamanho): a caixa gravada deixa de valer.
+        # Changing the .blend's dimensions invalidates its stored box.
         with open(caminho, 'ab') as f:
             f.write(b'0')
         self.assertIsNone(B.caixa_do_preset(self.tmp.name, arquivo))
 
     def test_arraste_da_biblioteca_fora_da_edicao_encosta_as_costas_na_parede(self):
         self.parede[P.CHAVE_ALVENARIA]=True
-        # Relato do usuario: solto na parede, o armario ficava de pe' pela
-        # base no ponto do raio e de lado. Fora da edicao 2D ele gira as
-        # costas para a parede, centra no cursor e associa.
+        # User report: dropping on a wall stood the cabinet on its base at the ray point
+        # and turned it sideways. Outside 2D editing, rotate its back toward the wall,
+        # center it on the cursor and associate it.
         caminho = self.fixture(math.pi / 2)
         acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
         self.assertEqual(acerto[0], self.parede)
@@ -750,10 +750,10 @@ class TestEdicaoParedes(unittest.TestCase):
             with patch.object(P, 'raio_ate_parede', return_value=acerto),                     patch.object(P, '_px_por_metro', return_value=None):
                 op._mover(bpy.context, evento)
             self.assertTrue(op._valido)
-            # costas (+Y) contra a parede, frente (-Y) para fora
+            # Back (+Y) against the wall, front (-Y) outward.
             costas = modulo.matrix_world.to_3x3() @ Vector((0, 1, 0))
             self.assertGreater(costas.dot(Vector((0, 1, 0))), .999)
-            # fora da parede o preset volta a' rotacao original
+            # Away from the wall, restore the preset's original rotation.
             with patch.object(P, 'raio_ate_parede', return_value=None):
                 op._mover(bpy.context, evento)
             self.assertIsNone(op._na_parede)
@@ -768,12 +768,12 @@ class TestEdicaoParedes(unittest.TestCase):
                   for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
         self.assertAlmostEqual(max(p.y for p in pontos), 1.0, places=4)
         self.assertAlmostEqual((min(p.x for p in pontos) + max(p.x for p in pontos)) / 2, -.4, places=4)
-        # o cursor e' o centro do modulo, nao a base
+        # The cursor targets the cabinet center, not its base.
         self.assertAlmostEqual((min(p.z for p in pontos) + max(p.z for p in pontos)) / 2, 1.2, places=4)
 
     def test_roda_no_arraste_da_biblioteca_troca_a_face_da_parede(self):
         self.parede[P.CHAVE_ALVENARIA]=True
-        # Pedido do usuario: rodar o scroll muda a face de referencia.
+        # User request: scrolling changes the reference face.
         caminho = self.fixture()
         acerto = P.raio_ate_parede(bpy.context, (-.4, -3, 1.2), (0, 1, 0), set())
         with bpy.context.temp_override(area=self.area, region=self.regiao):
@@ -787,7 +787,7 @@ class TestEdicaoParedes(unittest.TestCase):
                 op._mover(bpy.context, evento)
                 self.assertEqual(op.modal(bpy.context, evento), {'RUNNING_MODAL'})
                 self.assertTrue(op._valido)
-                # +X do modulo contra a parede (+Y do mundo)
+                # Cabinet +X against the wall, world +Y.
                 self.assertGreater((modulo.matrix_world.to_3x3() @ Vector((1, 0, 0)))
                                    .dot(Vector((0, 1, 0))), .999)
                 evento.type, evento.value = 'LEFTMOUSE', 'RELEASE'
@@ -815,7 +815,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertTrue(modulo.visible_get(viewport=self.area.spaces.active))
         self.assertIsNone(op._novos)
 
-    # Regressao (era BUG, corrigido na 363): recusa silenciosa pelo piso.
+    # Regression, fixed in v363: silent rejection because of the floor.
     def test_arraste_bloqueado_por_piso_mostra_previa_e_motivo_sem_alterar_modelo(self):
         caminho = self.fixture(altura=2620)
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
@@ -832,7 +832,7 @@ class TestEdicaoParedes(unittest.TestCase):
             self.assertAlmostEqual(max(p.z for p in op._bbox_atual) - min(p.z for p in op._bbox_atual), 2.620, places=5)
             self.assertIn('2620', op._erro_posicionamento)
 
-    # Regressao (era BUG, corrigido na 363): aviso apontava fora da viewport.
+    # Regression, fixed in v363: the message pointed outside the viewport.
     def test_soltar_arraste_invalido_relata_restricao_e_limpa_tentativa(self):
         caminho = self.fixture(altura=2620)
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
@@ -848,14 +848,14 @@ class TestEdicaoParedes(unittest.TestCase):
             with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
                 self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
         self.assertEqual(set(bpy.data.objects.keys()), antes)
-        self.assertTrue(any('2620' in texto and 'vao' in texto for texto in mensagens), mensagens)
+        self.assertTrue(any('2620' in texto and 'opening' in texto for texto in mensagens), mensagens)
         self.assertIsNone(op._handler_preview)
         self.assertIsNone(op._handler_aviso)
 
-    # Regressao (era BUG, corrigido na 363): caixa antiga sobrava fora da vista.
+    # Regression, fixed in v363: an old box extended outside the view.
     def test_arraste_recupera_encaixe_ao_sair_do_obstaculo_sem_mudar_dimensoes(self):
         caminho = self.fixture(altura=1200)
-        # Apoio parcial continua obstaculo local; piso continuo agora e' a base da vista.
+        # Partial support remains a local obstacle; a continuous floor is now the view base.
         caixa('Piso elevado parcial', (2.9, 2, .1), (0, 0, .05))
         self.iniciar()
         with bpy.context.temp_override(area=self.area, region=self.regiao):
@@ -902,7 +902,7 @@ class TestEdicaoParedes(unittest.TestCase):
 
     def test_ajuste_automatico_de_tres_mm_preserva_espessuras_e_previa_confere(self):
         caminho = self.fixture(altura=2603)
-        addon.biblioteca.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        addon.biblioteca.registrar_no_indice(self.tmp.name, "Model", caminho, 'A', 'B', 'C', 'modulo')
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
         self.iniciar()
         with bpy.context.temp_override(area=self.area, region=self.regiao):
@@ -924,12 +924,12 @@ class TestEdicaoParedes(unittest.TestCase):
             with patch.object(E, 'ponto_no_evento', return_value=Vector((0, 1, 1.35))):
                 op._mover(bpy.context, evento)
                 self.assertTrue(op._valido)
-                self.assertIn('Ajustado', op._aviso_ajuste)
+                self.assertIn('Adjusted', op._aviso_ajuste)
                 prevista = [tuple(p) for p in op._bbox_atual]
                 self.assertAlmostEqual(max(p[2] for p in prevista) - min(p[2] for p in prevista), 2.6, places=5)
                 real = P.caixa_do_modulo(op._raizes[0])
                 self.assertAlmostEqual(real[1].z - real[0].z, 2.603, places=5)
-                # A segunda consulta reaproveita somente numeros, sem nova BVH.
+                # The second query reuses only numbers without creating another BVH.
                 with patch.object(E, '_alturas_para_ajuste', side_effect=AssertionError('Repetiu BVH')):
                     op._mover(bpy.context, evento)
             self.assertEqual(op._confirmar(bpy.context), {'FINISHED'})
@@ -942,7 +942,7 @@ class TestEdicaoParedes(unittest.TestCase):
             self.assertEqual((len(o.data.vertices), len(o.data.polygons)), topologia)
             self.assertEqual(o.chapa_espessura_mm, espessura)
             self.assertAlmostEqual(max(v.co.z for v in o.data.vertices) - min(v.co.z for v in o.data.vertices), fisica, places=6)
-        # A biblioteca real usa a caixa gravada: encaixar sem carregar madeira.
+        # The real library uses its stored box to fit without loading panel geometry.
         with bpy.context.temp_override(area=self.area, region=self.regiao):
             op = self.arraste_de_teste(caminho)
             self.assertIsNotNone(op._previa)
@@ -1074,7 +1074,7 @@ class TestEdicaoParedes(unittest.TestCase):
         novo['teste_regeneravel'] = True
         return novo
 
-    # Regressao (era BUG, corrigido na 364): lista ainda apontava ao removido.
+    # Regression, fixed in v364: the list still referenced the removed object.
     def test_registro_na_parede_descarta_referencias_removidas_e_inclui_recriadas(self):
         modulo = self.modulo()
         rig = bpy.data.objects.new('Controle regeneravel', None)
@@ -1092,11 +1092,11 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertIn(atual, novos)
         self.assertTrue(all(E.esta_na_vista(o, self.area.spaces.active, bpy.context) for o in novos))
 
-    # Regressao (era BUG, corrigido na 364): resize invalida append/Local View.
+    # Regression, fixed in v364: resize invalidated append/Local View.
     def test_importacao_com_resize_e_geracao_nova_funciona_com_e_sem_cache(self):
         caminho = self.fixture(altura=2603, com_rig=True)
         B = addon.biblioteca
-        B.registrar_no_indice(self.tmp.name, 'Modelo', caminho, 'A', 'B', 'C', 'modulo')
+        B.registrar_no_indice(self.tmp.name, "Model", caminho, 'A', 'B', 'C', 'modulo')
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
         self.iniciar()
         redimensionar = addon.modulos.redimensionar_orientado
@@ -1125,7 +1125,7 @@ class TestEdicaoParedes(unittest.TestCase):
                 self.assertIsNone(op._handler_preview)
                 self.assertIsNone(op._handler_aviso)
 
-    # Regressao (era BUG, corrigido na 364): nova geracao sobrava no cancelar.
+    # Regression, fixed in v364: a new generation remained after cancellation.
     def test_falha_no_resize_limpa_tambem_componentes_recriados(self):
         caminho = self.fixture(altura=2603, com_rig=True)
         caixa('Piso elevado', (3, 2, .1), (0, 0, .05))
@@ -1163,10 +1163,10 @@ class TestEdicaoParedes(unittest.TestCase):
             E.encerrar()
             evento = SimpleNamespace(type='MOUSEMOVE', value='NOTHING', mouse_x=-100, mouse_y=-100)
             self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
-        # Dados anexados e materiais auxiliares sao do appender; os objetos
-        # e pastas da tentativa devem sair, os anteriores devem permanecer.
-        # As guias sao da sessao: saem com ela, como a previa.
-        self.assertEqual(set(bpy.data.objects.keys()), antes['objects'] - {'Guias da parede'})
+        # Appended data and helper materials belong to the appender. Remove objects
+        # and folders from this attempt while preserving preexisting ones.
+        # Guides belong to the session and are removed with it, like the preview.
+        self.assertEqual(set(bpy.data.objects.keys()), antes['objects'] - {"Wall guides"})
         self.assertEqual(set(bpy.data.collections.keys()), antes['collections'])
 
     def test_raycast_do_posicionador_consulta_a_face_real_da_parede(self):
@@ -1251,7 +1251,7 @@ class TestEdicaoParedes(unittest.TestCase):
             self.inserir_imediato(caminho)
         antes = E._dados_antes()
         selecao = {o.name for o in bpy.context.selected_objects}
-        self.assertIn('vao livre', E.inserir_modelo(bpy.context, self.tmp.name,
+        self.assertIn('clear opening', E.inserir_modelo(bpy.context, self.tmp.name,
                                                    os.path.basename(caminho), 'modulo'))
         self.assertEqual(E._dados_antes(), antes)
         self.assertEqual({o.name for o in bpy.context.selected_objects}, selecao)
@@ -1313,8 +1313,8 @@ class TestEdicaoParedes(unittest.TestCase):
         return op
 
     def test_arraste_direito_para_o_limbo_desassocia_sem_mover(self):
-        # Pedido do usuario: soltar fora de qualquer parede solta a
-        # associacao; o movel fica na posicao de origem.
+        # User request: dropping away from any wall releases association;
+        # the furniture remains at its original position.
         modulo = self.modulo()
         n = Vector((0, -1, 0))
         P.colocar_na_parede(modulo, self.parede, Vector((0, 1, 0)), n)
@@ -1325,7 +1325,7 @@ class TestEdicaoParedes(unittest.TestCase):
         acerto = (self.parede, Vector((.4, 1, 1)), n, 0)
         op = self.arraste_direito(modulo)
         with bpy.context.temp_override(area=self.area, region=self.regiao):
-            # passa por outra parede e termina no vazio
+            # Pass over another wall and finish over empty space.
             with patch.object(P, '_raio_ignorando', return_value=acerto):
                 op._mover(bpy.context, evento)
             with patch.object(P, '_raio_ignorando', return_value=None):
@@ -1334,7 +1334,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertFalse(any(k in modulo for k in P.CHAVES_ASSOCIACAO))
         for x, y in zip(sum(map(list, modulo.matrix_world), []), sum(map(list, antes), [])):
             self.assertAlmostEqual(x, y, places=5)
-        # Sem associacao, soltar no vazio continua so' cancelando.
+        # Without an association, dropping into empty space still only cancels.
         op = self.arraste_direito(modulo)
         with bpy.context.temp_override(area=self.area, region=self.regiao),              patch.object(P, '_raio_ignorando', return_value=None):
             self.assertEqual(op.modal(bpy.context, evento), {'CANCELLED'})
@@ -1415,7 +1415,7 @@ class TestEdicaoParedes(unittest.TestCase):
         self.assertNotIn(E.CHAVE_FIOS, self.parede)
         E.encerrar()
         self.assertTrue(all(not bpy.data.objects[n].show_wire and E.CHAVE_FIOS not in bpy.data.objects[n] for n in nomes))
-        # Um snapshot nativo pode trazer a marca temporaria de volta.
+        # A native snapshot can restore the temporary marker.
         for n in nomes:
             obj = bpy.data.objects[n]
             obj[E.CHAVE_FIOS] = False
@@ -1440,4 +1440,4 @@ addon.register()
 resultado = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestEdicaoParedes))
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de edicao de paredes')
+    raise RuntimeError("Wall-editor tests failed")

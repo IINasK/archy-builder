@@ -1,4 +1,4 @@
-"""Fundos criados pelo vao e limite de profundidade dos sistemas internos."""
+"""Back panels created from openings and depth limits for internal systems."""
 import math
 import bpy
 from mathutils import Matrix, Vector
@@ -6,7 +6,7 @@ from bpy.types import Operator
 from .. import gavetas as _gavetas
 
 _chapas = _modulos = _prateleiras = _eventos = _gaveta = _opcoes = None
-TIPOS = (('CANAL', 'Em canal'), ('PREGADO', 'Sobreposto (pregado)'), ('APOIADO', 'Interno rente'))
+TIPOS = (('CANAL', "Grooved"), ('PREGADO', "Overlay (nailed)"), ('APOIADO', "Flush inset"))
 PADRAO = dict(tipo='CANAL', espessura_mm=6.0, recuo_mm=15.0, entrada_mm=7.0)
 VINCULO = 'fundo_vinculo_uid'
 FOLGA = 'fundo_vinculo_folga_mm'
@@ -24,15 +24,15 @@ def parametros(fundo=None, context=None):
 def validar(p):
     p = dict(p)
     if p['tipo'] not in dict(TIPOS):
-        raise ValueError('Tipo de fundo invalido')
+        raise ValueError("Invalid back panel type")
     for k in ('espessura_mm', 'recuo_mm', 'entrada_mm'):
         if not math.isfinite(float(p[k])) or float(p[k]) < (0.1 if k == 'espessura_mm' else 0):
-            raise ValueError('Medidas do fundo invalidas')
+            raise ValueError("Invalid back panel dimensions")
     if p['tipo'] == 'CANAL' and not any(abs(p['espessura_mm'] - e) < .001 for e in (6, 9)):
         if p['espessura_mm'] >= 12:
             p['tipo'] = 'APOIADO'
         else:
-            raise ValueError('Fundo em canal: use espessura comercial de 6 ou 9 mm')
+            raise ValueError("Grooved back panel: use a standard thickness of 6 or 9 mm")
     return p
 
 
@@ -58,8 +58,8 @@ def _recorte(l, a, p, e):
 def _aplicar(fundo, matriz, l, a, p, e):
     x0, x1, y0, y1, z0, z1 = _recorte(l, a, p, e)
     if min(l, a) <= 1:
-        raise ValueError('O vao do fundo deve ter largura e altura positivas')
-    # A chapa conserva X/L, Y/A e Z/E; a normal aponta para fora do movel.
+        raise ValueError("The back panel opening must have positive width and height")
+    # The panel retains X/L, Y/A and Z/E; its normal points out of the cabinet.
     rot = Matrix((matriz.to_3x3().col[0], matriz.to_3x3().col[2], -matriz.to_3x3().col[1])).transposed()
     pose = rot.to_4x4()
     pose.translation = matriz @ (Vector(((x0+x1)/2, (y0+y1)/2, (z0+z1)/2))/1000)
@@ -78,9 +78,9 @@ def _aplicar(fundo, matriz, l, a, p, e):
 def criar(context, conj, pontos, p=None, nomes=('', '')):
     p = validar(dict(PADRAO, **(p or {})))
     if _chapas.MARCA_CONJUNTO not in conj or _eventos._desfazendo[0] or context.mode != 'OBJECT':
-        raise ValueError('Selecione um modulo em Object Mode')
+        raise ValueError("Select a cabinet in Object Mode")
     if any(nome and _modulos._conj_de(bpy.data.objects.get(nome))!=conj for nome in nomes):
-        raise ValueError('Os dois cantos devem pertencer ao mesmo modulo')
+        raise ValueError("Both corners must belong to the same cabinet")
     ref = _gavetas.referencia_do_vao(conj, *pontos)
     pontos = _gavetas.pontos_internos_do_vao(conj, pontos, nomes, ref)
     mundo = conj.matrix_world @ ref.to_4x4()
@@ -89,13 +89,13 @@ def criar(context, conj, pontos, p=None, nomes=('', '')):
     hi = Vector(tuple(max(pt[k] for pt in locais) for k in range(3)))
     l, a = hi.x-lo.x, hi.z-lo.z
     if min(l, a) <= 1 or hi.y-lo.y > 5:
-        raise ValueError('Marque dois cantos opostos no mesmo plano vertical das costas')
+        raise ValueError("Mark two opposite corners in the same vertical back plane")
     if p['tipo']=='CANAL' and not 0<p['entrada_mm']<conj.conj_espessura_mm:
-        raise ValueError('O encaixe deve entrar no apoio sem atravessar sua espessura')
+        raise ValueError("The joint must enter the support without passing through its thickness")
     _minimo, maximo = _gavetas.limites_na_referencia(conj,ref)
     if p['tipo']=='CANAL' and lo.y+p['recuo_mm']+p['espessura_mm']>=maximo.y:
-        raise ValueError('O recuo do fundo ultrapassa a profundidade do modulo')
-    fundo = _chapas.nova_chapa('Fundo', l, a, p['espessura_mm'], (0,0,0), (0,0,0), context)
+        raise ValueError("The back panel inset exceeds the cabinet depth")
+    fundo = _chapas.nova_chapa("Back Panel", l, a, p['espessura_mm'], (0,0,0), (0,0,0), context)
     fundo[_chapas.MARCA_FUNDO] = 1
     fundo.parent = conj
     fundo.matrix_parent_inverse = Matrix.Identity(4)
@@ -155,7 +155,7 @@ def ajustar_ao_modulo(fundo, forcar=False):
     origem = Vector((lo.x+esq, lo.y+tras, lo.z+baixo))
     p=parametros(fundo)
     if p['tipo']=='CANAL' and (not 0<p['entrada_mm']<apoio or origem.y+p['recuo_mm']+p['espessura_mm']>=hi.y):
-        raise ValueError('Canal ou recuo do fundo ultrapassa os apoios do modulo')
+        raise ValueError("The back panel groove or inset extends beyond the cabinet supports")
     _aplicar(fundo, conj.matrix_world @ ref.to_4x4() @ Matrix.Translation(origem/1000),
              hi.x-lo.x-esq-dir_, hi.z-lo.z-baixo-cima, p, conj.conj_espessura_mm)
     fundo['fundo_limites_base'] = base
@@ -185,15 +185,15 @@ def atualizar_canal(fundo):
         remover_canal(fundo)
         return
     if cortador is None:
-        malha = bpy.data.meshes.new('Canal do fundo')
-        cortador = bpy.data.objects.new('Canal do fundo', malha)
+        malha = bpy.data.meshes.new("Back panel groove")
+        cortador = bpy.data.objects.new("Back panel groove", malha)
         _modulos._garantir_colecao_modulo(bpy.context.scene, conj).objects.link(cortador)
         cortador['fundo_canal_uid'] = uid
         cortador.parent = fundo
         cortador.hide_render = True
         cortador.hide_select = True
         cortador.hide_set(True)
-    # Boolean nativo nao destrutivo: a malha modelada de apoio nunca e' substituida.
+    # Nondestructive native Boolean: never replace the modeled support mesh.
     import bmesh
     bm = bmesh.new()
     try:
@@ -221,7 +221,7 @@ def atualizar_canal(fundo):
         cruza = all(min(b[k],d[k])-max(a[k],c[k])>.01 for k in range(3))
         mod = next((m for m in obj.modifiers if m.type=='BOOLEAN' and m.object==cortador),None)
         if cruza and mod is None:
-            mod = obj.modifiers.new('Canal do fundo','BOOLEAN')
+            mod = obj.modifiers.new("Back panel groove",'BOOLEAN')
             mod.operation='DIFFERENCE'
             mod.solver='EXACT'
             mod.object=cortador
@@ -306,13 +306,13 @@ def atualizar_internos(conj):
                                      if 'profundidade_mm' in v else dict(v) for v in p['individuais']]
             if abs(limite-atual)<.01 and novo.get('individuais')==p.get('individuais'):
                 continue
-            # Valida o dominio antes de gravar/remontar; vao insuficiente nao apaga internos.
+            # Validate the domain before writing/rebuilding; insufficient space must not delete internal systems.
             try:
                 l,a,_ = sistema.medidas(grupo)
                 sistema.calcular(l,a,novo)
             except ValueError as erro:
                 grupo['fundo_erro'] = str(erro)
-                raise ValueError('O fundo nao deixa espaco para os internos: '+str(erro)) from erro
+                raise ValueError("The back panel leaves no space for internal components: "+str(erro)) from erro
             if 'fundo_erro' in grupo:
                 del grupo['fundo_erro']
             planos.append((sistema,grupo,novo))
@@ -388,7 +388,7 @@ def verificar():
 
 def editar(context, fundo, nome, valor):
     if context.mode!='OBJECT' or _eventos._desfazendo[0]:
-        raise ValueError('Finalize a edicao nativa antes de editar o fundo')
+        raise ValueError("Finish native editing before editing the back panel")
     alvo = fundo if fundo is not None and _chapas.MARCA_FUNDO in fundo else context.scene
     anterior=parametros(fundo if alvo!=context.scene else None,context)
     p=dict(anterior, **{nome:valor})
@@ -421,7 +421,7 @@ def selecionar(context, fundo, somar=False):
 
 def widgets_vinculo(context, itens, x, y, w):
     if grupos_vinculados(context):
-        itens.append((x,y,w,28,'Desassociar fundo',('operador','object.cabinet_desassociar_fundo')))
+        itens.append((x,y,w,28,"Detach back panel",('operador','object.cabinet_desassociar_fundo')))
         y-=40
     return y
 
@@ -434,17 +434,17 @@ def widgets(context, itens, x, y, w):
     obj=context.object
     fundo = obj if obj is not None and _chapas.MARCA_FUNDO in obj else None
     if fundo is not None and 'fundo_tipo' not in fundo:
-        itens.append((x,y,w,23,'Fundo existente: modelagem preservada',None))
+        itens.append((x,y,w,23,"Existing back panel: modeling preserved",None))
         return itens
     p=parametros(fundo,context)
-    y=_gaveta._titulo_secao(itens,x,y+26,w,'Fundo selecionado' if fundo is not None else 'Novo fundo')
+    y=_gaveta._titulo_secao(itens,x,y+26,w,"Selected back panel" if fundo is not None else "New back panel")
     y=_gaveta._linha_escolha_gaveta(itens,x,y-25,w,'','tipo',TIPOS,p['tipo'],alvo=ALVO_MENU,por_linha=1)+23
     y=_gaveta._linha_escolha_gaveta(itens,x,y-25,w,'','espessura_mm',((6.0,'6 mm'),(9.0,'9 mm'),(15.0,'15 mm')),p['espessura_mm'],alvo=ALVO_MENU)+23
-    campos = [('Espessura: %s' % _opcoes._texto_medida(p['espessura_mm']),
-               ('medida','fundos','espessura_mm','Espessura',p['espessura_mm']))]
+    campos = [("Thickness: %s" % _opcoes._texto_medida(p['espessura_mm']),
+               ('medida','fundos','espessura_mm',"Thickness",p['espessura_mm']))]
     if p['tipo']=='CANAL':
         campos += [(rotulo+': '+_opcoes._texto_medida(p[nome]),('medida','fundos',nome,rotulo,p[nome]))
-                   for nome,rotulo in (('recuo_mm','Recuo'),('entrada_mm','Encaixe'))]
+                   for nome,rotulo in (('recuo_mm',"Inset"),('entrada_mm',"Groove engagement"))]
     y=_gaveta._campos_em_linhas(context,itens,x,y,w,campos)
     y=widgets_vinculo(context,itens,x,y-34,w)
     if fundo is not None and fundo.get('fundo_erro'):
@@ -489,9 +489,9 @@ def restaurar(context, estado):
 
 
 class OBJECT_OT_desassociar_fundo(Operator):
-    """Conserva a profundidade atual e desliga o acompanhamento deste fundo"""
+    """Keep the current depth and stop following this back panel."""
     bl_idname='object.cabinet_desassociar_fundo'
-    bl_label='Desassociar fundo'
+    bl_label="Detach back panel"
     bl_options={'REGISTER','UNDO'}
 
     @classmethod
@@ -506,14 +506,14 @@ class OBJECT_OT_desassociar_fundo(Operator):
 
 
 class OBJECT_OT_criar_fundo(_gavetas.AssistenteDoVao,Operator):
-    """Marca dois cantos opostos das costas pelo snap nativo"""
+    """Mark two opposite back corners using native snapping."""
     bl_idname='object.cabinet_criar_fundo'
-    bl_label='Criar Fundo'
+    bl_label="Create Back Panel"
     bl_options={'REGISTER','UNDO'}
     _estado=_assistente_fundo
     ABA='FUNDOS'
     ITEM=('fundo','fundos')
-    RECADOS=dict(_gavetas.RECADOS, CANTO1='Fundo: marque o primeiro canto das costas',CANTO2='Fundo: marque o canto oposto das costas')
+    RECADOS=dict(_gavetas.RECADOS, CANTO1="Back panel: mark the first back corner",CANTO2="Back panel: mark the opposite back corner")
 
     def _parametros_padrao(self):
         obj=bpy.context.object
@@ -525,7 +525,7 @@ class OBJECT_OT_criar_fundo(_gavetas.AssistenteDoVao,Operator):
 
     def _calcular(self,l,a,p):
         if min(l,a)<=1:
-            raise ValueError('Marque um vao vertical com largura e altura')
+            raise ValueError("Mark a vertical opening with width and height")
         return {'caixas':[_recorte(l,a,p,p.get('apoio_mm',0))]}
 
     def _caixas_da_previa(self,dados):

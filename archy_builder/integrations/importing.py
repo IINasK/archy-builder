@@ -1,5 +1,5 @@
-"""Importacao: converter objetos de fora em chapa/modulo/puxador/
-porta, vincular porta e modulo, definir a frente."""
+"""Import: convert external objects to panels/cabinets/handles/doors,
+link doors to cabinets, and define the front."""
 
 import os
 import math
@@ -11,32 +11,32 @@ from mathutils.bvhtree import BVHTree
 from bpy_extras import view3d_utils
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _portas = _ferragens = _gaveta = _biblioteca = _formas = None
 _promob = None
 _frentes = None
 
-# ========================================================== IMPORTACAO
-# Objetos de fora -- um armario baixado, uma porta modelada, puxadores --
-# chegam com qualquer rotacao, escala e origem. O que decide e' a FORMA:
-# uma chapa e' uma caixa fina. Daqui saem chapas, modulos, folhas de
-# porta, acessorios e puxadores que o resto do add-on ja' sabe tratar.
-ESPESSURA_MAXIMA_CHAPA_MM = 40.0   # mais grosso que isto nao e' chapa
-PROPORCAO_MINIMA_CHAPA = 3.0       # lados >= 3x a espessura
-ENCHIMENTO_MINIMO_CHAPA = 0.85     # area em faces alinhadas a caixa
-# ...ou as duas faces grandes: placa com contorno curvo (prateleira de
-# cantoneira, travessa em arco), em que a borda redonda tem muita area
+# ========================================================== IMPORT
+# External objects, such as downloaded cabinets, modeled doors, and handles,
+# arrive with arbitrary rotation, scale, and origin. SHAPE is what matters:
+# a panel is a thin box. This produces panels, cabinets, door leaves,
+# accessories, and handles that the rest of the add-on already supports.
+ESPESSURA_MAXIMA_CHAPA_MM = 40.0   # Anything thicker is not a panel.
+PROPORCAO_MINIMA_CHAPA = 3.0       # Sides >= 3x thickness.
+ENCHIMENTO_MINIMO_CHAPA = 0.85     # Area of faces aligned with the box.
+# Or the two large faces: a panel with a curved outline (corner
+# shelf, arched rail), whose rounded edge has substantial area.
 FACES_PRINCIPAIS_MINIMO = 0.6
-GRUPOS_MAXIMOS_NORMAIS = 64        # peca curva: para de agrupar normais
-# Modificadores que nao mudam a forma; os outros (solidify, array...)
-# ja' entraram na medida da peca e dobrariam se ficassem.
+GRUPOS_MAXIMOS_NORMAIS = 64        # Curved component: stop grouping normals.
+# Modifiers that do not change shape; others (solidify, array, etc.)
+# already contribute to measurements and would double their effect if kept.
 MODIFICADORES_COSMETICOS = {'BEVEL', 'WEIGHTED_NORMAL', 'EDGE_SPLIT',
                             'TRIANGULATE'}
 
 
 def _faces_em_mundo(obj):
-    """[(normal, area)] e vertices da malha AVALIADA, em mundo."""
+    """[(normal, area)] and EVALUATED mesh vertices, in world space."""
     try:
         dep = bpy.context.evaluated_depsgraph_get()
         avaliado = obj.evaluated_get(dep)
@@ -63,7 +63,7 @@ def _faces_em_mundo(obj):
 
 
 def _normais_dominantes(faces):
-    """Direcoes de face agrupadas (sem sinal), da com mais area a menor."""
+    """Grouped face directions (unsigned), ordered from largest area to smallest."""
     grupos = []
     for normal, area in faces:
         for grupo in grupos:
@@ -77,15 +77,14 @@ def _normais_dominantes(faces):
 
 
 def _analisar_peca(obj, proporcao_minima=PROPORCAO_MINIMA_CHAPA):
-    """Caixa orientada da peca e se ela e' uma chapa.
+    """Oriented component box and whether it is a panel.
 
-    Devolve {'chapa', 'base', 'dims', 'centro'} ou None. `base` tem as
-    colunas X = largura, Y = comprimento, Z = espessura (a convencao da
-    chapa); `dims` = (L, C, E) em mm. Os eixos saem da normal com mais
-    area -- numa placa, as duas faces grandes -- e da maior face
-    perpendicular a ela. Empates (um cubo) ficam com os eixos locais do
-    objeto, para uma peca ja' alinhada nao girar a toa.
-    """
+    Return {'chapa', 'base', 'dims', 'centro'} or None. `base` has columns
+    X = width, Y = length, Z = thickness (panel convention); `dims` =
+    (width, length, thickness) in mm. Axes derive from the normal with the
+    largest area (the two large faces on a panel) and the largest face
+    perpendicular to it. Ties (a cube) use the object's local axes to avoid
+    unnecessarily rotating an already aligned component."""
     if obj is None or obj.type != 'MESH':
         return None
     faces, vertices = _faces_em_mundo(obj)
@@ -98,8 +97,8 @@ def _analisar_peca(obj, proporcao_minima=PROPORCAO_MINIMA_CHAPA):
     a1 = grupos[0][0] if grupos else local[2]
     a2 = next((g[0] for g in grupos[1:] if abs(g[0].dot(a1)) < 0.02), None)
     if a2 is None:
-        # Sem face perpendicular (disco, peca curva): o eixo local mais
-        # perpendicular serve de referencia no plano.
+        # Without a perpendicular face (disk, curved component), the most
+        # perpendicular local axis provides an in-plane reference.
         a2 = min(local, key=lambda e: abs(e.dot(a1)))
     a2 = (a2 - a1 * a2.dot(a1)).normalized()
     eixos = [a1, a2, a1.cross(a2).normalized()]
@@ -132,13 +131,12 @@ def _analisar_peca(obj, proporcao_minima=PROPORCAO_MINIMA_CHAPA):
 
 
 def converter_em_chapa(obj, analise=None):
-    """Transforma um objeto qualquer em chapa SEM tira-lo do lugar.
+    """Convert any object to a panel WITHOUT moving it.
 
-    A orientacao vai para a ROTACAO (invariante 1: local Z = espessura),
-    a escala volta a 1 e a malha vira a caixa parametrica. Ler
-    `obj.dimensions` em eixos de mundo, como antes, transformava uma
-    lateral em pe' (18 x 400 x 700) numa chapa de espessura 30.
-    """
+    Orientation is stored in ROTATION (invariant 1: local Z = thickness),
+    scale returns to 1, and the mesh becomes the parametric box. Reading
+    `obj.dimensions` along world axes, as before, turned an upright side
+    (18 x 400 x 700) into a panel with thickness 30."""
     analise = analise or _analisar_peca(obj)
     if analise is None:
         return None
@@ -146,8 +144,8 @@ def converter_em_chapa(obj, analise=None):
     pai = obj.parent
     if pai is not None and any(abs(s - 1.0) > 1e-4
                                for s in pai.matrix_world.to_scale()):
-        # Pai com escala (FBX costuma vir em 0.01) faria a chapa herdar
-        # escala, e a normalizacao a converteria em medida errada.
+        # A scaled parent (FBX often uses 0.01) would pass scale to the panel,
+        # and normalization would convert it to an incorrect measurement.
         mundo = obj.matrix_world.copy()
         obj.parent = None
         obj.matrix_world = mundo
@@ -160,10 +158,10 @@ def converter_em_chapa(obj, analise=None):
         obj.data = obj.data.copy()
     nova = Matrix.LocRotScale(analise['centro'], analise['base'].to_quaternion(),
                               Vector((1.0, 1.0, 1.0)))
-    # Os VERTICES vao junto para o referencial novo: a forma fica no mesmo
-    # lugar do mundo. Sem isto, a peca recortada (malha preservada) ia para
-    # outro lugar, e a caixa girada (porta a 45 graus) nao era reconhecida
-    # como caixa.
+    # Transform VERTICES into the new frame too, preserving world-space shape.
+    # Otherwise a cut component (whose mesh is preserved) would move elsewhere,
+    # and a rotated box (a door at 45 degrees) would no longer be recognized
+    # as a box.
     obj.data.transform(nova.inverted() @ obj.matrix_world)
     obj.matrix_world = nova
     obj[_chapas.MARCA_CHAPA] = 1
@@ -180,16 +178,16 @@ def converter_em_chapa(obj, analise=None):
 
 
 def _malhas_soltas(context):
-    """Malhas selecionadas que ainda nao sao porta nem puxador."""
+    """Selected meshes that are not yet doors or handles."""
     return [o for o in context.selected_objects
             if o.type == 'MESH' and _chapas.MARCA_FOLHA not in o
             and _chapas.MARCA_PUXADOR not in o]
 
 
 class OBJECT_OT_converter_modulo(Operator):
-    """Converte a selecao num modulo: placas viram chapas, o resto acessorio"""
+    """Convert selection to a cabinet: plates become panels, the rest accessories."""
     bl_idname = "object.cabinet_converter_modulo"
-    bl_label = "Converter em Modulo"
+    bl_label = "Convert to Cabinet"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -203,11 +201,11 @@ class OBJECT_OT_converter_modulo(Operator):
             if analise is not None:
                 analises[obj] = analise
         if not analises:
-            self.report({'WARNING'}, "Nenhuma malha com volume na selecao")
+            self.report({'WARNING'}, "No mesh with volume in the selection")
             return {'CANCELLED'}
         placas = [o for o, a in analises.items()
                   if a['chapa'] or _chapas.MARCA_CHAPA in o]
-        # Regra do usuario: se nada parece chapa, tudo vira chapa.
+        # User rule: if nothing looks like a panel, convert everything to panels.
         if not placas:
             placas = list(analises)
         acessorios = [o for o in analises if o not in placas]
@@ -225,16 +223,16 @@ class OBJECT_OT_converter_modulo(Operator):
             colecao = _modulos._colecao_do_modulo(conj)
             if colecao is not None:
                 _modulos._mover_para_colecao(obj, colecao)
-        self.report({'INFO'}, "Modulo com %d chapa(s) e %d acessorio(s)"
+        self.report({'INFO'}, "Cabinet with %d panel(s) and %d accessory/accessories"
                     % (len(placas), len(acessorios)))
         return {'FINISHED'}
 
 
-# ---------------------------------------------------------- puxadores
+# ---------------------------------------------------------- handles
 class OBJECT_OT_converter_puxador(Operator):
-    """Marca os objetos selecionados como puxador, preservando as medidas"""
+    """Mark selected objects as handles, preserving dimensions."""
     bl_idname = "object.cabinet_converter_puxador"
-    bl_label = "Converter em Puxador"
+    bl_label = "Convert to Handle"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -246,11 +244,11 @@ class OBJECT_OT_converter_puxador(Operator):
         marcados = 0
         for obj in _malhas_soltas(context):
             if _chapas.MARCA_CHAPA in obj:
-                continue        # chapa nao vira puxador por engano
+                continue        # Do not accidentally convert a panel to a handle.
             obj[_chapas.MARCA_PUXADOR] = 1
             obj[_chapas.CHAVE_TRAVAS_PUXADOR] = [1, 1, 1]
             marcados += 1
-        self.report({'INFO'}, "%d puxador(es); ligue-os a uma porta pela corrente"
+        self.report({'INFO'}, "%d handle(s); attach them to a door using the link"
                     % marcados)
         return {'FINISHED'}
 
@@ -269,9 +267,9 @@ def _puxadores_e_folhas_da_selecao(context):
 
 
 class OBJECT_OT_vincular_puxador(Operator):
-    """Liga os puxadores selecionados a porta selecionada"""
+    """Link selected handles to the selected door."""
     bl_idname = "object.cabinet_vincular_puxador"
-    bl_label = "Vincular Puxador e Porta"
+    bl_label = "Link Handle and Door"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -284,17 +282,16 @@ class OBJECT_OT_vincular_puxador(Operator):
         context.view_layer.update()
         for pux in puxadores:
             _portas._ligar_puxador(pux, _portas._folha_mais_proxima(pux, folhas))
-        self.report({'INFO'}, "%d puxador(es) ligado(s)" % len(puxadores))
+        self.report({'INFO'}, "%d handle(s) attached" % len(puxadores))
         return {'FINISHED'}
 
 
 def _referencial_do_puxador(pux):
-    """Base em que L/A/P do puxador sao medidos e o indice de cada um.
+    """Frame in which handle width/height/depth are measured and each axis index.
 
-    Ligado: o da chapa pai -- folha ou chapa avulsa -- (X largura,
-    Y altura, Z espessura). Solto: o do mundo, com a convencao das
-    medidas (L = X, A = Z, P = Y).
-    """
+    Attached: the parent panel's frame, whether a leaf or separate panel
+    (X width, Y height, Z thickness). Detached: world frame with the
+    measurement convention width = X, height = Z, depth = Y."""
     folha = pux.parent if pux.parent is not None and _chapas.MARCA_CHAPA in pux.parent else None
     if folha is not None:
         return folha.matrix_world.to_3x3().normalized(), (0, 1, 2), folha
@@ -309,18 +306,18 @@ def _medidas_do_puxador(pux):
                for k in range(3)]
     travas = list(pux.get(_chapas.CHAVE_TRAVAS_PUXADOR, (1, 1, 1)))
     return [(nome, tamanho[k], 'pux_%d' % k, bool(travas[k]), k)
-            for nome, k in zip(('Largura', 'Altura', 'Profundidade'), indices)]
+            for nome, k in zip(("Width", "Height", "Depth"), indices)]
 
 
 def _redimensionar_puxador(pux, eixo, valor_mm):
-    """Escala o puxador em UM eixo do referencial, pelo centro dele."""
+    """Scale the handle on ONE frame axis about its center."""
     base, _indices, _folha = _referencial_do_puxador(pux)
     inversa = base.transposed()
     pontos = [inversa @ (pux.matrix_world @ Vector(c)) for c in pux.bound_box]
     c_min = min(p[eixo] for p in pontos)
     c_max = max(p[eixo] for p in pontos)
     if c_max - c_min < 1e-9:
-        raise ValueError("Puxador sem medida nesse eixo")
+        raise ValueError("Handle has no dimension on this axis")
     escala = [1.0, 1.0, 1.0]
     escala[eixo] = (valor_mm / 1000.0) / (c_max - c_min)
     centro = Vector()
@@ -332,27 +329,26 @@ def _redimensionar_puxador(pux, eixo, valor_mm):
     pux.matrix_world = base4 @ no_referencial @ base4.inverted() @ pux.matrix_world
 
 
-# ------------------------------------------- porta a partir de objetos
+# ------------------------------------------- door from objects
 def _caixa_no_referencial(objs, base):
-    """(lo, hi) em mm dos vertices das malhas, nos eixos de `base`."""
+    """Mesh vertex (lo, hi) in mm along `base` axes."""
     inversa = base.transposed()
     pontos = [inversa @ (o.matrix_world @ v.co) * 1000.0
               for o in objs for v in o.data.vertices]
     if not pontos:
-        raise ValueError("Folha sem geometria")
+        raise ValueError("Leaf has no geometry")
     return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),
             Vector(tuple(max(p[i] for p in pontos) for i in range(3))))
 
 
 def _vao_inverso(caixa, parametros):
-    """O vao que, com estes parametros, gera folhas nesta caixa.
+    """Opening that generates leaves in this box with these parameters.
 
-    O inverso de `_portas._calcular_folhas_portas`: externo = vao - 2*inicio,
-    com inicio = folga - cobertura; o plano do vao fica atras da folha
-    (sobreposta) ou na frente dela (embutida/correr). Com isso uma porta
-    importada e' regenerada exatamente onde estava.
-    Devolve (largura, altura, origem) -- origem em mm, nos eixos da caixa.
-    """
+    Inverse of `_portas._calcular_folhas_portas`: outer size = opening -
+    2*start, with start = gap - overlay; the opening plane is behind
+    the leaf for overlay doors, or in front for inset/sliding doors.
+    This regenerates an imported door exactly where it was.
+    Return (width, height, origin), with origin in mm along the box axes."""
     lo, hi = caixa
     p = parametros
     esq, dir_, baixo, cima = _portas._inicios_porta(p)
@@ -379,12 +375,12 @@ def _frente_no_mundo(normal):
 
 
 def _novo_grupo_portas(context, pai=None):
-    grupo = bpy.data.objects.new("Portas", None)
+    grupo = bpy.data.objects.new("Doors", None)
     context.collection.objects.link(grupo)
     grupo[_chapas.MARCA_PORTAS] = 1
     _chapas._ocultar_empty(grupo)
     grupo.parent = pai
-    # As medidas sao de mundo, mesmo quando o pai tem escala.
+    # Measurements are world-space even when the parent is scaled.
     if pai is not None:
         grupo.matrix_parent_inverse = pai.matrix_world.inverted()
     return grupo
@@ -396,12 +392,11 @@ def _guardar_puxadores(grupo):
 
 
 def _devolver_puxadores(grupo, guardados):
-    """Puxadores voltam ao lugar de antes, ligados a folha mais perto.
+    """Restore handles to their previous positions, linked to the nearest leaf.
 
-    Para operacoes que so' REORIENTAM a porta (frente, vinculo): a
-    folha e' a mesma caixa no mesmo lugar, mas os eixos dela mudaram, e
-    sem isto o puxador giraria junto.
-    """
+    For operations that only REORIENT a door (front, association): the leaf
+    is the same box in the same place, but its axes have changed; without
+    this, the handle would rotate with it."""
     folhas = _portas._folhas_portas(grupo)
     for pux, mundo in guardados:
         pux.parent = None
@@ -412,7 +407,7 @@ def _devolver_puxadores(grupo, guardados):
 
 
 def _direcao_da_vista(context):
-    """Do movel para quem olha, se houver uma viewport a mao."""
+    """From the furniture toward the viewer, if a viewport is available."""
     for area in getattr(context.screen, 'areas', ()):
         if area.type == 'VIEW_3D' and not _gaveta._eh_area_gaveta_bruto(area):
             espaco = area.spaces.active
@@ -423,16 +418,15 @@ def _direcao_da_vista(context):
 
 
 def _porta_de_objetos(context, objs):
-    """Uma folha de porta a partir de objetos importados.
+    """A door leaf from imported objects.
 
-    A maior placa vira a folha; o resto vira puxador dela. A frente vai
-    para o lado do puxador (e' nele que se pega); sem puxador, para quem
-    olha. De pe', a altura e' o Z do mundo; deitada, a largura e' o lado
-    maior. "Definir como frente" corrige o palpite.
-    """
+    The largest plate becomes the leaf; the rest become its handle.
+    The front faces the handle (where it is grabbed), or the viewer if
+    there is no handle. Upright, height is world Z; horizontal, width is
+    the longest side. "Set as Front" corrects the guess."""
     analises = {o: a for o in objs for a in [_analisar_peca(o)] if a}
     if not analises:
-        raise ValueError("Selecione os objetos da porta")
+        raise ValueError("Select the door objects")
     placas = [o for o, a in analises.items() if a['chapa']] or list(analises)
     placa = max(placas, key=lambda o: analises[o]['dims'][0]
                 * analises[o]['dims'][1])
@@ -489,9 +483,9 @@ def _porta_de_objetos(context, objs):
 
 
 class OBJECT_OT_folha_de_objetos(Operator):
-    """Converte os objetos selecionados (placa + puxador) numa porta"""
+    """Convert selected objects (plate + handle) to a door."""
     bl_idname = "object.cabinet_folha_de_objetos"
-    bl_label = "Converter em Porta"
+    bl_label = "Convert to Door"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -510,7 +504,7 @@ class OBJECT_OT_folha_de_objetos(Operator):
             obj.select_set(False)
         grupo.select_set(True)
         context.view_layer.objects.active = grupo
-        self.report({'INFO'}, "Folha criada; selecione outra e agrupe em porta dupla")
+        self.report({'INFO'}, "Leaf created; select another and group them into a double door")
         return {'FINISHED'}
 
 
@@ -524,30 +518,30 @@ def _grupos_da_selecao(context):
 
 
 def _fundir_portas(context, g1, g2):
-    """Duas portas de uma folha cada viram uma porta dupla."""
+    """Two single-leaf doors become one double door."""
     folhas = [_portas._folhas_portas(g) for g in (g1, g2)]
     if any(len(f) != 1 for f in folhas):
-        raise ValueError("Selecione duas portas de UMA folha cada")
+        raise ValueError("Select two doors with ONE leaf each")
     base = g1.matrix_world.to_3x3().normalized()
     outra = g2.matrix_world.to_3x3().normalized()
     if base.col[2].dot(outra.col[2]) < 0.999:
-        raise ValueError("As folhas nao estao viradas para o mesmo lado")
+        raise ValueError("The leaves are not facing the same direction")
     if base.col[1].dot(outra.col[1]) < 0.999:
-        raise ValueError("Folhas com orientacao diferente; use Definir como frente")
+        raise ValueError("Leaves have different orientations; use Set as Front")
     p1, p2 = dict(g1['porta_parametros']), g2['porta_parametros']
     if abs(float(p1['espessura_mm']) - float(p2['espessura_mm'])) > 0.01:
-        raise ValueError("As folhas tem espessuras diferentes")
+        raise ValueError("The leaves have different thicknesses")
     f1, f2 = folhas[0][0], folhas[1][0]
     c1, c2 = (_caixa_no_referencial([f], base) for f in (f1, f2))
     if (abs(c1[0].z - c2[0].z) > 1.0 or abs(c1[1].z - c2[1].z) > 1.0):
-        raise ValueError("As folhas nao estao no mesmo plano")
+        raise ValueError("The leaves are not in the same plane")
     if (abs(c1[0].y - c2[0].y) > 1.0 or abs(c1[1].y - c2[1].y) > 1.0):
-        raise ValueError("As folhas tem alturas diferentes")
+        raise ValueError("The leaves have different heights")
     if c2[0].x < c1[0].x:
         (f1, c1), (f2, c2) = (f2, c2), (f1, c1)
     fresta = c2[0].x - c1[1].x
     if fresta < -0.5:
-        raise ValueError("As folhas se sobrepoem")
+        raise ValueError("The leaves overlap")
     lo = Vector(tuple(min(c1[0][i], c2[0][i]) for i in range(3)))
     hi = Vector(tuple(max(c1[1][i], c2[1][i]) for i in range(3)))
     p1['folhas'] = 2
@@ -555,7 +549,7 @@ def _fundir_portas(context, g1, g2):
     if p1['abertura'] == 'BASCULANTE':
         p1['abertura'] = 'GIRO'
     largura, altura, origem = _vao_inverso((lo, hi), p1)
-    _portas._calcular_folhas_portas(largura, altura, p1)       # recusa antes de mexer
+    _portas._calcular_folhas_portas(largura, altura, p1)       # Reject before modifying anything.
     modulo = bpy.data.objects.get(g1.get(_portas.CHAVE_MODULO_PORTA, ''))
     for indice, folha in enumerate((f1, f2)):
         if folha.parent != g1:
@@ -578,9 +572,9 @@ def _fundir_portas(context, g1, g2):
 
 
 class OBJECT_OT_porta_dupla(Operator):
-    """Converte duas portas de uma folha numa porta dupla"""
+    """Convert two single-leaf doors to a double door."""
     bl_idname = "object.cabinet_porta_dupla"
-    bl_label = "Converter em Porta Dupla"
+    bl_label = "Convert to Double Door"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -595,25 +589,24 @@ class OBJECT_OT_porta_dupla(Operator):
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
         context.view_layer.objects.active = grupo
-        self.report({'INFO'}, "Porta dupla criada")
+        self.report({'INFO'}, "Double door created")
         return {'FINISHED'}
 
 
-# -------------------------------------------- vincular porta e modulo
+# -------------------------------------------- link door and cabinet
 def _vincular_porta_modulo(context, grupo, modulo):
-    """A porta passa a pertencer ao modulo e a acompanha-lo.
+    """Make the door belong to and follow the cabinet.
 
-    A ANCORA sao as faces do modulo, nao um ponto: a mesma convencao das
-    portas criadas no vao (`_portas._folgas_do_vao`). Os parametros sao deduzidos
-    da posicao: atras da face do modulo = embutida; na frente, a
-    cobertura das laterais diz reta (~E) ou curva (~E/2).
-    """
+    The ANCHOR is the cabinet faces, not a point: the same convention as
+    doors created in the opening (`_portas._folgas_do_vao`). Infer parameters
+    from position: behind the cabinet face = inset; in front, the side
+    overlay distinguishes straight (~E) from curved (~E/2)."""
     parametros = dict(grupo['porta_parametros'])
     folhas = _portas._folhas_portas(grupo)
     caixa = _portas._caixa_do_modulo(modulo)
     limites = _portas._limites_locais_modulo(modulo)
     if not folhas or caixa is None or limites is None:
-        raise ValueError("Porta ou modulo sem geometria")
+        raise ValueError("Door or cabinet has no geometry")
     E = caixa[3]
     lo_m, hi_m = limites
     eixos_modulo = modulo.matrix_world.to_quaternion().to_matrix()
@@ -650,7 +643,7 @@ def _vincular_porta_modulo(context, grupo, modulo):
     largura, altura, origem = _vao_inverso(
         _caixa_no_referencial(folhas, referencial), parametros)
     matriz = _matriz_do_vao(referencial, origem)
-    _portas._calcular_folhas_portas(largura, altura, parametros)  # recusa antes
+    _portas._calcular_folhas_portas(largura, altura, parametros)  # Reject first.
     girou = any(abs(a - b) > 1e-4 for linha_a, linha_b in
                 zip(base_porta, referencial) for a, b in zip(linha_a, linha_b))
     guardados = _guardar_puxadores(grupo) if girou else []
@@ -670,7 +663,7 @@ def _vincular_porta_modulo(context, grupo, modulo):
     medido = _portas._folgas_do_vao(modulo, matriz.translation, canto_b, frente,
                             largura_em)
     if medido is None:
-        raise ValueError("Modulo sem medidas para ancorar a porta")
+        raise ValueError("Cabinet has no dimensions for anchoring the door")
     grupo[_portas.CHAVE_MODULO_PORTA] = modulo.name
     grupo[_portas.CHAVE_FOLGAS_PORTA] = list(medido[0])
     grupo[_portas.CHAVE_RECUO_PORTA] = medido[1]
@@ -690,9 +683,9 @@ def _porta_e_modulo_da_selecao(context):
 
 
 class OBJECT_OT_vincular_porta(Operator):
-    """Liga a porta (unica ou dupla) selecionada ao modulo selecionado"""
+    """Link the selected single or double door to the selected cabinet."""
     bl_idname = "object.cabinet_vincular_porta"
-    bl_label = "Vincular Porta e Modulo"
+    bl_label = "Link Door and Cabinet"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -708,18 +701,17 @@ class OBJECT_OT_vincular_porta(Operator):
         except (ValueError, KeyError) as erro:
             self.report({'WARNING'}, str(erro))
             return {'CANCELLED'}
-        self.report({'INFO'}, "%d porta(s) ligada(s) ao modulo; use "
-                    "Reposicionar para encaixar no vao" % len(grupos))
+        self.report({'INFO'}, "%d door(s) attached to the cabinet; use Reposition to fit into the opening" % len(grupos))
         return {'FINISHED'}
 
 
-# ------------------------------------- corrente Modulos | Portas
-# A corrente e' o INTERRUPTOR de associacao (substituiu "Eixos do vao"):
-# ligada = a porta pertence ao modulo e usa os eixos dele; partida = a
-# porta e' solta, nos eixos do mundo. Com uma porta ATIVA (2o/3o nivel
-# do clique) ela mostra e troca o estado DAQUELA porta; sem porta ativa,
-# decide como nasce a proxima (`Scene.porta_associar`). O modulo
-# selecionado tambem seleciona as portas dele -- por isso vale a ATIVA.
+# ------------------------------------- Cabinets | Doors chain
+# The chain is the association SWITCH (replacing "Opening Axes"):
+# linked = door belongs to the cabinet and uses its axes; broken = door
+# is detached in world axes. With an ACTIVE door (second/third click
+# level), it shows and switches THAT door's state; without an active door,
+# it determines the next door's initial state (`Scene.porta_associar`). Selecting
+# a cabinet also selects its doors, which is why the ACTIVE object matters.
 CHAVE_MODULO_ANTIGO = "porta_modulo_antigo"
 
 
@@ -736,7 +728,7 @@ def _corrente_porta_ligada(context):
 
 
 def _desvincular_porta(grupo):
-    """A porta fica onde esta', mas deixa de seguir o modulo."""
+    """Leave the door in place but stop following the cabinet."""
     antigo = grupo.get(_portas.CHAVE_MODULO_PORTA)
     mundo = grupo.matrix_world.copy()
     grupo.parent = None
@@ -745,15 +737,15 @@ def _desvincular_porta(grupo):
         if chave in grupo:
             del grupo[chave]
     if antigo:
-        # religar pela mesma corrente volta para o mesmo modulo
+        # Relinking with the same chain returns to the same cabinet.
         grupo[CHAVE_MODULO_ANTIGO] = antigo
 
 
 class OBJECT_OT_corrente_porta(Operator):
-    """Associa a porta ao modulo (corrente ligada) ou ao mundo (partida).
-    Sem porta ativa, vale para a proxima porta criada"""
+    """Associate the door with the cabinet (linked chain) or world (broken).
+    Without an active door, apply to the next door created."""
     bl_idname = "object.cabinet_corrente_porta"
-    bl_label = "Porta no Modulo / no Mundo"
+    bl_label = "Door Attached to Cabinet / in World Space"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -765,18 +757,18 @@ class OBJECT_OT_corrente_porta(Operator):
         if grupo is None:
             s = context.scene
             s.porta_associar = not s.porta_associar
-            self.report({'INFO'}, "Proxima porta: " + (
-                "presa ao modulo" if s.porta_associar else "solta, no mundo"))
+            self.report({'INFO'}, "Next door: " + (
+                "attached to cabinet" if s.porta_associar else "freestanding, in world space"))
             return {'FINISHED'}
         if grupo.get(_portas.CHAVE_MODULO_PORTA):
             _desvincular_porta(grupo)
-            self.report({'INFO'}, "Porta solta: eixos do mundo")
+            self.report({'INFO'}, "Freestanding door: world axes")
             return {'FINISHED'}
         _grupos, modulos = _porta_e_modulo_da_selecao(context)
         modulo = (modulos[0] if modulos else
                   bpy.data.objects.get(grupo.get(CHAVE_MODULO_ANTIGO, '')))
         if modulo is None or _chapas.MARCA_CONJUNTO not in modulo:
-            self.report({'WARNING'}, "Selecione tambem o modulo (Shift)")
+            self.report({'WARNING'}, "Also select the cabinet (Shift)")
             return {'CANCELLED'}
         try:
             _vincular_porta_modulo(context, grupo, modulo)
@@ -785,21 +777,21 @@ class OBJECT_OT_corrente_porta(Operator):
             return {'CANCELLED'}
         if CHAVE_MODULO_ANTIGO in grupo:
             del grupo[CHAVE_MODULO_ANTIGO]
-        self.report({'INFO'}, "Porta presa ao modulo " + modulo.name)
+        self.report({'INFO'}, "Door attached to cabinet " + modulo.name)
         return {'FINISHED'}
 
 
-# ---------------------------------------------------- definir a frente
+# ---------------------------------------------------- define the front
 def _virar_porta_modelada(grupo):
-    """Gira o referencial 180 graus em torno da altura SEM mexer na madeira.
+    """Rotate the frame 180 degrees about its height WITHOUT moving the wood.
 
-    A caixa da folha curva nao e' o vao: `_vao_inverso` a deslocava 10-76 cm.
-    Aqui o vao fica [0, L] (x -> L - x, z -> 2*Zc - z: o centro da folha
-    continua o que os parametros dao) e os vertices voltam ao mesmo mundo.
-    """
+    A curved leaf's box is not the opening: `_vao_inverso` displaced it by
+    10-76 cm. Here the opening stays [0, L] (x -> L - x, z -> 2*Zc - z:
+    the leaf center still matches the parameters), and vertices return
+    to the same world positions."""
     folhas = _portas._folhas_portas(grupo)
     if len(folhas) != 1:
-        raise ValueError("Porta curva de varias folhas: vire uma folha por vez")
+        raise ValueError("Curved door with multiple leaves: turn one leaf at a time")
     folha = folhas[0]
     _ferragens._definir_abertura(bpy.context, folha, 0.0)
     bpy.context.view_layer.update()
@@ -826,28 +818,27 @@ def _virar_porta_modelada(grupo):
     bpy.context.view_layer.update()
     _devolver_puxadores(grupo, guardados)
     for pux, _mundo in guardados:
-        # x virou -x: a mesma borda fisica troca de nome
+        # x became -x: the same physical edge changes name.
         borda = pux.get('puxador_borda', '')
         if borda in ('X-', 'X+'):
             pux['puxador_borda'] = 'X+' if borda == 'X-' else 'X-'
     conj = _portas._modulo_da_chapa(folha)
     if conj is not None and _portas.CHAVE_VAO_ORIENTADO in grupo:
-        # o redimensionar refaria o referencial antigo pelos cantos gravados
+        # Resizing would recreate the old frame from the stored corners.
         _portas.gravar_vao_orientado(grupo, conj)
     _ferragens._refazer_ferragens(grupo)
 
 
 def _definir_frente_porta(context, grupo, normal):
-    """A face clicada passa a ser a FRENTE da porta.
+    """Make the clicked face the FRONT of the door.
 
-    So' as faces grandes valem; a porta vira 180 graus em torno da
-    altura, as folhas ficam no mesmo lugar e os puxadores tambem.
-    Devolve False se a face clicada ja' era a frente.
-    """
+    Only large faces qualify; rotate the door 180 degrees about its height,
+    keeping the leaves and handles in place.
+    Return False if the clicked face was already the front."""
     base = grupo.matrix_world.to_3x3().normalized()
     alinhamento = Vector(normal).normalized().dot(base.col[2])
     if abs(alinhamento) < 0.9:
-        raise ValueError("Clique numa das faces grandes da porta")
+        raise ValueError("Click one of the door's large faces")
     if alinhamento > 0:
         return False
     if any(f.get('porta_curva_modelada') for f in _portas._folhas_portas(grupo)):
@@ -872,11 +863,10 @@ def _definir_frente_porta(context, grupo, normal):
 
 
 def _viewport_alvo(context):
-    """(area, regiao, region_3d) da viewport onde clicar.
+    """(area, region, region_3d) of the viewport in which to click.
 
-    Chamado da gaveta, que tambem e' uma VIEW_3D, o alvo e' a viewport
-    vizinha -- a mesma regra do apanhador do vao.
-    """
+    When called from the sidebar, itself a VIEW_3D, target the neighboring
+    viewport, using the same rule as the opening capture tool."""
     area = context.area
     if area is not None and _gaveta._eh_area_gaveta(context):
         area = next((a for a in context.screen.areas
@@ -892,9 +882,9 @@ def _viewport_alvo(context):
 
 
 class OBJECT_OT_definir_frente(Operator):
-    """Clique numa face grande da porta: ela passa a ser a frente"""
+    """Click a large door face to make it the front."""
     bl_idname = "object.cabinet_definir_frente"
-    bl_label = "Definir como Frente"
+    bl_label = "Set as Front"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -906,11 +896,11 @@ class OBJECT_OT_definir_frente(Operator):
     def invoke(self, context, event):
         alvo = _viewport_alvo(context)
         if alvo is None:
-            self.report({'ERROR'}, "Sem viewport 3D para clicar")
+            self.report({'ERROR'}, "No 3D viewport for clicking")
             return {'CANCELLED'}
         self._area, self._regiao, self._rv3d = alvo
         self._grupo = _portas._grupo_portas(context.object).name
-        self._area.header_text_set("Clique na face que e' a FRENTE da porta (Esc cancela)")
+        self._area.header_text_set("Click the face that is the FRONT of the door (Esc cancels)")
         context.window.cursor_modal_set('EYEDROPPER')
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
@@ -934,7 +924,7 @@ class OBJECT_OT_definir_frente(Operator):
             context.evaluated_depsgraph_get(), origem, direcao)
         grupo = bpy.data.objects.get(self._grupo)
         if not acertou or grupo is None or _portas._grupo_portas(obj.original) != grupo:
-            self.report({'WARNING'}, "Clique numa folha desta porta")
+            self.report({'WARNING'}, "Click a leaf of this door")
             return {'RUNNING_MODAL'}
         try:
             _definir_frente_porta(context, grupo, normal)
@@ -945,38 +935,38 @@ class OBJECT_OT_definir_frente(Operator):
         return {'FINISHED'}
 
 
-# ============================================== MODULOS DO DXF (DXF)
-# Pedido do usuario: trazer os modulos prontos do DXF. Os arquivos da
-# biblioteca dele sao RECEITAS (formulas do motor do DXF, sem as pecas);
-# o caminho e' o DXF calcular e exportar a cena em DXF. Nesse DXF cada
-# PECA e' uma camada (LAYER<n>) de 3DFACE ou polyface, em mm, Z para cima,
-# frente em -Y. Vem so' o que e' CHAPA (pela forma, `_analisar_peca`):
-# dobradica, puxador, decoracao e o piso ficam de fora (pedido do usuario).
-FOLGA_MODULO_PROMOB_MM = 3.0     # pecas a ate' 3 mm uma da outra: mesmo modulo
-# Chapa do DXF: >= 3 mm (o fundo tem 6). Cor 7 tambem conserva ripas
-# estreitas; sem cor continua o filtro de 50 mm contra ferragens finas.
+# ============================================== DXF CABINETS (DXF)
+# User request: import ready-made cabinets from DXF. Their library
+# files are RECIPES (DXF engine formulas without component geometry);
+# the workflow is to calculate and export the scene as DXF. In that DXF,
+# each COMPONENT is a layer (LAYER<n>) of 3DFACE or polyface geometry,
+# in mm, Z up, front at -Y. Import only PANELS by shape (`_analisar_peca`):
+# exclude hinges, handles, decoration, and floor, as requested by the user.
+FOLGA_MODULO_PROMOB_MM = 3.0     # Components within 3 mm of one another belong to the same cabinet.
+# DXF panel: >= 3 mm (backs are 6 mm). Color 7 also preserves narrow
+# slats; without color, retain the 50 mm filter against thin hardware.
 ESPESSURA_MINIMA_PROMOB_MM = 3.0
 LADO_MINIMO_PROMOB_MM = 50.0
-# O PISO da cena: chapa DEITADA de mais de 1,5 m2 por baixo de quase
-# tudo (cobre o centro de >= 80% das outras pecas) -- uma base de modulo
-# nunca cobre as laterais, que ficam fora dela
+# Scene FLOOR: a HORIZONTAL panel over 1.5 m2 beneath almost
+# everything (covering the centers of >= 80% of other components); a cabinet
+# base never covers its sides, which lie outside it.
 AREA_MINIMA_PISO_M2 = 1.5
 COBERTURA_MINIMA_PISO = 0.8
-# ...ou FINA assim (o piso do DXF tem 5 mm; base de modulo, 15+): os
-# modulos podem passar da borda dele (Especiais: so' 72% em cima)
+# Or this THIN (DXF floor is 5 mm; cabinet base, 15+): the
+# cabinets may extend beyond its edge (Especiais: only 72% over it).
 ESPESSURA_MAXIMA_PISO_MM = 6.0
-# PECA CURVA (porta/painel em arco): o perfil curvo puxado na vertical --
-# so' faces deitadas (tampas) e em pe' (laterais) --, fina e comprida.
-# Cesto aramado, pe' e puxador nao passam.
+# CURVED COMPONENT (arched door/panel): a vertically extruded curved profile,
+# with only horizontal faces (caps) and upright faces (sides), thin and long.
+# Wire baskets, legs, and handles do not qualify.
 FACES_EXTRUSAO_MINIMO = 0.98
 COMPRIMENTO_MINIMO_CURVA_MM = 150.0
-# ...e CURVA de verdade: parte das laterais fora das duas direcoes
-# principais (o micro-ondas da torre e' caixa com moldura e passava)
+# And genuinely CURVED: some sides lie outside the two principal
+# directions (the tower microwave is a framed box and used to qualify).
 LATERAL_CURVA_MINIMO = 0.3
 
 
 def _espessura_da_curva(obj):
-    """A espessura (mm) da peca curva, ou None se ela nao e' curva."""
+    """Curved component thickness (mm), or None if it is not curved."""
     faces, vertices = _faces_em_mundo(obj)
     total = sum(area for _n, area in faces)
     if total <= 0 or not vertices:
@@ -1001,7 +991,7 @@ def _espessura_da_curva(obj):
 
 
 def cores_dxf_promob(caminho):
-    """{camada: cor} da tabela de camadas do DXF (sem tabela: {})."""
+    """{layer: color} from the DXF layer table (no table: {})."""
     with open(caminho, encoding='latin1') as f:
         linhas = f.read().splitlines()
     pares = [(linhas[i].strip(), linhas[i + 1].strip())
@@ -1026,7 +1016,7 @@ def cores_dxf_promob(caminho):
 
 
 def ler_dxf_promob(caminho):
-    """{camada: (vertices, faces)} em mm: 3DFACE e polyface (POLYLINE 64)."""
+    """{layer: (vertices, faces)} in mm: 3DFACE and polyface (POLYLINE 64)."""
     with open(caminho, encoding='latin1') as f:
         linhas = f.read().splitlines()
     pares = [(linhas[i].strip(), linhas[i + 1].strip())
@@ -1054,7 +1044,7 @@ def ler_dxf_promob(caminho):
         if valor == '3DFACE':
             vs, fs = peca(camada)
             pts = [ponto(n) for n in range(4)]
-            # sem 13/23/33 o 4o canto viraria a ORIGEM e esticaria a peca
+            # Without 13/23/33, the fourth corner would become the ORIGIN and stretch the component.
             if '13' not in dados or pts[3] == pts[2]:
                 pts = pts[:3]
             fs.append([len(vs) + k for k in range(len(pts))])
@@ -1064,9 +1054,9 @@ def ler_dxf_promob(caminho):
         elif valor == 'VERTEX' and poli is not None and poli[1]:
             vs, fs = peca(poli[0])
             bandeira = int(dados.get('70', 0))
-            if bandeira & 64:                    # vertice da polyface
+            if bandeira & 64:                    # Polyface vertex.
                 vs.append(ponto(0))
-            elif bandeira & 128:                 # face: indices de 1 em diante
+            elif bandeira & 128:                 # Face: indices start at 1.
                 indices = [abs(int(dados[k])) for k in ('71', '72', '73', '74')
                            if k in dados and int(dados[k]) != 0]
                 if len(indices) >= 3:
@@ -1078,7 +1068,7 @@ def ler_dxf_promob(caminho):
 
 
 def _objeto_da_peca(context, nome, vertices, faces, colecao):
-    """Malha em metros, vertices repetidos fundidos, objeto na origem."""
+    """Mesh in meters, duplicate vertices merged, object at the origin."""
     bm = bmesh.new()
     try:
         vs = [bm.verts.new(Vector(v) / 1000.0) for v in vertices]
@@ -1086,9 +1076,9 @@ def _objeto_da_peca(context, nome, vertices, faces, colecao):
             try:
                 bm.faces.new([vs[k] for k in face])
             except ValueError:
-                pass                              # face repetida
+                pass                              # Duplicate face.
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
-        # triangulos do DXF de volta a quadrados: a caixa vira 8 vertices
+        # Convert DXF triangles back to quads: a box becomes eight vertices.
         bmesh.ops.dissolve_limit(bm, angle_limit=0.0175, verts=bm.verts,
                                  edges=bm.edges)
         malha = bpy.data.meshes.new(nome)
@@ -1107,10 +1097,9 @@ def _caixa_mundo_mm(obj):
 
 
 def _modulos_por_contato(objs, folga=FOLGA_MODULO_PROMOB_MM):
-    """Caixas filtram; BVH nativa confirma contato na superficie real.
-    A caixa de uma chapa em L inclui o vazio: nao pode soldar outro
-    armario so' porque ele foi exportado dentro desse retangulo.
-    """
+    """Boxes filter candidates; native BVH confirms contact on the actual surface.
+    An L-shaped panel's box includes empty space: it must not weld another
+    cabinet just because it was exported inside that rectangle."""
     caixas = [_caixa_mundo_mm(o) for o in objs]
     arvores = {}
     pontos = {}
@@ -1160,9 +1149,9 @@ def _modulos_por_contato(objs, folga=FOLGA_MODULO_PROMOB_MM):
         cs = [_caixa_mundo_mm(o) for o in g]
         limites.append(([min(c[0][k] for c in cs) for k in range(3)],
                         [max(c[1][k] for c in cs) for k in range(3)]))
-    # Caixas de gaveta/prateleiras ficam suspensas no vao pelos trilhos.
-    # Contencao COMPLETA distingue esses internos de dois corpos em L
-    # cujas caixas apenas se cruzam. Corpos de altura igual nao se fundem.
+    # Drawer boxes/shelves hang inside the opening on rails.
+    # COMPLETE containment distinguishes these interiors from two L-shaped
+    # bodies whose boxes merely intersect. Equal-height bodies do not merge.
     destinos = {}
     for i,(lo,hi) in enumerate(limites):
         candidatos = [j for j,(a,b) in enumerate(limites) if j != i
@@ -1204,14 +1193,14 @@ def _eixo_da_espessura(analise):
     return max(range(3), key=lambda k: abs(normal[k]))
 
 
-def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
-    """Os modulos do DXF do DXF como modulos NATIVOS, nomeados
-    `<prefixo> NN LxAxP` (com `na_origem`, cada um vai para a origem, como
-    os presets). So' a COR de chapa (`_promob.CORES_CHAPA`) vira chapa; a
-    ferragem do DXF so' informa (a dobradica diz que a frente e' porta,
-    o quadro de aluminio que e' correr) e sai. Frentes viram portas e
-    gavetas NATIVAS, fundo e travessas as dependentes (`_promob`).
-    Devolve ([modulos], {'pecas', 'chapas', 'curvas', 'descartadas',
+def importar_dxf_promob(context, caminho, prefixo="Cabinet", na_origem=False):
+    """DXF cabinets as NATIVE cabinets, named `<prefixo> NN LxAxP`.
+    With `na_origem`, each goes to the origin, like presets. Only panel
+    COLORS (`_promob.CORES_CHAPA`) become panels; DXF hardware supplies
+    information only (hinges identify a door front, aluminum frames identify
+    sliding doors) and is removed. Fronts become NATIVE doors and drawers;
+    backs and rails become dependents (`_promob`).
+    Return ([cabinets], {'pecas', 'chapas', 'curvas', 'descartadas',
     'piso', 'portas', 'gavetas', 'correr'})."""
     pecas = ler_dxf_promob(caminho)
     cores = cores_dxf_promob(caminho)
@@ -1229,8 +1218,8 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
     for obj in objs:
         cor = cor_de[obj.name]
         if cor not in _promob.CORES_CHAPA:
-            # A placa fina da dobradica revela a face da folha, inclusive
-            # no canto. Guardamos geometria de referencia, nunca o modelo.
+            # The hinge's thin plate reveals the leaf face, including at
+            # corners. Store reference geometry, never the model.
             a = (_analisar_peca(obj) if cor == _promob.COR_FERRAGEM
                  and max(hi - lo for lo, hi in zip(*caixas[obj.name]))
                  <= _promob.DOBRADICA_MAXIMA_MM else None)
@@ -1247,13 +1236,13 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
             analise = None
         if analise is not None and analise['chapa']:
             L, C, E = analise['dims']
-            # O DXF arredonda a ripa de 50 mm para 49,9998. Madeira
-            # estreita e alta tambem e' apoio/arremate, nao ferragem.
+            # DXF rounds a 50 mm slat to 49.9998. Narrow, tall wood
+            # is also a support/trim component, not hardware.
             ripa = (cor == _promob.COR_CHAPA and min(L, C) >= E - .05
                     and max(L, C) >= 100.0)
             if (E < ESPESSURA_MINIMA_PROMOB_MM
                     or (min(L, C) < LADO_MINIMO_PROMOB_MM - .05 and not ripa)):
-                analise = None                    # ferragem fina
+                analise = None                    # Thin hardware.
         if analise is None or not analise['chapa']:
             espessura = _espessura_da_curva(obj)
             if espessura is not None:
@@ -1269,7 +1258,7 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
     grupos = [g for g in _modulos_por_contato([o for o, _a in chapas] + list(curvas))
               if any(o in analises for o in g)]
     soltas = [o for o in curvas if not any(o in g for g in grupos)]
-    for o in soltas:                                  # curva sem modulo: sai
+    for o in soltas:                                  # Curve without a cabinet: discard it.
         del curvas[o]
         _remover_objeto(o)
         descartadas += 1
@@ -1296,13 +1285,13 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
         plano = _promob.planejar(dados, perto)
         aba, _categoria, _prefixo = categoria_promob(caminho)
         partes=[_ascii(p) for p in os.path.normpath(caminho).split(os.sep)]
-        if 'Quartos' in partes:
-            if 'Armarios' in partes:aba='Armarios'
-            elif 'Superiores' in partes:aba='Superiores'
+        if "Bedrooms" in partes:
+            if "Cabinets" in partes:aba="Cabinets"
+            elif "Wall Cabinets" in partes:aba="Wall Cabinets"
         plano['puxador_posicao'] = posicao_do_perfil(aba)
         fora = {id(p['obj']) for p in plano['remover']}
         for p in {id(p['obj']):p for p in plano['remover']}.values():
-            # tira das listas ANTES: objeto removido nao se compara mais
+            # Remove from lists FIRST: a removed object can no longer be compared.
             curvas.pop(p['obj'], None)
             analises.pop(p['obj'], None)
             _remover_objeto(p['obj'])
@@ -1317,8 +1306,8 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
         for obj in grupo:
             if obj in analises:
                 continue
-            # porta/painel curvo: entra no modulo como acessorio que
-            # deforma junto com a forma (o raio da HUD refaz o arco)
+            # Curved door/panel: join the cabinet as an accessory that
+            # deforms with its shape (the HUD radius rebuilds the arc).
             mundo = obj.matrix_world.copy()
             obj.parent = conj
             obj.matrix_parent_inverse = conj.matrix_world.inverted()
@@ -1338,13 +1327,13 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
         _promob.alinhar_arremates(conj)
         _promob.ajustar_recuo_fundos(conj)
         _promob.ajustar_internos_ao_fundo(conj)
-        if _categoria == 'Diagonais':
+        if _categoria == "Diagonals":
             _promob.integrar_frentes_diagonais(conj)
         else:
             _promob.corrigir_curvas_legadas(conj)
         _frentes.preparar_conjunto(conj)
         if na_origem:
-            # como os nativos: a biblioteca insere no cursor
+            # Like native presets: the library inserts at the cursor.
             conj.location = (0.0, 0.0, 0.0)
             context.view_layer.update()
         _modulos.sincronizar_medidas_conjunto(conj)
@@ -1359,8 +1348,8 @@ def importar_dxf_promob(context, caminho, prefixo='Modulo', na_origem=False):
 
 
 def importar_promob_para_biblioteca(context, caminho, niveis, prefixo):
-    """Cada modulo do DXF vira um preset da biblioteca em `niveis`
-    (quantos forem). Devolve ([arquivos .blend], info)."""
+    """Each DXF cabinet becomes a library preset at `niveis`, of any depth.
+    Return ([.blend files], info)."""
     if _ascii(os.path.basename(os.path.dirname(caminho))).lower() == 'portas':
         modulos, info = importar_portas_avulsas(context, caminho, prefixo)
     else:
@@ -1373,14 +1362,13 @@ def importar_promob_para_biblioteca(context, caminho, niveis, prefixo):
 
 
 def importar_portas_avulsas(context, caminho, prefixo):
-    """Catalogo de FOLHAS: conserva madeira modelada; quadro/painel
-    medidos viram folha nativa. Ferragens do DXF apenas referenciam lado.
-    Nao inventa uma caixa de armario para uma porta exportada sozinha.
-    """
+    """LEAF catalog: preserve modeled wood; measured frames/panels become
+    native leaves. DXF hardware only supplies side references.
+    Do not invent a cabinet box for a door exported alone."""
     dados=ler_dxf_promob(caminho);cores=cores_dxf_promob(caminho)
     pecas=[];metais=[]
     for nome,(vs,fs) in dados.items():
-        # sem tabela de camadas tudo e' chapa (CORES_CHAPA aceita None)
+        # Without a layer table, everything is a panel (CORES_CHAPA accepts None).
         cor=cores.get(nome,7)
         lo=[min(v[k] for v in vs) for k in range(3)]
         hi=[max(v[k] for v in vs) for k in range(3)]
@@ -1389,8 +1377,8 @@ def importar_portas_avulsas(context, caminho, prefixo):
         if cor not in (7,254) or hi[2]-lo[2]<50:continue
         obj=_objeto_da_peca(context,'Peca '+nome,vs,fs,context.scene.collection)
         pecas.append((obj,lo,hi,cor))
-    # Sobreposicao aqui e' na frente exportada: o painel esta' DENTRO
-    # do quadro. Cada grupo continua separado dos demais mostruarios.
+    # Overlap here concerns the exported front: the panel is INSIDE
+    # the frame. Keep each group separate from other displays.
     grupos=[]
     for p in sorted(pecas,key=lambda p: -(p[2][0]-p[1][0])*(p[2][2]-p[1][2])):
         grupo=next((g for g in grupos if all(p[1][k]>=g[0][1][k]-5 and p[2][k]<=g[0][2][k]+5 for k in range(3))),None)
@@ -1420,7 +1408,7 @@ def importar_portas_avulsas(context, caminho, prefixo):
         grupo=_portas._aplicar_portas(context,None,matriz,None,L,A,p,frente='NEG_Y')
         folha,=_portas._folhas_portas(grupo)
         if cor==7:
-            # Modelos usinados/moldurados conservam todos os vertices.
+            # Machined/molded models retain all their vertices.
             bm=bmesh.new();inv=folha.matrix_world.inverted()
             centro=Vector(tuple((lo[k]+hi[k])/2000 for k in range(3)))
             desloc=Matrix.Translation(folha.matrix_world.translation-centro)
@@ -1442,40 +1430,46 @@ def importar_portas_avulsas(context, caminho, prefixo):
     return saida,dict(pecas=len(dados),portas=len(saida),gavetas=0,correr=0,prateleiras=0)
 
 
+# Input exports can retain their original folder labels; normalize only at import.
+_SOURCE_LABELS = {'inferiores': 'Base Cabinets', 'altos': 'Tall Cabinets', 'torres': 'Tower Cabinets', 'ilhas': 'Islands', 'sup baixos': 'Short Wall Cabinets', 'sup medios': 'Medium Wall Cabinets', 'sup altos': 'Tall Wall Cabinets', 'superiores': 'Wall Cabinets', 'tampos': 'Countertops', 'componentes': 'Components', 'cozinha': 'Kitchen', 'quarto': 'Bedroom', 'quartos': 'Bedrooms', 'sala': 'Living Room', 'banheiro': 'Bathroom', 'externo': 'Outdoor', 'varanda': 'Veranda', 'armarios': 'Cabinets', 'portas': 'Doors', 'cantos': 'Corners', 'bancadas': 'Countertops', 'escritorios': 'Desks', 'mesas': 'Tables', 'mesas de cabeceira': 'Bedside Tables', 'mesas de reuniao': 'Meeting Tables', 'aluminio': 'Aluminum', 'madeira': 'Wood', 'recepcao': 'Reception', 'microondas': 'Microwaves', 'extensoes': 'Extensions', 'conexoes': 'Connectors'}
+
+
+def _source_label(value):
+    return _SOURCE_LABELS.get(value.casefold(), value)
+
+
 def prefixo_da_categoria(categoria):
-    """"Cantos" -> "Canto", "Inferiores" -> "Inferior": nome de UM modulo."""
-    nome = categoria.strip()
-    if nome.lower().endswith('ores'):
-        return nome[:-2]
-    if nome.lower().endswith('oes'):
-        return nome[:-3] + 'ao'
-    if nome.lower().endswith('ais'):
-        return nome[:-3] + 'al'
-    return nome[:-1] if nome.lower().endswith('s') else nome
+    """Singular display prefix for a source or English catalog category."""
+    name = _source_label(categoria.strip())
+    irregular = {'Shelves':'Shelf', 'Pantries':'Pantry', 'Bedside Tables':'Bedside Table',
+                 'Corner Shelf Units':'Corner Shelf Unit', 'Loose Panels':'Loose Panel'}
+    if name in irregular:
+        return irregular[name]
+    return name[:-1] if name.lower().endswith('s') and not name.lower().endswith('ss') else name
 
 
-# As abas do DXF (Cozinha > Inferiores > Cantos...): cada .dxf exportado
-# e' UMA categoria, pelo nome do arquivo. A aba e a categoria sao DOIS niveis
-# da biblioteca (Armarios > Cozinha > Inferiores > Cantos: pedido do usuario,
-# a cascata nao tem limite). Chave: o nome do arquivo sem acento, so' letras.
+# DXF tabs (Cozinha > Inferiores > Cantos, etc.): each exported .dxf is
+# ONE category, named by its file. Tab and category are TWO library levels
+# (Armarios > Cozinha > Inferiores > Cantos); the user requested unlimited
+# depth. Key: unaccented filename, letters only.
 CATEGORIAS_PROMOB = {
-    'cantos': ('Inferiores', 'Cantos', 'Canto'),
-    'bifond': ('Inferiores', 'Cantos Bifold', 'Bifold'),
-    'bifold': ('Inferiores', 'Cantos Bifold', 'Bifold'),
-    'cantosbifold': ('Inferiores', 'Cantos Bifold', 'Bifold'),
-    'balcoes': ('Inferiores', 'Balcoes', 'Balcao'),
-    'especiais': ('Inferiores', 'Especiais', 'Especial'),
-    'gaveteiros': ('Inferiores', 'Gaveteiros', 'Gaveteiro'),
-    'peletros': ('Inferiores', 'Para Eletros', 'Eletro'),
-    'paraeletros': ('Inferiores', 'Para Eletros', 'Eletro'),
-    'pias': ('Inferiores', 'Pias', 'Pia'),
-    'diagonais': ('Inferiores', 'Diagonais', 'Diagonal'),
-    'cantoneiras': ('Inferiores', 'Cantoneiras', 'Cantoneira'),
-    'fechamentos': ('Inferiores', 'Fechamentos', 'Fechamento'),
-    'despenseiros': ('Altos', 'Despenseiros', 'Despenseiro'),
+    'cantos': ("Base Cabinets", "Corners", "Corner"),
+    'bifond': ("Base Cabinets", "Bifold Corners", 'Bifold'),
+    'bifold': ("Base Cabinets", "Bifold Corners", 'Bifold'),
+    'cantosbifold': ("Base Cabinets", "Bifold Corners", 'Bifold'),
+    'balcoes': ("Base Cabinets", "Base Cabinets", "Base Cabinet"),
+    'especiais': ("Base Cabinets", "Specials", "Special"),
+    'gaveteiros': ("Base Cabinets", "Drawer Units", "Drawer Unit"),
+    'peletros': ("Base Cabinets", "For Appliances", "Appliance"),
+    'paraeletros': ("Base Cabinets", "For Appliances", "Appliance"),
+    'pias': ("Base Cabinets", "Sinks", "Sink"),
+    'diagonais': ("Base Cabinets", "Diagonals", 'Diagonal'),
+    'cantoneiras': ("Base Cabinets", "Corner Shelf Units", "Corner Shelf Unit"),
+    'fechamentos': ("Base Cabinets", "Filler Panels", "Filler Panel"),
+    'despenseiros': ("Tall Cabinets", "Pantry Cabinets", "Pantry Cabinet"),
 }
-ABAS_PROMOB = ('Inferiores', 'Altos', 'Ilhas', 'Sup Baixos', 'Sup Medios',
-               'Sup Altos', 'Tampos', 'Componentes')
+ABAS_PROMOB = ("Base Cabinets", "Tall Cabinets", "Islands", "Short Wall Cabinets", "Medium Wall Cabinets",
+               "Tall Wall Cabinets", "Countertops", "Components")
 
 
 def _ascii(texto):
@@ -1483,50 +1477,60 @@ def _ascii(texto):
 
 
 def posicao_do_perfil(aba):
-    """Borda do perfil pela aba (nivel 3 da biblioteca). Pedido do usuario:
-    sempre na HORIZONTAL, salvo guarda-roupa (Quartos > Armarios)."""
-    if aba.startswith('Sup') or aba == 'Superiores':
+    """Profile edge from the tab (library level 3). User request:
+    always HORIZONTAL, except wardrobes (Quartos > Armarios)."""
+    aba = _source_label(aba)
+    if aba in ('Short Wall Cabinets', 'Medium Wall Cabinets', 'Tall Wall Cabinets', 'Wall Cabinets'):
         return 'BAIXO'
-    if aba == 'Armarios':
+    if aba == "Cabinets":
         return 'LADO'
-    return 'ALTURA' if aba in ('Altos', 'Torres') else 'CIMA'
+    return 'ALTURA' if aba in ("Tall Cabinets", "Tower Cabinets") else 'CIMA'
 
 
 def categoria_promob(caminho):
-    """(aba, categoria, prefixo) de um .dxf exportado: a PASTA e' a aba
-    (Altos, Ilhas, Sup Baixos...) e o ARQUIVO a categoria. Pasta que nao
-    e' aba (as primeiras exportacoes: Cantos/, Bifond/) fica com a aba da
-    tabela, ou Inferiores. Fora de Inferiores o nome leva a aba ("Canto
-    Sup Baixo 01"): sem isto o "Canto 01" de uma aba gravava por cima do
-    da outra."""
+    """(tab, category, prefix) for an exported .dxf: the FOLDER is the tab
+    (Altos, Ilhas, Sup Baixos, etc.) and the FILE is the category. Non-tab
+    folders (early exports: Cantos/, Bifond/) use the table's tab or
+    Inferiores. Outside Inferiores, include the tab in the name
+    ("Canto Sup Baixo 01"); otherwise one tab's "Canto 01" would
+    overwrite another's."""
     nome = _ascii(os.path.splitext(os.path.basename(caminho))[0]).strip()
     chave = ''.join(c for c in nome.lower() if c.isalpha())
-    pasta = _ascii(os.path.basename(os.path.dirname(caminho))).strip()
+    pasta = _source_label(_ascii(os.path.basename(os.path.dirname(caminho))).strip())
     aba_pasta = next((a for a in ABAS_PROMOB if a.lower() == pasta.lower()), None)
     aba, categoria, prefixo = CATEGORIAS_PROMOB.get(
-        chave, ('Inferiores', nome, prefixo_da_categoria(nome)))
+        chave, next((v for v in CATEGORIAS_PROMOB.values()
+                     if ''.join(c for c in v[1].lower() if c.isalpha()) == chave),
+                    ("Base Cabinets", _source_label(nome), prefixo_da_categoria(nome))))
     aba = aba_pasta or aba
-    if aba != 'Inferiores':
-        prefixo = '%s %s' % (prefixo, prefixo_da_categoria(aba))
+    if aba != "Base Cabinets":
+        tab = prefixo_da_categoria(aba)
+        if tab.endswith('Wall Cabinet'):
+            size = tab.removesuffix('Wall Cabinet').strip()
+            unit = prefixo.removesuffix(' Cabinet')
+            prefixo = ' '.join(part for part in (size, unit, 'Wall Cabinet') if part)
+        elif tab in ('Tall Cabinet', 'Island'):
+            prefixo = ('Tall ' if tab == 'Tall Cabinet' else 'Island ') + prefixo
+        else:
+            prefixo = '%s %s' % (prefixo, tab)
     return aba, categoria, prefixo
 
 
 def destino_categoria_promob(caminho, raiz):
-    """Endereco sem colidir Cozinha/Quartos nem perder os novos ramos.
-    A subpasta Cantos dos armarios de quarto e' o lote de exportacao,
-    como o antigo Cozinha/Cantos; cada arquivo continua sua categoria.
-    """
-    partes=[_ascii(p) for p in os.path.relpath(os.path.dirname(caminho),raiz).split(os.sep)]
-    ambiente=partes[0] if partes[0]!='.' else 'Diversos'
+    """Path without Cozinha/Quartos collisions or loss of new branches.
+    The Cantos subfolder for bedroom cabinets is an export batch, like
+    the old Cozinha/Cantos; each file still defines its own category."""
+    partes=[_source_label(_ascii(p)) for p in os.path.relpath(os.path.dirname(caminho),raiz).split(os.sep)]
+    ambiente=partes[0] if partes[0]!='.' else "Miscellaneous"
     aba,categoria,prefixo=categoria_promob(caminho)
-    # sem caixa, como importar_promob_para_biblioteca decide a pasta de portas
-    if ambiente=='Cozinha' and partes[-1].lower()!='portas':
-        return ('Armarios',ambiente,aba,categoria),prefixo
-    if partes[-1].lower()=='portas':
-        return ('Armarios',ambiente,'Portas',categoria),'Porta '+categoria
+    # Without a box, matching importar_promob_para_biblioteca's door folder choice.
+    if ambiente=="Kitchen" and partes[-1].casefold()!='doors':
+        return ("Cabinets",ambiente,aba,categoria),prefixo
+    if partes[-1].casefold()=='doors':
+        return ("Cabinets",ambiente,"Doors",categoria),"Door "+categoria
     pastas=partes[1:]
-    if len(pastas)>1 and pastas[-1]=='Cantos':pastas=pastas[:-1]
-    niveis=['Armarios',ambiente]+pastas
+    if len(pastas)>1 and pastas[-1]=="Corners":pastas=pastas[:-1]
+    niveis=["Cabinets",ambiente]+pastas
     if not niveis or niveis[-1]!=categoria:niveis.append(categoria)
     sufixo=[prefixo_da_categoria(ambiente)]
     if pastas and pastas[0]!=categoria:sufixo.append(prefixo_da_categoria(pastas[0]))
@@ -1534,10 +1538,10 @@ def destino_categoria_promob(caminho, raiz):
 
 
 class OBJECT_OT_importar_promob(Operator):
-    """Importa os modulos de um DXF exportado do DXF: so' as chapas
-    (ferragens, puxadores e decoracao ficam de fora)"""
+    """Import cabinets from an exported DXF: panels only, excluding
+    hardware, handles, and decoration."""
     bl_idname = "object.cabinet_importar_promob"
-    bl_label = "Importar Modulos (DXF)"
+    bl_label = "Import Cabinets (DXF)"
     bl_options = {'REGISTER', 'UNDO'}
 
     filepath: bpy.props.StringProperty(subtype='FILE_PATH', options={'SKIP_SAVE'})
@@ -1549,14 +1553,13 @@ class OBJECT_OT_importar_promob(Operator):
 
     def execute(self, context):
         if not self.filepath.lower().endswith('.dxf'):
-            self.report({'WARNING'}, "Escolha um arquivo .dxf")
+            self.report({'WARNING'}, "Choose a .dxf file")
             return {'CANCELLED'}
         modulos, info = importar_dxf_promob(context, self.filepath,
                                             categoria_promob(self.filepath)[2])
         if not modulos:
-            self.report({'WARNING'}, "Nenhuma chapa no arquivo")
+            self.report({'WARNING'}, "No panel in the file")
             return {'CANCELLED'}
-        self.report({'INFO'}, "%d modulo(s), %d chapa(s); %d peca(s) que nao sao "
-                    "chapa ficaram de fora" % (len(modulos), info['chapas'],
+        self.report({'INFO'}, "%d cabinet(s), %d panel(s); %d non-panel part(s) excluded" % (len(modulos), info['chapas'],
                                                info['descartadas']))
         return {'FINISHED'}

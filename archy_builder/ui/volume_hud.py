@@ -1,8 +1,7 @@
-"""Gesto de resize da caixa: ponto temporario e transformador do Blender.
+"""Box resize gesture: temporary point and Blender transform operator.
 
-A HUD escolhe a cota; o dono da cota continua decidindo a geometria.
-Nenhum vertice e' procurado aqui: B, Ctrl e teclado pertencem ao translate.
-"""
+The HUD selects the dimension; its owner still determines the geometry. No vertex
+search happens here: B, Ctrl and keyboard input belong to translate."""
 import bpy
 from mathutils import Matrix, Vector
 from bpy.types import Operator, Macro
@@ -20,7 +19,7 @@ _CAMPOS_EVENTO = ('type', 'value', 'any', 'shift', 'ctrl', 'alt', 'oskey',
 
 
 def controles(geometria):
-    """Seis centros de face, so' no envelope convencional (8 cantos)."""
+    """Six face centers, only for the conventional envelope (eight corners)."""
     if geometria['modo'] == 'AREA_CRIACAO' and len(geometria['cantos']) == 4:
         return _areas_criacao.controles_plano(geometria)
     if (not _opcoes._opcao('hud_pontos_apoio') or len(geometria['cantos']) != 8 or (geometria['modo'] != 'GRUPO'
@@ -53,7 +52,7 @@ def elegivel(alvo):
 
 
 def _guardar(valor):
-    # Nomes sobrevivem ao undo; RNA de objetos em globais nao sobrevive.
+    # Names survive undo; object RNA held in globals does not.
     if isinstance(valor, bpy.types.Object):
         return {'__objeto_hud__': valor.name}
     if isinstance(valor, dict):
@@ -68,7 +67,7 @@ def _recuperar(valor):
         if '__objeto_hud__' in valor:
             obj = bpy.data.objects.get(valor['__objeto_hud__'])
             if obj is None:
-                raise ValueError('O alvo da medida nao existe mais')
+                raise ValueError("The measurement target no longer exists")
             return obj
         return {k: _recuperar(v) for k, v in valor.items()}
     if isinstance(valor, (list, tuple)):
@@ -79,7 +78,8 @@ def _recuperar(valor):
 def preparar(context, alvo, backup):
     ponto = alvo['pontos'][1].copy()
     eixo = (ponto - alvo['pontos'][0]).normalized()
-    # A linha aponta da face parada para a movel, inclusive no lado minimo.
+    # The line points from the stationary face to the moving face, including on the
+    # minimum side.
     auxiliar = Vector((0, 0, 1)) if abs(eixo.z) < .9 else Vector((0, 1, 0))
     y = auxiliar.cross(eixo).normalized()
     base = Matrix((eixo, y, eixo.cross(y)))
@@ -94,7 +94,8 @@ def preparar(context, alvo, backup):
     bloqueados = [(o.name, o.hide_select) for o in proprias]
     alvo_numerico = dict(alvo)
     if _hud._sistema_hud(alvo['tipo']) is not None:
-        # Montar gavetas pode refazer filhos; o alvo e' o grupo, nao essas pecas.
+        # Assembling drawers may recreate children; the target is the group, not those
+        # parts.
         alvo_numerico.pop('chapas', None)
     _estado[0] = dict(alvo=_guardar(alvo_numerico), backup=_guardar(backup),
         objeto=obj.name, modo=alvo.get('modo'),
@@ -109,8 +110,8 @@ def preparar(context, alvo, backup):
         o.hide_select = True
     context.scene.cursor.location = ponto
     context.space_data.overlay.show_cursor = False
-    # Comeca livre, mesmo quando o ima global esta' ligado. B ativa a
-    # escolha/ancoragem nativa explicitamente durante o translate.
+    # Start unconstrained even when global snapping is enabled. B explicitly activates
+    # native base selection/anchoring during translate.
     return dict(cursor_transform=True, snap=False, snap_elements={'VERTEX'},
         snap_target='CENTER', snap_align=False, use_snap_selectable=True,
         release_confirm=True, orient_type='GLOBAL', orient_matrix_type='GLOBAL',
@@ -127,17 +128,17 @@ def atualizar(context):
     alvo = _recuperar(estado['alvo'])
     valor = estado['valor'] + estado['deslocamento_base_mm'] + (Vector(ponto) - Vector(estado['inicio'])).dot(
         Vector(estado['eixo'])) * 1000.0
-    # Cada previa parte da mesma referencia, nunca da ultima malha esticada.
+    # Each preview starts from the same reference, never from the last stretched mesh.
     _hud._restaurar_arraste_hud(context, _recuperar(estado['backup']))
     try:
         _hud._aplicar_valor_hud(context, alvo, max(.001, valor))
         estado.pop('erro', None)
     except ValueError as erro:
-        # Uma restricao fisica nao encerra o translate ainda vivo. O mouse
-        # pode voltar a uma medida valida, ou Esc pode cancelar normalmente.
+        # A physical constraint does not end an active translate. The mouse may return
+        # to a valid dimension, or Esc may cancel normally.
         estado['erro'] = str(erro)
         _hud._restaurar_arraste_hud(context, _recuperar(estado['backup']))
-    # Gavetas refazem as pecas. O filtro de snap tambem vale para os novos IDs.
+    # Drawers recreate their parts. The snap filter also applies to the new IDs.
     bloqueados = dict(estado['bloqueados'])
     for obj in [alvo['objeto'], *alvo['objeto'].children_recursive]:
         if obj.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META'}:
@@ -151,13 +152,13 @@ def atualizar(context):
 
 
 def preparar_base_snap(context):
-    """B passa a ancorar na geometria ATUAL, sem perder o arraste anterior."""
+    """B anchors to the CURRENT geometry without losing the previous drag."""
     estado = _estado[0]
     if not estado or _eventos._desfazendo[0]:
         return
-    # Absorve inclusive o ultimo movimento que o timer ainda nao desenhou.
-    # O Blender zera seu deslocamento ao escolher a base; o nosso passa a
-    # partir da medida ATUAL. Backup e inicio originais ficam para Esc/undo.
+    # Absorb even the last movement the timer has not drawn yet. Blender resets its
+    # displacement when the base is chosen; ours starts from the CURRENT dimension.
+    # Retain the original backup and start for Esc/undo.
     atualizar(context)
     alvo = _recuperar(estado['alvo'])
     estado['deslocamento_base_mm'] = _hud._valor_hud(alvo, context) - estado['valor']
@@ -183,9 +184,9 @@ def _mapa_eventos_snap(context):
         for item in list(mapa.keymap_items):
             mapa.keymap_items.remove(item)
         for item in itens:
-            # match_event faz poll do OPERADOR: itens modais tem idname
-            # vazio e nunca casam nessa API. O espelho normal conserva os
-            # atalhos; o matcher continua NATIVO, sem refazer seus filtros.
+            # match_event polls the OPERATOR: modal items have an empty idname and never
+            # match in this API. The regular mirror preserves shortcuts; the matcher
+            # remains NATIVE without reimplementing its filters.
             novo = mapa.keymap_items.new(OBJECT_OT_observar_volume.bl_idname, item.type, item.value)
             for prop in _CAMPOS_EVENTO:
                 if hasattr(item, prop) and hasattr(novo, prop):
@@ -272,8 +273,8 @@ def _acompanhar():
                     atualizar(bpy.context)
                     area.tag_redraw()
                 except Exception as erro:
-                    # O transformador ainda possui o cursor. Conservar o
-                    # estado ate' confirmar/Esc garante que ele seja devolvido.
+                    # The transform operator still owns the cursor. Retain state until
+                    # confirmation/Esc so the cursor is restored.
                     print('[Archy Builder] resize:', erro)
                     estado['erro'] = str(erro)
                     estado['ultimo'] = tuple(bpy.context.scene.cursor.location)
@@ -298,8 +299,8 @@ def iniciar(context, alvo, backup):
         if 'RUNNING_MODAL' not in resultado:
             terminar(context, cancelar=True)
             return False
-        # Inserido depois, observa ANTES do translate e devolve TODOS os
-        # eventos a ele. Nao substitui o keymap nem o snap do Blender.
+        # Added later, this observer runs BEFORE translate and passes ALL events through
+        # to it. It does not replace Blender's keymap or snapping.
         bpy.ops.object.cabinet_observar_volume('INVOKE_DEFAULT')
         bpy.app.timers.register(_acompanhar, first_interval=0.0)
         return True
@@ -310,7 +311,7 @@ def iniciar(context, alvo, backup):
 
 class OBJECT_OT_observar_volume(Operator):
     bl_idname = 'object.cabinet_observar_volume'
-    bl_label = 'Sincronizar Base do Volume'
+    bl_label = "Synchronize Volume Base"
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
@@ -328,8 +329,8 @@ class OBJECT_OT_observar_volume(Operator):
 
     def modal(self, context, event):
         if not _estado[0]:
-            # O tick deixa este handler sair mesmo sem outro movimento do
-            # mouse apos confirmar. Unregister remove o timer diretamente.
+            # The tick lets this handler exit even without further mouse movement after
+            # confirmation. Unregister removes the timer directly.
             _remover_observador()
             return {'FINISHED', 'PASS_THROUGH'}
         if id(_estado[0]) != self._sessao:
@@ -352,7 +353,7 @@ class OBJECT_OT_observar_volume(Operator):
 
 class OBJECT_OT_confirmar_volume(Operator):
     bl_idname = 'object.cabinet_confirmar_volume'
-    bl_label = 'Confirmar Volume'
+    bl_label = "Confirm Volume"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -372,7 +373,7 @@ class OBJECT_OT_confirmar_volume(Operator):
 
 class OBJECT_OT_transformar_volume(Macro):
     bl_idname = 'object.cabinet_transformar_volume'
-    bl_label = 'Editar Volume'
+    bl_label = "Edit Volume"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
 

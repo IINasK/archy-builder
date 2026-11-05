@@ -1,4 +1,4 @@
-"""Empacota Archy Builder com a raiz instalavel archy_builder."""
+"""Package Archy Builder with archy_builder as the installable root."""
 import os, zipfile, shutil
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,12 +17,12 @@ def main():
         for base, dirs, arquivos in os.walk(PKG):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for a in arquivos:
-                # backups do Blender e temporarios das gravacoes atomicas
+                # Blender backups and atomic-write temporary files.
                 if a.endswith((".pyc", ".pyo", ".blend1", ".blend2", ".tmp")):
                     continue
                 completo = os.path.join(base, a)
                 z.write(completo, os.path.relpath(completo, RAIZ))
-    print("Gerado:", destino, round(os.path.getsize(destino) / 1024, 1), "KB")
+    print("Generated:", destino, round(os.path.getsize(destino) / 1024, 1), "KB")
 
 
 if __name__ == "__main__":

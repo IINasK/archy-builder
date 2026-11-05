@@ -1,25 +1,25 @@
-"""Modulo (conjunto): medidas, redimensionar, agrupar em Empty +
-Collection, medidas da selecao livre e do grupo da cena."""
+"""Cabinet assemblies: dimensions, resizing, Empty/Collection grouping,
+and measurements of arbitrary selections and the scene group."""
 
 import bpy
 from bpy.props import StringProperty
 from mathutils import Matrix, Vector
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _portas = _gaveta = _gavetas = _formas = _prateleiras = _divisorias = _solda = _fundos = None
 
-# ================================================= MODULO (CONJUNTO)
-# Ao agrupar, o Empty deixa de ser so' um pai e passa a ter as medidas
-# do modulo: largura, altura, profundidade e espessura.
+# ================================================= CABINET ASSEMBLY
+# Grouping gives the Empty cabinet dimensions in addition to its
+# parent role: width, height, depth and thickness.
 #
-# Regra: as medidas EXTERNAS mandam. Ao mudar qualquer uma delas, as
-# pecas se acomodam por dentro mantendo a espessura discreta, e a
-# adjacencia fecha as juntas. Ao mudar a ESPESSURA, o contorno externo
-# nao se mexe: as chapas engrossam/afinam para dentro e as pecas que
-# vao de uma ponta a outra se contraem ou se expandem para acompanhar.
-TOL_BORDA = 0.0015   # 1.5mm: tolerancia para considerar face "no limite"
+# Rule: EXTERNAL dimensions govern. When one changes,
+# parts fit inside while retaining their specified thickness, and
+# adjacency closes the joints. Changing THICKNESS leaves the external
+# outline fixed: panels thicken/thin inward, and parts spanning
+# the cabinet shrink or expand to follow.
+TOL_BORDA = 0.0015   # 1.5 mm tolerance for considering a face on the boundary.
 
 
 def _chapas_do_conjunto(conj):
@@ -28,25 +28,25 @@ def _chapas_do_conjunto(conj):
 
 
 def _estruturais(chapas):
-    """Sem o fundo: ele nao tem a espessura do modulo nem se mede pela
-    proporcao (ver `ajustar_fundo`)."""
+    """Exclude the back: it has its own thickness and is not resized
+    proportionally (see `ajustar_fundo`)."""
     return [c for c in chapas if not _chapas.eh_dependente(c)]
 
 
 def _espessura_de(chapas):
-    """O E do modulo/grupo: o de uma peca da caixa, nunca o do fundo
-    (por nome, "Fundo" vem antes de "Lateral" e o modulo virava E 5)."""
+    """Cabinet/group E comes from a body part, never the back
+    (alphabetically, "Fundo" precedes "Lateral", which made cabinet E 5)."""
     caixa = _estruturais(chapas) or chapas
-    # a MAIS COMUM (empate: a 1a): no modulo importado do DXF a 1a pode
-    # ser o fundo de 6 ou uma prateleira fina
+    # Use the MOST COMMON thickness (ties: first): in DXF imports, the first
+    # part can be a 6 mm back or a thin shelf.
     valores = [round(c.chapa_espessura_mm, 2) for c in caixa]
     return max(valores, key=lambda v: (valores.count(v), -valores.index(v)))
 
 
 def _caixa_de(chapas):
-    """Bounding box em mundo de uma lista qualquer de chapas.
-    Atualiza o depsgraph antes: matrix_world so' fica correto depois do
-    recalculo, e ler antes devolvia a caixa da operacao ANTERIOR."""
+    """World bounding box of any list of panels.
+    Update the depsgraph first: matrix_world is correct only after
+    evaluation; earlier reads returned the PREVIOUS operation's box."""
     try:
         bpy.context.view_layer.update()
     except Exception:
@@ -61,7 +61,7 @@ def _caixa_de(chapas):
 
 
 def _vizinhos_gravados(C):
-    """Vizinhos anotados em C pela deteccao de adjacencia (sentido C -> N)."""
+    """Neighbors recorded on C by adjacency detection (direction C -> N)."""
     saida = []
     for eixo in ('x', 'y'):
         for lado in ('pos', 'neg'):
@@ -73,15 +73,15 @@ def _vizinhos_gravados(C):
 
 
 def _grupo_solto(obj, simetrico):
-    """Fecho transitivo da adjacencia para uma chapa sem Conjunto.
+    """Transitive adjacency closure for a panel outside an assembly.
 
-    Os vinculos de adjacencia sao de MAO UNICA: uma prateleira aponta
-    para as laterais, mas nenhuma lateral aponta para a prateleira.
-    Com simetrico=True o mapa e' montado nos dois sentidos, senao a
-    travessia comecando por uma lateral perde as pecas internas.
+    Adjacency links are ONE-WAY: a shelf points to its sides,
+    but neither side points back to the shelf.
+    simetrico=True builds both directions so traversal from a side
+    also reaches internal parts.
 
-    A varredura fica restrita aos IRMAOS (mesmo pai), igual a regra de
-    `_chapas._resolver_vizinho`, para nao custar o arquivo inteiro a cada clique.
+    Scan only SIBLINGS (same parent), matching `_chapas._resolver_vizinho`,
+    to avoid scanning the whole file on each click.
     """
     chapas = [o for o in bpy.data.objects if o.type == 'MESH'
               and _chapas.MARCA_CHAPA in o and o.parent == obj.parent]
@@ -105,13 +105,12 @@ def _grupo_solto(obj, simetrico):
 
 
 def grupo_de(obj, simetrico=False):
-    """Define o GRUPO de uma chapa: se ela pertence a um Conjunto,
-    e' o conjunto inteiro; senao, e' ela mais tudo que estiver ligado
-    a ela por adjacencia (transitivamente).
+    """Determine a panel's GROUP: its entire assembly if it belongs to one;
+    otherwise the panel and everything transitively linked by adjacency.
 
-    simetrico=True tambem segue os vinculos ao contrario -- e' o que a
-    SELECAO quer (o modulo visivel inteiro). O recalculo de medidas
-    continua no modo estrito para nao mudar de escopo sozinho.
+    simetrico=True also follows reverse links, as SELECTION needs
+    the whole visible cabinet. Dimension recalculation remains strict
+    to avoid silently changing its scope.
     """
     if obj is None or _chapas.MARCA_CHAPA not in obj:
         return []
@@ -121,24 +120,23 @@ def grupo_de(obj, simetrico=False):
 
 
 def pecas_do_envelope(conj):
-    """O que conta como o ARMARIO (pedido do usuario): as chapas dele e,
-    com porta de correr com moldura, a moldura -- ela passa a ser a caixa
-    do modulo, nas medidas (L/A/P) e na HUD. So' medida: quem redimensiona
-    continua sendo o corpo (`redimensionar_conjunto`), e a moldura vem
-    junto com a porta."""
+    """Parts counted as the CABINET: its panels plus a framed sliding
+    door's frame, which becomes part of the envelope for L/A/P and HUD.
+    Measurement only: `redimensionar_conjunto` still resizes the body,
+    and the frame follows its door."""
     return _chapas_do_conjunto(conj) + [
         o for g in _portas._portas_do_conjunto(conj)
         for o in _portas._moldura_da_porta(g)]
 
 
 def _caixa_do_conjunto(conj):
-    """Bounding box em coordenadas de mundo do envelope do modulo."""
+    """World-space bounding box of the cabinet envelope."""
     return _caixa_de(pecas_do_envelope(conj))
 
 
 def _acrescimo_da_moldura(conj):
-    """(L, A, P) em mm que a moldura soma a' caixa do corpo: constante
-    (espessura, trilhos, rodape, testeira), nao cresce com o modulo."""
+    """Constant (L, A, P) additions to the body box, in mm, from the frame
+    (thickness, tracks, plinth, fascia); they do not grow with the cabinet."""
     corpo, envelope = _caixa_de(_chapas_do_conjunto(conj)), _caixa_do_conjunto(conj)
     if corpo is None or envelope is None:
         return (0.0, 0.0, 0.0)
@@ -147,8 +145,8 @@ def _acrescimo_da_moldura(conj):
 
 
 def _eixo_local_alinhado(obj, a):
-    """Qual eixo local (0=largura, 1=comprimento, 2=espessura) esta'
-    alinhado com o eixo de mundo a; devolve tambem a meia-extensao."""
+    """Local axis (0=width, 1=length, 2=thickness) aligned with world axis a;
+    also return its half-extent."""
     eixos = _chapas._eixos(obj)
     meias = _chapas._meias(obj)
     alin = [abs(eixos[i][a]) for i in range(3)]
@@ -172,14 +170,13 @@ def medir_conjunto(conj):
 
 
 def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
-    """Leva a caixa externa do modulo para largura/altura/profundidade
-    pedidas. Pecas cuja ESPESSURA corre naquele eixo mantem a espessura
-    e sao ancoradas ao limite em que ja' estavam; as demais sao
-    reescaladas proporcionalmente.
+    """Resize the cabinet's external box to the requested width/height/depth.
+    Parts whose THICKNESS lies on that axis keep their thickness and
+    anchor to their existing boundary; other parts scale proportionally.
 
-    `ancoras` diz, por eixo de MUNDO (X, Y, Z), que lado fica parado:
-    'min' (padrao, o de sempre) ou 'max'. E' o que deixa a HUD esticar
-    o movel a partir da quina mais perto do mouse."""
+    `ancoras` specifies the fixed side for each WORLD axis (X, Y, Z):
+    'min' (the historical default) or 'max'. This lets the HUD resize
+    from the cabinet corner nearest the mouse."""
     chapas = _estruturais(chapas)
     cx = _caixa_de(chapas)
     if cx is None:
@@ -191,7 +188,7 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
     if pai is not None and _chapas.MARCA_CONJUNTO in pai:
         _portas.preparar_referencias_vaos(pai)
         L,A,P = _gavetas.limitar_medidas(pai,lo,hi,(L,A,P))
-    alvo_mm = (L, P, A)   # ordem dos eixos de mundo: X, Y, Z
+    alvo_mm = (L, P, A)   # World axis order: X, Y, Z.
     ancoras = ancoras or ('min', 'min', 'min')
 
     _chapas._ocupado[0] = True
@@ -202,7 +199,7 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
             if velho < 1e-6 or abs(novo - velho) < 1e-7:
                 continue
             razao = novo / velho
-            # p e' o ponto fixo; m1..M1 a faixa nova do eixo
+            # p is the fixed point; m1..M1 is the new axis range.
             p = hi[a] if ancoras[a] == 'max' else lo[a]
             m1 = p - novo if ancoras[a] == 'max' else p
             M1 = m1 + novo
@@ -211,7 +208,7 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
                 c = _chapas._centro(C)[a]
                 f_min, f_max = c - h, c + h
                 if i_loc == 2:
-                    # eixo de ESPESSURA: extensao nao muda
+                    # THICKNESS axis: keep its extent.
                     if abs(f_min - lo[a]) < TOL_BORDA:
                         novo_c = m1 + h
                     elif abs(f_max - hi[a]) < TOL_BORDA:
@@ -225,10 +222,10 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
                     _escrever_dim(C, i_loc, (nf_max - nf_min) / 2.0)
                     nc = _chapas._centro(C); nc[a] = (nf_max + nf_min) / 2.0; _chapas._definir_centro(C, nc)
             lo[a], hi[a] = m1, M1
-            # `_centro` le matrix_world: sem atualizar aqui, o eixo
-            # seguinte gravava de volta o centro ANTIGO e desfazia o
-            # deslocamento deste -- a peca crescia pelo meio, ignorando
-            # a ancora.
+            # `_centro` reads matrix_world: without an update here, the next
+            # axis wrote back the OLD center and undid this displacement,
+            # making the part grow about its center and ignore
+            # the anchor.
             bpy.context.view_layer.update()
     finally:
         _chapas._ocupado[0] = False
@@ -249,10 +246,10 @@ def redimensionar_grupo(chapas, alvo_LAP_mm, ancoras=None):
 
 
 def _acompanhar_acessorios(conj, lo_antes, hi_antes, lo, hi):
-    """Acessorio (pe', cabideiro, peca curva) nao estica: segue a face
-    do modulo de que esta' mais perto, em cada eixo de mundo, mantendo a
-    distancia ate' ela. Medido na caixa de ANTES, nada fica guardado --
-    se o usuario mover o acessorio, a regra vale da posicao nova.
+    """Do not stretch accessories (feet, hanging rails, curved parts).
+    For each world axis, follow the nearest cabinet face while retaining
+    the distance to it. Measure against the OLD box; store nothing,
+    so moving an accessory makes the rule use its new position.
     """
     for acc in [o for o in conj.children if _chapas.MARCA_ACESSORIO in o]:
         cantos = [acc.matrix_world @ Vector(c) for c in acc.bound_box]
@@ -270,11 +267,10 @@ def _acompanhar_acessorios(conj, lo_antes, hi_antes, lo, hi):
 
 
 def aplicar_espessura_grupo(chapas, nova_e):
-    """Troca a espessura de todas as chapas do modulo SEM mover o
-    contorno externo: cada peca cresce/encolhe para DENTRO a partir do
-    limite em que estava encostada. A adjacencia depois expande ou
-    contrai as pecas que ligam uma ponta a outra. O fundo fica com a
-    espessura dele e e' refeito pela caixa nova."""
+    """Change every cabinet panel's thickness WITHOUT moving the external
+    outline: each part grows/shrinks INWARD from its existing boundary.
+    Adjacency then expands/contracts spanning parts. The back retains
+    its own thickness and is rebuilt to the new box."""
     chapas = _estruturais(chapas)
     cx = _caixa_de(chapas)
     if cx is None:
@@ -287,7 +283,7 @@ def aplicar_espessura_grupo(chapas, nova_e):
             eixos = _chapas._eixos(C)
             ez = eixos[2]
             alin = [abs(ez[a]) for a in range(3)]
-            a = alin.index(max(alin))          # eixo de mundo da espessura
+            a = alin.index(max(alin))          # World thickness axis.
             h_velho = C.chapa_espessura_mm / 2000.0
             c = _chapas._centro(C)[a]
             f_min, f_max = c - h_velho, c + h_velho
@@ -298,7 +294,7 @@ def aplicar_espessura_grupo(chapas, nova_e):
             elif abs(f_max - hi[a]) < TOL_BORDA:
                 nc = _chapas._centro(C); nc[a] = f_max - h_novo; _chapas._definir_centro(C, nc)
             else:
-                pass                                     # interna: centro fica
+                pass                                     # Internal part: keep its center.
     finally:
         _chapas._ocupado[0] = False
 
@@ -315,21 +311,20 @@ def aplicar_espessura_grupo(chapas, nova_e):
 
 
 def aplicar_espessura_chapa(C, nova_e, e_velha_mm):
-    """Troca a espessura de UMA chapa fazendo-a crescer para DENTRO do
-    movel: a face que esta' no limite externo do grupo fica parada e a
-    adjacencia encolhe as pecas internas para caber.
+    """Thicken ONE panel INWARD: hold the face on the group's external
+    boundary fixed and let adjacency shrink internal parts to fit.
 
-    Sem isto a chapa engrossava a partir do CENTRO -- metade sobrava
-    para fora do movel, metade invadia a peca vizinha.
+    Otherwise the panel grew about its CENTER, half outside the cabinet
+    and half into its neighbor.
 
-    `e_velha_mm` vem da malha porque, no callback de update, a prop ja'
-    foi trocada; a caixa do grupo tambem e' medida com a espessura
-    antiga de volta no lugar, senao a propria expansao ja' teria
-    deslocado o limite usado como referencia.
+    `e_velha_mm` comes from the mesh because the update callback sees
+    the property already changed. Measure the group box with the old
+    thickness restored too, or the expansion itself would already have
+    shifted the reference boundary.
     """
     grupo = grupo_de(C) or [C]
     ez = _chapas._eixos(C)[2]
-    a = max(range(3), key=lambda i: abs(ez[i]))   # eixo de mundo da espessura
+    a = max(range(3), key=lambda i: abs(ez[i]))   # World thickness axis.
 
     _chapas._ocupado[0] = True
     try:
@@ -344,15 +339,15 @@ def aplicar_espessura_chapa(C, nova_e, e_velha_mm):
     c = _chapas._centro(C)[a]
     f_min, f_max = c - h_velho, c + h_velho
     novo_c = None
-    # chapa avulsa (sem conjunto nem adjacencia) nao tem "dentro do
-    # movel": continua crescendo a partir do centro
+    # A loose panel (no assembly or adjacency) has no cabinet interior:
+    # keep growing it about its center.
     if cx is not None and len(grupo) > 1:
         lo, hi = cx
         if abs(f_min - lo[a]) < TOL_BORDA:
-            novo_c = f_min + h_novo      # encostada no limite minimo
+            novo_c = f_min + h_novo      # Touching the minimum boundary.
         elif abs(f_max - hi[a]) < TOL_BORDA:
-            novo_c = f_max - h_novo      # encostada no limite maximo
-    # chapa interna (prateleira, divisoria): cresce a partir do centro
+            novo_c = f_max - h_novo      # Touching the maximum boundary.
+    # Internal panel (shelf, partition): grow about its center.
 
     if novo_c is not None:
         _chapas._ocupado[0] = True
@@ -368,35 +363,33 @@ def aplicar_espessura_chapa(C, nova_e, e_velha_mm):
         bpy.context.view_layer.update()
     except Exception:
         pass
-    # SEM aplicar_adjacencia (pedido do usuario): engrossar UMA chapa nao
-    # mexe em mais nada. A adjacencia global puxava de volta ate' a peca
-    # afastada de proposito ("grudava nas soldas"); a solda que sair da
-    # origem fica para a regua (`cabinet_resetar_distancia`). O E do
-    # MODULO (`aplicar_espessura_grupo`) continua acomodando as pecas.
+    # Do NOT call aplicar_adjacencia: changing ONE panel's thickness must
+    # leave everything else alone. Global adjacency pulled back even parts
+    # deliberately moved away ("stuck to welds"). A joint displaced from
+    # its origin is handled by the ruler (`cabinet_resetar_distancia`).
+    # CABINET E (`aplicar_espessura_grupo`) still refits the other parts.
     pai = C.parent
     if pai is not None and _chapas.MARCA_CONJUNTO in pai:
         reposicionar_origem(pai)
 
 
 def reposicionar_origem(conj):
-    """Leva a ORIGEM (o Empty) para a posicao real do movel -- centro da
-    caixa em X/Y e base em Z -- compensando os filhos para que nada se
-    mexa na tela.
+    """Move the ORIGIN (Empty) to the cabinet's actual XY center and Z base,
+    compensating children so nothing moves visually.
 
-    Antes era o contrario: a origem ficava parada e o movel deslizava em
-    relacao a ela a cada redimensionamento, porque o crescimento ancora
-    no canto minimo da caixa.
+    Previously the origin stayed fixed and the cabinet slid relative to it
+    on every resize, because growth anchors to the box's minimum corner.
     """
     if conj is None or _chapas.MARCA_CONJUNTO not in conj:
         return
     chapas = _chapas_do_conjunto(conj)
     if not chapas:
         return
-    # sem isto as matrizes lidas abaixo podem estar defasadas e a origem
-    # so' se moveria na operacao SEGUINTE
+    # Without this, the matrices read below may be stale and the origin
+    # would move only on the NEXT operation.
     bpy.context.view_layer.update()
-    # TODOS os filhos ficam parados, nao so' as chapas: acessorio e
-    # grupo de portas andariam junto com a origem.
+    # Keep ALL children fixed, not just panels: accessories and door groups
+    # would otherwise follow the origin.
     filhos = list(conj.children)
     mundos = {o.name: o.matrix_world.copy() for o in filhos}
     pts = []
@@ -417,7 +410,7 @@ def reposicionar_origem(conj):
         bpy.context.view_layer.update()
         for o in filhos:
             if conj.matrix_world.determinant() < 0:
-                # A reflexao fica no pai, sem escala negativa nas chapas.
+                # Keep reflection on the parent, without negative panel scale.
                 _chapas._definir_centro(o, mundos[o.name].translation)
             else:
                 o.matrix_parent_inverse = conj.matrix_world.inverted()
@@ -426,32 +419,32 @@ def reposicionar_origem(conj):
         _chapas._ocupado[0] = False
 
 
-# ============================================ MEDIDAS DE SELECAO LIVRE
-# O wireframe da gaveta (`_gaveta._desenhar_wireframe_gaveta`) ja' e'
-# generico -- recebe tres medidas e desenha o box.
-# O que faltava era MEDIR uma selecao qualquer: um cubo, um carro com
-# dezenas de malhas e curvas, o que for.
+# ============================================ ARBITRARY SELECTION DIMENSIONS
+# The sidebar wireframe (`_gaveta._desenhar_wireframe_gaveta`) is already
+# generic: it takes three dimensions and draws a box.
+# What was missing was MEASURING arbitrary selections: a cube, a car
+# with dozens of meshes and curves, or any other geometry.
 
-# Tipos que ocupam espaco. Empty/camera/luz tem bound_box degenerado na
-# propria origem e esticariam a caixa ate' um ponto sem geometria.
+# Types that occupy space. Empty/camera/light bound_box degenerates to
+# their origin, which would extend the box to a point with no geometry.
 TIPOS_COM_VOLUME = {
     'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'CURVES',
     'POINTCLOUD', 'VOLUME', 'GREASEPENCIL', 'GPENCIL', 'LATTICE',
 }
 
 
-# Para estes tipos o bound_box descreve os PONTOS DE CONTROLE, nao a
-# geometria desenhada: uma curva com bevel mede o mesmo com e sem bevel,
-# e as alcas do bezier incham a caixa. Neles a malha avaliada e' a unica
-# medida fiel; nos demais o bound_box avaliado ja' inclui modificadores.
+# For these types, bound_box describes CONTROL POINTS, not the displayed
+# geometry: a beveled curve has the same bounds with or without bevel,
+# and Bezier handles inflate the box. Only the evaluated mesh is accurate;
+# for other types the evaluated bound_box already includes modifiers.
 TIPOS_BBOX_INFIEL = {'CURVE', 'SURFACE', 'FONT', 'META'}
 
 
 def _cantos_avaliados(obj, dep):
-    """Pontos que delimitam o objeto em MUNDO.
+    """Points bounding the object in WORLD space.
 
-    Usa o objeto AVALIADO, para que modificador, bevel e extrude entrem
-    com a forma que aparece na tela e nao com a geometria crua.
+    Use the EVALUATED object so modifiers, bevel and extrusion contribute
+    the displayed shape rather than the raw geometry.
     """
     alvo = obj
     if dep is not None:
@@ -484,7 +477,7 @@ def _cantos_avaliados(obj, dep):
 
 
 def _limites_mundo(context, objs):
-    """(minimos, maximos, quantos) em MUNDO, ou None se nada tem volume."""
+    """World-space (minima, maxima, count), or None if nothing has volume."""
     objs = [o for o in objs if o.type in TIPOS_COM_VOLUME]
     if not objs:
         return None
@@ -509,34 +502,34 @@ def _limites_mundo(context, objs):
 
 
 def medir_selecao(context):
-    """Caixa envolvente do que estiver selecionado.
+    """Bounding box of the current selection.
 
-    Devolve (largura, altura, profundidade) em mm -- eixos de mundo
-    (X, Z, Y), a mesma convencao das medidas de modulo -- e quantos
-    objetos entraram na conta. Devolve None se nada tem volume.
+    Return (width, height, depth) in mm on WORLD axes (X, Z, Y),
+    matching cabinet dimension conventions, and the number of objects
+    included. Return None if nothing has volume.
     """
     limites = _limites_mundo(context, context.selected_objects)
     if limites is None:
         return None
     lo, hi, contados = limites
-    return ((hi[0] - lo[0]) * 1000.0,      # largura  = X
-            (hi[2] - lo[2]) * 1000.0,      # altura   = Z
-            (hi[1] - lo[1]) * 1000.0,      # profund. = Y
+    return ((hi[0] - lo[0]) * 1000.0,      # Width  = X.
+            (hi[2] - lo[2]) * 1000.0,      # Height = Z.
+            (hi[1] - lo[1]) * 1000.0,      # Depth  = Y.
             contados)
 
 
-# ================================== CAMPOS DO MODULO, AGRUPAR E GRUPOS
-# ------------------------------------------------------------- fundo
-# Pedido do usuario: fundo de chapa de 5 mm, levemente para DENTRO do
-# modulo. Pesquisa (forum de marcenaria, Festool/Sawmill Creek; Cortecloud;
-# ClubArq): sem norma publicada; o canal fica a 12-18 mm da borda de tras
-# (15 o mais citado), uns 8 mm de fundo; o vao atras absorve a parede
-# torta e afasta a umidade (>= 10 mm). Escolha do usuario: canal a 15 mm.
+# ================================== CABINET FIELDS, GROUPING AND GROUPS
+# ------------------------------------------------------------- back
+# User requirement: a 5 mm panel back set slightly INSIDE the cabinet.
+# Research (woodworking forums, Festool/Sawmill Creek; Cortecloud;
+# ClubArq): no published standard; grooves are 12-18 mm from the rear
+# edge (15 most often cited), about 8 mm deep. Rear space accommodates
+# uneven walls and moisture clearance (>= 10 mm). User chose 15 mm setback.
 ESPESSURA_FUNDO_MM = 5.0
-RECUO_FUNDO_MM = 15.0         # da borda de tras ate' as costas do fundo
-CANAL_FUNDO_MM = 8.0          # profundidade do canal nas laterais/base/tampo
-FOLGA_CANAL_FUNDO_MM = 1.0    # o fundo nao bate no fim do canal
-CHAVE_RECUO_FUNDO = 'fundo_recuo_mm'    # no modulo (ID prop)
+RECUO_FUNDO_MM = 15.0         # From the rear edge to the back panel's rear face.
+CANAL_FUNDO_MM = 8.0          # Groove depth in sides/base/top.
+FOLGA_CANAL_FUNDO_MM = 1.0    # The back does not reach the groove bottom.
+CHAVE_RECUO_FUNDO = 'fundo_recuo_mm'    # On the cabinet (ID property).
 
 
 def fundo_do_modulo(conj):
@@ -548,7 +541,7 @@ def fundos_do_modulo(conj):
 
 
 def guardar_formato_fundo(conj, fundo):
-    """Um fundo parcial/ortogonal nao pode virar o retangulo da caixa toda."""
+    """A partial/orthogonal back must not become the whole box rectangle."""
     lo, hi = _caixa_local_estrutural(conj)
     inv = conj.matrix_world.inverted()
     vs = [inv @ (fundo.matrix_world @ v.co) * 1000 for v in fundo.data.vertices]
@@ -585,14 +578,14 @@ def _ajustar_fundo_por_formato(conj, fundo, lo, hi):
 
 
 def medidas_do_fundo(L, A, E, recuo=RECUO_FUNDO_MM):
-    """(largura, altura) de CORTE do fundo e o recuo, em mm: o vao interno
-    mais o que entra no canal de cada lado."""
+    """Back CUT (width, height) and setback in mm: the internal opening
+    plus penetration into each side's groove."""
     entra = CANAL_FUNDO_MM - FOLGA_CANAL_FUNDO_MM
     return L - 2.0 * E + 2.0 * entra, A - 2.0 * E + 2.0 * entra, recuo
 
 
 def _caixa_local_estrutural(conj):
-    """(lo, hi) em mm, nos eixos do modulo, das pecas da CAIXA (sem fundo)."""
+    """Body-part bounds (lo, hi) in mm on cabinet axes, excluding the back."""
     inversa = conj.matrix_world.inverted()
     pontos = [inversa @ (o.matrix_world @ v.co) * 1000.0
               for o in _estruturais(_chapas_do_conjunto(conj))
@@ -604,9 +597,9 @@ def _caixa_local_estrutural(conj):
 
 
 def ajustar_fundo(conj):
-    """Refaz o fundo pela caixa ATUAL do modulo: entre as laterais, a base
-    e o tampo (entrando no canal), costas a `fundo_recuo_mm` da borda de
-    tras (+Y do modulo, ver `_portas._folgas_do_vao`). Sem fundo, nada."""
+    """Rebuild the back from the CURRENT cabinet box: between sides, base
+    and top, extending into grooves, with its rear face `fundo_recuo_mm`
+    from the rear edge (cabinet +Y; see `_portas._folgas_do_vao`). No back: no-op."""
     for novo in fundos_do_modulo(conj):
         if 'fundo_tipo' in novo:
             _fundos.ajustar_ao_modulo(novo)
@@ -631,8 +624,8 @@ def ajustar_fundo(conj):
     try:
         fundo.chapa_largura_mm = max(1.0, largura)
         fundo.chapa_comprimento_mm = max(1.0, altura)
-        # chapa: X largura, Y comprimento (a ALTURA do modulo), Z espessura
-        # (a profundidade do modulo): de pe', 90 graus em X
+        # Panel: X width, Y length (cabinet HEIGHT), Z thickness
+        # (cabinet depth): upright, rotated 90 degrees about X.
         fundo.matrix_world = (conj.matrix_world @ Matrix.Translation(centro)
                               @ Matrix.Rotation(1.5707963267948966, 4, 'X'))
     finally:
@@ -641,11 +634,11 @@ def ajustar_fundo(conj):
     return True
 
 
-# Modulo de BANCADA (balcao, gabinete: pedido do usuario) e' aberto em
-# cima: duas travessas de chapa entre as laterais, uma rente a' frente e
-# outra rente ao fundo, no lugar do tampo (a bancada/pia apoia nelas).
+# A countertop base cabinet is open at the top: two panel crosspieces
+# between the sides, one flush with the front and the other with the rear,
+# replace the top panel and support the countertop/sink.
 LARGURA_TRAVESSA_MM = 70.0
-LADOS_TRAVESSA = (('FRENTE', 'Travessa Frontal'), ('TRAS', 'Travessa Traseira'))
+LADOS_TRAVESSA = (('FRENTE', "Front Rail"), ('TRAS', "Rear Rail"))
 CHAVE_LADO_TRAVESSA = 'travessa_lado'
 
 
@@ -654,9 +647,9 @@ def travessas_do_modulo(conj):
 
 
 def ajustar_travessas(conj):
-    """Refaz as travessas pela caixa ATUAL: entre as laterais, no topo, na
-    espessura do modulo; cada uma rente ao seu lado (frente = -Y), com a
-    largura que tiver (a do usuario, se ele mudou)."""
+    """Rebuild crosspieces from the CURRENT box: between sides, at the top,
+    with cabinet thickness. Each stays flush with its edge (front = -Y)
+    and retains its width, including user edits."""
     travessas = travessas_do_modulo(conj)
     caixa = _caixa_local_estrutural(conj) if travessas else None
     if caixa is None:
@@ -681,7 +674,7 @@ def ajustar_travessas(conj):
 
 
 def adicionar_travessas(conj, context=None, largura=LARGURA_TRAVESSA_MM):
-    """As duas travessas do topo aberto (as que ja' existem ficam)."""
+    """The two open-top crosspieces; keep existing ones."""
     context = context or bpy.context
     existentes = {t.get(CHAVE_LADO_TRAVESSA) for t in travessas_do_modulo(conj)}
     colecao = _colecao_do_modulo(conj)
@@ -702,19 +695,19 @@ def adicionar_travessas(conj, context=None, largura=LARGURA_TRAVESSA_MM):
 
 
 def ajustar_dependentes(conj):
-    """Fundo e travessas: refeitos pela caixa nova do modulo."""
+    """Rebuild the back and crosspieces from the new cabinet box."""
     ajustar_travessas(conj)
     ajustar_fundo(conj)
 
 
 def adicionar_fundo(conj, context=None, recuo=RECUO_FUNDO_MM,
                     espessura=ESPESSURA_FUNDO_MM):
-    """Poe (ou acerta) o fundo do modulo. Devolve o fundo."""
+    """Add or adjust the cabinet back; return the back panel."""
     context = context or bpy.context
     conj[CHAVE_RECUO_FUNDO] = float(recuo)
     fundo = fundo_do_modulo(conj)
     if fundo is None:
-        fundo = _chapas.nova_chapa('Fundo', 100.0, 100.0, espessura,
+        fundo = _chapas.nova_chapa("Back Panel", 100.0, 100.0, espessura,
                                    (0, 0, 0), (0, 0, 0), context)
         fundo[_chapas.MARCA_FUNDO] = 1
         fundo.parent = conj
@@ -749,18 +742,18 @@ def remover_fundo(conj):
 
 
 class OBJECT_OT_fundo_modulo(Operator):
-    """Fundo de chapa do modulo, encaixado em canal e recuado da borda de
-    tras (acompanha as medidas do modulo)"""
+    """Cabinet panel back fitted into grooves and set back from the rear
+    edge; follows cabinet dimensions."""
     bl_idname = 'object.cabinet_fundo_modulo'
-    bl_label = 'Fundo do Modulo'
+    bl_label = "Cabinet Back"
     bl_options = {'REGISTER', 'UNDO'}
 
     recuo_mm: bpy.props.FloatProperty(
-        name="Recuo (mm)", default=RECUO_FUNDO_MM, min=0.0,
-        description="Da borda de tras do modulo ate' as costas do fundo")
+        name="Recess (mm)", default=RECUO_FUNDO_MM, min=0.0,
+        description="From the cabinet's rear edge to the back of the back panel")
     espessura_mm: bpy.props.FloatProperty(
-        name="Espessura (mm)", default=ESPESSURA_FUNDO_MM, min=1.0)
-    remover: bpy.props.BoolProperty(name="Remover o fundo", default=False,
+        name="Thickness (mm)", default=ESPESSURA_FUNDO_MM, min=1.0)
+    remover: bpy.props.BoolProperty(name="Remove Back", default=False,
                                     options={'SKIP_SAVE'})
 
     @classmethod
@@ -788,19 +781,19 @@ class OBJECT_OT_fundo_modulo(Operator):
 
 
 def criar_armario(context, nome, L, A, P, E=18.0, fundo=True, topo='TAMPO'):
-    """Modulo NATIVO (so' chapas do add-on): laterais de altura inteira,
-    base entre elas e, em cima, o tampo (`topo`='TAMPO') ou as duas
-    travessas do modulo de bancada ('TRAVESSAS', topo aberto); com
-    `fundo`, o fundo de 5 mm em canal. Medidas EXTERNAS em mm; nasce na
-    origem, frente em -Y. Devolve o modulo (Empty), ja' ativo."""
+    """Create a NATIVE cabinet using add-on panels only: full-height sides,
+    a base between them, and a top (`topo`='TAMPO') or two crosspieces
+    ('TRAVESSAS', open top). With `fundo`, add a 5 mm grooved back.
+    EXTERNAL dimensions in mm; create at the origin, front toward -Y.
+    Return the cabinet Empty, already active."""
     li = L - 2.0 * E
     pecas = [
-        ("Lateral Esquerda", A, P, E, (-(L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
-        ("Lateral Direita", A, P, E, ((L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
+        ("Left Side", A, P, E, (-(L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
+        ("Right Side", A, P, E, ((L / 2 - E / 2), 0, A / 2), (0, 90, 0)),
         ("Base", li, P, E, (0, 0, E / 2), (0, 0, 0)),
     ]
     if topo == 'TAMPO':
-        pecas.append(("Tampo", li, P, E, (0, 0, A - E / 2), (0, 0, 0)))
+        pecas.append(("Top", li, P, E, (0, 0, A - E / 2), (0, 0, 0)))
     criadas = [_chapas.nova_chapa(n, la, c, e, lo, r, context)
                for n, la, c, e, lo, r in pecas]
     context.view_layer.update()
@@ -827,11 +820,11 @@ def _upd_conj_dim(self, context):
 
 
 def atualizar_sistemas_do_conjunto(conj, internos=True):
-    """Corpo ja' aplicado: portas/apoios, gavetas e prateleiras, nesta ordem.
+    """Body already applied: doors/supports, drawers, then shelves.
 
-    Cada dominio conserva seu calculo e a escrita da propria geometria.
-    A volta a' referencia precisa atualizar SO' portas: remontar internos
-    nessa etapa apagaria os encaixes que o resize acabou de restaurar.
+    Each domain retains its calculations and geometry writes. Restoring
+    the reference must update ONLY doors: rebuilding internals here
+    would erase the fittings that resize has just restored.
     """
     if conj is None or _chapas.MARCA_CONJUNTO not in conj:
         return
@@ -842,9 +835,9 @@ def atualizar_sistemas_do_conjunto(conj, internos=True):
 
 
 def redimensionar_conjunto(conj, ancoras=None):
-    """Aplica as medidas `conj_*` ao modulo (ver `redimensionar_grupo`).
-    Elas sao do ENVELOPE (com a moldura): o corpo recebe o alvo menos o
-    que a moldura soma, e ela volta junto com a porta."""
+    """Apply `conj_*` cabinet dimensions (see `redimensionar_grupo`).
+    They describe the ENVELOPE including its frame: subtract the frame's
+    constant additions for the body target; the frame follows the door."""
     alvo = (conj.conj_largura_mm, conj.conj_altura_mm, conj.conj_profundidade_mm)
     real = medir_conjunto(conj)
     mudam = [i for i in range(3) if abs(real[i]-alvo[i])>.01] if real else []
@@ -855,13 +848,13 @@ def redimensionar_conjunto(conj, ancoras=None):
         eixo=(0,2,1)[mudam[0]]
         _formas._preparar_edicao(conj,('CAIXA',eixo),
                                  (ancoras or ('min','min','min'))[eixo])
-        # Outros campos podem ter acompanhado a projecao de uma peca
-        # obliqua durante a reducao. Apenas o eixo pedido e' editado.
+        # Other fields may have followed an oblique part's projection
+        # during reduction. Edit only the requested axis.
         base=medir_conjunto(conj)
         alvo=tuple(alvo[i] if i==mudam[0] else base[i] for i in range(3))
         if abs(alvo[mudam[0]]-base[mudam[0]])<.01:
-            # Voltar a' referencia nao e' uma nova montagem do fundo ou
-            # da adjacencia: devolver tambem os encaixes originais.
+            # Restoring the reference is not a new back or adjacency assembly:
+            # restore the original fittings too.
             atualizar_sistemas_do_conjunto(conj, internos=False)
             sincronizar_medidas_conjunto(conj)
             _formas.concluir_edicao(conj)
@@ -878,7 +871,7 @@ def redimensionar_conjunto(conj, ancoras=None):
 
 
 def redimensionar_orientado(conj, medidas_mm):
-    """Aplica o resize existente nos eixos do modulo, inclusive em parede girada."""
+    """Apply the existing resize on cabinet axes, including rotated walls."""
     matriz = conj.matrix_world.copy()
     ocupado = _chapas._ocupado[0]
     try:
@@ -918,7 +911,7 @@ def _upd_conj_espessura(self, context):
 
 
 def sincronizar_medidas_conjunto(conj):
-    """Le a caixa real e grava nas propriedades, sem disparar recalculo."""
+    """Read the actual box into properties without triggering recalculation."""
     m = medir_conjunto(conj)
     if not m:
         return
@@ -933,44 +926,44 @@ def sincronizar_medidas_conjunto(conj):
 
 
 class OBJECT_OT_detectar_adjacencia(Operator):
-    """Memoriza quais chapas encostam uma na outra (selecione todas)"""
+    """Record which panels touch each other; select all relevant panels."""
     bl_idname = "object.cabinet_detectar_adjacencia"
-    bl_label = "Detectar Adjacencia"
+    bl_label = "Detect Adjacency"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         sel = [o for o in context.selected_objects if o.type == 'MESH' and _chapas.MARCA_CHAPA in o]
         if len(sel) < 2:
-            self.report({'WARNING'}, "Selecione pelo menos 2 chapas")
+            self.report({'WARNING'}, "Select at least 2 panels")
             return {'CANCELLED'}
         n = _chapas.detectar_adjacencia(sel)
-        self.report({'INFO'}, "%d encoste(s) memorizado(s) em %d chapa(s)" % (n, len(sel)))
+        self.report({'INFO'}, "%d contact(s) stored on %d panel(s)" % (n, len(sel)))
         return {'FINISHED'}
 
 
 class OBJECT_OT_sincronizar_conjunto(Operator):
-    """Le as medidas reais das pecas e atualiza os campos do modulo"""
+    """Read actual part dimensions and update cabinet fields."""
     bl_idname = "object.cabinet_sincronizar"
-    bl_label = "Ler Medidas Atuais"
+    bl_label = "Read Current Dimensions"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         conj = context.object
         if conj is None or _chapas.MARCA_CONJUNTO not in conj:
-            self.report({'WARNING'}, "Selecione o Empty do modulo")
+            self.report({'WARNING'}, "Select the cabinet Empty")
             return {'CANCELLED'}
         sincronizar_medidas_conjunto(conj)
         return {'FINISHED'}
 
 
 class OBJECT_OT_agrupar_conjunto(Operator):
-    """Agrupa as chapas selecionadas num conjunto (Empty pai)"""
+    """Group selected panels into an assembly with an Empty parent."""
     bl_idname = "object.cabinet_agrupar"
-    bl_label = "Agrupar Conjunto"
+    bl_label = "Group Assembly"
     bl_options = {'REGISTER', 'UNDO'}
 
-    # o nome do grupo (pedido do usuario): F3 e' viewport, entao pop-up
-    nome: StringProperty(name="Nome do grupo", options={'SKIP_SAVE'})
+    # User-defined group name: F3 runs in the viewport, so use a popup.
+    nome: StringProperty(name="Group name", options={'SKIP_SAVE'})
 
     def _selecao(self, context):
         return [o for o in context.selected_objects
@@ -987,33 +980,33 @@ class OBJECT_OT_agrupar_conjunto(Operator):
     def execute(self, context):
         sel = self._selecao(context)
         if not sel:
-            self.report({'WARNING'}, "Nenhuma chapa selecionada")
+            self.report({'WARNING'}, "No panel selected")
             return {'CANCELLED'}
         conj = agrupar_chapas(context, sel, self.nome)
-        self.report({'INFO'}, "%s: %d chapa(s) + adjacencia detectada"
+        self.report({'INFO'}, "%s: %d panel(s) + adjacency detected"
                     % (conj.name, len(sel)))
         return {'FINISHED'}
 
 
-# Cada armario e' um GRUPO com nome (pedido do usuario): uma Collection
-# propria com o mesmo nome do Empty pai; dentro dela as chapas, o grupo
-# da porta ("Porta Dupla"...) e as ferragens. A Collection e' marcada:
-# so' ela se renomeia junto e some quando o grupo acaba.
+# Each cabinet is a named GROUP: its own Collection shares the parent
+# Empty's name and contains panels, the door group ("Porta Dupla", etc.)
+# and hardware. Mark that Collection so only it follows renaming
+# and disappears when the group is removed.
 MARCA_COLECAO_MODULO = "eh_colecao_modulo"
 
 
 def _nome_sugerido_grupo(chapas):
-    """"Armario LxAxP" (mm, eixos do mundo) -- o que a caixa ja' traz."""
+    """"Armario LxAxP" in mm on world axes, as already measured by the box."""
     pts = [p for o in chapas for p in _chapas._cantos(o)]
     if not pts:
-        return "Armario"
+        return "Cabinet"
     medida = [round((max(p[i] for p in pts) - min(p[i] for p in pts)) * 1000)
               for i in range(3)]
-    return "Armario %dx%dx%d" % (medida[0], medida[2], medida[1])
+    return "Cabinet %dx%dx%d" % (medida[0], medida[2], medida[1])
 
 
 def _mover_para_colecao(obj, colecao):
-    """O objeto (e os filhos) passa a morar SO' em `colecao`."""
+    """Move the object and its children exclusively into `colecao`."""
     for o in [obj, *obj.children_recursive]:
         if colecao not in o.users_collection:
             colecao.objects.link(o)
@@ -1023,8 +1016,8 @@ def _mover_para_colecao(obj, colecao):
 
 
 def _nome_livre(nome, ignorar=()):
-    """`nome` (ou "nome.001"...) livre como objeto E como Collection: os
-    dois tem nomes independentes e o grupo precisa do MESMO nos dois."""
+    """Find `nome` (or "nome.001", etc.) free as BOTH object and Collection.
+    Their name spaces are independent; the group needs the SAME name in both."""
     candidato, n = nome[:59], 0
     while any(d is not None and d not in ignorar
               for d in (bpy.data.objects.get(candidato),
@@ -1042,10 +1035,10 @@ def _colecao_do_modulo(conj):
 
 
 def _colecao_de_organizacao(colecao):
-    """O append conserva a tag nativa, inclusive nos presets legados.
+    """Append preserves the native tag, including in legacy presets.
 
-    A pasta que empacota o asset e' diferente da Collection da montagem;
-    nao precisa ganhar a identidade desta para ser limpa quando vazia.
+    The asset's containing folder differs from the assembly Collection;
+    it need not acquire the assembly's identity to be removed when empty.
     """
     asset = colecao.asset_data
     return (colecao.library is None and colecao.override_library is None
@@ -1054,10 +1047,10 @@ def _colecao_de_organizacao(colecao):
 
 
 def limpar_organizacao_vazia():
-    """Delete nativo pode deixar os Empties ocultos da montagem.
+    """Native Delete can leave hidden assembly Empties behind.
 
-    So' grupos conhecidos sem nenhuma peca sobrevivente sao residuos;
-    ate' um Empty comum do usuario conserva sua montagem e sua pasta.
+    Only known groups without surviving parts are residue; an ordinary
+    user Empty preserves its assembly and folder.
     """
     marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
               _gavetas.MARCA_GRUPO, _gavetas.MARCA_GAVETA,
@@ -1069,8 +1062,8 @@ def limpar_organizacao_vazia():
 
     candidatos = {o.name for o in bpy.data.objects
                   if _chapas.MARCA_CONJUNTO in o and organizacao(o)}
-    # Se o Delete levou tambem o pai, os subgrupos podem ficar na pasta.
-    # Um grupo de prateleiras vazio num modulo vivo continua editavel.
+    # If Delete removed the parent too, subgroups can remain in the folder.
+    # An empty shelf group inside a live cabinet remains editable.
     for c in bpy.data.collections:
         if (_colecao_de_organizacao(c)
                 and all(organizacao(o) for o in c.all_objects)):
@@ -1084,7 +1077,7 @@ def limpar_organizacao_vazia():
             for o in reversed(familia):
                 bpy.data.objects.remove(o, do_unlink=True)
             bpy.data.objects.remove(modulo, do_unlink=True)
-    # Da pasta mais interna para fora; nao se apagam pastas comuns.
+    # Work from the innermost folder outward; never remove ordinary folders.
     while True:
         vazias = [c for c in bpy.data.collections
                   if _colecao_de_organizacao(c) and not c.all_objects
@@ -1096,10 +1089,10 @@ def limpar_organizacao_vazia():
 
 
 def _garantir_colecao_modulo(cena, conj):
-    """Normaliza a montagem legada antes de inserir uma peca ou um comodo.
+    """Normalize a legacy assembly before inserting a part or room.
 
-    Colecao exclusiva do preset pode ter perdido apenas a marca. Uma
-    pasta compartilhada nao vira armario nem leva os outros objetos junto.
+    An exclusive preset Collection may have lost only its marker.
+    A shared folder must not become a cabinet or take its other objects along.
     """
     colecao = _colecao_do_modulo(conj)
     if colecao is not None:
@@ -1121,8 +1114,7 @@ def _garantir_colecao_modulo(cena, conj):
 
 
 def nomear_grupo(conj, nome):
-    """Renomeia o Empty, a Collection e os vinculos das portas/gavetas
-    que guardam o nome do modulo."""
+    """Rename the Empty, Collection and door/drawer links storing its name."""
     nome = (nome or '').strip()
     if conj is None or _chapas.MARCA_CONJUNTO not in conj or not nome:
         return False
@@ -1141,9 +1133,9 @@ def nomear_grupo(conj, nome):
 
 
 def agrupar_chapas(context, sel, nome=''):
-    """Empty de conjunto no centro X/Y e base Z das chapas, que viram
-    filhas dele sem sair do lugar, numa Collection com o mesmo nome.
-    Devolve o conjunto, ja' ativo."""
+    """Create an assembly Empty at panel XY center and Z base, reparenting
+    panels without movement into a same-name Collection.
+    Return the assembly, already active."""
     pts = []
     for o in sel:
         pts.extend(_chapas._cantos(o))
@@ -1169,7 +1161,7 @@ def agrupar_chapas(context, sel, nome=''):
         o.matrix_world = mw
         _mover_para_colecao(o, colecao)
 
-    # adjacencia e' pre-requisito do conjunto funcionar sem vao
+    # Adjacency is required for an assembly without gaps.
     _chapas.detectar_adjacencia(sel)
     sincronizar_medidas_conjunto(conj)
 
@@ -1181,30 +1173,30 @@ def agrupar_chapas(context, sel, nome=''):
 
 
 def absorver_conjuntos(no_timer=False):
-    """Converte a escala aplicada num Empty de conjunto em escala real
-    das chapas filhas, zerando a escala do Empty."""
+    """Convert an assembly Empty's applied scale into actual child-panel
+    dimensions, resetting the Empty's scale."""
     for conj in list(bpy.data.objects):
         if conj.type != 'EMPTY' or _chapas.MARCA_CONJUNTO not in conj:
             continue
         sx, sy, sz = conj.scale
-        # A reflexao unitaria pertence ao Mirror nativo, nao ao resize.
+        # Unit-magnitude reflection belongs to native Mirror, not resize.
         if all(abs(abs(s)-1) < 1e-6 for s in (sx,sy,sz)):
             continue
         sinais = tuple(-1.0 if s < 0 else 1.0 for s in (sx,sy,sz))
         sistemas = _gavetas.grupos_do_modulo(conj) or _prateleiras.grupos_do_modulo(conj)
         if sistemas and min(abs(sx),abs(sy),abs(sz)) > 0:
-            # O handler nao pode atualizar o depsgraph/reencaixar sistemas.
-            # O timer ja' existente conclui pelo MESMO resize das cotas.
+            # The handler must not update the depsgraph or refit systems.
+            # The existing timer completes through the SAME dimension resize.
             if not no_timer:
                 continue
-            # `_cantos` nominal descarta escala na espessura: durante S
-            # precisamos medir a caixa NATIVA antes de retirar essa escala.
+            # Nominal `_cantos` discards thickness scale: during S, measure
+            # the NATIVE box before removing that scale.
             pontos = [o.matrix_world @ Vector(v) for o in _chapas_do_conjunto(conj)
                       for v in o.bound_box]
             lo = Vector(tuple(min(p[k] for p in pontos) for k in range(3)))
             hi = Vector(tuple(max(p[k] for p in pontos) for k in range(3)))
-            # Medir nos eixos do modulo evita ampliar a caixa projetada
-            # quando R antecede S ou Mirror.
+            # Measuring on cabinet axes avoids inflating the projected box
+            # when R precedes S or Mirror.
             inversa = conj.matrix_world.to_3x3().normalized().inverted()
             locais = [inversa @ p for p in pontos]
             alvo = tuple((max(p[k] for p in locais)-min(p[k] for p in locais))*1000
@@ -1228,11 +1220,11 @@ def absorver_conjuntos(no_timer=False):
             continue
         filhos = [o for o in bpy.data.objects if o.parent == conj]
         mundos = {o.name: o.matrix_world.copy() for o in filhos}
-        # O mundo do Empty SEM escala, calculado aqui: depois de zerar a
-        # escala o matrix_world dele so' muda no proximo update, e o setter
-        # `o.matrix_world = ...` dos filhos usava o pai ainda escalado --
-        # as chapas voltavam ao tamanho antigo (S no modulo nao fazia
-        # nada). view_layer.update nao pode: isto roda no handler.
+        # Compute the Empty's unscaled world matrix here: after resetting scale,
+        # its matrix_world changes only at the next update. Setting children's
+        # `o.matrix_world = ...` used the still-scaled parent, returning panels
+        # to their old size (S on a cabinet did nothing).
+        # view_layer.update is unavailable here because this runs in the handler.
         if min(sx,sy,sz) < 0:
             if min(abs(sx),abs(sy),abs(sz)) < 1e-9:
                 continue
@@ -1251,7 +1243,7 @@ def absorver_conjuntos(no_timer=False):
         try:
             sincronizar_medidas_conjunto(conj)
         except Exception as e:
-            print("[Archy Builder] sincronizar:", e)
+            print("[Archy Builder] synchronize:", e)
 
 
 def _grupo_ativo(context):
@@ -1264,7 +1256,7 @@ def _grupo_ativo(context):
 
 
 def sincronizar_grupo(context):
-    """Le a caixa real do grupo e grava nos campos da cena."""
+    """Read the group's actual box into scene fields."""
     chapas = _grupo_ativo(context)
     cx = _caixa_de(chapas)
     if cx is None:
@@ -1282,13 +1274,12 @@ def sincronizar_grupo(context):
 
 
 def _sincronizar_medidas_ativas():
-    """Faz o papel dos antigos botoes "Sincronizar": os campos do modulo
-    (ou do grupo) ativo voltam a mostrar a caixa REAL depois que o
-    usuario move ou escala uma peca solta.
+    """Replace the old Synchronize buttons: active cabinet/group fields
+    reflect the ACTUAL box after a user moves or scales a loose part.
 
-    Roda so' no TIMER, nunca no handler de depsgraph: `_caixa_de` chama
-    `view_layer.update()`, que dentro do handler reentraria nele. E so'
-    escreve o que mudou: gravar o mesmo valor tambem marca o depsgraph.
+    Run only in the TIMER, never the depsgraph handler: `_caixa_de` calls
+    `view_layer.update()`, which would reenter the handler. Write only
+    changed values; writing the same value still tags the depsgraph.
     """
     context = bpy.context
     obj = getattr(context, 'object', None)
@@ -1320,7 +1311,7 @@ def _sincronizar_medidas_ativas():
             if any(abs(a - b) > 0.01 for a, b in zip(real, campos)):
                 sincronizar_grupo(context)
     except Exception as e:
-        print("[Archy Builder] sincronizar medidas:", e)
+        print("[Archy Builder] synchronize dimensions:", e)
 
 
 def _upd_grupo_dim(self, context):
@@ -1330,7 +1321,7 @@ def _upd_grupo_dim(self, context):
 
 
 def redimensionar_grupo_da_cena(s, context, ancoras=None):
-    """Aplica as medidas `grupo_*` da cena ao grupo ativo."""
+    """Apply scene `grupo_*` dimensions to the active group."""
     chapas = _grupo_ativo(context)
     if not chapas:
         return
@@ -1365,9 +1356,9 @@ def _upd_grupo_espessura(self, context):
 
 
 class OBJECT_OT_sincronizar_grupo(Operator):
-    """Le as medidas reais do grupo e atualiza os campos"""
+    """Read actual group dimensions and update the fields."""
     bl_idname = "object.cabinet_sincronizar_grupo"
-    bl_label = "Ler Medidas do Grupo"
+    bl_label = "Read Group Dimensions"
 
     def execute(self, context):
         sincronizar_grupo(context)

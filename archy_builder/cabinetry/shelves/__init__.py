@@ -1,17 +1,14 @@
-"""Prateleiras internas (pedido do usuario): um grupo de prateleiras num
-vao do modulo, criado como as gavetas -- 2 cliques na diagonal do vao
-(cima-esq e baixo-dir: so' 2 pontos, pedido do usuario) e scroll = quantas;
-a profundidade vai ate' o fundo e a folga da frente e' o RECUO -- e
-editado na aba propria: quantidade, espessura, espacamento entre elas e o
-de CADA uma.
+"""Internal shelves grouped in a cabinet opening. Create like drawers
+with two diagonal clicks (upper left/lower right), then scroll for
+count. Depth extends to the back; front clearance is SETBACK. Edit
+count, thickness and group/per-shelf spacing on the dedicated tab.
 
-Referencial: o do grupo de gavetas (filho do modulo, origem no canto de
-BAIXO a' ESQUERDA do vao, no plano da frente; X = largura, Z = altura,
-Y = para DENTRO). Tudo em mm.
+Use the drawer-group frame: parented to the cabinet, origin at opening
+LOWER LEFT on the front plane, X=width, Z=height, Y=INWARD. All in mm.
 
-Espacamento IGUAL divide o vao (n + 1 vaos iguais); LIVRE guarda o vao
-ABAIXO de cada prateleira e o de cima e' o que sobra. Mudar UM vao anda so'
-a prateleira de cima dele (o vao seguinte cede): as outras ficam paradas.
+EQUAL spacing divides the opening into n+1 equal gaps. FREE stores
+the gap BELOW each shelf; the top gap is the remainder. Changing ONE
+gap moves only its upper shelf; the next gap yields and others stay put.
 """
 
 import bpy
@@ -21,21 +18,21 @@ from array import array
 from mathutils import Matrix, Vector
 from bpy.types import Operator
 
-# o assistente herda o das gavetas AO CARREGAR (o __init__ as carrega antes)
+# The assistant inherits from drawers at LOAD time; __init__ loads them first.
 from ... import gavetas as _gavetas
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _portas = _hud = _eventos = _gaveta_eventos = _selecao = _divisorias = None
 
-# Marcas gravadas no .blend (renomear quebra arquivos salvos)
+# Markers saved in .blend files; renaming breaks existing files.
 MARCA_GRUPO = 'eh_grupo_prateleiras'
 MARCA_PRATELEIRA = 'eh_prateleira'
 CHAVE_MODULO = 'prateleiras_modulo'
 CHAVE_PARAMETROS = 'prateleiras_parametros'
 CHAVE_REFERENCIA = 'prateleiras_referencia'
-CHAVE_MARGENS = 'prateleiras_margens_mm'  # esq, dir, baixo, cima, frente (do modulo)
-CHAVE_VAO = 'prateleiras_vao_mm'          # largura, altura (sem modulo)
+CHAVE_MARGENS = 'prateleiras_margens_mm'  # Cabinet left, right, bottom, top, front.
+CHAVE_VAO = 'prateleiras_vao_mm'          # Width, height (without a cabinet).
 CHAVE_INDICE = 'prateleira_indice'
 CHAVE_DETALHAMENTO = 'prateleira_detalhamento_uid'
 CHAVE_ENCAIXE = 'prateleiras_encaixe'
@@ -43,21 +40,21 @@ CHAVE_ENCAIXE = 'prateleiras_encaixe'
 PARAMETROS_PADRAO = {
     'quantidade': 1,
     'espessura_mm': 18.0,
-    'profundidade_mm': 500.0,      # do plano da frente do vao ao fim dela
-    'recuo_mm': 0.0,               # a frente da prateleira para dentro
-    'folga_lateral_mm': 0.0,       # de cada lado (regulavel, no pino)
+    'profundidade_mm': 500.0,      # Opening front plane to shelf rear.
+    'recuo_mm': 0.0,               # Shelf-front inward setback.
+    'folga_lateral_mm': 0.0,       # Each side, adjustable at the pin.
     'espacamento': 'IGUAL',
-    'vaos_mm': [],                 # LIVRE: o vao ABAIXO de cada uma
+    'vaos_mm': [],                 # FREE: gap BELOW each shelf.
 }
-OPCOES_ESPACAMENTO = (('IGUAL', 'Igual'), ('LIVRE', 'Livre'))
+OPCOES_ESPACAMENTO = (('IGUAL', "Equal"), ('LIVRE', "Free"))
 MAXIMO_PRATELEIRAS = 20
 MENOR_LADO_MM = 50.0
 TOL_MM = 0.01
 
 
-# ------------------------------------------------------------ busca
+# ------------------------------------------------------------ lookup
 def grupo_de(obj):
-    """O grupo de prateleiras de `obj` (ele mesmo ou uma prateleira)."""
+    """Shelf group for `obj`, whether the group itself or a shelf."""
     while obj is not None:
         if MARCA_GRUPO in obj:
             return obj
@@ -100,8 +97,8 @@ def parametros(grupo):
 CAMPOS_INDIVIDUAIS = ('espessura_mm', 'profundidade_mm', 'recuo_mm',
                       'folga_lateral_mm', 'largura_mm')
 _referencia_pendente = [None]
-_quantidade_previa = [None]  # Valor exibido durante arraste, sem montar malhas.
-_edicao = [None]  # Nomes e digitais apenas: undo libera os dados da cena.
+_quantidade_previa = [None]  # Value displayed during drag without assembling meshes.
+_edicao = [None]  # Names/signatures only: undo frees scene data.
 
 
 def parametros_individuais(p, indice):
@@ -117,7 +114,7 @@ def individual_ativo(context, grupo):
     if (obj is None or MARCA_PRATELEIRA not in obj or obj.parent != grupo
             or not obj.select_get()):
         return None
-    # Um Empty selecionado explicitamente determina o escopo global.
+    # An explicitly selected Empty establishes global scope.
     if any(o.type == 'EMPTY' and (o == grupo or o == modulo_do_grupo(grupo))
            for o in context.selected_objects):
         return None
@@ -130,10 +127,10 @@ def individual_ativo(context, grupo):
 
 
 def detalhamento(grupo, fonte):
-    """Trecho local entre apoios externos; copias guardam so' um UID.
+    """Local span between external supports; copies store only a UID.
 
-    Os limites sao recalculados dos vaos atuais, nao uma caixa gravada
-    que ficaria velha ao mover apoios, desfazer ou redimensionar o modulo.
+    Recalculate limits from current gaps rather than a stored box that
+    would become stale after support movement, undo or cabinet resize.
     """
     atuais = prateleiras_do_grupo(grupo)
     uid = fonte.get(CHAVE_DETALHAMENTO)
@@ -142,7 +139,7 @@ def detalhamento(grupo, fonte):
     indices = [int(o[CHAVE_INDICE]) for o in unidades]
     primeiro, ultimo = min(indices), max(indices)
     if indices != list(range(primeiro, ultimo + 1)):
-        raise ValueError('As subdivisoes estao separadas por outra prateleira')
+        raise ValueError("Another shelf separates the subdivisions")
     p = parametros(grupo)
     largura, altura, _m = vao(grupo)
     dados = calcular(largura, altura, p)
@@ -154,9 +151,9 @@ def detalhamento(grupo, fonte):
 
 
 def editar_quantidade_local(context, grupo, fonte, quantidade, redistribuir=False):
-    """Subdivide apenas o trecho da unidade; o restante nunca e' remontado."""
+    """Subdivide only the unit's local span; never rebuild the rest."""
     if context.mode != 'OBJECT' or _eventos._desfazendo[0]:
-        return 'Conclua a edicao antes de subdividir a prateleira'
+        return "Finish editing before subdividing the shelf"
     _sincronizar_disposicao(grupo)
     antes = parametros(grupo)
     atuais = prateleiras_do_grupo(grupo)
@@ -167,7 +164,7 @@ def editar_quantidade_local(context, grupo, fonte, quantidade, redistribuir=Fals
         quantidade = max(0, min(limite, int(quantidade)))
         if quantidade == len(antigas) and not redistribuir:
             return None
-        # Ao reduzir, a unidade que o usuario escolheu sobrevive.
+        # On reduction, retain the unit chosen by the user.
         manter = antigas[:quantidade]
         if quantidade and fonte not in manter:
             manter[-1] = fonte
@@ -230,7 +227,7 @@ def preparar_subdivisao_vao(grupo, indice):
     largura, altura, _m = vao(grupo)
     caixas = calcular(largura, altura, p)['prateleiras']
     if not 0 <= indice <= len(caixas):
-        raise ValueError('O vao nao existe mais')
+        raise ValueError("The opening no longer exists")
     fonte = atuais[min(indice, len(atuais)-1)] if atuais else None
     modelo = parametros_individuais(p, int(fonte[CHAVE_INDICE])) if fonte else dict(p)
     modelo = {k:v for k,v in modelo.items() if k in (*CAMPOS_INDIVIDUAIS, 'x_mm')}
@@ -243,14 +240,14 @@ def preparar_subdivisao_vao(grupo, indice):
 
 
 def subdividir_vao(context, grupo, estado, quantidade):
-    """Insere so' no vao vazio; apoios e outras prateleiras conservam a Mesh e a pose."""
+    """Insert only into empty space; supports/other shelves retain Mesh and pose."""
     if context.mode != 'OBJECT' or _eventos._desfazendo[0]:
-        raise ValueError('Conclua a edicao antes de subdividir o vao')
+        raise ValueError("Finish editing before subdividing the opening")
     if estado['grupo'] != grupo.name or any(n not in bpy.data.objects for n in estado['originais']):
-        raise ValueError('A estrutura do vao foi alterada')
+        raise ValueError("The opening structure changed")
     quantidade = int(quantidade)
     if not 0 <= quantidade <= MAXIMO_PRATELEIRAS-len(estado['originais']):
-        raise ValueError('Quantidade fora do limite das prateleiras')
+        raise ValueError("Shelf count outside the allowed range")
     modelo = estado['modelo']
     local = dict(estado['p'], quantidade=quantidade, espacamento='IGUAL', vaos_mm=[],
                  individuais=[dict(modelo) for _ in range(quantidade)])
@@ -317,7 +314,7 @@ def cancelar_subdivisao_vao(grupo, estado):
 
 
 def _digital(obj):
-    """Comparacao so' ao entrar/sair de Tab ou adicionar, nunca no redraw."""
+    """Compare only on Tab entry/exit or addition, never redraw."""
     h = hashlib.sha1()
     for itens, campo, tipo, tamanho in ((obj.data.vertices, 'co', 'f', 3),
                                        (obj.data.edges, 'vertices', 'i', 2),
@@ -328,7 +325,7 @@ def _digital(obj):
         h.update(valores.tobytes())
     p = parametros_individuais(parametros(obj.parent), int(obj[CHAVE_INDICE]))
     h.update(repr(tuple(float(p[k]) for k in CAMPOS_INDIVIDUAIS if k != 'largura_mm')).encode())
-    # Configuracao de canais/recortes tambem distingue as matrizes.
+    # Groove/cutout configuration also distinguishes templates.
     h.update(repr(sorted((k, str(obj[k])) for k in obj.keys()
                          if k.startswith('chapa_') and k not in
                          {'chapa_uid', 'chapa_edicao'})).encode())
@@ -357,7 +354,7 @@ def _gravar_individual(p, indice, valores):
 def _copiar_prateleira(grupo, indice, fonte):
     obj = fonte.copy()
     obj.data = fonte.data.copy()
-    obj.name = 'Prateleira %d' % (indice + 1)
+    obj.name = "Shelf %d" % (indice + 1)
     _gavetas._colecao(grupo).objects.link(obj)
     obj.parent = grupo
     for chave in list(obj.keys()):
@@ -369,20 +366,20 @@ def _copiar_prateleira(grupo, indice, fonte):
 
 
 def quantas_no_modulo(conj):
-    """Prateleiras deste sistema no modulo (o orcamento conta)."""
+    """This system's cabinet shelves, counted by estimates."""
     return sum(len(prateleiras_do_grupo(g)) for g in grupos_do_modulo(conj))
 
 
 def sincronizar_exclusoes(grupo):
-    """Absorve exclusoes/desvinculos antes de editar parametros ou remontar."""
+    """Absorb deletions/unlinks before editing parameters or rebuilding."""
     return _sincronizar_disposicao(grupo, somente_exclusoes=True)
 
 
 def _sincronizar_disposicao(grupo, somente_exclusoes=False):
-    """Le as caixas NATIVAS no referencial do vao, sem mover madeira.
+    """Read NATIVE boxes in opening coordinates without moving wood.
 
-    Os indices antigos identificam os ajustes sobreviventes; compactar
-    antes de copia-los atribuiria o modelo apagado a outra prateleira.
+    Old indices identify surviving choices; compacting before copying
+    would assign a deleted shelf's model to another shelf.
     """
     if (_eventos._desfazendo[0] or bpy.context.mode != 'OBJECT'):
         return False
@@ -398,8 +395,8 @@ def _sincronizar_disposicao(grupo, somente_exclusoes=False):
         matriz = inversa @ obj.matrix_world
         zs = [(matriz @ Vector(c)).z * 1000.0 for c in obj.bound_box]
         disposicao.append((obj, indice, min(zs), max(zs)))
-    # G pode atravessar outra unidade: os campos E continuam de baixo
-    # para cima, e as escolhas individuais acompanham a MESMA chapa.
+    # G can cross another unit: E fields stay bottom-to-top, while
+    # individual choices follow the SAME panel.
     disposicao.sort(key=lambda item: item[2])
     individuais, g, topo = [], [], 0.0
     for obj, indice, baixo, cima in disposicao:
@@ -422,14 +419,14 @@ def _sincronizar_disposicao(grupo, somente_exclusoes=False):
     for indice, (obj, _antigo, _baixo, _cima) in enumerate(disposicao):
         if obj.get(CHAVE_INDICE) != indice:
             obj[CHAVE_INDICE] = indice
-    # O encaixe anterior nao pode ressuscitar posicoes/ajustes antigos.
+    # Previous fitting must not resurrect old positions/settings.
     if CHAVE_ENCAIXE in grupo:
         del grupo[CHAVE_ENCAIXE]
     return True
 
 
 def sincronizar_exclusoes_da_cena():
-    """Exclusoes E posicoes, so' no timer estavel, depois de absorver Tab."""
+    """Deletions AND positions, only in the stable timer after Tab absorption."""
     if (_eventos._desfazendo[0] or _chapas._ocupado[0]
             or bpy.context.mode != 'OBJECT'):
         return
@@ -444,31 +441,31 @@ def sincronizar_exclusoes_da_cena():
         _eventos._redesenhar_viewports(bpy.context)
 
 
-# ------------------------------------------------------------ calculo
+# ------------------------------------------------------------ calculation
 def vaos(altura, p):
-    """[n + 1] vaos em mm, de baixo para cima: o de baixo de cada
-    prateleira e, por ultimo, o de cima da mais alta."""
+    """n+1 gaps in mm, bottom to top: the gap below each shelf, then
+    the gap above the highest shelf."""
     n = max(0, int(p['quantidade']))
     e = float(p['espessura_mm'])
     livre = altura - sum(float(parametros_individuais(p, i)['espessura_mm'])
                          for i in range(n))
     if livre < -TOL_MM:
-        raise ValueError("%d prateleiras de %g mm nao cabem em %d mm"
+        raise ValueError("%d shelves of %g mm do not fit in %d mm"
                          % (n, e, round(altura)))
     gravados = [float(v) for v in (p.get('vaos_mm') or ())]
     if p.get('espacamento') == 'LIVRE' and len(gravados) == n:
         topo = livre - sum(gravados)
         if topo < -TOL_MM:
-            raise ValueError("As prateleiras passam do topo do vao em %d mm"
+            raise ValueError("Shelves exceed the opening top by %d mm"
                              % round(-topo))
         if gravados and min(gravados) < -TOL_MM:
-            raise ValueError("Vao negativo entre as prateleiras")
+            raise ValueError("Negative gap between shelves")
         return gravados + [max(0.0, topo)]
     return [max(0.0, livre) / (n + 1)] * (n + 1)
 
 
 def calcular(largura, altura, p):
-    """{'prateleiras': [(x0, x1, y0, y1, z0, z1)], 'vaos': [n + 1]}."""
+    """Return {'prateleiras': [(x0, x1, y0, y1, z0, z1)], 'vaos': [n + 1]}."""
     g = vaos(altura, p)
     caixas, z = [], 0.0
     for k in range(len(g) - 1):
@@ -478,43 +475,43 @@ def calcular(largura, altura, p):
         l = float(unidade.get('largura_mm', largura - 2 * folga))
         y0, y1 = float(unidade['recuo_mm']), float(unidade['profundidade_mm'])
         if e <= 0:
-            raise ValueError('Espessura da prateleira tem de ser maior que zero')
+            raise ValueError("Shelf thickness must be greater than zero")
         if l < MENOR_LADO_MM or l > largura + TOL_MM:
-            raise ValueError('Vao estreito demais para prateleira (%d mm)' % round(largura))
+            raise ValueError("Opening too narrow for a shelf (%d mm)" % round(largura))
         if y1 - y0 < MENOR_LADO_MM:
-            raise ValueError('Prateleira rasa demais: %d mm' % round(y1 - y0))
+            raise ValueError("Shelf too shallow: %d mm" % round(y1 - y0))
         z += g[k]
         x0 = float(unidade.get('x_mm', (largura - l) / 2))
         if x0 < -TOL_MM or x0 + l > largura + TOL_MM:
-            raise ValueError('A prateleira ultrapassa a largura do vao')
+            raise ValueError("The shelf exceeds the opening width")
         caixas.append((x0, x0 + l, y0, y1, z, z + e))
         z += e
     return {'prateleiras': caixas, 'vaos': g}
 
 
 def mover_vao(altura, p, k, valor, de_baixo=False):
-    """Os vaos de baixo (n) com o vao `k` em `valor`: anda SO' a
-    prateleira de cima dele -- ou, `de_baixo`, a de baixo (o "Acima" da
-    prateleira escolhida); o do topo so' tem a de baixo. O vizinho do
-    outro lado dela cede. ValueError se ele ficaria negativo."""
+    """Bottom gaps (n) with gap `k` set to `valor`: move ONLY the upper shelf,
+    or lower with `de_baixo` (Above for the chosen shelf). The top gap
+    has only a lower shelf. Its other neighboring gap yields.
+    Raise ValueError if that gap would be negative."""
     g = vaos(altura, p)
     n = len(g) - 1
     if not 0 <= k <= n or (de_baixo and k == 0):
-        raise ValueError("Vao %d nao existe" % (k + 1))
+        raise ValueError("Opening %d does not exist" % (k + 1))
     valor = max(0.0, float(valor))
     vizinho = k - 1 if de_baixo or k == n else k + 1
     g[vizinho] -= valor - g[k]
     g[k] = valor
     if g[vizinho] < -TOL_MM:
-        raise ValueError("Nao cabe: faltam %d mm no vao %d"
+        raise ValueError("Does not fit: %d mm missing in opening %d"
                          % (round(-g[vizinho]), vizinho + 1))
     return g[:n]
 
 
-# ------------------------------------------------------------ vao
+# ------------------------------------------------------------ opening
 def vao(grupo):
-    """(largura, altura, matriz do grupo no modulo) do vao de HOJE: as
-    margens ficam e o vao acompanha o modulo."""
+    """(width, height, group matrix in cabinet) for TODAY's opening:
+    retain margins and let the opening follow the cabinet."""
     conj = modulo_do_grupo(grupo)
     if conj is None or _gavetas._limites(conj) is None:
         largura, altura = grupo.get(CHAVE_VAO) or (500.0, 300.0)
@@ -529,9 +526,8 @@ def vao(grupo):
 
 
 def profundidade_ate_o_fundo(conj, ponto):
-    """Do plano da frente (o de `ponto`, mundo) ate' a face da frente do
-    FUNDO do modulo -- sem fundo, ate' as costas. A prateleira nao entra
-    no canal do fundo."""
+    """Front plane through world `ponto` to the cabinet BACK's front face,
+    or cabinet rear without a back. Shelves must not enter the back groove."""
     lo, hi = _gavetas._limites(conj)
     inversa = conj.matrix_world.inverted()
     limite = hi.y
@@ -547,7 +543,7 @@ def profundidade_ate_o_fundo(conj, ponto):
     return max(MENOR_LADO_MM, limite - _portas._local_no_modulo(conj, ponto).y)
 
 
-# ------------------------------------------------------------ montagem
+# ------------------------------------------------------------ assembly
 def _material_do_modulo(conj):
     for chapa in _modulos._estruturais(_modulos._chapas_do_conjunto(conj)):
         for slot in chapa.material_slots:
@@ -557,8 +553,8 @@ def _material_do_modulo(conj):
 
 
 def _vestir(obj, caixa):
-    """Leva a chapa `obj` a' caixa (mm, no grupo) -- a mesma chapa: a
-    selecao (duplo clique numa prateleira) sobrevive a' edicao."""
+    """Fit the SAME panel `obj` to a group-space box in mm so isolated
+    shelf selection survives editing."""
     matriz, (l, c, e) = _gavetas._matriz_da_caixa(caixa, 2)
     pose = (obj.matrix_parent_inverse != Matrix.Identity(4)
             or obj.matrix_basis != matriz)
@@ -582,7 +578,7 @@ def _vestir(obj, caixa):
 
 
 def _nova_prateleira(grupo, indice, material):
-    nome = 'Prateleira %d' % (indice + 1)
+    nome = "Shelf %d" % (indice + 1)
     obj = bpy.data.objects.new(nome, bpy.data.meshes.new(nome))
     _gavetas._colecao(grupo).objects.link(obj)
     obj[_chapas.MARCA_CHAPA] = 1
@@ -594,9 +590,9 @@ def _nova_prateleira(grupo, indice, material):
 
 
 def montar(grupo, referencia=None):
-    """Refaz as prateleiras pelos parametros e pelo vao de hoje, nas
-    MESMAS chapas (sobra apaga, falta cria com o material das outras).
-    Levanta ValueError (e nao mexe em nada) se nao couber."""
+    """Rebuild shelves from current parameters/opening using the SAME panels;
+    remove surplus, create missing panels with existing materials.
+    Raise ValueError without mutation if they cannot fit."""
     p = parametros(grupo)
     largura, altura, matriz = vao(grupo)
     dados = calcular(largura, altura, p)
@@ -623,16 +619,16 @@ def montar(grupo, referencia=None):
         if obj.get(CHAVE_INDICE) != i:
             obj[CHAVE_INDICE] = i
         mudou = _vestir(obj, caixa) or mudou
-    # Escrever a mesma pose tambem invalida o depsgraph e os BVHs do
-    # snap. A regua nao precisa reavaliar prateleiras que ja' estao certas.
+    # Writing an unchanged pose still invalidates depsgraph/snap BVHs.
+    # The ruler need not reevaluate shelves already in the correct pose.
     if mudou:
         bpy.context.view_layer.update()
 
 
 def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None, blocagem_uid=None):
-    """Grupo de prateleiras novo no modulo `conj`. Devolve o grupo."""
+    """Create a shelf group in cabinet `conj`; return the group."""
     p = dict(PARAMETROS_PADRAO, **p)
-    grupo = bpy.data.objects.new('Prateleiras %s' % conj.name, None)
+    grupo = bpy.data.objects.new("Shelves %s" % conj.name, None)
     colecao = (_modulos._colecao_do_modulo(conj)
                or next(iter(conj.users_collection), context.scene.collection))
     colecao.objects.link(grupo)
@@ -656,7 +652,7 @@ def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None, b
             mundo = conj.matrix_world @ matriz
             for i, (obj, caixa) in enumerate(zip(pecas, dados['prateleiras'])):
                 nova, dims = _gavetas._matriz_da_caixa(caixa, 2)
-                # Reorientar a MESMA malha: L/curva nao pode virar caixa.
+                # Reorient the SAME mesh: L shapes/curves must not become boxes.
                 if obj.data.users > 1:
                     obj.data = obj.data.copy()
                 obj.data.transform((mundo @ nova).inverted() @ obj.matrix_world)
@@ -677,7 +673,7 @@ def criar_prateleiras(context, conj, margens, p, pecas=None, referencial=None, b
 
 
 def ajustar_ao_espaco(grupo, atual, capacidade):
-    """Memoriza a escolha, consumindo a folga antes de diminuir o bloco."""
+    """Remember the choice; consume clearance before shrinking the block."""
     p = parametros(grupo)
     assinatura = repr((list(atual), p))
     estado = grupo.get(CHAVE_ENCAIXE)
@@ -695,7 +691,7 @@ def ajustar_ao_espaco(grupo, atual, capacidade):
 
 
 def atualizar_do_conjunto(conj):
-    """Remonta no vao transportado, conservando a escolha ate' faltar espaco."""
+    """Rebuild in the transported opening, keeping choices until space runs out."""
     for grupo in grupos_do_modulo(conj):
         try:
             sincronizar_exclusoes(grupo)
@@ -713,8 +709,8 @@ def atualizar_do_conjunto(conj):
             origem=ref.transposed() @ matriz.translation*1000
             limite=hi.y-origem.y
             if 'medidas' in estado:
-                # O transporte ja' descontou a chapa de apoio. A caixa
-                # externa nao pode devolver a profundidade que nao cabe.
+                # Transport already subtracted support thickness. The outer box
+                # must not restore a depth that cannot fit.
                 limite=min(limite,float(p['profundidade_mm']))
             p['profundidade_mm']=max(float(p['recuo_mm'])+MENOR_LADO_MM,
                                      min(float(estado['profundidade']),limite))
@@ -741,7 +737,7 @@ def atualizar_do_conjunto(conj):
                 l,a=grupo[CHAVE_VAO]
                 grupo[CHAVE_ENCAIXE]['bloco_atual'] = repr(([float(l),float(p['profundidade_mm']),float(a)],p))
         except ValueError as erro:
-            print("[Archy Builder] prateleiras de %s: %s" % (conj.name, erro))
+            print("[Archy Builder] shelves in %s: %s" % (conj.name, erro))
 
 
 def _parametros_editados(grupo, nome, valor):
@@ -751,8 +747,8 @@ def _parametros_editados(grupo, nome, valor):
     if nome == 'quantidade':
         valor = max(0, min(MAXIMO_PRATELEIRAS, int(valor)))
         if valor != n and n and p['espacamento'] == 'LIVRE':
-            # o mesmo espacamento entre todas continua (se couber); os
-            # vaos diferentes de cada uma nao tem como seguir: iguais
+            # Keep common spacing if it fits; unequal individual gaps cannot
+            # follow the new count, so use equal spacing.
             baixo = vaos(altura, p)[:n]
             uniforme = max(baixo) - min(baixo) <= TOL_MM
             cabe = valor * (baixo[0] + float(p['espessura_mm'])) <= altura + TOL_MM
@@ -762,7 +758,7 @@ def _parametros_editados(grupo, nome, valor):
                 p.update(espacamento='IGUAL', vaos_mm=[])
         p['quantidade'] = valor
     elif nome == 'espacamento':
-        # LIVRE parte dos vaos de hoje: nada pula ao trocar
+        # FREE starts from current gaps to avoid jumps when switching.
         p['vaos_mm'] = vaos(altura, p)[:n] if valor == 'LIVRE' else []
         p['espacamento'] = valor
     elif nome == 'entre_mm':
@@ -771,18 +767,18 @@ def _parametros_editados(grupo, nome, valor):
         p.update(espacamento='LIVRE',
                  vaos_mm=mover_vao(altura, p, int(nome[len('vao_'):]), valor))
     elif nome.startswith('acima_'):
-        # o vao de cima da prateleira K, andando ELA (nao a de cima)
+        # Gap above shelf K, moving THAT shelf rather than the one above.
         p.update(espacamento='LIVRE', vaos_mm=mover_vao(
             altura, p, int(nome[len('acima_'):]) + 1, valor, de_baixo=True))
     elif nome in PARAMETROS_PADRAO:
         p[nome] = max(0.0, float(valor))
     else:
-        raise ValueError("Parametro de prateleira desconhecido: %s" % nome)
+        raise ValueError("Unknown shelf parameter: %s" % nome)
     return p
 
 
 def editar(context, grupo, nome, valor, referencia=None, somente_grupo=False):
-    """Muda um parametro (aba Prateleiras). Devolve o erro (e desfaz) ou None."""
+    """Change a Shelves-tab parameter; return error and restore state, or None."""
     estado = edicao_atual(context)
     global_ = estado and grupo.name in estado['globais']
     if context.mode == 'EDIT_MESH':
@@ -799,8 +795,8 @@ def editar(context, grupo, nome, valor, referencia=None, somente_grupo=False):
             trecho = detalhamento(grupo, fonte)
         except ValueError as erro:
             return str(erro)
-        # O ultimo campo local e' o vao ACIMA da ultima copia. Quem
-        # se move e' ela, nunca o apoio que delimita o proximo trecho.
+        # The last local field is the gap ABOVE the last copy. Move that copy,
+        # never the support delimiting the next span.
         if int(nome[len('vao_'):]) == trecho['ultimo'] + 1:
             nome = 'acima_%d' % trecho['ultimo']
     if nome.startswith('individual_'):
@@ -834,8 +830,8 @@ def editar(context, grupo, nome, valor, referencia=None, somente_grupo=False):
                 try:
                     vaos(vao(grupo)[1], p)
                 except ValueError:
-                    # A espessura da matriz pode diferir do padrao do
-                    # grupo: repartir de novo quando os vaos nao couberem.
+                    # Template thickness may differ from the group default:
+                    # redistribute again if the gaps cannot fit.
                     p.update(espacamento='IGUAL', vaos_mm=[])
         grupo[CHAVE_PARAMETROS] = p
         montar(grupo, referencia=fonte)
@@ -848,15 +844,15 @@ def editar(context, grupo, nome, valor, referencia=None, somente_grupo=False):
 
 def editar_individual(context, grupo, indice, nome, valor):
     if nome not in CAMPOS_INDIVIDUAIS:
-        return 'Parametro individual desconhecido'
+        return "Unknown individual parameter"
     antes = parametros(grupo)
     if not 0 <= indice < int(antes['quantidade']):
-        return 'Prateleira nao encontrada'
+        return "Shelf not found"
     p = parametros(grupo)
     if nome == 'largura_mm':
         largura = vao(grupo)[0]
         if not MENOR_LADO_MM <= float(valor) <= largura + TOL_MM:
-            return 'Largura fora do vao da prateleira'
+            return "Width exceeds the shelf opening"
         nome, valor = 'folga_lateral_mm', max(0., (largura - float(valor)) / 2)
     fonte = prateleiras_do_grupo(grupo)[indice]
     try:
@@ -871,7 +867,7 @@ def editar_individual(context, grupo, indice, nome, valor):
         for k in indices:
             g[k + 1] -= float(valor) - float(parametros_individuais(antes, k)[nome])
         if min(g) < -TOL_MM:
-            return 'Nao cabe: falta espaco acima da prateleira'
+            return "Does not fit: insufficient space above the shelf"
         p.update(espacamento='LIVRE', vaos_mm=g[:-1])
     try:
         calcular(*vao(grupo)[:2], p)
@@ -887,7 +883,7 @@ def resolver_referencia(context, obj):
     pedido = _referencia_pendente[0]
     if (not pedido or obj is None or MARCA_PRATELEIRA not in obj
             or obj.parent is None or obj.parent.name != pedido['grupo']):
-        return 'Selecione uma prateleira deste grupo'
+        return "Select a shelf in this group"
     grupo = obj.parent
     quantidade = pedido['quantidade']
     _referencia_pendente[0] = None
@@ -895,8 +891,8 @@ def resolver_referencia(context, obj):
 
 
 def iniciar_edicao(context, malhas, global_):
-    """O Blender faz a edicao multiobjeto; propagar uma vez ao sair.
-    Conservar os IDs de Mesh e' necessario para o undo de Edit Mode.
+    """Blender handles multi-object editing; propagate once on exit.
+    Retaining Mesh IDs is essential for Edit Mode undo.
     """
     registros, globais = {}, []
     for obj in malhas:
@@ -912,9 +908,9 @@ def iniciar_edicao(context, malhas, global_):
 
 
 def edicao_atual(context):
-    """Undo pode voltar ao Edit Mode com o Empty novamente selecionado.
-    Recuperar da selecao NATIVA e medir uma vez a malha ja' restaurada;
-    nao reaplicar a referencia de uma sessao de edicao posterior.
+    """Undo can return to Edit Mode with the Empty selected again. Recover
+    from NATIVE selection and measure the restored mesh once; do not
+    reapply a reference from a later editing session.
     """
     if _edicao[0]:
         return _edicao[0]
@@ -949,7 +945,7 @@ def concluir_edicao():
         largura = vao(grupo)[0]
         for obj in alvos:
             if nome in estado['globais'] and obj != fonte:
-                # Nao trocar o datablock: o undo nativo ainda o referencia.
+                # Do not replace the datablock: native undo still references it.
                 bm = bmesh.new()
                 try:
                     bm.from_mesh(fonte.data)
@@ -972,8 +968,8 @@ def concluir_edicao():
                 recuo_mm=float(modelo['recuo_mm']),
                 folga_lateral_mm=max(0., (largura - obj.chapa_largura_mm) / 2)))
         grupo[CHAVE_PARAMETROS] = p
-        # A posicao vem da malha confirmada, tanto no Tab individual
-        # quanto no multiobjeto. Nao remontar nem repartir estes vaos.
+        # Position comes from confirmed mesh geometry for individual and
+        # multi-object Tab. Do not rebuild or redistribute these openings.
         _sincronizar_disposicao(grupo)
 
 
@@ -988,8 +984,8 @@ def atualizar_aviso_referencia(context, event):
     if pedido is None:
         return
     pedido.update(mouse=None, regiao=None)
-    # Coordenadas da JANELA: o modal nasce no menu, mas o aviso pertence
-    # a' viewport sob o cursor. Nao guardar areas/regioes RNA no estado.
+    # WINDOW coordinates: the modal starts in a menu, but the notice belongs
+    # to the viewport under the cursor. Retain no RNA areas/regions in state.
     if _gaveta_eventos._gaveta_sob_evento(context, event) is None:
         for area in context.screen.areas:
             if area.type != 'VIEW_3D':
@@ -1006,16 +1002,16 @@ def atualizar_aviso_referencia(context, event):
 
 
 class OBJECT_OT_referencia_prateleira(Operator):
-    """Escolhe na viewport a matriz das novas prateleiras"""
+    """Choose the template for new shelves in the viewport."""
     bl_idname = 'object.cabinet_referencia_prateleira'
-    bl_label = 'Selecione a prateleira de referencia'
+    bl_label = "Select the Reference Shelf"
     bl_options = {'INTERNAL', 'UNDO'}
 
     def invoke(self, context, event):
         if not _referencia_pendente[0]:
             return {'CANCELLED'}
         atualizar_aviso_referencia(context, event)
-        context.workspace.status_text_set('Selecione a prateleira de referencia | Esc cancela')
+        context.workspace.status_text_set("Select the reference shelf | Esc: cancel")
         context.window_manager.modal_handler_add(self)
         _eventos._redesenhar_viewports(context)
         return {'RUNNING_MODAL'}
@@ -1049,7 +1045,7 @@ class OBJECT_OT_referencia_prateleira(Operator):
 
 
 def entre(grupo):
-    """O "Entre prateleiras" da aba: a media dos vaos de baixo."""
+    """Tab Between Shelves value: the mean of bottom gaps."""
     _largura, altura, _m = vao(grupo)
     try:
         baixo = vaos(altura, parametros(grupo))[:-1]
@@ -1060,8 +1056,8 @@ def entre(grupo):
 
 class OBJECT_OT_alinhar_prateleiras(Operator):
     bl_idname = 'object.cabinet_alinhar_prateleiras'
-    bl_label = 'Centralizar espacamento'
-    bl_description = 'Iguala os vaos acima e abaixo da prateleira selecionada; no grupo, distribui todas'
+    bl_label = "Center Spacing"
+    bl_description = "Equalize the gaps above and below the selected shelf; for a group, distribute all shelves"
     bl_options = {'UNDO'}
 
     @classmethod
@@ -1072,8 +1068,8 @@ class OBJECT_OT_alinhar_prateleiras(Operator):
 
     def execute(self, context):
         grupo = grupo_de(context.object)
-        # A exclusao nativa pode ainda nao ter passado pelo timer: o indice
-        # da unidade tem de corresponder aos apoios que restaram.
+        # Native deletion may not have reached the timer yet: the unit index
+        # must correspond to surviving supports.
         sincronizar_exclusoes(grupo)
         unidade = individual_ativo(context, grupo)
         if unidade is None:
@@ -1098,9 +1094,9 @@ class OBJECT_OT_alinhar_prateleiras(Operator):
         return {'FINISHED'}
 
 
-# ------------------------------------------------------------ selecao
+# ------------------------------------------------------------ selection
 def selecionar(context, obj, nivel, somar=False):
-    """'GRUPO' = todas as prateleiras do vao; 'PRATELEIRA' = so' a de `obj`."""
+    """'GRUPO' selects all shelves in the opening; 'PRATELEIRA' only `obj`'s shelf."""
     grupo = grupo_de(obj)
     if grupo is None:
         return False
@@ -1123,7 +1119,7 @@ def selecionar(context, obj, nivel, somar=False):
 
 
 def selecionados(context):
-    """Grupos com o grupo OU uma prateleira selecionado."""
+    """Groups with the group OR a shelf selected."""
     grupos = []
     for o in getattr(context, 'selected_objects', ()) or ():
         g = grupo_de(o)
@@ -1134,7 +1130,7 @@ def selecionados(context):
 
 # ------------------------------------------------------------ HUD
 def medidas(grupo):
-    """(largura, altura, profundidade) mm que a HUD e a aba mostram."""
+    """(width, height, depth) in mm displayed by the HUD and tab."""
     largura, altura, _m = vao(grupo)
     return largura, altura, float(parametros(grupo)['profundidade_mm'])
 
@@ -1146,9 +1142,9 @@ def linhas_hud(grupo, chapas):
 
 
 def _linhas_hud_grupo(grupo, chapas):
-    """Linhas da HUD (tipo 'prateleiras'): L/P/A na caixa do vao, como
-    as gavetas, e uma linha por VAO entre as prateleiras (o valor ao
-    lado; arrastar ou clicar e digitar anda so' a prateleira de cima)."""
+    """Shelf HUD lines: L/P/A on the opening box like drawers, plus one line
+    per GAP with its value beside it. Drag or click/type moves only
+    that gap's upper shelf."""
     largura, altura, prof = medidas(grupo)
     m = grupo.matrix_world
     unidade = individual_ativo(bpy.context, grupo)
@@ -1170,8 +1166,8 @@ def _linhas_hud_grupo(grupo, chapas):
     linhas = []
     for eixo, arestas in enumerate(_hud.ARESTAS_EIXO):
         for i, j in arestas:
-            # O trecho local e' limitado pelos apoios. As cotas dos vaos
-            # editam a posicao; esta moldura nao redimensiona o bloco global.
+            # Supports bound the local span. Gap dimensions edit positions;
+            # this frame does not resize the global block.
             linhas.append({'tipo': 'contorno_forma' if detalhe else 'prateleiras',
                            'editavel': not bool(detalhe), 'objeto': grupo, 'modo': 'PRATELEIRAS',
                            'eixo': eixo, 'letra': None if detalhe else letras[eixo],
@@ -1205,8 +1201,8 @@ def valor(grupo, chave):
 
 
 def aplicar(context, grupo, chave, novo, lado=None):
-    """Medida da HUD/aba: V = um vao; L e A mudam a MARGEM do lado que
-    anda (a quina perto do mouse fica); P e' a profundidade."""
+    """HUD/tab dimension: V edits one gap; L/A change the moving side's
+    MARGIN with the mouse-nearest corner fixed; P edits depth."""
     sincronizar_exclusoes(grupo)
     chave = tuple(chave) if isinstance(chave, (tuple, list)) else (chave,)
     letra = chave[0]
@@ -1243,7 +1239,7 @@ def aplicar(context, grupo, chave, novo, lado=None):
 
 
 def copia(grupo):
-    """O que o Esc do arraste da HUD devolve (`restaurar`)."""
+    """State restored by Esc during HUD dragging (`restaurar`)."""
     return (grupo.name, parametros(grupo), list(grupo.get(CHAVE_MARGENS) or ()))
 
 
@@ -1257,15 +1253,15 @@ def restaurar(estado):
     try:
         montar(grupo)
     except ValueError as erro:
-        print("[Archy Builder] prateleiras:", erro)
+        print("[Archy Builder] shelves:", erro)
 
 
-# ------------------------------------------------------------ assistente
+# ------------------------------------------------------------ assistant
 _assistente_prateleiras = [None]
 RECADOS = {
-    'CANTO1': "Clique no canto de CIMA a' ESQUERDA do vao (Esc cancela)",
-    'CANTO2': "Clique no canto de BAIXO a' DIREITA do vao",
-    'QUANTIDADE': 'Scroll: quantas prateleiras | clique cria',
+    'CANTO1': "Click the TOP LEFT corner of the opening (Esc cancels)",
+    'CANTO2': "Click the BOTTOM RIGHT corner of the opening",
+    'QUANTIDADE': "Scroll: shelf count | Click: create",
 }
 
 
@@ -1274,9 +1270,9 @@ def _criando():
 
 
 class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
-    """Cria prateleiras num vao: 2 cantos na diagonal e a quantidade"""
+    """Create shelves in an opening: two diagonal corners and count."""
     bl_idname = 'object.cabinet_criar_prateleiras'
-    bl_label = 'Criar Prateleiras'
+    bl_label = "Create Shelves"
     bl_options = {'REGISTER', 'UNDO'}
 
     _estado = _assistente_prateleiras
@@ -1284,7 +1280,7 @@ class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
     MAXIMO = MAXIMO_PRATELEIRAS
     ITEM = ('prateleira', 'prateleiras')
     ABA = 'PRATELEIRAS'
-    FIM_QUANTIDADE = 'clique cria'
+    FIM_QUANTIDADE = "Click to create"
 
     def _parametros_padrao(self):
         return dict(PARAMETROS_PADRAO, vaos_mm=[])
@@ -1298,9 +1294,9 @@ class OBJECT_OT_criar_prateleiras(_gavetas.AssistenteDoVao, Operator):
     def _comecar_no_modulo(self, conj, ponto):
         p = self._w['p']
         p['espessura_mm'] = float(_portas._espessura_do_vao(conj))
-        # SO' 2 pontos (pedido do usuario): sem etapa de profundidade, ela
-        # vai ate' o fundo (`_definir_vao`, sem varrer malha no clique); a
-        # folga da frente e' o Recuo da aba
+        # Only TWO points: no depth step; extend to the back
+        # (`_definir_vao`, without click-time mesh scans).
+        # Front clearance is the tab's Setback value.
 
     def _depois_da_quantidade(self, context):
         return self._criar(context)

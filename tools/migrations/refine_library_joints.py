@@ -1,7 +1,7 @@
 """Refine existing library joints in external, reopened and reversible staging.
 
-Without a mode, prepare; --auditar measures without normalization.
---aplicar publishes after manifest review; --reverter restores original files.
+Without a mode, prepare; --audit measures without normalization.
+--apply publishes after manifest review; --restore restores original files.
 Source hashes and absolute source paths are part of the publication contract."""
 import argparse
 from array import array
@@ -42,13 +42,13 @@ def _digital(dados):
 def _conferir_protegido(antes, depois):
     base.conferir(antes, depois)
     if _digital(antes) != _digital(depois):
-        raise AssertionError('Assinatura protegida mudou, mesmo abaixo da tolerancia numerica')
+        raise AssertionError("Protected signature changed, even below numeric tolerance")
 
 
 def _caminho(pasta, nome):
     caminho = Path(base.caminho_da_peca(str(pasta), nome))
     if caminho.resolve().parent != Path(pasta).resolve() or ':' in nome:
-        raise ValueError('Arquivo fora da pasta: ' + nome)
+        raise ValueError("File outside folder: " + nome)
     return caminho
 
 
@@ -60,7 +60,7 @@ def _arquivos(pasta):
 @contextmanager
 def _sessao(guarda):
     if not bpy.app.background:
-        raise RuntimeError('Use Blender externo com --background --factory-startup')
+        raise RuntimeError("Use a separate Blender process with --background --factory-startup")
     addon = base.addon
     anteriores = addon.opcoes._pasta_addon, addon.biblioteca.pasta_biblioteca
     ocupado = addon.chapas._ocupado[0]
@@ -132,7 +132,7 @@ def _restricoes_axiais(objetos):
 
 
 def estado_protegido(colecoes, objetos):
-    """Assina dados que a migracao nao tem permissao para alterar."""
+    """Sign data that the migration is not allowed to change."""
     estado = base.estado(colecoes, objetos)
     estado['restricoes_axiais'] = _restricoes_axiais(objetos)
     estado['colecoes'] = {c.name: dict(props=base.valor_json(dict(c.items())),
@@ -157,10 +157,10 @@ def estado_protegido(colecoes, objetos):
             atributos={a.name: _atributo(a) for a in malha.attributes if a.name not in ATRIBUTOS_SOLDAS})
         for a in malha.attributes:
             if a.name in ATRIBUTOS_SOLDAS and (a.data_type, a.domain) != ('INT', 'POINT'):
-                raise RuntimeError('Atributo de solda com tipo incorreto: ' + malha.name + '/' + a.name)
+                raise RuntimeError("Weld attribute has an incorrect type: " + malha.name + '/' + a.name)
     estado['materiais'] = {m.name: dict(rna=_rna(m), props=base.valor_json(dict(m.items())))
                            for m in bpy.data.materials}
-    # Arvores embutidas de materiais diferentes compartilham o nome Shader Nodetree.
+    # Embedded trees of different materials share the name Shader Nodetree.
     arvores = {'grupo:' + t.name: t for t in bpy.data.node_groups}
     arvores.update({'material:' + m.name: m.node_tree for m in bpy.data.materials if m.node_tree})
     estado['nos'] = {nome: dict(nos=[dict(rna=_rna(n), props=_props(n),
@@ -179,7 +179,7 @@ def _estado_soldas(objetos):
 
 
 def auditar_objetos(objetos):
-    """Conta registros e pares REAIS; nao propoe nem grava novas ancoras."""
+    """Count ACTUAL records and pairs without proposing or writing new anchors."""
     solda = base.addon.solda
     pares, invalidas, distancias = {}, [], []
     registros = ancoras = sem_ancoras = 0
@@ -191,7 +191,7 @@ def auditar_objetos(objetos):
             registros += 1
             n = solda._vizinho_da_ponta(o, ponta)
             if n is None or n.name not in nomes:
-                invalidas.append(dict(origem=o.name, ponta=ponta, motivo='Vizinho ausente'))
+                invalidas.append(dict(origem=o.name, ponta=ponta, motivo="Missing neighbor"))
                 continue
             par = tuple(sorted((o.name, n.name)))
             dados = pares.setdefault(par, dict(registros=0, ancoras=0))
@@ -207,7 +207,7 @@ def auditar_objetos(objetos):
                     p, q = solda._vertice_da_assinatura(o, a), solda._vertice_da_assinatura(n, b)
                     distancias.append((p - q).length * 1000)
                 except (ValueError, IndexError):
-                    invalidas.append(dict(origem=o.name, ponta=ponta, motivo='Vertice invalido'))
+                    invalidas.append(dict(origem=o.name, ponta=ponta, motivo="Invalid vertex"))
     return dict(objetos=len(objetos), registros=registros, pares=len(pares), ancoras=ancoras,
         sem_ancoras_gravadas=sem_ancoras,
         pares_repetidos=sum(d['registros'] > 1 for d in pares.values()),
@@ -221,11 +221,11 @@ def _conferir_soldas(antes, depois):
     if (depois['invalidas'] or depois['sem_ancoras_gravadas'] or depois['pares_repetidos'] or depois['pares_com_varias_ancoras']
             or depois['registros'] != depois['ancoras']
             or antes['pares_objetos'] != depois['pares_objetos']):
-        raise RuntimeError('Soldas invalidas ou pares de objetos alterados: ' + json.dumps(depois))
+        raise RuntimeError("Invalid welds or changed object pairs: " + json.dumps(depois))
 
 
 def _distancia_minima_real(a, b):
-    """Produto cartesiano em blocos, independente do KDTree usado pela API."""
+    """Blockwise Cartesian product, independent of the API's KDTree."""
     minimo = math.inf
     for i in range(0, len(a), 256):
         for j in range(0, len(b), 256):
@@ -237,7 +237,7 @@ def _distancia_minima_real(a, b):
 
 
 def validar_minimos_reais(objetos):
-    """Somente leitura: cada ancora deve realizar o menor gap global em mundo."""
+    """Read-only: each anchor must realize the global minimum world-space gap."""
     solda = base.addon.solda
     pontos, registros = {}, []
     for o in objetos:
@@ -247,12 +247,12 @@ def validar_minimos_reais(objetos):
                 continue
             ancoras = solda._ancoras_gravadas(o, ponta)
             if not ancoras or len(ancoras) != 1:
-                raise RuntimeError('Auditoria minima exige uma ancora: ' + o.name + '/' + ponta)
+                raise RuntimeError("Minimum-distance audit requires an anchor: " + o.name + '/' + ponta)
             for peca in (o, n):
                 if peca.name not in pontos:
                     vertices = [tuple(peca.matrix_world @ v.co) for v in peca.data.vertices]
                     if not vertices or not np.isfinite(vertices).all():
-                        raise RuntimeError('Peca sem vertices reais finitos: ' + peca.name)
+                        raise RuntimeError("Component has no finite actual vertices: " + peca.name)
                     pontos[peca.name] = np.array(vertices, dtype=np.float64)
             minimo = _distancia_minima_real(pontos[o.name], pontos[n.name]) * 1000
             a, b = ancoras[0]
@@ -260,7 +260,7 @@ def validar_minimos_reais(objetos):
                                  solda._vertice_da_assinatura(n, b)) * 1000
             excesso = max(0., distancia - minimo)
             if not math.isfinite(distancia) or excesso > TOLERANCIA_MINIMO_MM:
-                raise RuntimeError('Ancora nao realiza o minimo real global: %s/%s -> %s (%g > %g mm)'
+                raise RuntimeError("Anchor does not realize the actual global minimum: %s/%s -> %s (%g > %g mm)"
                                    % (o.name, ponta, n.name, distancia, minimo))
             registros.append(dict(origem=o.name, ponta=ponta, destino=n.name, ancoras=ancoras[0],
                 distancia_mm=distancia, minimo_mm=minimo, excesso_mm=excesso))
@@ -278,10 +278,10 @@ def _indice(biblioteca):
     itens = _ler(biblioteca / 'indice.json')
     nomes = [i['arquivo'] for i in itens]
     if len({n.casefold() for n in nomes}) != len(nomes):
-        raise ValueError('Indice tem nomes repetidos')
+        raise ValueError("Index contains duplicate names")
     for nome in nomes:
         if _caminho(biblioteca, nome).suffix != '.blend':
-            raise ValueError('Preset sem extensao blend: ' + nome)
+            raise ValueError("Preset has no blend extension: " + nome)
     return nomes
 
 
@@ -289,7 +289,7 @@ def auditar(biblioteca, destino):
     base.validar_destino(str(biblioteca), str(destino))
     biblioteca, destino = Path(biblioteca).resolve(), Path(destino).resolve()
     if destino.exists():
-        raise ValueError('Destino ja existe; use outra pasta externa')
+        raise ValueError("Destination already exists; use another external folder")
     nomes, hashes = _indice(biblioteca), _arquivos(biblioteca)
     destino.mkdir(parents=True)
     registros = []
@@ -298,9 +298,9 @@ def auditar(biblioteca, destino):
             _cols, objetos = base.carregar(str(_caminho(biblioteca, nome)))
             registros.append(dict(arquivo=nome, **auditar_objetos(objetos)))
             if len(registros) % 25 == 0:
-                print('[soldas auditadas]', len(registros), '/', len(nomes), flush=True)
+                print("[audited welds]", len(registros), '/', len(nomes), flush=True)
     if _arquivos(biblioteca) != hashes:
-        raise RuntimeError('Biblioteca mudou durante a auditoria')
+        raise RuntimeError("Library changed during the audit")
     resultado = dict(biblioteca=str(biblioteca), hashes=hashes, arquivos=registros, resumo=_resumo(registros))
     _gravar(destino / 'auditoria.json', resultado)
     return resultado
@@ -310,18 +310,18 @@ def preparar(biblioteca, destino):
     base.validar_destino(str(biblioteca), str(destino))
     biblioteca, destino = Path(biblioteca).resolve(), Path(destino).resolve()
     if destino.exists():
-        raise ValueError('Destino ja existe; use outra pasta externa')
+        raise ValueError("Destination already exists; use another external folder")
     if not callable(getattr(base.addon.solda, 'normalizar_ligacoes', None)):
-        raise RuntimeError('API solda.normalizar_ligacoes ainda indisponivel')
+        raise RuntimeError("solda.normalizar_ligacoes API is still unavailable")
     nomes, hashes = _indice(biblioteca), _arquivos(biblioteca)
     for pasta in ('originais', 'novos'):
         (destino / pasta).mkdir(parents=True)
-    # Copiar tudo permite revisar o staging como biblioteca, sem refazer fotos.
+    # Copying everything allows staging to be reviewed as a library without recreating photos.
     for nome, digital in hashes.items():
         for pasta in ('originais', 'novos'):
             shutil.copy2(_caminho(biblioteca, nome), destino / pasta / nome)
             if base.digital(destino / pasta / nome) != digital:
-                raise RuntimeError('Fonte mudou durante backup: ' + nome)
+                raise RuntimeError("Source changed during backup: " + nome)
     fontes = {str(Path(f).resolve()): base.digital(f) for f in (
         __file__, base.addon.__file__, base.addon.solda.__file__, base.addon.chapas.__file__)}
     m = dict(biblioteca=str(biblioteca), versao=base.addon.bl_info['version'], fontes=fontes, hashes=hashes,
@@ -336,7 +336,7 @@ def preparar(biblioteca, destino):
             pecas = [o for o in objetos if base.addon.chapas.MARCA_CHAPA in o]
             resultado = base.addon.solda.normalizar_ligacoes(pecas, recalcular_ancoras=True)
             if resultado['invalidas']:
-                raise RuntimeError('Normalizacao exige revisao: ' + nome + ' ' + repr(resultado['invalidas']))
+                raise RuntimeError("Normalization requires review: " + nome + ' ' + repr(resultado['invalidas']))
             _conferir_protegido(antes, estado_protegido(cols, objetos))
             depois = auditar_objetos(objetos)
             _conferir_soldas(auditoria, depois)
@@ -358,17 +358,17 @@ def preparar(biblioteca, destino):
                 depois=depois, resultado=base.valor_json(resultado), protegido=_digital(antes),
                 minimos_reais=validar_minimos_reais(objetos)))
             _gravar(destino / 'manifesto.json', m)
-            print('[soldas preparadas]', len(m['auditados']), '/', len(nomes), nome, flush=True)
+            print("[staged welds]", len(m['auditados']), '/', len(nomes), nome, flush=True)
     if _arquivos(biblioteca) != hashes or _arquivos(destino / 'originais') != hashes:
-        raise RuntimeError('Biblioteca ou backup mudou durante o preparo')
+        raise RuntimeError("Library or backup changed during preparation")
     esperados = dict(hashes, **{a['nome']: a['novo'] for a in m['arquivos']})
     if _arquivos(destino / 'novos') != esperados:
-        raise RuntimeError('Staging mudou fora dos blends verificados')
+        raise RuntimeError("Staging changed outside the verified blend files")
     if any(base.digital(f) != digital for f, digital in fontes.items()):
-        raise RuntimeError('Fonte mudou durante o preparo; repita com fonte estabilizada')
+        raise RuntimeError("Source changed during preparation; retry with a stable source")
     minimos = [p for a in m['auditados'] for p in a['minimos_reais']]
     if len(minimos) != sum(a['depois']['pares'] for a in m['auditados']):
-        raise RuntimeError('Auditoria minima nao cobriu todos os pares de objetos')
+        raise RuntimeError("Minimum-distance audit did not cover all object pairs")
     m.update(verificado=True, resumo_antes=_resumo([a['antes'] for a in m['auditados']]),
              resumo_depois=_resumo([a['depois'] for a in m['auditados']]),
              auditoria_minimos=dict(metodo='produto_cartesiano_numpy_em_blocos', pares=len(minimos),
@@ -382,31 +382,31 @@ def publicar(destino, reverter=False):
     destino = Path(destino).resolve()
     m = _ler(destino / 'manifesto.json')
     if not m.get('verificado') or bool(m.get('publicado')) != reverter:
-        raise RuntimeError('Preparo incompleto ou estado de publicacao incompativel')
+        raise RuntimeError("Incomplete staging or incompatible publication state")
     if not reverter and (not m.get('fontes') or any(
             not Path(f).is_file() or base.digital(f) != digital for f, digital in m['fontes'].items())):
-        raise RuntimeError('Fonte mudou desde o preparo; repita com fonte estabilizada')
+        raise RuntimeError("Source changed since preparation; retry with a stable source")
     biblioteca = Path(m['biblioteca']).resolve()
     for pasta in (destino, destino / 'originais', destino / 'novos'):
         base.validar_destino(str(biblioteca), str(pasta))
     nomes = [a['nome'] for a in m['arquivos']]
     if len(set(nomes)) != len(nomes):
-        raise ValueError('Manifesto com arquivos repetidos')
+        raise ValueError("Manifest contains duplicate files")
     for a in m['arquivos']:
         for pasta in (biblioteca, destino / 'originais', destino / 'novos'):
             _caminho(pasta, a['nome'])
         if Path(a['nome']).suffix != '.blend' or m['hashes'].get(a['nome']) != a['original']:
-            raise ValueError('Manifesto altera arquivo nao permitido: ' + a['nome'])
+            raise ValueError("Manifest changes a prohibited file: " + a['nome'])
     novos = dict(m['hashes'], **{a['nome']: a['novo'] for a in m['arquivos']})
     if (_arquivos(biblioteca) != (novos if reverter else m['hashes'])
             or _arquivos(destino / 'originais') != m['hashes']
             or _arquivos(destino / 'novos') != novos):
-        raise RuntimeError('Biblioteca, staging ou backup mudou desde o preparo')
+        raise RuntimeError("Library, staging, or backup changed since preparation")
     fonte = destino / ('originais' if reverter else 'novos')
     retorno = destino / ('novos' if reverter else 'originais')
     for nome in nomes:
         if (biblioteca / (nome + '.solda-nova')).exists():
-            raise RuntimeError('Temporario ja existe: ' + nome)
+            raise RuntimeError("Temporary file already exists: " + nome)
     aplicados, temporario = [], None
     try:
         for nome in nomes:
@@ -417,7 +417,7 @@ def publicar(destino, reverter=False):
             aplicados.append(nome)
             temporario = None
         if _arquivos(biblioteca) != (m['hashes'] if reverter else novos):
-            raise RuntimeError('Conferencia final diverge')
+            raise RuntimeError("Final verification differs")
         m['publicado'] = not reverter
         _gravar(destino / 'manifesto.json', m)
     except BaseException:
@@ -431,8 +431,8 @@ def publicar(destino, reverter=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--biblioteca', default=base.addon.biblioteca.pasta_biblioteca())
-    parser.add_argument('--destino', required=True)
+    parser.add_argument('--library', default=base.addon.biblioteca.pasta_biblioteca(), dest='biblioteca', metavar='LIBRARY')
+    parser.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
     modos = parser.add_mutually_exclusive_group()
     for nome in ('auditar', 'aplicar', 'reverter'):
         modos.add_argument('--' + nome, action='store_true')

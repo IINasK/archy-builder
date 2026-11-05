@@ -1,4 +1,4 @@
-"""Identidade nativa, persistencia e ponte de comandos do editor Archy Builder."""
+"""Native identity, persistence and command bridge for the Archy Builder editor."""
 import os
 import sys
 import tempfile
@@ -70,21 +70,21 @@ class TestEditor(unittest.TestCase):
     def test_identidade_archy_builder_em_editores_preferencias_e_recortes(self):
         self.assertEqual(addon.bl_info['name'], 'Archy Builder')
         self.assertEqual(addon.bl_info['doc_url'], 'https://github.com/IINasK/archy-builder')
-        for trecho in ('Moveis planejados', 'marcenaria', 'arquitetura', 'interiores'):
+        for trecho in ('Fitted furniture', 'woodworking', 'architecture', 'interiors'):
             self.assertIn(trecho, addon.bl_info['description'])
         self.assertEqual(X.CABINET_NT_menu.bl_label, 'Archy Builder')
-        self.assertEqual(X.CABINET_NT_biblioteca.bl_label, 'Biblioteca Archy Builder')
+        self.assertEqual(X.CABINET_NT_biblioteca.bl_label, "Archy Builder Library")
         self.assertEqual(X.TIPO_MENU, 'ArchyBuilderMenu')
         self.assertEqual(X.TIPO_BIBLIOTECA, 'ArchyBuilderBiblioteca')
         self.assertEqual(addon.opcoes.ArchyBuilderPreferences.bl_idname, 'archy_builder')
-        self.assertEqual(addon.instalacoes.CORTE, 'Archy Builder - Recorte ')
-        self.assertEqual(addon.instalacoes.FILTRO, 'Archy Builder - Superficie ')
-        self.assertEqual(addon.iluminacao.CORTE_TABICA, 'Archy Builder - Tabica ')
+        self.assertEqual(addon.instalacoes.CORTE, "Archy Builder - Cut ")
+        self.assertEqual(addon.instalacoes.FILTRO, "Archy Builder - Surface ")
+        self.assertEqual(addon.iluminacao.CORTE_TABICA, "Archy Builder - Shadow Gap ")
         for classe in addon.CLASSES:
             self.assertNotIn('Cabinet Creator', getattr(classe, 'bl_label', ''))
 
     def test_editor_archy_builder_reabre_preservando_dados_e_parentesco(self):
-        # O editor e os dados precisam reabrir com a identidade da instalacao atual.
+        # The editor and data must reopen with the current installation's identity.
         arvore = self.menu.spaces.active.node_tree
         arvore.name = 'Interface Archy Builder'
         pai = bpy.data.objects.new('Modulo legado', None)
@@ -140,7 +140,7 @@ class TestEditor(unittest.TestCase):
         caminho = os.path.join(self.tmp.name, 'editor.blend')
         bpy.context.screen[G._CHAVE_GAVETA] = '1'
         bpy.ops.wm.save_as_mainfile(filepath=caminho)
-        # Referencias de areas tambem nao sobrevivem ao carregamento.
+        # Area references also do not survive loading.
         self.menu = self.cena = None
         bpy.ops.wm.open_mainfile(filepath=caminho, load_ui=True)
         self.menu = G._area_gaveta(bpy.context.screen)
@@ -200,7 +200,7 @@ class TestEditor(unittest.TestCase):
         try:
             with self.contexto():
                 self.assertFalse(X.pode_executar('object.cabinet_teste_contexto'))
-                with self.assertRaisesRegex(RuntimeError, 'viewport 3D'):
+                with self.assertRaisesRegex(RuntimeError, '3D viewport'):
                     X.executar(bpy.context, 'object.cabinet_teste_contexto')
         finally:
             self.cena.type = 'VIEW_3D'
@@ -394,4 +394,4 @@ resultado = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.
 addon.unregister()
 bpy.utils.unregister_class(OBJECT_OT_contexto_teste)
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes do editor Archy Builder')
+    raise RuntimeError("Archy Builder editor tests failed")

@@ -5,7 +5,7 @@
    860,
    166,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -23,7 +23,7 @@
    818,
    74.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -50,7 +50,7 @@
    691,
    154.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -59,7 +59,7 @@
    649,
    154,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -68,7 +68,7 @@
    618,
    154,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -77,7 +77,7 @@
    584,
    154.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -86,7 +86,7 @@
    550,
    154.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -95,7 +95,7 @@
    510,
    154,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -104,7 +104,7 @@
    479,
    154,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -158,7 +158,7 @@
    455,
    82,
    30,
-   "Visibilidade",
+   "Visibility",
    "rotulo",
    null
   ],
@@ -178,7 +178,7 @@
    860,
    296,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -196,7 +196,7 @@
    818,
    145.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -223,7 +223,7 @@
    734,
    145.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -232,7 +232,7 @@
    692,
    296,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -241,7 +241,7 @@
    661,
    296,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -250,7 +250,7 @@
    627,
    145.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -259,7 +259,7 @@
    627,
    145.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -268,7 +268,7 @@
    587,
    296,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -277,7 +277,7 @@
    556,
    296,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -331,20 +331,74 @@
    455,
    212,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
  ],
  "chapa/MODULOS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Modulos",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12.0,
@@ -360,7 +414,7 @@
    818,
    226.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -387,7 +441,7 @@
    777,
    148.667,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -396,7 +450,7 @@
    735,
    458,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -405,7 +459,7 @@
    704,
    458,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -414,7 +468,7 @@
    670,
    226.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -423,7 +477,7 @@
    670,
    226.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -432,7 +486,7 @@
    630,
    458,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -441,7 +495,7 @@
    599,
    458,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -495,7 +549,7 @@
    455,
    374,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -506,7 +560,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -515,7 +569,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -524,7 +578,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -533,7 +587,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -542,7 +596,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -551,7 +605,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -560,7 +614,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -578,7 +632,7 @@
    818,
    267.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -605,7 +659,7 @@
    777,
    176.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -614,7 +668,7 @@
    735,
    540,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -623,7 +677,7 @@
    704,
    540,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -632,7 +686,7 @@
    670,
    267.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -641,7 +695,7 @@
    670,
    267.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -650,7 +704,7 @@
    630,
    540,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -659,7 +713,7 @@
    599,
    540,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -713,7 +767,7 @@
    455,
    456,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -724,7 +778,7 @@
    860,
    166,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -733,7 +787,7 @@
    814,
    166,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -742,7 +796,7 @@
    783,
    166,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -796,7 +850,7 @@
    455,
    82,
    30,
-   "Visibilidade",
+   "Visibility",
    "rotulo",
    null
   ]
@@ -807,7 +861,7 @@
    860,
    296,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -816,7 +870,7 @@
    814,
    296,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -825,7 +879,7 @@
    783,
    296,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -879,27 +933,81 @@
    455,
    212,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
  ],
  "chapa/PORTAS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Portas",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -908,7 +1016,7 @@
    783,
    458,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -962,7 +1070,7 @@
    455,
    374,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -973,7 +1081,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -982,7 +1090,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -991,7 +1099,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -1000,7 +1108,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -1009,7 +1117,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -1018,7 +1126,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -1027,7 +1135,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -1036,7 +1144,7 @@
    814,
    540,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -1045,7 +1153,7 @@
    783,
    540,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -1099,7 +1207,7 @@
    455,
    456,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -1110,7 +1218,7 @@
    860,
    166,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -1119,7 +1227,7 @@
    814,
    166,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -1157,7 +1265,7 @@
    860,
    296,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -1166,7 +1274,7 @@
    814,
    296,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -1200,20 +1308,74 @@
  ],
  "chapa/PUXADORES/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Puxadores",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -1251,7 +1413,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -1260,7 +1422,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -1269,7 +1431,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -1278,7 +1440,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -1287,7 +1449,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -1296,7 +1458,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -1305,7 +1467,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -1314,7 +1476,7 @@
    814,
    540,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -1352,7 +1514,7 @@
    860,
    166,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -1370,7 +1532,7 @@
    818,
    74.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -1406,7 +1568,7 @@
    648,
    154.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -1415,7 +1577,7 @@
    606,
    154,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -1424,7 +1586,7 @@
    575,
    154,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -1433,7 +1595,7 @@
    541,
    154.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -1442,7 +1604,7 @@
    507,
    154.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -1451,7 +1613,7 @@
    467,
    154,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -1460,7 +1622,7 @@
    436,
    154,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -1514,7 +1676,7 @@
    455,
    82,
    30,
-   "Visibilidade",
+   "Visibility",
    "rotulo",
    null
   ],
@@ -1534,7 +1696,7 @@
    860,
    296,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -1552,7 +1714,7 @@
    818,
    145.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -1588,7 +1750,7 @@
    734,
    145.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -1597,7 +1759,7 @@
    692,
    296,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -1606,7 +1768,7 @@
    661,
    296,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -1615,7 +1777,7 @@
    627,
    145.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -1624,7 +1786,7 @@
    627,
    145.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -1633,7 +1795,7 @@
    587,
    296,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -1642,7 +1804,7 @@
    556,
    296,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -1696,20 +1858,74 @@
    455,
    212,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
  ],
  "modulo/MODULOS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Modulos",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12.0,
@@ -1725,7 +1941,7 @@
    818,
    226.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -1761,7 +1977,7 @@
    777,
    110.0,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -1770,7 +1986,7 @@
    735,
    458,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -1779,7 +1995,7 @@
    704,
    458,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -1788,7 +2004,7 @@
    670,
    226.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -1797,7 +2013,7 @@
    670,
    226.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -1806,7 +2022,7 @@
    630,
    458,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -1815,7 +2031,7 @@
    599,
    458,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -1869,7 +2085,7 @@
    455,
    374,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -1880,7 +2096,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -1889,7 +2105,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -1898,7 +2114,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -1907,7 +2123,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -1916,7 +2132,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -1925,7 +2141,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -1934,7 +2150,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -1952,7 +2168,7 @@
    818,
    267.0,
    25,
-   "Grupo",
+   "Group",
    "modo",
    "GRUPO"
   ],
@@ -1988,7 +2204,7 @@
    777,
    130.5,
    37,
-   "Espessura: 18 mm",
+   "Thickness: 18 mm",
    "medida",
    "objeto"
   ],
@@ -1997,7 +2213,7 @@
    735,
    540,
    23,
-   "Montagem",
+   "Assembly",
    null,
    null
   ],
@@ -2006,7 +2222,7 @@
    704,
    540,
    28,
-   "Criar solda",
+   "Create Weld",
    "operador",
    "object.cabinet_conectar_vertices"
   ],
@@ -2015,7 +2231,7 @@
    670,
    267.0,
    28,
-   "Corrente",
+   "Link",
    "operador",
    "object.cabinet_corrente_objeto"
   ],
@@ -2024,7 +2240,7 @@
    670,
    267.0,
    28,
-   "Resetar distancia",
+   "Reset Distance",
    "operador",
    "object.cabinet_resetar_distancia"
   ],
@@ -2033,7 +2249,7 @@
    630,
    540,
    23,
-   "Orcamento",
+   "Estimate",
    null,
    null
   ],
@@ -2042,7 +2258,7 @@
    599,
    540,
    25,
-   "Comodo: (nenhum)",
+   "Room: (none)",
    "suspenso",
    "comodo"
   ],
@@ -2096,7 +2312,7 @@
    455,
    456,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -2107,7 +2323,7 @@
    860,
    166,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2116,7 +2332,7 @@
    814,
    166,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -2125,7 +2341,7 @@
    783,
    166,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -2179,7 +2395,7 @@
    455,
    82,
    30,
-   "Visibilidade",
+   "Visibility",
    "rotulo",
    null
   ]
@@ -2190,7 +2406,7 @@
    860,
    296,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2199,7 +2415,7 @@
    814,
    296,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -2208,7 +2424,7 @@
    783,
    296,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -2262,27 +2478,81 @@
    455,
    212,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
  ],
  "modulo/PORTAS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Portas",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -2291,7 +2561,7 @@
    783,
    458,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -2345,7 +2615,7 @@
    455,
    374,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -2356,7 +2626,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -2365,7 +2635,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -2374,7 +2644,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -2383,7 +2653,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -2392,7 +2662,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -2401,7 +2671,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -2410,7 +2680,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -2419,7 +2689,7 @@
    814,
    540,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -2428,7 +2698,7 @@
    783,
    540,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -2482,7 +2752,7 @@
    455,
    456,
    30,
-   "Visibilidade de objetos",
+   "Object Visibility",
    "rotulo",
    null
   ]
@@ -2493,7 +2763,7 @@
    860,
    166,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2502,7 +2772,7 @@
    814,
    166,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -2540,7 +2810,7 @@
    860,
    296,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2549,7 +2819,7 @@
    814,
    296,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -2583,20 +2853,74 @@
  ],
  "modulo/PUXADORES/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Puxadores",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -2634,7 +2958,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -2643,7 +2967,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -2652,7 +2976,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -2661,7 +2985,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -2670,7 +2994,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -2679,7 +3003,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -2688,7 +3012,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -2697,7 +3021,7 @@
    814,
    540,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -2735,7 +3059,7 @@
    860,
    166,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2773,7 +3097,7 @@
    860,
    296,
    29,
-   "Modulos",
+   "Modules",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2807,13 +3131,67 @@
  ],
  "nada/MODULOS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Modulos",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
@@ -2849,7 +3227,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -2858,7 +3236,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -2867,7 +3245,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -2876,7 +3254,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -2885,7 +3263,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -2894,7 +3272,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -2903,7 +3281,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -2941,7 +3319,7 @@
    860,
    166,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -2950,7 +3328,7 @@
    814,
    166,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -2959,7 +3337,7 @@
    783,
    166,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -2997,7 +3375,7 @@
    860,
    296,
    29,
-   "Portas",
+   "Doors",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -3006,7 +3384,7 @@
    814,
    296,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -3015,7 +3393,7 @@
    783,
    296,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -3049,20 +3427,74 @@
  ],
  "nada/PORTAS/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Portas",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -3071,7 +3503,7 @@
    783,
    458,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -3109,7 +3541,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -3118,7 +3550,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -3127,7 +3559,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -3136,7 +3568,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -3145,7 +3577,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -3154,7 +3586,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -3163,7 +3595,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -3172,7 +3604,7 @@
    814,
    540,
    30,
-   "Criar Portas",
+   "Create Doors",
    "portas",
    false
   ],
@@ -3181,7 +3613,7 @@
    783,
    540,
    30,
-   "Definir por plano",
+   "Define by Plane",
    "operador",
    "object.cabinet_definir_area"
   ],
@@ -3219,7 +3651,7 @@
    860,
    166,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -3228,7 +3660,7 @@
    814,
    166,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -3266,7 +3698,7 @@
    860,
    296,
    29,
-   "Puxadores",
+   "Handles",
    "suspenso",
    "cabinet_abas_gaveta"
   ],
@@ -3275,7 +3707,7 @@
    814,
    296,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -3309,20 +3741,74 @@
  ],
  "nada/PUXADORES/482": [
   [
-   12,
+   12.0,
    860,
-   458,
+   62.0,
    29,
-   "Puxadores",
-   "suspenso",
-   "cabinet_abas_gaveta"
+   "Mod.",
+   "aba",
+   "MODULOS"
+  ],
+  [
+   78.0,
+   860,
+   62.0,
+   29,
+   "Doors",
+   "aba",
+   "PORTAS"
+  ],
+  [
+   144.0,
+   860,
+   62.0,
+   29,
+   "Backs",
+   "aba",
+   "FUNDOS"
+  ],
+  [
+   210.0,
+   860,
+   62.0,
+   29,
+   "Draw.",
+   "aba",
+   "GAVETAS"
+  ],
+  [
+   276.0,
+   860,
+   62.0,
+   29,
+   "Int.",
+   "aba",
+   "PRATELEIRAS"
+  ],
+  [
+   342.0,
+   860,
+   62.0,
+   29,
+   "Handle",
+   "aba",
+   "PUXADORES"
+  ],
+  [
+   408.0,
+   860,
+   62.0,
+   29,
+   "Mason.",
+   "aba",
+   "ALVENARIA"
   ],
   [
    12,
    814,
    458,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],
@@ -3360,7 +3846,7 @@
    860,
    73.714,
    29,
-   "Modulos",
+   "Modules",
    "aba",
    "MODULOS"
   ],
@@ -3369,7 +3855,7 @@
    860,
    73.714,
    29,
-   "Portas",
+   "Doors",
    "aba",
    "PORTAS"
   ],
@@ -3378,7 +3864,7 @@
    860,
    73.714,
    29,
-   "Fundos",
+   "Backs",
    "aba",
    "FUNDOS"
   ],
@@ -3387,7 +3873,7 @@
    860,
    73.714,
    29,
-   "Gavetas",
+   "Drawers",
    "aba",
    "GAVETAS"
   ],
@@ -3396,7 +3882,7 @@
    860,
    73.714,
    29,
-   "Prat./Div.",
+   "Int.",
    "aba",
    "PRATELEIRAS"
   ],
@@ -3405,7 +3891,7 @@
    860,
    73.714,
    29,
-   "Pux.",
+   "Handles",
    "aba",
    "PUXADORES"
   ],
@@ -3414,7 +3900,7 @@
    860,
    73.714,
    29,
-   "Alvenaria",
+   "Masonry",
    "aba",
    "ALVENARIA"
   ],
@@ -3423,7 +3909,7 @@
    814,
    540,
    30,
-   "Criar Puxador",
+   "Create Handle",
    "criar_puxador",
    false
   ],

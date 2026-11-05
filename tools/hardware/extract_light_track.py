@@ -1,6 +1,6 @@
 """Extract light sliding-door track sections from the user source scene.
 
-Adds LEVE to archy_builder/ferragens/trilho_moldura.json, preserving the
+Adds LEVE to archy_builder/assets/hardware/trilho_moldura.json, preserving the
 heavy-track sections. Requires the named sample board and evaluated U profiles.
 Section coordinates are millimeters from the back and the board face."""
 from pathlib import Path
@@ -11,14 +11,14 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens',
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware",
                        'trilho_moldura.json')
 CHAPA, PERFIL = 'Base.002', 'Trilho inferior.001'
 TOL = 1e-4          # m
 
 
 def _contornos_da_ponta(obj):
-    """Contornos (laços de arestas) da ponta de menor Y, em mundo (m)."""
+    """Outlines (edge loops) at the minimum-Y end, in world space (m)."""
     grafo = bpy.context.evaluated_depsgraph_get()
     avaliado = obj.evaluated_get(grafo)
     malha = avaliado.to_mesh()
@@ -30,8 +30,8 @@ def _contornos_da_ponta(obj):
         ponta = {v for v in bm.verts if abs(v.co.y - y0) < TOL}
         vizinhos = {v: [e.other_vert(v) for e in v.link_edges
                         if e.other_vert(v) in ponta] for v in ponta}
-        # a caminhada depende de onde comeca (ha' vertices com mais de dois
-        # vizinhos na malha avaliada): tenta de TODOS e fica com as mais longas
+        # Traversal depends on the starting point (some evaluated mesh vertices
+        # have more than two neighbors): try ALL starts and keep the longest loops.
         laços = []
         for inicio in ponta:
             for primeiro in vizinhos[inicio]:
@@ -53,15 +53,15 @@ def _contornos_da_ponta(obj):
 
 
 def _canais_da_chapa(obj, face_z):
-    """[(x_min, x_max, fundo_z)] dos canais fresados na face de cima."""
+    """[(x_min, x_max, bottom_z)] for grooves milled into the top face."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bm.transform(obj.matrix_world)
     try:
         y0 = min(v.co.y for v in bm.verts)
         faces = [f for f in bm.faces if all(abs(v.co.y - y0) < TOL for v in f.verts)]
-        # o canal e' o vao, entre as faces que chegam na face de cima, que
-        # tem fundo abaixo dela: as faces "baixas" (topo < face) sob o canal
+        # A groove is the opening between faces reaching the top face with
+        # a bottom below it: the low faces (top < face) beneath the groove.
         baixas = []
         for f in faces:
             zs = [v.co.z for v in f.verts]
@@ -73,7 +73,7 @@ def _canais_da_chapa(obj, face_z):
                        if abs(max(v.co.z for v in f.verts) - face_z) < TOL)
         canais = []
         for (a0, a1), (b0, b1) in zip(altas, altas[1:]):
-            if b0 - a1 > TOL:          # vao entre duas faces de cima = canal
+            if b0 - a1 > TOL:          # Opening between two upper faces = groove.
                 fundo = max(z for x0, x1, z in baixas if x0 <= a1 + TOL and x1 >= b0 - TOL)
                 canais.append((a1, b0, fundo))
         return canais
@@ -85,14 +85,14 @@ def main():
     chapa = bpy.data.objects[CHAPA]
     face = max((chapa.matrix_world @ v.co).z for v in chapa.data.vertices)
     laços = _contornos_da_ponta(bpy.data.objects[PERFIL])
-    costas = max(p.x for l in laços for p in l)       # a frente e' -X
+    costas = max(p.x for l in laços for p in l)       # Front is -X.
     u = lambda x: round((costas - x) * 1000.0, 3)
     v = lambda z: round((z - face) * 1000.0, 3)
     canais = sorted(_canais_da_chapa(chapa, face), key=lambda c: -c[0])
     centros = [round((u(c[0]) + u(c[1])) / 2.0, 3) for c in canais]
-    # os U sao iguais; o modelo tem um deles com vertices soltos (o laço
-    # quebra em pedacos): vale o laço inteiro mais longo, posto no meio de
-    # CADA canal
+    # The U profiles are identical; one model has loose vertices, breaking
+    # its loop into pieces. Use the longest complete loop, centered in
+    # EACH groove.
     modelo = max(laços, key=len)
     perfil = [(u(p.x), v(p.z)) for p in modelo]
     meio = (min(a for a, _b in perfil) + max(a for a, _b in perfil)) / 2.0
@@ -104,7 +104,7 @@ def main():
         'profundidade_mm': max(a for p in poligonos for a, _b in p),
         'aba_mm': max(b for p in poligonos for _a, b in p),
         'poligonos': poligonos,
-        # centro de cada canal (costas -> frente), largura e fundo
+        # Center of each groove (back -> front), width, and bottom.
         'canais_mm': centros,
         'canal_largura_mm': round(max(abs(u(c[0]) - u(c[1])) for c in canais), 3),
         'canal_fundo_mm': round(max(-v(c[2]) for c in canais), 3)}
@@ -115,7 +115,7 @@ def main():
         json.dump(saida, arq, indent=1)
     print('LEVE', len(poligonos), 'perfis', dados['profundidade_mm'], dados['aba_mm'],
           dados['canais_mm'], dados['canal_largura_mm'], dados['canal_fundo_mm'])
-    print('Gravado', DESTINO)
+    print("Saved", DESTINO)
 
 
 main()

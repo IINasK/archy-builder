@@ -1,279 +1,121 @@
-# Arquivo historico do Archy Builder
+# Archy Builder historical archive
 
-Este documento conserva os nomes Cabinet Creator e Chapa G3 usados nas
-etapas anteriores. A apresentacao atual e as instrucoes de instalacao
-estao no [README](../README.md).
+## English presentation (410)
 
----
+The interface, library labels, documentation, code annotations and tool help use
+English. Resources are organized under assets/library, assets/hardware and
+assets/previews. Generated part names are separated from saved role identifiers;
+legacy installation cuts and components remain functional.
 
-# Historico da documentacao
+Validation: 3,464 headless tests across 82 runs in Blender 4.2 and 5.2; both
+versions load, register, clean up and reload the extracted installation package.
+All 677 binary assets are unchanged. UI snapshots and numeric geometry checks
+were reviewed; interactive GUI tests were not run in this delivery.
 
-Registro preservado da documentacao anterior. Descricoes abaixo refletem
-etapas antigas; para o fluxo atual, consulte o README da raiz.
-
----
+This document preserves the Cabinet Creator and Chapa G3 names used in earlier
+stages. Current presentation and installation instructions are in the
+[README](../README.md). The descriptions below record earlier behavior and layouts.
 
 # Cabinet Creator
 
-Add-on de Blender para gerar armarios de moveis planejados na G3.
+A Blender add-on originally used at G3 to generate custom cabinets. Wood panels
+have arbitrary positive thickness that remains immune to own, parent-inherited
+or multiselection scaling. Real BMesh geometry stays editable in Edit Mode.
 
-## O que resolve
+## Recorded development
 
-Chapas (paineis de madeira) com **espessura livre positiva** que
-permanece imune a qualquer escala — propria, herdada de um pai, ou aplicada
-em selecao multipla. A malha e' real (bmesh), entao continua editavel em
-Edit Mode.
+- Shelf gaps (379): click an empty-space dimension and scroll to add/remove shelves only there; Enter confirms, Esc discards preview, supports/neighbors stay. Shared blocking shows all shelf-segment dimensions; selecting partitions changes orientation. Common frame is visual; internal dimensions edit their own segment.
+- Interior editing (378): MMB, zoom or Shift+`/WASD navigate between volume points; native snap runs only during each point gesture through release. Select a door part then Shift+G -> Door Group -> H, or Hide Door and Aggregates in Doors; Alt+H reveals. Define by Volume uses Create's orange highlight.
+- Creation snap (377): select cabinet first to restrict drawer/shelf/partition points to its parts. No ceiling/wall/curve/other-cabinet targets. Without selection the first valid point fixes cabinet. Free-volume placement/editing uses same restriction and restores temporary locks.
+- 3D creation (376): three points in any order define module-axis min/max box, then front-face click and quantity. Free-volume Apply also asks front; Backspace returns, Esc cancels. Door/back planes stay 2D.
+- Internals (375): shared Shelves/Partitions tab; choose type, points or adjustable volume, then other type in same area or Exit. A smaller partition may cut a shelf at different depth; keep gap or fill left/right.
+- Per-leaf handles (374): double isolates leaf before Create Handle; native ray prioritizes it despite overlap. Swing/sliding adapts parametric side handles without changing owner. Reveal/unlock hidden/locked leaves in Outliner before insertion.
+- Menu scrolling (373): controls/library have independent overflow scrollbars, wheel/touchpad/thumb; reserved scrollbar column, fixed tabs/footer.
+- Free area (372): Define by Volume for internals, Define by Plane for doors/backs. One click positions reference; face handles, dimensions and G/R/S edit rectangular volume/four-corner plane. Apply volume asks front; planes proceed to system options. Point capture uses the 3D flow above.
+- Wall selection (371): query chosen mesh only through foreground objects; native vertex snap on that object. Noneditable partial cabinets are clipped gray; initial editing permission remains for the session.
+- Hinges/Delete (370): persistent deletion observer survives reopening. Deleting a leaf removes its hardware while preserving the other. Hardware native selection permits Delete; Shift/menu/double-click retain roles.
+- Deletion/selection (369): click/Shift/Tab use native View Layer; scene-deleted IDs never reenter through ancestry. Referenced deletion still schedules hinge cleanup even when data ID count is unchanged. Preserve excluded collections/other-scene leaves; empty door group cannot resurrect assembly.
+- Wall indicators (368): selected cabinet retains A1 width/A2 height/A3 depth, with clickable corner A3 callout separate from offset. Resize hides neighbor distances only; menu and HUD share targets.
+- Wall base (367): continuous adjacent support defines usable base; buried floor band disappears, Below=0 meets actual support. Dimensions/guides/drag share region; partial supports remain local obstacles, wood unchanged.
+- Wall dimensions (366): typed distances accept zero; owner validates dimensions. Edge numerical tolerance never admits collisions; zero still refused if it penetrates a floor inside the selected region.
+- Dedicated editor (365): native Cabinet Creator Node Editor subtype in selector, identity saved in blend; legacy conversion preserves scene view. Optional top library has own editor. VIEW_3D overlays never draw over menu. Layout/fields/drag unchanged; scene commands forwarded to real 3D viewport.
+- Wall import (364): after resize, reconcile append list with live hierarchy including rebuilt hardware; Local View/selection/cancel use current generation.
+- Drag fit (363): shrink width/height only within wall Maximum Adjustment, default 10 mm each, zero off; preview shows size, confirm preserves E. Excess gives red box/reason without inserting/changing preset.
+- Menu (362): seven tabs become full-name dropdown if even abbreviations do not fit; widening restores row with selection retained.
+- Walls (361): connected Edit Mode vertices or Object Mode automatic hover/3+ point polygon. Enter confirms, Backspace removes, right/Esc cancels; same menu actions. Isolate region/associated furniture without changing plan.
+- Backs (360): new tab, two corners/native snap; recessed groove 6/9 mm with support Booleans, nailed overlay, flush inset 15 mm. Linked drawers/shelves follow inner face; Unpinned detach keeps dimensions. Existing backs preserve modeling/legacy behavior.
+- Joints (359): one connection/vertex pair per object pair; manual honors target, old files retain saved gap; migration chooses nearest real vertices without remodeling.328 audited,265 updated,407 redundant records removed, all pairs/geometry/materials retained.
+- Mixed selection (358): Shift-add ordinary object restores native outline for material source; removing it resumes add-on outline.
+- Native group edit (357): Tab/G height reduction preserves edited handle meshes; hardware updates in batches without scene recalculation per hinge.
+- Native materials (356): select target cabinet, Shift-click source panel last; native Ctrl+L Link Materials uses clicked mesh as master, group pieces stay selected. Shift+double isolates source panel in another cabinet. Native transfer/undo; Solid Color>Material displays it.
+- Wall placement (301): library/double/right-drag share free space; full envelope stops at same-face/height neighbors/edges. No room refuses insertion/cancels reposition; no shrink-to-fit at this stage. Preview uses accepted envelope/center even at corners; contrasting halo/arrow dimensions, active HUD highlight.
+- Estimates (300): Options -> Generate Estimate writes company .txt from actual evaluated body/frame width x height x depth in mm, door openings, hinge types, drawers/shelves/partitions/handles/used materials. No preset-count dependence after edits/deletion. Group axes survive rotation; open leaves/drawers do not enlarge size. Mixed materials exclude hardware; missing material/hinge identity is pending. Rooms remain marked Outliner folders.
+- Wall editing (299): selected vertical mesh -> Walls/Edit Wall or Cabinet Creator context entry. Native Local View orthographic face/cabinets; orbit/Walk/Fly exits, pan/zoom stay. Library/right-drag release sets position, preserves original size. Photo double-click right of last or center if no room/no previous; never stretch to fill. Elevation dimensions and menu fields edit. Free/Fixed governs explicit redistribution; G/delete recalculate gaps without moving neighbors. Replacement validates confirmation, preserves size/position/association. No wall measurements in menu; native modeling. Solid black outlines, hidden origins/relationship lines, restored visual state; orbit returns perspective. Door click cabinet, double leaf; gray transparent actual interior edges behind fronts, dimensions near selected part, no mesh changes.
 
-## Estrutura
+## Historical source layout
 
-Vaos de prateleiras (379): clique na cota do espaco vazio e use scroll para inserir/retirar novas prateleiras apenas ali; Enter confirma e Esc descarta a previa. Apoios e vizinhos permanecem. Segmentos da mesma blocagem exibem todas as cotas de prateleiras; selecionar divisorias troca a orientacao das cotas. A moldura comum e' visual; as cotas internas editam o segmento correspondente.
+Paths below describe the earlier layout, not the current sector map.
 
-Edicao interna (378): navegue entre os pontos do volume por MMB, zoom ou Shift+` e WASD; o snap nativo trabalha enquanto marca cada ponto e termina ao soltar. Para enxergar o interior, selecione uma peca da porta e use Shift+G -> Grupo da porta -> H, ou Esconder porta e agregados no menu Portas. Alt+H revela novamente. Definir por volume usa o destaque laranja do botao Criar.
-
-Snap de criacao (377): selecione o modulo antes de Criar Gavetas, Prateleiras ou Divisorias para restringir todos os pontos as pecas dele. Tetos, paredes, curvas e outros modulos nao capturam o snap. Sem selecao, o primeiro ponto valido fixa o modulo. A mesma restricao vale ao posicionar/ajustar um volume livre associado; bloqueios temporarios sao restaurados ao terminar.
-
-Na criacao 3D (376), marque tres pontos em qualquer ordem: os limites minimos e maximos formam uma caixa retangular nos eixos do modulo. Clique na face que sera a frente e prossiga para a quantidade. Aplicar um volume livre tambem pede essa escolha; Backspace volta, Esc cancela. Portas e fundos conservam seus planos 2D.
-
-Internos (375): aba Prateleiras / Divisorias. Escolha o tipo, marque por
-pontos ou ajuste o volume; depois continue com o outro tipo na mesma area
-ou saia. Divisoria menor pode recortar a prateleira sem exigir profundidades
-iguais; escolha manter o vao ou preencher pela esquerda/direita.
-
-Puxadores por folha (374): duplo clique isola a folha antes de Criar Puxador;
-o raio nativo prioriza essa folha, mesmo com outra sobreposta. GIRO/CORRER
-adapta os puxadores laterais parametricos sem trocar o dono. Folhas ocultas
-ou bloqueadas devem ser reveladas/desbloqueadas no Outliner para inserir.
-
-Rolagem do menu (373): controles e biblioteca possuem barras verticais
-independentes quando o conteudo nao cabe. Use roda/touchpad ou arraste a
-alca. A coluna da barra reserva espaco dos campos; abas e rodape ficam fixos.
-
-Area livre (372): Definir por volume em gavetas/prateleiras/divisorias;
-Definir por plano em portas/fundos. Um clique posiciona a referencia;
-faces, cotas e G/R/S ajustam uma caixa retangular (plano com quatro cantos).
-Aplicar um volume pede a frente; planos seguem para as opcoes do sistema.
-A captura por pontos usa o fluxo 3D acima, preservando a caixa escolhida.
-
-Selecao de parede (371): consulta apenas a malha escolhida, mesmo com teto
-ou outros objetos na frente. Por pontos usa snap nativo de vertice so'
-nesse objeto. Modulos parciais nao editaveis aparecem recortados em cinza;
-a permissao de edicao dos demais permanece ate' sair da sessao.
-
-Dobradicas e Delete (370): observador de exclusoes sobrevive ao reabrir
-o .blend. Apagar uma folha remove as ferragens dela, preservando a outra.
-Clique nas ferragens usa selecao nativa para permitir Delete; Shift,
-edicao no menu e duplo clique conservam suas funcoes.
-
-Exclusao e selecao (369): clique, Shift e Tab usam a View Layer nativa;
-IDs apagados da cena nao entram na selecao pelo parentesco. Delete com
-referencias ainda agenda a limpeza das dobradicas, mesmo conservando a
-quantidade de IDs. Colecoes excluidas da camada e folhas em outras cenas
-sao preservadas; grupo de portas vazio deixa de ressuscitar a montagem.
-
-Indicadores na parede (368): A1 largura, A2 altura e A3 profundidade
-permanecem no modulo selecionado. A3 Prof. aparece junto a' quina com
-valor clicavel, separado do afastamento. Durante resize, somem apenas
-as distancias aos vizinhos; indicadores conservam os mesmos alvos do menu.
-
-Base da parede (367): ao entrar na edicao, o apoio continuo junto a'
-parede define a base utilizavel. A faixa enterrada no piso sai do desenho;
-Inferior = 0 encosta no apoio real. Cotas, guias e arraste usam essa mesma
-regiao. Apoios parciais continuam obstaculos locais; madeira fica intacta.
-
-Cotas da parede (366): distancias digitadas aceitam zero; dimensoes
-continuam validadas pelo dominio. Encaixe na borda tolera ruido numerico
-sem liberar colisoes. Se um piso ocupar parte da regiao selecionada,
-zerar a distancia ate' essa regiao continua recusado quando invade o piso.
-
-Editor proprio (365): o menu usa o subtipo nativo Cabinet Creator do
-Editor de Nos, disponivel no seletor de editores. Sua identidade e'
-salva no .blend; layouts antigos sao convertidos sem mover a vista da
-cena. Biblioteca superior opcional tambem tem editor proprio. Overlays
-de VIEW_3D nao desenham sobre o menu. Layout, campos e arraste continuam
-os mesmos; comandos de modelagem sao enviados a' viewport 3D real.
-
-Importacao na parede (364): resize sincroniza a lista do append com a
-hierarquia atual do modulo, inclusive se recriar ferragens. Local View,
-selecao e cancelamento usam a geracao viva, sem referencias removidas.
-
-Arraste (363): o modulo reduz largura/altura para caber no vao real, ate o
-Ajuste maximo configurado na parede (padrao 10 mm por dimensao; zero desliga).
-Previa informa o tamanho; confirmar aplica resize preservando E. Acima do
-limite, caixa vermelha/aviso mostram a restricao sem inserir ou alterar o preset.
-
-Menu (362): as sete abas viram uma lista suspensa com nomes completos
-quando nem as abreviacoes cabem. Alargar a area restaura a linha de abas,
-preservando a categoria selecionada.
-
-Paredes (361): Editar parede aceita vertices conectados em Edit Mode ou,
-em Object Mode, hover Automatico e delimitacao Por pontos (3+ cantos).
-Enter confirma, Backspace remove e direito/Esc cancela; mesmas acoes no
-menu. A vista isola a regiao e os moveis associados sem alterar a planta.
-
-Fundos (360): nova aba com criacao por dois cantos e snap nativo. Oferece
-canal recuado (6/9 mm, recorte booleano nos apoios), sobreposto pregado e
-interno rente (15 mm). Gavetas e prateleiras vinculadas acompanham a face
-interna; Desassociar fundo usa o icone de alfinete solto e conserva medidas.
-Os fundos existentes conservam a modelagem e o comportamento legado.
-
-Soldas (359): cada par de objetos tem uma unica conexao e um par de
-vertices. Solda manual respeita o destino escolhido; arquivos antigos
-preservam o gap cadastrado. A migracao da biblioteca usa os vertices
-reais mais proximos sem mudar a modelagem.
-Biblioteca revisada: 328 presets auditados, 265 atualizados; 407 registros
-redundantes removidos, conservando todos os pares, geometria e materiais.
-
-Selecao mista (358): somar com Shift um objeto comum ao modulo devolve
-o contorno nativo do Blender para identificar a origem do material.
-Retirar esse objeto retoma o contorno do add-on.
-
-Edicao nativa do grupo (357): reduzir a altura pelo Tab/G conserva a
-malha dos puxadores editados junto com as chapas. Ferragens atualizam em
-lote, sem recalcular a cena inteira para cada dobradica.
-
-Materiais nativos (356): selecione o modulo de destino e, com Shift,
-clique na chapa de origem por ultimo. Ctrl+L > Vincular materiais usa
-a malha clicada como mestre, mantendo as pecas dos grupos selecionadas.
-Para copiar somente de uma chapa pertencente a outro modulo, use
-Shift+duplo clique nela. A transferencia e o undo usam o comando nativo
-do Blender. Em Solid, Cor > Material exibe o material vinculado.
-
-Posicionamento em parede (301): biblioteca, duplo clique e arraste direito
-usam a mesma area livre. O volume completo para na borda e nos vizinhos
-da mesma face/altura; sem espaco, a insercao e' recusada e o reposicionamento
-e' cancelado. Nao redimensiona para caber. A caixa da previa usa o envelope
-do modulo e a mira fica no centro aceito, inclusive junto a quinas.
-Cotas usam traco duplo contrastante, setas e numeros maiores sobre fundo;
-a cota do item ativo acompanha o realce escolhido para a HUD.
-
-Orcamento (300): em Opcoes > Gerar orcamento, o .txt no padrao existente
-recebe automaticamente medidas gerais do corpo/moldura (largura x altura x
-profundidade, em mm), portas por abertura, tipos de dobradica, gavetas internas,
-prateleiras, divisorias, puxadores e materiais efetivamente utilizados.
-A ficha e' lida do modelo a cada exportacao; exclusoes e edicoes nao dependem
-das contagens antigas do preset. Modulo girado conserva seus eixos; abrir
-portas/gavetas nao aumenta a medida. Material misto e' listado sem incluir
-ferragens; falta de material ou identificacao de dobradica gera pendencia.
-Comodos continuam sendo as pastas marcadas no Outliner.
-
-Edicao de parede (299): selecione uma malha vertical e use Paredes >
-Editar parede no menu esquerdo, ou Cabinet Creator > Editar parede no
-botao direito. A vista ortografica isola a face e seus modulos pelo Local
-View nativo. Orbitar ou iniciar Walk/Fly sai; zoom e pan permanecem.
-Arraste da biblioteca e solte na parede, ou use o botao direito para
-reposicionar um modulo existente. O ponto de soltura determina a posicao,
-conservando as dimensoes originais. Duplo clique na foto insere a' direita
-do ultimo modulo posicionado; sem espaco a' direita, volta ao centro da
-parede. Sem modulo anterior, tambem comeca no centro. Nao estica para preencher.
-Na composicao existente, clique nas cotas da elevacao para digitar ou use
-os campos do modulo no menu. Livre/Fixa controla quais larguras recebem
-o espaco restante em Redistribuir composicao. G e exclusao recalculam os
-vaos, preservando os vizinhos. Trocar modelo pede uma escolha na biblioteca
-e so' substitui ao confirmar, mantendo tamanho/posicao/associacao.
-Parede nao mostra nem aceita medidas pelo menu; sua modelagem usa as
-ferramentas nativas do Blender. Parede e modulos usam superficies solidas com contornos pretos,
-sem origens ou linhas de parentesco. Ao orbitar, volta a' perspectiva;
-as demais configuracoes visuais anteriores sao restauradas ao sair.
-Nesta vista, clique numa porta seleciona o modulo; duplo isola a folha.
-O interior aparece em arestas reais cinza semitransparentes atras das frentes.
-Cotas ficam junto da peca selecionada; a representacao nao altera malhas.
-
-```
+```text
 archy_builder/
-  __init__.py        # carga, ligacao e registro
-  chapas/            # malha e espessura da peca
-  modulos/           # corpo, envelope e dependentes
-  portas/            # vao, cobertura e folhas
-  gavetas/           # gavetas do movel e assistente compartilhado
-  prateleiras/       # unidades e espacamentos
-  divisorias/        # chapas verticais e segmentacao de sistemas
-  gaveta*.py         # MENU: layout, desenho e eventos
-  hud.py             # cotas e interacao na viewport
-  promob.py          # integracao de objetos importados
-  paredes_edicao.py  # vista local de parede e distribuicao de presets
-  paredes_composicao.py # cotas, larguras fixas e troca de modelo na parede
-  biblioteca/        # presets de fabrica (viajam com o add-on)
+  __init__.py        # loading, linking and registration
+  chapas/            # panel mesh and thickness
+  modulos/           # body, envelope and dependents
+  portas/            # opening, coverage and leaves
+  gavetas/           # furniture drawers and shared wizard
+  prateleiras/       # units and gaps
+  divisorias/        # vertical panels and system segmentation
+  gaveta*.py         # MENU: layout, drawing and events
+  hud.py             # viewport dimensions and interaction
+  promob.py          # imported-object integration
+  paredes_edicao.py  # local wall view and preset distribution
+  paredes_composicao.py # dimensions, fixed widths and replacement
+  biblioteca/        # factory presets bundled with add-on
     *.blend
-    indice.json      # catalogo dos presets (niveis sem limite)
-build.py             # gera dist/archy_builder.zip
-tools/development/link_blender.py  # liga a pasta do projeto ao Blender (junction)
+    indice.json      # unlimited-depth preset catalog
+build.py             # creates dist/archy_builder.zip
+tools/development/link_blender.py  # links checkout to Blender using a junction
 ```
 
-Para desenvolvimento, comece pelo [mapa de setores](../ARCHITECTURE.md):
-tarefa, arquivo dono, guia local e suite de testes. Os seis pacotes conservam
-os nomes publicos anteriores; cada um possui instrucoes AGENTS.md/CLAUDE.md.
+Development begins with [task routing](../ARCHITECTURE.md). Historical six packages
+retained public names and local AGENTS/CLAUDE instructions. Development steps:
+`python tools/development/link_blender.py` links archy_builder to Blender add-ons;
+edits then affect loaded source. Reload through disable/enable or restart.
+`python tools/development/build.py` creates dist/archy_builder.zip for other machines.
 
-## Desenvolvimento
+## Core concepts and door workflow
 
-1. `python tools/development/link_blender.py` — cria um junction de `archy_builder/` para a
-   pasta de add-ons do Blender. A partir dai, editar o codigo aqui altera
-   o add-on carregado.
-2. No Blender, recarregue o add-on (desabilitar/habilitar em Preferences,
-   ou reiniciar).
-3. `python tools/development/build.py` — empacota `dist/archy_builder.zip` para instalar em outras
-   maquinas.
+Panel X=width, Y=length, Z=thickness; orient through rotation, never scale. After S
+finishes, accumulated scale becomes millimeter dimensions and Z is discarded.
+Adjacency remembers neighbor/gap at each end and closes joints after resizing.
+All geometry uses matrix_world; local location fails under a displaced parent Empty.
 
-## Conceitos centrais
+Historical left menu was its own GPU VIEW_3D with Cabinets/Doors/Drawers/Shelves/
+Partitions/Handles and a top library strip. Selection/context chooses controls;
+[DESIGN.md](../DESIGN.md) records current visual decisions and rejected alternatives.
 
-- **Eixos locais da chapa:** X = largura, Y = comprimento, **Z = espessura**.
-  Para orientar uma peca use rotacao, nunca escala.
-- **Normalizacao:** apos o `S` terminar, a escala acumulada vira medida em mm
-  e o componente Z e' descartado — e' o que torna a espessura imune.
-- **Adjacencia:** cada ponta memoriza o vizinho e a folga, para fechar as
-  juntas depois de redimensionar.
-- **Espaco de mundo:** toda a geometria usa `matrix_world`. Usar `location`
-  local quebra assim que o Empty pai sai da origem.
+Object Mode door creation: Create Doors, mark two opposite bounds. Solver derives
+opening/full outer/half-thickness/inset coverage and automatic hinge. Choose leaves/
+opening and applicable hardware stages, mirrored in sidebar. Esc cancels/right
+returns. Click finished door for group, double for leaf; reposition also two corners,
+Tab native. Swing/lift-up/sliding/zigzag; sliding inset/framed, mixed bounds ask.
+Existing properties remain the only UI data model. Fields drag/type, Enter confirms,
+Esc restores, modeled meshes/materials preserved. See [doors](../archy_builder/cabinetry/doors/AGENTS.md),
+[interface](reference/interface.md) and [architecture](../ARCHITECTURE.md).
 
-## Interface e portas
-
-O menu esquerdo e' uma area VIEW_3D propria desenhada por GPU, com as abas
-Modulos, Portas, Gavetas, Prateleiras, Divisorias e Puxadores. A biblioteca
-fica numa faixa separada no topo. Selecao e contexto determinam os campos
-exibidos; desenho e recusas de interface estao em [DESIGN.md](../DESIGN.md).
-
-Para criar uma porta em Object Mode:
-
-1. Na aba Portas, clique em Criar Portas.
-2. Marque dois cantos opostos nos limites desejados da porta. O solver
-   normaliza o vao e calcula a cobertura: inteira no canto externo, meia
-   no meio da espessura, embutida no canto interno. A dobradica e' automatica.
-3. Escolha folhas/abertura e confirme as etapas de ferragens aplicaveis.
-   A gaveta mostra as mesmas etapas da viewport. Esc cancela; direito volta.
-4. Depois, clique na porta para editar o conjunto; duplo clique isola a
-   folha. Reposicionar tambem usa dois cantos. O Tab continua nativo.
-
-Aberturas: giro, basculante, correr e zigzag. Correr pode ser embutida ou
-com moldura; os limites mistos pedem a escolha. Valores e opcoes vivem
-nas propriedades existentes, sem um segundo modelo de dados para a UI.
-Os campos permitem arrastar ou clicar para digitar; Enter confirma e Esc
-restaura. As malhas modeladas e os materiais devem ser preservados.
-
-Para trabalhar no codigo: [guia de portas](../archy_builder/cabinetry/doors/AGENTS.md),
-[guia de interface](../docs/reference/interface.md) e
-[mapa completo](../ARCHITECTURE.md).
-
-### Testes no Blender
+Historical test commands (use disposable scenes; they clear their fixture):
 
 ```powershell
 & 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_doors_blender.py
 & 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_sidebar_blender.py
 ```
 
-Executa os testes em uma cena descartavel: coberturas, recuos, limites de
-folhas, colisao entre planos, selecao BMesh conjunta, transformacoes do pai,
-malhas fechadas, edicao e preservacao de materiais. Nao execute esse script
-na cena de trabalho: ele limpa a cena de testes.
+They cover coverage/setbacks/leaf bounds/plane collision/joint BMesh selection/
+parent transforms/closed meshes/editing/material preservation.
 
-## Limitacoes conhecidas
+## Recorded limitations
 
-- No Blender 4.2, redo de lote na parede pode restaurar a segunda Collection
-  sem religar a cena; o teste continua ativo. Ocorre tambem sem desenho interno.
-
-- A gaveta e' uma area separada da viewport; a largura e' ajustada pelo
-  usuario arrastando a divisoria entre as duas areas. Ao soltar, o limite
-  de 564 px e' reaplicado por `screen.area_move` quando ha' uma viewport
-  adjacente. Nao e' uma trava durante o gesto: `Area.width` e' somente leitura.
-- O arraste de presets entre a gaveta e a viewport usa um operador modal
-  proprio; o fluxo completo depende de teste interativo no Blender.
-- Blender 5.2 tem um bug que impede escrever inputs de modificador Geometry
-  Nodes via Python (issue #160038) — por isso a malha e' gerada com bmesh.
+- Blender 4.2 wall batch redo may restore second Collection without scene link, including without interior drawing; regression remains active.
+- Sidebar is a separate area; user drags native boundary. On release, screen.area_move reapplies 564 px limit when adjacent viewport exists. Area.width is read-only, so it cannot lock during the gesture.
+- Preset drag uses custom modal and needs interactive Blender validation.
+- Blender 5.2 Geometry Nodes Python input-writing issue #160038 is why panels use BMesh.

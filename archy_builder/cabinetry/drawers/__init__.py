@@ -1,13 +1,12 @@
-"""Gavetas do MOVEL (nao confundir com a "gaveta", o menu GPU a' esquerda):
-um grupo de gavetas num vao do modulo -- frente, caixa e trilhos --, o
-assistente que cria (3 pontos -> frente explicita -> quantidade -> trilho), a abertura por slider, a HUD de medidas e
-os 3 pontos editaveis com Alt.
+"""Furniture drawers: front, box and slides grouped within a cabinet
+opening. Includes the creation assistant (3 points -> explicit front
+-> count -> slide), opening slider, dimension HUD and three Alt-editable
+points. This is distinct from the GPU sidebar on the left.
 
-Referencial: o grupo e' filho do modulo, nos eixos dele, com a origem no
-canto de BAIXO a' ESQUERDA do vao, no plano da frente. X = largura, Z =
-altura, Y = profundidade (para DENTRO do modulo: a frente fica em -Y).
-Tudo em mm. O trilho ainda e' uma BLOCAGEM em tamanho real (pedido do
-usuario: o modelo de verdade nao esta' pronto).
+The group is parented to the cabinet on its axes, with origin at the
+opening's LOWER LEFT on the front plane. X=width, Z=height, Y=depth
+INTO the cabinet (front at -Y). All dimensions are mm. Slides remain
+full-size BLOCKOUTS because the final model is not ready.
 """
 
 import math
@@ -21,84 +20,84 @@ from bpy_extras import view3d_utils
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _portas = _puxadores = _hud = _assistente = None
 _eventos = _gaveta = _solda = _portas_viewport = _selecao = None
 _geometria = _prateleiras = _divisorias = _fundos = None
 _areas_criacao = None
 
-# Marcas gravadas no .blend (renomear quebra arquivos salvos)
+# Markers saved in .blend files; renaming breaks existing files.
 MARCA_GRUPO = 'eh_grupo_gavetas'
 MARCA_GAVETA = 'eh_gaveta'
-MARCA_PECA = 'gaveta_peca'           # FRENTE, LATERAL, ..., TRILHO
+MARCA_PECA = 'gaveta_peca'           # FRENTE, LATERAL, ..., TRILHO.
 CHAVE_MODULO = 'gavetas_modulo'
 CHAVE_PARAMETROS = 'gavetas_parametros'
-CHAVE_MARGENS = 'gavetas_margens_mm'  # esq, dir, baixo, cima, frente (do modulo)
-CHAVE_VAO = 'gavetas_vao_mm'          # largura, altura (sem modulo)
+CHAVE_MARGENS = 'gavetas_margens_mm'  # Cabinet left, right, bottom, top, front.
+CHAVE_VAO = 'gavetas_vao_mm'          # Width, height (without a cabinet).
 CHAVE_INDICE = 'gaveta_indice'
 CHAVE_ABERTURA = 'gaveta_fracao_aberta'
-CHAVE_PUXADOR = 'gaveta_puxador'      # valor do modelo (como o carrossel)
+CHAVE_PUXADOR = 'gaveta_puxador'      # Model value, matching the carousel.
 CHAVE_TRILHO_MM = 'gavetas_trilho_mm'
 CHAVE_REFERENCIA = 'gavetas_referencia'
 CHAVE_ENCAIXE = 'gavetas_encaixe'
 
 PARAMETROS_PADRAO = {
     'quantidade': 1,
-    'trilho': 'TELESCOPICO',          # padrao (pedido do usuario)
+    'trilho': 'TELESCOPICO',          # Default requested by the user.
     'cobertura': 'SOBREPOSTA',
-    'folga_frontal_mm': 2.0,          # respiro da frente no perimetro
-    'entre_gavetas_mm': 3.0,          # entre uma frente e a outra
-    'recuo_mm': 0.0,                  # frente para dentro (porta de correr)
-    'profundidade_mm': 500.0,         # do plano da frente ao fundo
+    'folga_frontal_mm': 2.0,          # Front perimeter clearance.
+    'entre_gavetas_mm': 3.0,          # Between adjacent fronts.
+    'recuo_mm': 0.0,                  # Recessed front for sliding doors.
+    'profundidade_mm': 500.0,         # Front plane to back.
     'espessura_frente_mm': 18.0,
-    'lateral_mm': 18.0,               # chapa do modulo que a frente cobre
+    'lateral_mm': 18.0,               # Cabinet panel covered by the front.
     'puxador': 'PERFIL',
-    'frente_curva_mm': 0.0,           # flecha do arco da frente (0 = reta)
-    # alturas das frentes em PROPORCAO, de baixo para cima (a importacao
-    # do DXF traz frentes desiguais); vazia ou de outro tamanho = iguais
+    'frente_curva_mm': 0.0,           # Front arc sagitta (0 = straight).
+    # Front heights as PROPORTIONS, bottom to top (DXF imports can have
+    # unequal fronts); empty or wrong-length values mean equal heights.
     'proporcoes': [],
-    'coberturas_mm': [],             # esq, dir, baixo, cima medidos na fonte
-    'individuais': {},              # indice -> escolhas so' desta gaveta
-    'folgas_mm': [],                # separacoes, de baixo para cima
+    'coberturas_mm': [],             # Left, right, bottom, top measured in the source.
+    'individuais': {},              # Index -> choices for this drawer only.
+    'folgas_mm': [],                # Divisions from bottom to top.
 }
-OPCOES_TRILHO = (('TELESCOPICO', 'Telescopico'), ('OCULTO', 'Oculto'))
-OPCOES_COBERTURA = (('SOBREPOSTA', 'Sobreposta'), ('EMBUTIDA', 'Embutida'))
+OPCOES_TRILHO = (('TELESCOPICO', "Telescopic"), ('OCULTO', "Concealed"))
+OPCOES_COBERTURA = (('SOBREPOSTA', "Overlay"), ('EMBUTIDA', "Inset"))
 MAXIMO_GAVETAS = 10
 
-# Trilhos (catalogo): folga de cada lado entre o vao e a caixa, o quanto
-# a caixa fica acima do fundo da fatia dela e os comprimentos de linha
+# Slide catalog: per-side clearance between opening and box, box lift
+# above its slice bottom, and available stock lengths.
 TRILHOS = {
     'TELESCOPICO': {'folga_lado': 12.7, 'caixa_baixo': 15.0,
                     'comprimentos': tuple(range(250, 701, 50))},
     'OCULTO': {'folga_lado': 5.0, 'caixa_baixo': 20.0,
                'comprimentos': (270, 300, 350, 400, 450, 500, 550)},
 }
-TELESCOPICO_ALTURA_MM = 45.0         # perfil fixo; o movel tem 35
+TELESCOPICO_ALTURA_MM = 45.0         # Fixed profile; the moving profile is 35.
 TELESCOPICO_ESPESSURA_MM = 12.7
 OCULTO_LARGURA_MM = 40.0
 ESPESSURA_CAIXA_MM = 15.0
 FUNDO_CAIXA_MM = 6.0
-FOLGA_TOPO_CAIXA_MM = 25.0           # da caixa ate' o topo da fatia
-FOLGA_FUNDO_MODULO_MM = 10.0         # do fim do trilho ate' as costas
+FOLGA_TOPO_CAIXA_MM = 25.0           # Box to slice top.
+FOLGA_FUNDO_MODULO_MM = 10.0         # Slide end to rear.
 ALTURA_MIN_FRENTE_MM = 60.0
 ALTURA_MIN_CAIXA_MM = 40.0
 LARGURA_MIN_VAO_MM = 100.0
 NOME_MATERIAL_TRILHO = 'Trilho Gaveta'
 
-# chapa: eixo da espessura (no referencial do grupo) -> colunas X, Y, Z
+# Panel thickness axis in group coordinates -> X/Y/Z columns.
 EIXOS_PECA = {
-    0: ((0, 1, 0), (0, 0, 1), (1, 0, 0)),     # lateral da caixa
-    1: ((1, 0, 0), (0, 0, 1), (0, -1, 0)),    # frente, contrafrente, traseira
-    2: ((1, 0, 0), (0, 1, 0), (0, 0, 1)),     # fundo
+    0: ((0, 1, 0), (0, 0, 1), (1, 0, 0)),     # Box side.
+    1: ((1, 0, 0), (0, 0, 1), (0, -1, 0)),    # Front, inner front, rear.
+    2: ((1, 0, 0), (0, 1, 0), (0, 0, 1)),     # Bottom.
 }
 ARESTAS = ((0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7),
            (0, 4), (1, 5), (2, 6), (3, 7))
 
 
-# ------------------------------------------------------------ busca
+# ------------------------------------------------------------ lookup
 def grupo_de(obj):
-    """O grupo de gavetas de `obj` (ele mesmo, uma gaveta ou uma peca)."""
+    """Drawer group for `obj`, whether group, drawer or part."""
     while obj is not None:
         if MARCA_GRUPO in obj:
             return obj
@@ -126,8 +125,8 @@ def grupos_do_modulo(conj):
 
 
 def modulo_do_grupo(grupo):
-    # Preset inserido/renomeado pode guardar o nome do modulo original.
-    # A hierarquia real prevalece, inclusive se aquele nome ainda existir.
+    # An inserted/renamed preset can retain its original cabinet name.
+    # Actual hierarchy takes precedence even if that old name still exists.
     pai = grupo.parent
     while pai is not None:
         if _chapas.MARCA_CONJUNTO in pai:
@@ -150,9 +149,9 @@ def frente_da_gaveta(gaveta):
     return next((o for o in gaveta.children if o.get(MARCA_PECA) == 'FRENTE'), None)
 
 
-# ------------------------------------------------------------ calculo
+# ------------------------------------------------------------ calculation
 def trilho_que_cabe(tipo, disponivel):
-    """O maior comprimento de linha que cabe em `disponivel` mm, ou None."""
+    """Largest stock length fitting `disponivel` mm, or None."""
     cabem = [c for c in TRILHOS[tipo]['comprimentos'] if c <= disponivel + 1e-3]
     return max(cabem) if cabem else None
 
@@ -178,20 +177,20 @@ def coberturas(p):
 
 
 def frentes(largura, altura, p):
-    """[(x0, x1, z0, z1)] das frentes, de BAIXO para cima."""
+    """Front bounds [(x0, x1, z0, z1)], BOTTOM to top."""
     n = max(1, int(p['quantidade']))
     esq,direita,baixo,cima = coberturas(p)
     z0,z1 = -baixo,altura+cima
     separacoes = folgas(p)
     if any(v < 0 for v in separacoes):
-        raise ValueError('Espacamento entre gavetas nao pode ser negativo')
+        raise ValueError("Drawer spacing cannot be negative")
     util = z1 - z0 - sum(separacoes)
     pesos = [float(v) for v in (p.get('proporcoes') or ())]
     if len(pesos) != n or min(pesos, default=0.0) <= 0.0:
         pesos = [1.0] * n
     alturas = [util * v / sum(pesos) for v in pesos]
     if min(alturas) < ALTURA_MIN_FRENTE_MM:
-        raise ValueError("Gavetas demais para a altura: frente de %d mm"
+        raise ValueError("Too many drawers for this height: %d mm front"
                          % round(min(alturas)))
     saida, z = [], z0
     for i,a in enumerate(alturas):
@@ -205,11 +204,11 @@ def frentes(largura, altura, p):
 
 
 def calcular(largura, altura, p):
-    """Tudo de cada gaveta em caixas (x0, x1, y0, y1, z0, z1) mm:
-    {'trilho_mm', 'gavetas': [{'frente', 'caixa': [(peca, nome, caixa,
-    eixo)], 'fixos': [caixa], 'moveis': [caixa]}]}."""
+    """All drawer parts as boxes (x0, x1, y0, y1, z0, z1) in mm:
+    {'trilho_mm', 'gavetas': [{'frente', 'caixa': [(part, name, box,
+    axis)], 'fixos': [box], 'moveis': [box]}]}."""
     if largura < LARGURA_MIN_VAO_MM-1e-3 or altura < ALTURA_MIN_FRENTE_MM-1e-3:
-        raise ValueError("Vao pequeno demais para gaveta (%d x %d mm)"
+        raise ValueError("Opening too small for a drawer (%d x %d mm)"
                          % (round(largura), round(altura)))
     unidades = [_calcular_unidade(largura,altura,parametros_da_unidade(p,i),f)
                 for i,f in enumerate(frentes(largura,altura,p))]
@@ -219,45 +218,45 @@ def calcular(largura, altura, p):
 def _calcular_unidade(largura, altura, p, frente):
     trilho = TRILHOS[p['trilho']]
     e = float(p['espessura_frente_mm'])
-    if e <= 0:raise ValueError('A espessura da frente deve ser maior que zero')
+    if e <= 0:raise ValueError("Front thickness must be greater than zero")
     recuo = float(p['recuo_mm'])
     if p['cobertura'] == 'SOBREPOSTA':
         fy0, fy1 = recuo - e, recuo
     else:
         fy0, fy1 = recuo, recuo + e
-    inicio = fy1                             # a caixa nasce atras da frente
+    inicio = fy1                             # The box starts behind the front.
     disponivel = float(p['profundidade_mm']) - inicio - FOLGA_FUNDO_MODULO_MM
     comprimento = trilho_que_cabe(p['trilho'], disponivel)
     if comprimento is None:
-        raise ValueError("Profundidade de %d mm: o menor trilho %s tem %d mm"
+        raise ValueError("Depth %d mm: the shortest %s rail is %d mm"
                          % (round(disponivel), dict(OPCOES_TRILHO)[p['trilho']].lower(),
                             trilho['comprimentos'][0]))
     x0,x1,z0,z1 = frente
     esq,dir_,_baixo,_cima = coberturas(p)
     origem_x, fim_x = x0+esq, x1-dir_
     if origem_x < -1e-3 or fim_x > largura+1e-3:
-        raise ValueError('A largura individual ultrapassa o vao do conjunto')
+        raise ValueError("Individual width exceeds the group opening")
     largura = fim_x-origem_x
     if largura < LARGURA_MIN_VAO_MM-1e-3:
-        raise ValueError('A gaveta nao deixa largura para a caixa')
+        raise ValueError("The drawer leaves no width for the box")
     folga_lado = trilho['folga_lado']
     bx0, bx1 = folga_lado, largura - folga_lado
     if bx1 - bx0 < LARGURA_MIN_VAO_MM - 2 * folga_lado:
-        raise ValueError("O vao nao deixa largura para a caixa")
+        raise ValueError("The opening leaves no width for the box")
     by0, by1 = inicio, inicio + comprimento
     ec, ef = ESPESSURA_CAIXA_MM, FUNDO_CAIXA_MM
     s0, s1 = max(0.0, z0), min(altura, z1)
     cz0, cz1 = s0 + trilho['caixa_baixo'], s1 - FOLGA_TOPO_CAIXA_MM
-    # DXF/matrizes usam float32: 40 mm pode voltar como 39,99994.
+    # DXF/matrices use float32: 40 mm can return as 39.99994.
     if cz1 - cz0 < ALTURA_MIN_CAIXA_MM - 1e-3:
-        raise ValueError("A frente nao deixa altura para a caixa")
+        raise ValueError("The front leaves no height for the box")
     caixa = [
-        ('FUNDO', 'Fundo', (bx0, bx1, by0, by1, cz0, cz0 + ef), 2),
-        ('LATERAL', 'Lateral Esquerda', (bx0, bx0 + ec, by0, by1, cz0 + ef, cz1), 0),
-        ('LATERAL', 'Lateral Direita', (bx1 - ec, bx1, by0, by1, cz0 + ef, cz1), 0),
-        ('CONTRAFRENTE', 'Contrafrente',
+        ('FUNDO', "Back Panel", (bx0, bx1, by0, by1, cz0, cz0 + ef), 2),
+        ('LATERAL', "Left Side", (bx0, bx0 + ec, by0, by1, cz0 + ef, cz1), 0),
+        ('LATERAL', "Right Side", (bx1 - ec, bx1, by0, by1, cz0 + ef, cz1), 0),
+        ('CONTRAFRENTE', "Inner Front",
          (bx0 + ec, bx1 - ec, by0, by0 + ec, cz0 + ef, cz1), 1),
-        ('TRASEIRA', 'Traseira',
+        ('TRASEIRA', "Rear",
          (bx0 + ec, bx1 - ec, by1 - ec, by1, cz0 + ef, cz1), 1),
     ]
     fixos, moveis = [], []
@@ -283,7 +282,7 @@ def _calcular_unidade(largura, altura, p, frente):
     return dados
 
 
-# ------------------------------------------------------------ vao
+# ------------------------------------------------------------ opening
 def _limites(conj):
     return _portas._limites_locais_modulo(conj)
 
@@ -295,8 +294,8 @@ def referencia(grupo):
 
 def limites_na_referencia(conj, ref, limites=None):
     if limites is None and all((ref.col[k]-Matrix.Identity(3).col[k]).length<1e-6 for k in range(3)):
-        # Pecas modeladas inclinadas podem ter cantos imaginarios na
-        # bound_box. Na referencia original conservar os limites reais.
+        # Modeled inclined parts can have imaginary bound_box corners.
+        # Keep actual boundaries in the original reference.
         return _limites(conj)
     if limites is None:
         inv=ref.transposed().to_4x4() @ conj.matrix_world.inverted()
@@ -312,8 +311,8 @@ def limites_na_referencia(conj, ref, limites=None):
 
 
 def referencia_do_vao(conj, ponto_a, ponto_b, limites=None):
-    """Diagonal define a frente, em qualquer face. Recuos ate' 50 mm
-    entre referencias nao inclinam um vao ortogonal (prateleira/base)."""
+    """The diagonal defines the front on any face. Setbacks up to 50 mm
+    between references must not tilt an orthogonal shelf/base opening."""
     a=_portas._local_no_modulo(conj,ponto_a)
     b=_portas._local_no_modulo(conj,ponto_b)
     d=b-a;d.z=0
@@ -329,8 +328,8 @@ def referencia_do_vao(conj, ponto_a, ponto_b, limites=None):
 
 
 def pontos_internos_do_vao(conj, pontos, nomes, ref, limites=None):
-    """Referencia sobre a chapa: o vao fica ABAIXO da de cima e ACIMA
-    da de baixo. Laterais usam a face interna, sem atravessar a madeira."""
+    """Panel reference: the opening is BELOW the upper panel and ABOVE
+    the lower one. Sides use inner faces, without crossing the wood."""
     mundo=conj.matrix_world @ ref.to_4x4();inv=mundo.inverted()
     saida=[inv @ Vector(p)*1000 for p in pontos]
     for i,nome in enumerate(nomes):
@@ -351,8 +350,8 @@ def pontos_internos_do_vao(conj, pontos, nomes, ref, limites=None):
 
 
 def profundidade_disponivel(conj, matriz, largura, altura, limite):
-    """Menor espaco livre ate' as costas, amostrado no vao. Ray cast
-    nativo, so' ao confirmar pontos; nao varrer vertices no arraste."""
+    """Minimum free depth to the rear, sampled across the opening using
+    native ray casts only on point confirmation, not vertex scans during drag."""
     direcao=matriz.to_3x3().col[1].normalized()
     pecas=[o for o in _modulos._chapas_do_conjunto(conj)
            if not o.get('eh_prateleira')]
@@ -372,8 +371,8 @@ def profundidade_disponivel(conj, matriz, largura, altura, limite):
 
 
 def margens_do_vao(conj, ponto_a, ponto_b, referencial=None, limites=None, limites_referencia=None):
-    """(esq, dir, baixo, cima, frente) mm do vao marcado na diagonal
-    (pontos de mundo), medidos da caixa do modulo."""
+    """Opening (left, right, bottom, top, front) in mm, measured from the
+    cabinet box using the marked diagonal's world points."""
     ref=referencial if referencial is not None else Matrix.Identity(3)
     if limites_referencia is not None:
         lo,hi=limites_referencia
@@ -392,8 +391,8 @@ def margens_do_vao(conj, ponto_a, ponto_b, referencial=None, limites=None, limit
 
 
 def vao(grupo):
-    """(largura, altura, matriz do grupo no modulo) pelas margens atuais.
-    Redimensionar o modulo move o bloco e recalcula estas margens."""
+    """(width, height, group matrix in cabinet) from current margins.
+    Cabinet resize transports the block and recalculates these margins."""
     conj = modulo_do_grupo(grupo)
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     if conj is None or _limites(conj) is None:
@@ -409,7 +408,7 @@ def vao(grupo):
     return _divisorias.limitar_vao(grupo, largura, altura, matriz)
 
 
-# ------------------------------------------------------------ montagem
+# ------------------------------------------------------------ assembly
 def _matriz_da_caixa(caixa, eixo):
     x0, x1, y0, y1, z0, z1 = caixa
     medidas = Vector((x1 - x0, y1 - y0, z1 - z0))
@@ -456,7 +455,7 @@ def _material_trilho():
 
 
 def _novo_trilho(grupo, pai, nome, caixa):
-    """Blocagem do trilho: uma caixa nas medidas reais."""
+    """Slide blockout: a box at actual dimensions."""
     x0, x1, y0, y1, z0, z1 = caixa
     bm = bmesh.new()
     try:
@@ -506,7 +505,7 @@ def _pintar(objs, mat):
 
 
 def colocar_puxador(gaveta, valor):
-    """Puxador na borda de CIMA da frente, na face de fora (frente em -Y)."""
+    """Handle on the front's TOP edge, outer face (front toward -Y)."""
     frente = frente_da_gaveta(gaveta)
     if frente is None:
         return None
@@ -514,20 +513,20 @@ def colocar_puxador(gaveta, valor):
         _remover(velho)
     gaveta[CHAVE_PUXADOR] = valor
     if not valor or valor == 'NENHUM':
-        _chapas.gerar_malha_chapa(frente)        # devolve a madeira do perfil
+        _chapas.gerar_malha_chapa(frente)        # Restore wood removed for the profile.
         return None
     tipo, arquivo = _puxadores.modelo_do_valor(valor)
     if tipo not in _puxadores.MODELOS_PUXADOR:
         return None
-    # chapa da frente: X = largura, Y = altura (Y+ = cima), Z = fora
+    # Front panel: X=width, Y=height (Y+ up), Z=outward.
     return _puxadores.criar_puxador(bpy.context, frente, tipo, 'Y+', 1,
                                     arquivo=arquivo)
 
 
 def montar(grupo):
-    """Refaz as gavetas do grupo pelos parametros e pelo vao de hoje.
-    Ficam a abertura, o puxador de cada gaveta e o material (frente e
-    caixa). Levanta ValueError (e nao mexe em nada) se nao couber."""
+    """Rebuild group drawers from current parameters/opening. Preserve
+    opening, individual handles and front/box materials. Raise ValueError
+    without mutation if the system cannot fit."""
     p = parametros(grupo)
     largura, altura, matriz = vao(grupo)
     dados = calcular(largura, altura, p)
@@ -570,7 +569,7 @@ def montar(grupo):
     frentes_novas, caixas_novas = [], []
     for i, d in enumerate(dados['gavetas']):
         individual = parametros_da_unidade(p,i)
-        gaveta = bpy.data.objects.new('Gaveta %d' % (i + 1), None)
+        gaveta = bpy.data.objects.new("Drawer %d" % (i + 1), None)
         _colecao(grupo).objects.link(gaveta)
         gaveta.empty_display_size = 0.02
         gaveta.hide_render = True
@@ -579,20 +578,20 @@ def montar(grupo):
         gaveta[CHAVE_TRILHO_MM] = float(d['trilho_mm'])
         gaveta.parent = grupo
         gaveta.matrix_parent_inverse = Matrix.Identity(4)
-        # frente CURVA (pedido do usuario, do gaveteiro de canto do
-        # DXF): arco de flecha `frente_curva_mm` para FORA, as pontas
-        # no plano da frente reta (`_chapas._malha_arco`)
+        # CURVED front from the user's DXF corner drawer unit:
+        # OUTWARD arc with sagitta `frente_curva_mm`, endpoints
+        # on the straight front plane (`_chapas._malha_arco`).
         curva = float(individual.get('frente_curva_mm') or 0.0)
         frentes_novas.append(_nova_chapa(
-            grupo, gaveta, 'Frente Gaveta %d' % (i + 1), d['frente'], 1, 'FRENTE',
+            grupo, gaveta, "Drawer Front %d" % (i + 1), d['frente'], 1, 'FRENTE',
             {'chapa_arco_mm': curva} if curva > 0.0 else None))
         for peca, nome, caixa, eixo in d['caixa']:
-            caixas_novas.append(_nova_chapa(grupo, gaveta, '%s Gaveta %d' % (nome, i + 1),
+            caixas_novas.append(_nova_chapa(grupo, gaveta, "%s for Drawer %d" % (nome, i + 1),
                                             caixa, eixo, peca))
-        for lado, caixa in zip(('Esquerdo', 'Direito'), d['fixos']):
-            _novo_trilho(grupo, grupo, 'Trilho %s Gaveta %d' % (lado, i + 1), caixa)
-        for lado, caixa in zip(('Esquerdo', 'Direito'), d['moveis']):
-            _novo_trilho(grupo, gaveta, 'Corredica %s Gaveta %d' % (lado, i + 1), caixa)
+        for lado, caixa in zip(("Left", "Right"), d['fixos']):
+            _novo_trilho(grupo, grupo, "%s Rail for Drawer %d" % (lado, i + 1), caixa)
+        for lado, caixa in zip(("Left", "Right"), d['moveis']):
+            _novo_trilho(grupo, gaveta, "%s Slide for Drawer %d" % (lado, i + 1), caixa)
         modelo=p.get('individuais',{}).get(str(i),{}).get('puxador',puxadores.get(i,p['puxador']))
         pux = colocar_puxador(gaveta, modelo)
         ajustes = ajustes_puxadores.get(i,{}) if modelo==puxadores.get(i,p['puxador']) else {}
@@ -601,8 +600,8 @@ def montar(grupo):
                                   pux.get('puxador_tipo') != 'PERFIL'):
             for chave, valor in ajustes.items():
                 pux[chave] = valor
-            # O perfil precisa recortar a borda escolhida; os outros
-            # puxadores so' refazem o lugar e as medidas individuais.
+            # The profile must cut the chosen edge; other handles only
+            # refresh their position and individual dimensions.
             if pux.get('puxador_tipo') == 'PERFIL' and pux.get('puxador_borda') != 'Y+':
                 _chapas.gerar_malha_chapa(pux.parent)
             else:
@@ -624,7 +623,7 @@ def montar(grupo):
                     obj.material_slots[-1].link=link
                     obj.material_slots[-1].material=mat
     bpy.context.view_layer.update()
-    # As chapas sao refeitas, mas a selecao continua no mesmo nivel.
+    # Rebuild panels but retain the same selection level.
     if grupo_selecionado:
         selecionar(bpy.context, grupo, 'GRUPO', somar=True)
     else:
@@ -637,12 +636,12 @@ def montar(grupo):
 
 
 def criar_gavetas(context, conj, margens, p, referencial=None):
-    """Grupo de gavetas novo no modulo `conj`. Devolve o grupo."""
+    """Create a drawer group in cabinet `conj`; return the group."""
     p = dict(PARAMETROS_PADRAO, **p)
-    nome = 'Gavetas %s' % conj.name
+    nome = "Drawers %s" % conj.name
     grupo = bpy.data.objects.new(nome, None)
-    # Presets antigos podem ter a montagem sem MARCA_COLECAO_MODULO.
-    # O sistema precisa ficar no asset, nao solto na raiz da cena.
+    # Old presets may lack MARCA_COLECAO_MODULO on their assembly.
+    # Keep the system inside the asset rather than loose at the scene root.
     colecao = (_modulos._colecao_do_modulo(conj)
                or next(iter(conj.users_collection), context.scene.collection))
     colecao.objects.link(grupo)
@@ -668,8 +667,8 @@ def criar_gavetas(context, conj, margens, p, referencial=None):
 
 
 def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
-    """Move o bloco inteiro pela face mais proxima, sem esticar pecas.
-    Usa o vao FECHADO de antes: abrir uma gaveta nao muda sua ancoragem."""
+    """Transport the whole block by its nearest face without stretching parts.
+    Use the previous CLOSED opening: opening a drawer must not change anchoring."""
     for grupo in [*grupos_do_modulo(conj), *_prateleiras.grupos_do_modulo(conj)]:
         prateleiras = _prateleiras.MARCA_GRUPO in grupo
         largura, altura = grupo[_prateleiras.CHAVE_VAO if prateleiras else CHAVE_VAO]
@@ -683,7 +682,7 @@ def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
         for eixo in range(3):
             minimo = min(p[eixo] for p in cantos)
             maximo = max(p[eixo] for p in cantos)
-            # Empate ancora no minimo; erro de float nao deve trocar de face.
+            # Ties anchor at minimum; floating-point error must not switch faces.
             perto_do_min = (minimo - lo_antes[eixo]) <= (hi_antes[eixo] - maximo) + 1e-6
             ancoras_mundo.append(not perto_do_min)
             delta[eixo] = (lo[eixo] - lo_antes[eixo] if perto_do_min
@@ -711,9 +710,9 @@ def acompanhar_redimensionamento(conj, lo_antes, hi_antes, lo, hi):
 
 
 def espaco_disponivel(conj, grupo, dimensoes, fixos=None):
-    """Capacidade real no referencial do bloco, sem consumir a folga antes
-    da hora. Faces externas das chapas alinhadas recuam ate' a face interna.
-    Le so' as caixas nativas das chapas estruturais, nunca os vertices da HUD.
+    """Actual capacity in block coordinates without consuming clearance
+    prematurely. Aligned panel outer faces retreat to their inner faces.
+    Read only native structural-panel boxes, never HUD vertices.
     """
     ref = grupo.matrix_world.to_3x3().normalized()
     inv = ref.transposed()
@@ -760,8 +759,8 @@ def _minimos(grupo):
                       + float(q['recuo_mm']) + FOLGA_FUNDO_MODULO_MM
                       + (float(q['espessura_frente_mm']) if q['cobertura']=='EMBUTIDA' else 0)
                       for q in unidades)
-    # Limite analitico da mesma caixa usada em calcular: uma falha de
-    # largura/profundidade nao deve ser confundida com falta de altura.
+    # Analytic limit from the same box used by calcular: do not confuse
+    # width/depth failure with insufficient height.
     n=len(unidades)
     pesos=list(p.get('proporcoes') or [])
     if len(pesos)!=n or min(pesos,default=0)<=0:pesos=[1.]*n
@@ -776,8 +775,8 @@ def _minimos(grupo):
     try:calcular(atual_l,atual_a,p)
     except ValueError:altura=min(altura,atual_a)
     else:
-        # Coberturas importadas podem colocar varias frentes fora dos
-        # limites Z do vao. Validar a caixa completa nesses casos.
+        # Imported coverage can put several fronts outside the opening's
+        # Z limits; validate the complete box in those cases.
         lo,hi=0.,atual_a
         for _ in range(18):
             meio=(lo+hi)/2
@@ -789,8 +788,8 @@ def _minimos(grupo):
 
 
 def limitar_medidas(conj, lo, hi, alvo):
-    """Nao achatar um trilho de catalogo ou cruzar duas chapas.
-    O modulo pode encolher as gavetas ate' o menor sistema que cabe.
+    """Do not flatten catalog slides or let panels intersect.
+    The cabinet may shrink drawers down to the smallest fitting system.
     """
     saida=list(alvo)
     for grupo in grupos_do_modulo(conj):
@@ -820,16 +819,16 @@ def limitar_medidas(conj, lo, hi, alvo):
             if abs(eixos.col[k][a])<.999:continue
             indice=(0,2,1)[a]
             saida[indice]=max(saida[indice],(hi[a]-lo[a])*1000-capacidade[k]+minimos[k])
-    # Preset antigo com parametros internos inconsistentes nao pode
-    # CRESCER quando a pessoa pediu para diminuir.
+    # An old preset with inconsistent internal parameters must not GROW
+    # when the user requested a reduction.
     atual=[(hi[k]-lo[k])*1000 for k in (0,2,1)]
     return [min(atual[i],saida[i]) if alvo[i]<atual[i] else saida[i]
             for i in range(3)]
 
 
 def _reencaixar_existentes(grupo, largura, altura, p):
-    """Atualiza pecas existentes. Identidades, materiais e selecao ficam;
-    o Blender transforma as malhas dos trilhos em uma unica operacao.
+    """Update existing parts, retaining identities, materials and selection.
+    Blender transforms the slide meshes in a single operation.
     """
     dados=calcular(largura, altura, p)
     def trilhos(objs, caixas):
@@ -846,14 +845,14 @@ def _reencaixar_existentes(grupo, largura, altura, p):
             tipo=o.get(MARCA_PECA)
             if tipo and tipo not in ('FRENTE','TRILHO'):pecas.setdefault(tipo,[]).append(o)
         for lista in pecas.values():lista.sort(key=lambda o:o.matrix_basis.translation.x)
-        for tipo, nome, caixa, eixo in [('FRENTE','Frente',d['frente'],1),*d['caixa']]:
+        for tipo, nome, caixa, eixo in [('FRENTE',"Front",d['frente'],1),*d['caixa']]:
             o=pecas[tipo].pop(0)
             if tipo=='FRENTE':
                 curva=float(parametros_da_unidade(p,indice).get('frente_curva_mm') or 0)
                 if curva>0:o['chapa_arco_mm']=curva
                 elif 'chapa_arco_mm' in o:
                     del o['chapa_arco_mm']
-                    o.data.clear_geometry()   # frente parametrica que voltou a ser reta
+                    o.data.clear_geometry()   # Parametric front restored to straight.
             m, medidas=_matriz_da_caixa(caixa,eixo)
             o.matrix_basis=m
             ocupado=_chapas._ocupado[0]
@@ -864,7 +863,7 @@ def _reencaixar_existentes(grupo, largura, altura, p):
         trilhos(gaveta.children,d['moveis'])
         gaveta[CHAVE_TRILHO_MM]=float(d['trilho_mm'])
         definir_abertura(gaveta,float(gaveta.get(CHAVE_ABERTURA,0)))
-    # Fixos ordenados primeiro pela altura, depois pelo lado.
+    # Order fixed parts by height first, then side.
     fixos=sorted((o for o in grupo.children if o.get(MARCA_PECA)=='TRILHO'),
                  key=lambda o:(round(o.matrix_basis.translation.z,5),o.matrix_basis.translation.x))
     for i,d in enumerate(dados['gavetas']):trilhos(fixos[2*i:2*i+2],d['fixos'])
@@ -874,8 +873,8 @@ def _reencaixar_existentes(grupo, largura, altura, p):
 
 
 def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False, disponivel=None):
-    """Preserva o tamanho escolhido ate' faltar espaco; ao devolver o
-    armario, devolve tambem a escolha original (incluindo profundidades).
+    """Keep the chosen size until space runs out; when the cabinet grows
+    back, restore the original choice, including depths.
     """
     largura,altura=map(float,grupo[CHAVE_VAO]);p=parametros(grupo)
     atual=[largura,float(p['profundidade_mm']),altura]
@@ -911,8 +910,8 @@ def _adaptar_espaco(grupo, mudanca, curvas=None, seguir_largura=False, disponive
 
 
 def acompanhar_forma(conj, desloc):
-    """Plano da frente acompanha o braco; profundidade so' muda em Y
-    da propria gaveta. Nunca aplicar a deformacao vertice a vertice nela.
+    """The front plane follows the arm; depth changes only along the drawer's
+    own Y. Never apply vertex-by-vertex deformation to the drawer.
     """
     mundo=conj.matrix_world;inv=mundo.inverted()
     planos=[]
@@ -963,8 +962,8 @@ def acompanhar_forma(conj, desloc):
 
 
 def atualizar_gavetas_do_conjunto(conj):
-    """Redimensionar a caixa nao redimensiona as gavetas internas.
-    Recalcula as margens para a edicao direta partir das mesmas medidas."""
+    """Resizing the cabinet box does not resize internal drawers.
+    Recalculate margins so direct editing starts from the same dimensions."""
     for grupo in grupos_do_modulo(conj):
         largura, altura = grupo[CHAVE_VAO]
         sincronizar_margens(grupo, largura, altura, CHAVE_MARGENS)
@@ -980,22 +979,22 @@ def sincronizar_margens(grupo, largura, altura, chave):
 
 
 def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):
-    """Altura cede/recebe da vizinha; bordas do conjunto nao andam.
-    Previa muda so' parametros/contorno, sem destruir malhas no mousemove.
+    """Transfer height to/from the neighbor without moving group boundaries.
+    Preview changes only parameters/outline, not meshes on mousemove.
     """
     antes = parametros(grupo)
     novo = grupo[CHAVE_PARAMETROS].to_dict()
     largura,altura,_m = vao(grupo)
     n = int(antes['quantidade'])
     if not 0 <= indice < n:
-        return 'Gaveta nao encontrada'
+        return "Drawer not found"
     fs = frentes(largura,altura,antes)
     alturas = [f[3]-f[2] for f in fs]
     if nome=='altura' and n==1:
         margens=list(grupo[CHAVE_MARGENS])
         k=2 if lado=='max' else 3
         delta=float(valor)-alturas[0]
-        if margens[k]-delta < -1e-3:return 'A gaveta ultrapassa o vao do modulo'
+        if margens[k]-delta < -1e-3:return "The drawer exceeds the cabinet opening"
         margens[k]-=delta
         try:calcular(largura,altura+delta,antes)
         except ValueError as erro:return str(erro)
@@ -1006,14 +1005,14 @@ def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):
         vizinha = indice-1 if lado=='max' else indice+1
         if lado is None and vizinha >= n:vizinha=indice-1
         if not 0 <= vizinha < n:
-            return 'Borda externa fixa: edite pelo lado da gaveta vizinha'
+            return "Outer edge is fixed: edit from the neighboring drawer's side"
         delta = float(valor)-alturas[indice]
         alturas[indice] += delta
         alturas[vizinha] -= delta
         novo['proporcoes'] = alturas
     elif nome in ('abaixo_mm','acima_mm'):
         k = indice-1 if nome=='abaixo_mm' else indice
-        if not 0 <= k < n-1:return 'Esta borda pertence ao conjunto'
+        if not 0 <= k < n-1:return "This edge belongs to the group"
         separacoes = folgas(antes)
         delta = float(valor)-separacoes[k]
         alturas[k if nome=='abaixo_mm' else k+1] -= delta
@@ -1030,9 +1029,9 @@ def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):
             if nome=='profundidade_mm' and lado=='max':
                 anterior=parametros_da_unidade(antes,indice)
                 q['recuo_mm']=float(anterior['recuo_mm'])-(float(valor)-float(anterior[nome]))
-        else:return 'Parametro individual desconhecido'
+        else:return "Unknown individual parameter"
     if nome in ('altura','abaixo_mm','acima_mm') and min(alturas) < ALTURA_MIN_FRENTE_MM:
-        return 'Nao cabe: a gaveta vizinha ficaria pequena demais'
+        return "Does not fit: the neighboring drawer would be too small"
     try:calcular(largura,altura,dict(PARAMETROS_PADRAO,**novo))
     except ValueError as erro:return str(erro)
     grupo[CHAVE_PARAMETROS] = novo
@@ -1041,8 +1040,8 @@ def editar_individual(context,grupo,indice,nome,valor,lado=None,previa=False):
 
 
 def normalizar_alturas(grupo):
-    """Iguala as frentes no mesmo vao, conservando folgas e escolhas.
-    Validar ANTES: as gavetas das pontas podem ficar sem altura de caixa.
+    """Equalize fronts in the same opening, retaining gaps and choices.
+    Validate FIRST: end drawers may otherwise lack box height.
     """
     novo = grupo[CHAVE_PARAMETROS].to_dict()
     novo['proporcoes'] = []
@@ -1058,8 +1057,8 @@ def normalizar_alturas(grupo):
 
 class OBJECT_OT_normalizar_gavetas(Operator):
     bl_idname = 'object.cabinet_normalizar_gavetas'
-    bl_label = 'Normalizar alturas'
-    bl_description = 'Iguala as alturas de todas as gavetas deste conjunto, preservando folgas e ajustes individuais'
+    bl_label = "Normalize Heights"
+    bl_description = "Equalize all drawer heights in this group while preserving gaps and individual adjustments"
     bl_options = {'UNDO'}
 
     @classmethod
@@ -1078,7 +1077,7 @@ class OBJECT_OT_normalizar_gavetas(Operator):
 
 
 def editar(context, grupo, nome, valor):
-    """Muda um parametro (aba Gavetas). Devolve o erro (e desfaz) ou None."""
+    """Change a Drawers-tab parameter; return error and restore state, or None."""
     nome = nome[len('gavetas_'):] if nome.startswith('gavetas_') else nome
     if nome.startswith('individual_'):
         _prefixo,indice,prop = nome.split('_',2)
@@ -1088,15 +1087,15 @@ def editar(context, grupo, nome, valor):
     if nome == 'quantidade':
         valor = max(1, min(MAXIMO_GAVETAS, int(valor)))
         if valor != int(antes.get('quantidade', 1)):
-            novo.pop('proporcoes', None)      # outra quantidade: iguais
+            novo.pop('proporcoes', None)      # New count: equal heights.
             novo.pop('folgas_mm',None)
             novo.pop('individuais',None)
     novo[nome] = valor
     if nome=='entre_gavetas_mm':novo.pop('folgas_mm',None)
     for q in novo.get('individuais',{}).values():
-        q.pop(nome,None)                     # no grupo, escolha vale para todas
+        q.pop(nome,None)                     # At group level, apply the choice to every drawer.
     if nome in ('cobertura', 'folga_frontal_mm'):
-        novo.pop('coberturas_mm', None)  # escolha manual substitui a referencia
+        novo.pop('coberturas_mm', None)  # Manual choice replaces the reference.
     grupo[CHAVE_PARAMETROS] = novo
     try:
         montar(grupo)
@@ -1111,12 +1110,12 @@ def editar(context, grupo, nome, valor):
 
 
 def trocar_puxador(context, valor):
-    """Carrossel da aba: uma gaveta selecionada (duplo clique) troca so'
-    a dela; o grupo, todas (e vira o padrao do grupo)."""
+    """Tab carousel: an isolated drawer (double-click) changes only itself;
+    a group changes all drawers and its group default."""
     obj = context.object
     gaveta, grupo = gaveta_de(obj), grupo_de(obj)
     if grupo is None:
-        return 'Selecione as gavetas'
+        return "Select the drawers"
     if gaveta is not None and MARCA_GRUPO not in obj:
         colocar_puxador(gaveta, valor)
         p=grupo[CHAVE_PARAMETROS].to_dict()
@@ -1126,14 +1125,14 @@ def trocar_puxador(context, valor):
     return editar(context, grupo, 'puxador', valor)
 
 
-# ------------------------------------------------------------ abertura
+# ------------------------------------------------------------ opening
 def curso(gaveta):
     grupo = grupo_de(gaveta)
     return float(gaveta.get(CHAVE_TRILHO_MM,grupo.get(CHAVE_TRILHO_MM,0))) if grupo is not None else 0.0
 
 
 def definir_abertura(gaveta, fracao):
-    """Trilho de extensao total: aberta = o comprimento do trilho."""
+    """Full-extension slide: open travel equals slide length."""
     fracao = max(0.0, min(1.0, float(fracao)))
     gaveta[CHAVE_ABERTURA] = fracao
     gaveta.matrix_basis = Matrix.Translation(
@@ -1141,16 +1140,16 @@ def definir_abertura(gaveta, fracao):
     return True
 
 
-# ------------------------------------------------------------ selecao
+# ------------------------------------------------------------ selection
 def selecionar(context, obj, nivel, somar=False):
-    """'GRUPO' = todas as gavetas do vao; 'GAVETA' = so' a de `obj`."""
+    """'GRUPO' selects every drawer in the opening; 'GAVETA' only `obj`'s drawer."""
     grupo = grupo_de(obj)
     if grupo is None:
         return False
     alvo = gaveta_de(obj) if nivel == 'GAVETA' else None
     alvo = alvo or grupo
     if somar and alvo!=grupo and grupo.select_get():
-        # O primeiro PRESS do Shift+duplo somou o vao; isolar so' este vao.
+        # The first Shift+double-click PRESS added the opening; isolate only it.
         for o in context.selected_objects:
             if o==grupo or grupo_de(o)==grupo:
                 o.select_set(False)
@@ -1167,8 +1166,8 @@ def selecionar(context, obj, nivel, somar=False):
 
 
 def selecionados(context):
-    """Grupos de gavetas com o grupo OU uma gaveta selecionado (e ativo
-    entre eles) -- o modulo selecionado nao conta."""
+    """Drawer groups with their group OR a drawer selected, and an active
+    member; a selected cabinet does not count."""
     grupos = []
     for o in getattr(context, 'selected_objects', ()) or ():
         if MARCA_GRUPO in o or MARCA_GAVETA in o:
@@ -1200,14 +1199,14 @@ def gavetas_com_slider(context):
 
 # ------------------------------------------------------------ HUD
 def medidas(grupo):
-    """(largura, altura, profundidade) mm que a HUD e a aba mostram."""
+    """(width, height, depth) in mm displayed by the HUD and tab."""
     largura, altura, _m = vao(grupo)
     return largura, altura, float(parametros(grupo)['profundidade_mm'])
 
 
 def cantos_hud(grupo):
-    """8 quinas (mundo) da caixa do vao com a profundidade; indice
-    i + 2j + 4k ao longo de X, Y (profundidade), Z."""
+    """Eight world corners of the opening box including depth; index
+    i + 2j + 4k along X, Y (depth), Z."""
     largura, altura, prof = medidas(grupo)
     m = matriz_hud(grupo)
     return [m @ (Vector((i * largura, j * prof, k * altura)) / 1000.0)
@@ -1220,8 +1219,8 @@ def matriz_hud(grupo):
 
 
 def linhas_hud(grupo, chapas):
-    """Linhas da HUD (tipo 'gavetas'): L nas arestas em X, P em Y, A em
-    Z; a quina mais perto do mouse fica parada, como no modulo."""
+    """Drawer HUD lines: L on X edges, P on Y, A on Z; the corner nearest
+    the mouse stays fixed, as with cabinets."""
     cantos = cantos_hud(grupo)
     letras = {0: 'L', 1: 'P', 2: 'A'}
     linhas = []
@@ -1270,8 +1269,8 @@ def valor(grupo, chave):
 
 
 def aplicar(context, grupo, chave, novo, lado=None, previa=False):
-    """Medida da HUD/aba: L e A mudam a MARGEM do lado que anda (a quina
-    perto do mouse fica); P e' a profundidade."""
+    """HUD/tab dimension: L and A change the moving side's MARGIN, holding
+    the corner nearest the mouse; P is depth."""
     letra = chave[0] if isinstance(chave, (tuple, list)) else chave
     if isinstance(chave,(tuple,list)) and len(chave)>1:
         nome={'L':'largura','A':'altura','P':'profundidade_mm'}[letra]
@@ -1282,7 +1281,7 @@ def aplicar(context, grupo, chave, novo, lado=None, previa=False):
             return editar(context, grupo, 'profundidade_mm', novo)
         antes = list(grupo[CHAVE_MARGENS])
         margens = list(antes)
-        # Costas fixas: a frente anda pelo delta da profundidade.
+        # Rear fixed: move the front by the depth delta.
         margens[4] -= novo - valor(grupo, ('P',))
         grupo[CHAVE_MARGENS] = margens
         erro = editar(context, grupo, 'profundidade_mm', novo)
@@ -1309,7 +1308,7 @@ def aplicar(context, grupo, chave, novo, lado=None, previa=False):
 
 
 def copia(grupo):
-    """Parametros copiados, sem referencias a pecas que montar apaga."""
+    """Copy parameters without references to parts that montar deletes."""
     return (grupo.name, grupo[CHAVE_PARAMETROS].to_dict(), list(grupo[CHAVE_MARGENS]))
 
 
@@ -1323,9 +1322,9 @@ def restaurar(estado):
     montar(grupo)
 
 
-# ---- os 3 pontos com Alt (pedido do usuario): as duas quinas da frente
-# na diagonal (de cima a' esquerda e de baixo a' direita) e a
-# profundidade; arrastar com ima nos vertices refaz o vao
+# Three Alt points: diagonally opposite front corners
+# (upper left and lower right) and depth.
+# Dragging with vertex snapping redefines the opening.
 _arraste_ponto = [None]
 
 
@@ -1337,7 +1336,7 @@ def pontos_editaveis(grupo):
 
 
 def ponto_sob_mouse(context, posicao):
-    """(grupo, indice) do ponto sob o mouse (so' com Alt)."""
+    """(group, index) of the point under the mouse, only with Alt."""
     if not _solda._correntes_visiveis():
         return None, None
     raio = _solda.RAIO_BOLINHA_PX * max(1.0, context.preferences.system.ui_scale)
@@ -1355,10 +1354,10 @@ def ponto_sob_mouse(context, posicao):
 
 
 def _aplicar_ponto(grupo, indice, ponto_mundo):
-    """Leva o ponto `indice` a `ponto_mundo` (margens ou profundidade)."""
+    """Move point `indice` to `ponto_mundo`, changing margins or depth."""
     conj = modulo_do_grupo(grupo)
     if conj is None:
-        return 'Gavetas sem modulo'
+        return "Drawers have no cabinet"
     local = grupo.matrix_world.inverted() @ Vector(ponto_mundo) * 1000.0
     if indice == 2:
         largura,altura,matriz=vao(grupo)
@@ -1374,10 +1373,10 @@ def _aplicar_ponto(grupo, indice, ponto_mundo):
     largura, altura, _p = medidas(grupo)
     margens = list(grupo.get(CHAVE_MARGENS) or (0, 0, 0, 0, 0))
     antes = list(margens)
-    if indice == 0:          # de cima a' esquerda
+    if indice == 0:          # Upper left.
         margens[0] += local.x
         margens[3] -= local.z - altura
-    else:                    # de baixo a' direita
+    else:                    # Lower right.
         margens[1] -= local.x - largura
         margens[2] += local.z
     grupo[CHAVE_MARGENS] = margens
@@ -1390,18 +1389,18 @@ def _aplicar_ponto(grupo, indice, ponto_mundo):
     return None
 
 
-# ------------------------------------- arraste por CURSOR + snap nativo
-# Protocolo comum dos arrastes com Alt (ancora das gavetas, canto da porta,
-# ancora da solda): o cursor 3D e' o ponto temporario, o TRANSFORM_OT_translate
-# nativo leva-o ate' o alvo (o snap do Blender, nunca vertices em Python) e
-# uma macro aplica num undo so'. Cada dono guarda o estado na SUA lista.
+# ------------------------------------- CURSOR drag + native snap
+# Shared Alt-drag protocol for drawer anchors, door corners and joint
+# anchors: use the 3D cursor as a temporary point; native TRANSFORM_OT_translate
+# moves it to the target using Blender snapping, never Python vertices.
+# A macro applies in one undo. Each owner stores state in its OWN list.
 PARAMETROS_CURSOR_NATIVO = dict(cursor_transform=True, snap=True, snap_target='CENTER',
                                 snap_align=False, use_snap_selectable=True,
                                 release_confirm=True)
 
 
 def acessorio_fora_do_snap(obj):
-    """Puxador/acessorio (e o que pende deles) so' pesaria o BVH do snap."""
+    """Handles/accessories and descendants would only burden the snap BVH."""
     while obj is not None:
         if 'eh_puxador' in obj or ('eh_acessorio' in obj and 'eh_peca_curva' not in obj):
             return True
@@ -1410,9 +1409,9 @@ def acessorio_fora_do_snap(obj):
 
 
 def iniciar_cursor_nativo(context, lista, estado, ponto, fora):
-    """Guarda em `lista[0]` o `estado` + o que restaurar e poe o cursor no
-    `ponto`. `fora(obj)`: malha que o snap nao pode pegar (o filtro nativo
-    ONLY_SELECTABLE; o bloqueio dura so' a macro)."""
+    """Store `estado` and restoration data in `lista[0]`; move the cursor
+    to `ponto`. `fora(obj)` excludes a mesh from native ONLY_SELECTABLE
+    snapping; the lock lasts only for the macro."""
     bloqueados = []
     for obj in context.visible_objects:
         if obj.type == 'MESH' and fora(obj):
@@ -1428,7 +1427,7 @@ def iniciar_cursor_nativo(context, lista, estado, ponto, fora):
 
 
 def terminar_cursor_nativo(lista):
-    """Devolve cursor, overlay e hide_select; esvazia `lista` e devolve o estado."""
+    """Restore cursor, overlay and hide_select; clear `lista` and return state."""
     estado, lista[0] = lista[0], None
     if estado and estado.get('nativo'):
         for nome, oculto in estado.get('bloqueados', ()):
@@ -1447,8 +1446,8 @@ def terminar_cursor_nativo(lista):
 
 
 def acompanhar_cursor_nativo(lista, macro):
-    """Para o timer do dono: True enquanto a `macro` vive. Le so' o cursor,
-    nunca malhas; Esc da macro tambem devolve cursor/overlay."""
+    """Owner timer: True while `macro` is alive. Read only the cursor, never
+    meshes; macro Esc also restores cursor/overlay."""
     estado = lista[0]
     if not estado or not estado.get('nativo'):
         return False
@@ -1467,9 +1466,9 @@ def acompanhar_cursor_nativo(lista, macro):
 
 
 def _preparar_ancora_nativa(context, grupo, indice):
-    """O cursor e' so' o ponto temporario: o translate nativo nao move
-    nenhum objeto selecionado. A macro faz translate + aplicar num undo."""
-    # a propria frente nao captura a ancora
+    """Use the cursor only as a temporary point: native translate moves
+    no selected objects. The macro combines translate + apply in one undo."""
+    # The front itself must not capture its anchor.
     proprias = {o.name for o in grupo.children_recursive}
     iniciar_cursor_nativo(
         context, _arraste_ponto,
@@ -1478,8 +1477,8 @@ def _preparar_ancora_nativa(context, grupo, indice):
         lambda o: o.name in proprias or acessorio_fora_do_snap(o))
     return dict(PARAMETROS_CURSOR_NATIVO, snap_elements={'VERTEX', 'EDGE_MIDPOINT'},
                 orient_type='GLOBAL', orient_matrix_type='GLOBAL',
-                # RNA do translate recebe os eixos em LINHAS. Mathutils
-                # guarda-os nas colunas; sem transpor, gira ao contrario.
+                # Translate RNA takes axes in ROWS; Mathutils stores them
+                # in columns. Without transposition, rotation is reversed.
                 orient_matrix=tuple(tuple(l) for l in grupo.matrix_world.to_3x3().transposed()),
                 constraint_axis=(True, False, True) if indice < 2 else (False, True, False))
 
@@ -1497,7 +1496,7 @@ def _acompanhar_ancora_nativa():
 
 class OBJECT_OT_confirmar_ancora_gaveta(Operator):
     bl_idname = 'object.cabinet_confirmar_ancora_gaveta'
-    bl_label = 'Confirmar Ancora das Gavetas'
+    bl_label = "Confirm Drawer Anchor"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -1519,7 +1518,7 @@ class OBJECT_OT_confirmar_ancora_gaveta(Operator):
 
 class OBJECT_OT_mover_ancora_gaveta(Macro):
     bl_idname = 'object.cabinet_mover_ancora_gaveta'
-    bl_label = 'Editar Ancora das Gavetas'
+    bl_label = "Edit Drawer Anchor"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
 
@@ -1529,9 +1528,9 @@ def registrar_macro_ancora():
 
 
 class OBJECT_OT_arrastar_ponto_gaveta(Operator):
-    """Arraste uma quina da frente ou a profundidade das gavetas (Alt): ima nos vertices"""
+    """Drag a drawer front corner or depth with Alt and vertex snapping."""
     bl_idname = 'object.cabinet_arrastar_ponto_gaveta'
-    bl_label = 'Mover Ponto das Gavetas'
+    bl_label = "Move Drawer Point"
     bl_options = {'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
@@ -1558,13 +1557,13 @@ class OBJECT_OT_arrastar_ponto_gaveta(Operator):
 
 
 # ------------------------------------------------------------ slider
-# Um por gaveta, com o grupo (ou a gaveta) selecionado: na FRENTE dela,
-# no meio da altura e um pouco a' frente, e anda junto com a gaveta --
-# a gaveta aberta nunca o cobre (pedido do usuario); desenhado por cima
-# de tudo. Arrastar para a direita abre.
+# One per drawer when its group or drawer is selected: on the FRONT,
+# mid-height and slightly forward, following drawer movement so an
+# open drawer never covers it. Draw over everything.
+# Dragging right opens.
 SLIDER_FRENTE_MM = 30.0
 SLIDER_RECUO_FRACAO = 0.18
-_arraste_slider = [None]     # {'gaveta', 'tela': (inicio, fim)}
+_arraste_slider = [None]     # {'gaveta', 'tela': (start, end)}.
 _slider_hover = [None]
 
 
@@ -1575,7 +1574,7 @@ def _slider_no_mundo(gaveta):
     hx = frente.chapa_largura_mm / 2.0
     recuo = max(30.0, SLIDER_RECUO_FRACAO * 2 * hx)
     e = frente.chapa_espessura_mm / 2.0
-    # chapa da frente: X = largura, Z = para fora
+    # Front panel: X=width, Z=outward.
     return [frente.matrix_world @ (Vector((s * (hx - recuo), 0.0,
                                            e + SLIDER_FRENTE_MM)) / 1000.0)
             for s in (-1, 1)]
@@ -1584,7 +1583,7 @@ def _slider_no_mundo(gaveta):
 def _slider_na_tela(context, gaveta):
     estado = _arraste_slider[0]
     if estado is not None and estado['gaveta'] == gaveta.name:
-        return estado['tela']        # parado enquanto arrasta
+        return estado['tela']        # Fixed during dragging.
     mundo = _slider_no_mundo(gaveta)
     if mundo is None:
         return None
@@ -1618,7 +1617,7 @@ def slider_sob_mouse(context, posicao):
 
 
 def desenhar(context):
-    """Sliders das gavetas selecionadas e, com Alt, os 3 pontos."""
+    """Selected drawer sliders and, with Alt, the three points."""
     gavetas = gavetas_com_slider(context)
     grupos = selecionados(context)
     if not (gavetas or grupos):
@@ -1676,9 +1675,9 @@ def desenhar(context):
 
 
 class OBJECT_OT_abrir_gaveta(Operator):
-    """Arraste o slider da gaveta: para a direita abre, para a esquerda fecha"""
+    """Drag the drawer slider: right opens, left closes."""
     bl_idname = 'object.cabinet_abrir_gaveta'
-    bl_label = 'Abrir Gaveta'
+    bl_label = "Open Drawer"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     gaveta: StringProperty(options={'SKIP_SAVE'})
@@ -1745,7 +1744,7 @@ class OBJECT_OT_abrir_gaveta(Operator):
 
 
 class VIEW3D_GT_slider_gaveta(Gizmo):
-    """A bolinha do slider da gaveta: gizmo ganha da selecao (keymap)."""
+    """Drawer-slider knob: the gizmo takes precedence over selection keymaps."""
     bl_idname = 'VIEW3D_GT_slider_gaveta'
 
     def draw(self, context):
@@ -1763,7 +1762,7 @@ class VIEW3D_GT_slider_gaveta(Gizmo):
 
 class VIEW3D_GGT_slider_gaveta(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_slider_gaveta'
-    bl_label = 'Slider de abertura das gavetas'
+    bl_label = "Drawer Opening Slider"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}
@@ -1782,17 +1781,17 @@ class VIEW3D_GGT_slider_gaveta(GizmoGroup):
             _slider_hover[0] = None
 
 
-# ------------------------------------------------------------ assistente
-# "Criar Gavetas" (pedido do usuario): 2 cliques na diagonal do vao (de
-# cima a' esquerda a baixo a' direita, ima nos vertices) -> scroll =
-# quantas -> mouse = profundidade (Alt gruda num vertice) -> o trilho.
-_assistente_gavetas = [None]      # estado do wizard (a aba mostra o recado)
+# ------------------------------------------------------------ assistant
+# Create Drawers gesture: two diagonal opening clicks
+# (upper left to lower right, vertex snapping), scroll for count,
+# mouse for depth (Alt snaps to a vertex), then choose the slide.
+_assistente_gavetas = [None]      # Wizard state; the tab displays its prompt.
 RECADOS = {
-    'CANTO1': "Clique no canto de CIMA a' ESQUERDA do vao (Esc cancela)",
-    'CANTO2': "Clique no canto de BAIXO a' DIREITA do vao",
-    'QUANTIDADE': 'Scroll: quantas gavetas | clique confirma',
-    'PROFUNDIDADE': 'Mova: profundidade | Alt gruda num vertice | clique confirma',
-    'TRILHO': 'Qual trilho?',
+    'CANTO1': "Click the TOP LEFT corner of the opening (Esc cancels)",
+    'CANTO2': "Click the BOTTOM RIGHT corner of the opening",
+    'QUANTIDADE': "Scroll: drawer count | Click: confirm",
+    'PROFUNDIDADE': "Move: depth | Alt: snap to vertex | Click: confirm",
+    'TRILHO': "Which track?",
 }
 
 
@@ -1878,7 +1877,7 @@ def evento_de_ocultacao(context, event):
 
 
 def raio_no_modulo(context, modulo, origem, direcao):
-    """Consulta apenas BVHs nativos das pecas do modulo, sem oclusores externos."""
+    """Query only native BVHs of cabinet parts, excluding external occluders."""
     nomes = {o.name for o in modulo.children_recursive}
     dep = context.evaluated_depsgraph_get(); melhor = None
     for obj in context.visible_objects:
@@ -1906,10 +1905,10 @@ def _objeto_do_ponto_criacao(context, ponto):
             direcao=view3d_utils.region_2d_to_vector_3d(regiao,rv3d,tela)
             hit,co,_n,_f,obj,_m=context.scene.ray_cast(context.evaluated_depsgraph_get(),origem,direcao)
             if hit and obj is not None and (co-ponto).length<.005:return obj.original.name
-    # Quina exata fica na tangente do raio (ele passa para o fundo do vao).
-    # So' o modulo ativo nao bastava: sem selecao a porta nova nao achava a
-    # chapa. Pecas que o snap enxerga, com a caixa no ponto, pelo BVH nativo
-    # -- sem ler/projetar vertices da cena.
+    # An exact corner is tangent to the ray, which passes behind the opening.
+    # The active cabinet alone was insufficient: without selection, new doors
+    # could not find panels. Query snap-visible parts whose box contains
+    # the point via native BVH, without reading/projecting scene vertices.
     melhor=None
     for obj in context.visible_objects:
         if alvos is not None and obj.name not in alvos:continue
@@ -1927,7 +1926,7 @@ def _objeto_do_ponto_criacao(context, ponto):
 
 class OBJECT_OT_confirmar_ponto_vao(Operator):
     bl_idname='object.cabinet_confirmar_ponto_vao'
-    bl_label='Confirmar Ponto do Vao'
+    bl_label="Confirm Opening Point"
     bl_options={'INTERNAL'}
 
     def execute(self,context):
@@ -1948,7 +1947,7 @@ class OBJECT_OT_confirmar_ponto_vao(Operator):
 
 class OBJECT_OT_marcar_ponto_vao(Macro):
     bl_idname='object.cabinet_marcar_ponto_vao'
-    bl_label='Marcar Ponto do Vao'
+    bl_label="Mark Opening Point"
     bl_options={'INTERNAL'}
 
 
@@ -1958,24 +1957,23 @@ def registrar_macro_criacao():
 
 
 class AssistenteDoVao:
-    """Tres pontos delimitam uma caixa; a frente e' escolhida separadamente.
-    As PRATELEIRAS usam
-    o mesmo (`prateleiras.OBJECT_OT_criar_prateleiras`), parando na
-    quantidade; o que muda entre os dois sao os ganchos logo abaixo. Mixin, nao Operator: subclasse de operador
-    registrado nao se registra de novo."""
+    """Three points bound a box; choose its front separately. SHELVES share
+    this assistant (`prateleiras.OBJECT_OT_criar_prateleiras`) and stop at
+    count. The hooks below distinguish the workflows. This is a mixin,
+    not an Operator: subclasses of registered operators cannot register again."""
     _estado = _assistente_gavetas
     RECADOS = RECADOS
     MAXIMO = MAXIMO_GAVETAS
     ITEM = ('gaveta', 'gavetas')
     ABA = 'GAVETAS'
-    FIM_QUANTIDADE = 'clique confirma'
+    FIM_QUANTIDADE = "Click to confirm"
     portas_verificadas: BoolProperty(options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'OBJECT'
 
-    # ---------------------------------------------- ganchos
+    # ---------------------------------------------- hooks
     def _parametros_padrao(self):
         return dict(PARAMETROS_PADRAO)
 
@@ -1983,7 +1981,7 @@ class AssistenteDoVao:
         return calcular(largura, altura, p)
 
     def _caixas_da_previa(self, dados):
-        """Caixas (x0, x1, y0, y1, z0, z1) que a previa contorna."""
+        """Preview outline boxes (x0, x1, y0, y1, z0, z1)."""
         caixas = []
         for d in dados['gavetas']:
             caixas += [d['frente']] + [c[2] for c in d['caixa'][:1]] + d['fixos']
@@ -1993,13 +1991,13 @@ class AssistenteDoVao:
         p = self._w['p']
         p['lateral_mm'] = float(_portas._espessura_do_vao(conj))
         p['espessura_frente_mm'] = p['lateral_mm']
-        # a profundidade sai de `_definir_vao` no 2o canto (maxprof)
+        # Depth comes from `_definir_vao` at the second corner (maxprof).
 
     def _limitar_profundidade(self, mm):
         return min(self._w.get('maxprof',float('inf')),max(100.0, mm))
 
     def _recado_profundidade(self, dados):
-        return 'Profundidade %d mm (trilho %d) | Alt gruda | clique confirma' % (
+        return "Depth %d mm (rail %d) | Alt: snap | Click: confirm" % (
             round(self._w['p']['profundidade_mm']), dados['trilho_mm'])
 
     def _depois_da_quantidade(self, context):
@@ -2022,7 +2020,7 @@ class AssistenteDoVao:
     def _selecionar_grupo(self, context, grupo):
         selecionar(context, grupo, 'GRUPO')
 
-    # ---------------------------------------------- tela e ima
+    # ---------------------------------------------- display and snapping
     def _mouse(self, event):
         return Vector((event.mouse_x - self._regiao.x, event.mouse_y - self._regiao.y))
 
@@ -2046,7 +2044,7 @@ class AssistenteDoVao:
             params=dict(cursor_transform=True,snap=True,snap_elements=set(w.get('elementos_snap', elementos)),
                         snap_target='CENTER',snap_align=False,use_snap_selectable=True)
             if w.get('soltar_confirma'):
-                # Soltar B so' arma o encaixe; o clique seguinte confirma o ponto.
+                # Releasing B only arms the snap; the next click confirms the point.
                 params['release_confirm']=not por_tecla
             if w['etapa']=='PROFUNDIDADE':
                 _d,matriz=self._dados()
@@ -2064,9 +2062,9 @@ class AssistenteDoVao:
         direcao = view3d_utils.region_2d_to_vector_3d(self._regiao, self._rv3d, mouse)
         return origem, direcao
 
-    # ---------------------------------------------- previa
+    # ---------------------------------------------- preview
     def _dados(self):
-        """(dados de `calcular`, matriz do vao no mundo) ou (None, None)."""
+        """(calcular data, opening world matrix), or (None, None)."""
         w = self._w
         conj = bpy.data.objects.get(w.get('modulo', ''))
         if conj is None or len(w['pontos']) < 2:
@@ -2167,13 +2165,13 @@ class AssistenteDoVao:
                 shader.uniform_float('color', (*tema.view_3d.object_active, 1.0))
                 batch_for_shader(shader, 'POINTS', {'pos': marcas}).draw(shader)
         except Exception as e:
-            print("[Archy Builder] previa das %s:" % self.ITEM[1], e)
+            print("[Archy Builder] %s preview:" % self.ITEM[1], e)
         finally:
             gpu.state.line_width_set(1.0)
             gpu.state.point_size_set(1.0)
             gpu.state.blend_set('NONE')
 
-    # ---------------------------------------------- ciclo
+    # ---------------------------------------------- lifecycle
     def invoke(self, context, event):
         if (self.ABA in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'}
                 and not getattr(self, 'portas_verificadas', False)
@@ -2186,16 +2184,16 @@ class AssistenteDoVao:
                  if a.type == 'VIEW_3D' and a != context.area
                  and a.x > context.area.x and a.y == context.area.y), None)
         if self._area is None or self._area.type != 'VIEW_3D':
-            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            self.report({'ERROR'}, "No 3D viewport to mark the opening")
             return {'CANCELLED'}
         self._regiao = next((r for r in self._area.regions if r.type == 'WINDOW'), None)
         self._rv3d = getattr(self._area.spaces.active, 'region_3d', None)
         if self._regiao is None or self._rv3d is None:
-            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            self.report({'ERROR'}, "No 3D viewport to mark the opening")
             return {'CANCELLED'}
         self._regiao_ptr = self._regiao.as_pointer()
         if not any(o.type=='MESH' for o in context.visible_objects):
-            self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
+            self.report({'WARNING'}, "No visible mesh for snapping")
             return {'CANCELLED'}
         if self.ABA in {'PRATELEIRAS', 'DIVISORIAS'}:
             _areas_criacao.preparar_assistente_internos(self.ABA)
@@ -2206,9 +2204,9 @@ class AssistenteDoVao:
         self._w['iniciar_snap']=True
         self._w['volume_3d'] = self.ABA in {'GAVETAS', 'PRATELEIRAS', 'DIVISORIAS'}
         if self._w['volume_3d']:
-            # Translate apenas durante o clique: parado, a camera pertence ao Blender.
+            # Translate only during clicks; between them Blender owns the camera.
             self._w.update(iniciar_snap=False, soltar_confirma=True)
-            self._w['recado'] = 'Marque o primeiro ponto da area | Esc cancela'
+            self._w['recado'] = "Mark the first area point | Esc: cancel"
         ativo = context.object
         modulo = _modulos._conj_de(ativo) if ativo is not None and ativo.select_get() else None
         if modulo is not None:
@@ -2258,7 +2256,7 @@ class AssistenteDoVao:
         w['botoes'], w['hover_botao'] = [], None
         if w.get('volume_3d') and etapa in ('CANTO1', 'CANTO2', 'CANTO3', 'FRENTE'):
             w['recado'] = (_areas_criacao.RECADO_FRENTE if etapa == 'FRENTE' else
-                'Marque o %s ponto da area | Esc cancela' % {'CANTO1':'primeiro', 'CANTO2':'segundo', 'CANTO3':'terceiro'}[etapa])
+                "Mark the %s area point | Esc: cancel" % {'CANTO1':'primeiro', 'CANTO2':'segundo', 'CANTO3':'terceiro'}[etapa])
         else:
             w['recado'] = self.RECADOS[etapa]
         if etapa in ('CANTO1','CANTO2','CANTO3'):w['iniciar_snap']=not w.get('volume_3d', False)
@@ -2268,8 +2266,8 @@ class AssistenteDoVao:
             escala = max(1.0, bpy.context.preferences.system.ui_scale)
             w['botoes'] = _assistente._botoes_assistente(
                 w.get('mouse') or Vector((200, 200)), OPCOES_TRILHO, escala,
-                (self._regiao.width, self._regiao.height), 'Qual trilho?')
-            w['pergunta'] = 'Qual trilho?'
+                (self._regiao.width, self._regiao.height), "Which track?")
+            w['pergunta'] = "Which track?"
         elif etapa == 'QUANTIDADE':
             self._recado_quantidade()
         self._area.header_text_set(w['recado'])
@@ -2279,12 +2277,12 @@ class AssistenteDoVao:
     def _recado_quantidade(self):
         w = self._w
         n = w['p']['quantidade']
-        w['recado'] = '%d %s | scroll muda, %s' % (n, self.ITEM[n > 1], self.FIM_QUANTIDADE)
+        w['recado'] = "%d %s | Scroll to change, %s" % (n, self.ITEM[n > 1], self.FIM_QUANTIDADE)
         self._dados()
 
     def _profundidade(self, context, event, mouse):
-        """Profundidade pelo mouse: o ponto do eixo de profundidade (do
-        meio do vao, para dentro) mais perto do raio; Alt gruda num vertice."""
+        """Mouse depth: nearest point to the ray on the depth axis extending
+        inward from opening center. Alt snaps to a vertex."""
         w = self._w
         conj = bpy.data.objects.get(w['modulo'])
         dados, matriz = self._dados()
@@ -2441,7 +2439,7 @@ class AssistenteDoVao:
     def _aceitar_canto(self,context,ponto,nome):
         w=self._w
         if nome and 'alvos_snap' in w and nome not in w['alvos_snap']:
-            w['recado'] = 'Marque um ponto no modulo escolhido'
+            w['recado'] = "Mark a point on the chosen cabinet"
             self._area.header_text_set(w['recado']); w['iniciar_snap'] = True
             return {'RUNNING_MODAL'}
         if w['etapa'] == 'CANTO1':
@@ -2454,7 +2452,7 @@ class AssistenteDoVao:
                 ativo = context.object
                 conj = _modulos._conj_de(ativo) if ativo is not None and ativo.select_get() else None
             if conj is None:
-                w['recado'] = 'Marque o vao dentro de um modulo'
+                w['recado'] = "Mark the opening inside a cabinet"
                 self._area.header_text_set(w['recado'])
                 w['iniciar_snap']=True
                 return {'RUNNING_MODAL'}
@@ -2489,7 +2487,7 @@ class AssistenteDoVao:
         self._definir_vao(conj)
         dados, _m = self._dados()
         if dados is None:
-            # nao cabe: o 2o canto se marca de novo (o recado diz o porque)
+            # Does not fit: mark the second corner again; the prompt explains why.
             w['pontos'] = w['pontos'][:1]
             w['nomes']=w['nomes'][:1]
             w.pop('referencia',None)
@@ -2529,9 +2527,9 @@ class AssistenteDoVao:
 
 
 class OBJECT_OT_criar_gavetas(AssistenteDoVao, Operator):
-    """Cria gavetas num vao: 2 cantos na diagonal, quantidade, profundidade e trilho"""
+    """Create drawers in an opening: two diagonal corners, count, depth and slide."""
     bl_idname = 'object.cabinet_criar_gavetas'
-    bl_label = 'Criar Gavetas'
+    bl_label = "Create Drawers"
     bl_options = {'REGISTER', 'UNDO'}
 
 

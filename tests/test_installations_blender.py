@@ -1,4 +1,4 @@
-"""Biblioteca arquitetonica e associacoes reversiveis em cenas descartaveis."""
+"""Architectural library and reversible associations in disposable scenes."""
 import os
 import sys
 import tempfile
@@ -61,6 +61,23 @@ class TestInstalacoes(unittest.TestCase):
         apoio, matriz = self.apoio(tipo)
         return I.instalar(bpy.context, modelo, apoio, 0, matriz), apoio
 
+    def test_english_door_buttons_keep_stable_actions(self):
+        door, _ = self.instalar()
+        rows = []
+        I.widgets(bpy.context, rows, 12, 900, 540, door)
+        buttons = [row for row in rows if row[5] and row[5][:2] == ('escolha', 'acao_instalacao')
+                   and row[4] in ('Reverse', 'Mirror')]
+        self.assertEqual([row[4] for row in buttons], ['Reverse', 'Mirror'])
+        self.assertEqual([row[5][2] for row in buttons], ['inverter', 'espelhar'])
+        for obj in bpy.context.selected_objects:
+            obj.select_set(False)
+        door.select_set(True)
+        bpy.context.view_layer.objects.active = door
+        for row, key in zip(buttons, (addon.esquadrias.CHAVE_FACE, addon.esquadrias.CHAVE_LADO)):
+            before = door.get(key, 1)
+            self.assertEqual(bpy.ops.object.cabinet_acao_instalacao(acao=row[5][2]), {'FINISHED'})
+            self.assertEqual(door[key], -before)
+
     def operador(self, modelo='SPOT_SOBREPOSTO', origem='', direito=False):
         op = SimpleNamespace(modelo=modelo, arrastar=True, origem=origem, direito=direito, report=Mock())
         op._mover = lambda *a: I.OBJECT_OT_instalar._mover(op, *a)
@@ -75,8 +92,8 @@ class TestInstalacoes(unittest.TestCase):
         for largura in (190,320,564):
             itens = addon.gaveta._widgets_aba_gaveta(bpy.context, largura, 1200, 0)
             topo = addon.gaveta._tamanho_cabecalho(itens)
-            self.assertEqual(itens[topo][4], 'Editar')
-            teto = next(v for v in itens if v[4] == 'Teto')
+            self.assertEqual(itens[topo][4], "Edit")
+            teto = next(v for v in itens if v[4] == "Ceiling")
             olho = next(v for v in itens if v[5] and v[5][:2] == ('escolha','alvenaria_visual'))
             self.assertAlmostEqual(olho[0], teto[0]+teto[2]+6)
             self.assertEqual(olho[1], teto[1])
@@ -100,13 +117,13 @@ class TestInstalacoes(unittest.TestCase):
         self.assertFalse(bpy.context.scene.get(A.CHAVE_VISUAL, False))
         with patch.object(A, 'gpu'), patch.object(A, 'batch_for_shader'), patch.object(addon.ambientes,'_rotulo') as rotulo:
             A.desenhar_visual(bpy.context, apoio)
-            self.assertEqual(rotulo.call_args.args[3], 'Paredes')
+            self.assertEqual(rotulo.call_args.args[3], "Walls")
 
     def test_catalogo_reutiliza_cascata_grade_e_tem_fotos_reais(self):
         for it in I.catalogo():
             self.assertTrue((Path(it['pasta'])/it['foto']).is_file())
             self.assertEqual(len(it['niveis']), 2)
-        I.definir_categoria(bpy.context, 1, 'Iluminacao')
+        I.definir_categoria(bpy.context, 1, "Lighting")
         I.definir_categoria(bpy.context, 2, 'Spots')
         for largura in (190,320,564):
             itens = []
@@ -115,21 +132,21 @@ class TestInstalacoes(unittest.TestCase):
                 I.widgets_modelos(bpy.context, itens, 12, 700, largura-24, 'PAREDE')
                 self.assertEqual(cascata.call_count, 2);grade.assert_called_once()
             modelos = [v[5][2] for v in itens if v[5] and v[5][:2] == ('escolha','modelo_instalacao')]
-            # Regressao (era BUG, corrigido na 404): a cascata cobria o titulo.
-            titulo = next(v for v in itens if v[4] == 'Instalacoes')
+            # Regression, fixed in v404: the cascade covered the title.
+            titulo = next(v for v in itens if v[4] == "Installations")
             campo = next(v for v in itens if v[5] and v[5][0] == 'suspenso')
             self.assertLessEqual(campo[1]+campo[3], titulo[1]-8)
             self.assertEqual(set(modelos), {'SPOT_EMBUTIDO','SPOT_SOBREPOSTO'})
             self.assertTrue(all(v[0]+v[2] <= largura-12+.001 for v in itens))
-        I.definir_categoria(bpy.context, 1, 'Esquadrias')
-        self.assertEqual(bpy.context.screen[I.CHAVE_CATEGORIA], 'Esquadrias')
+        I.definir_categoria(bpy.context, 1, "Doors and Windows")
+        self.assertEqual(bpy.context.screen[I.CHAVE_CATEGORIA], "Doors and Windows")
 
     def test_cascata_superior_abre_sem_navegar_biblioteca_inferior(self):
         self.apoio()
         bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = 'cabinet_instalacoes_1'
         itens = addon.gaveta._widgets_gaveta(bpy.context, 320, 1100)
         linhas = [v for v in itens if v[5] and v[5][0] == 'nivel']
-        self.assertEqual({v[4] for v in linhas}, {'Todos','Eletrica','Esquadrias','Iluminacao','Tetos'})
+        self.assertEqual({v[4] for v in linhas}, {"All","Electrical","Doors and Windows","Lighting","Ceilings"})
         self.assertTrue(all(v[5][1] == (I.ALVO,1) for v in linhas))
         self.assertTrue(all(v[1]+v[3] < 1100-48 for v in linhas))
 
@@ -265,7 +282,7 @@ class TestInstalacoes(unittest.TestCase):
         evento = SimpleNamespace(type='LEFTMOUSE',mouse_region_x=30,mouse_region_y=30)
         instalar = Mock(return_value={'RUNNING_MODAL'})
         E = addon.gaveta_eventos
-        with patch.object(addon.gaveta,'_widgets_interativos',return_value=[(0,0,100,100,'Pendente',acao)]), \
+        with patch.object(addon.gaveta,'_widgets_interativos',return_value=[(0,0,100,100,"Pendant light",acao)]), \
              patch.object(E,'bpy',SimpleNamespace(data=bpy.data,ops=SimpleNamespace(object=SimpleNamespace(cabinet_instalar=instalar)))), \
              patch.object(E._editor,'executar') as ponte:
             with bpy.context.temp_override(area=self.area,region=self.regiao):
@@ -352,4 +369,4 @@ with tempfile.TemporaryDirectory(prefix='instalacoes_') as pasta, \
     try:
         resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestInstalacoes))
     finally:addon.unregister()
-    if not resultado.wasSuccessful():raise RuntimeError('Falha nas provas de instalacoes')
+    if not resultado.wasSuccessful():raise RuntimeError("Installation tests failed")

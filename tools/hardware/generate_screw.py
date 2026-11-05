@@ -1,7 +1,7 @@
 """Generate the standard countersunk 3.5 x 14 mm hardware screw.
 
 Run in background Blender 4.2 to preserve the oldest supported asset format.
-Writes archy_builder/ferragens/parafuso.blend. Stored mesh names, version,
+Writes archy_builder/assets/hardware/parafuso.blend. Stored mesh names, version,
 provenance and wireframe exclusion attributes remain compatible with saved scenes."""
 from pathlib import Path
 import math
@@ -12,22 +12,22 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware")
 NOME = 'Parafuso Chipboard 3,5x14 Chata'
 MATERIAL = 'Aco Bicromatizado'
 SEGMENTOS = 24
-VERSAO = 2                   # 1 = cabeca de 7 mm rente (v326)
-RAIO_CABECA = 2.889          # mm: o do usuario (5,78 de cabeca)
-SALIENCIA = 0.876            # mm do topo da cabeca acima da peca (o do usuario)
-# perfil (raio, z) em mm A PARTIR DO TOPO, de cima para baixo: topo, borda
-# da cabeca, cone, haste lisa, nucleo da rosca e ponta (no fim, tudo sobe
-# `SALIENCIA`)
+VERSAO = 2                   # 1 = flush 7 mm head (v326).
+RAIO_CABECA = 2.889          # mm: the user's screw (5.78 mm head).
+SALIENCIA = 0.876            # mm that the head top projects above the component, from the user's model.
+# Profile (radius, z) in mm FROM THE TOP, descending: top, head edge,
+# cone, smooth shank, thread core, and tip; shift everything upward
+# by `SALIENCIA` at the end.
 PERFIL = ((0.0, 0.0), (RAIO_CABECA, 0.0), (RAIO_CABECA, -0.15), (1.25, -2.4),
           (1.25, -4.4), (1.05, -4.6), (1.05, -12.0), (0.0, -14.0))
-FENDA = (3.8, 0.9, 1.5)      # PH2: largura da cruz, do braco e profundidade
-AFINA_FENDA = 0.4            # a cruz no fundo, em relacao a' do topo
-# rosca (mm): crista, raiz (dentro do nucleo), meia base do filete, passo,
-# de onde a onde vai e onde comeca a afinar com a ponta
+FENDA = (3.8, 0.9, 1.5)      # PH2: cross width, arm width, and depth.
+AFINA_FENDA = 0.4            # Bottom cross size relative to the top.
+# Thread (mm): crest, root inside the core, half thread base, pitch,
+# start/end positions, and where it begins tapering toward the tip.
 ROSCA = dict(crista=1.75, raiz=0.95, meia_base=0.5, passo=1.4, inicio=-4.7,
              fim=-13.6, afina=-11.6)
 PASSOS_POR_VOLTA = 16
@@ -41,8 +41,8 @@ def malha_do_corpo():
     bmesh.ops.spin(bm, geom=pontos + arestas, cent=(0, 0, 0), axis=(0, 0, 1),
                    angle=math.tau, steps=SEGMENTOS, use_duplicate=False)
     bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-7)
-    # os quads que encostam no eixo viram triangulos (o Boolean exato
-    # devolvia vazio com as faces degeneradas)
+    # Quads touching the axis become triangles; the exact Boolean
+    # returned an empty result with degenerate faces.
     bmesh.ops.dissolve_degenerate(bm, edges=bm.edges[:], dist=1e-7)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     malha = bpy.data.meshes.new(NOME)
@@ -52,16 +52,16 @@ def malha_do_corpo():
 
 
 def recortar_fenda(malha):
-    """Fenda Phillips: cruz recortada no topo (Boolean aplicado)."""
+    """Phillips recess: cross cut into the top with the Boolean applied."""
     cortador = bpy.data.meshes.new('Fenda')
     bm = bmesh.new()
     meia, meio_braco, fundo = FENDA[0] / 2000.0, FENDA[1] / 2000.0, FENDA[2] / 1000.0
-    # a cruz como UM prisma de 12 lados: duas caixas sobrepostas faziam o
-    # Boolean exato devolver vazio (e o rapido, buracos)
+    # Make the cross ONE 12-sided prism: two overlapping boxes caused
+    # an empty exact Boolean result, or holes with the fast solver.
     a, b = meio_braco, meia
     cruz = ((a, b), (-a, b), (-a, a), (-b, a), (-b, -a), (-a, -a),
             (-a, -b), (a, -b), (a, -a), (b, -a), (b, a), (a, a))
-    # o fundo afina (como a Phillips de verdade): reta, a cruz furava o cone
+    # Taper the bottom like a real Phillips recess: straight walls pierced the cone.
     base = bm.faces.new([bm.verts.new((x * AFINA_FENDA, y * AFINA_FENDA, -fundo))
                          for x, y in cruz])
     extrudado = bmesh.ops.extrude_face_region(bm, geom=[base])
@@ -93,8 +93,8 @@ def recortar_fenda(malha):
 
 
 def acrescentar_rosca(malha):
-    """Filete triangular em helice, do fim da haste lisa ate' a ponta,
-    afinando junto com ela."""
+    """Triangular helical thread from the end of the smooth shank to
+    the tip, tapering with it."""
     r = {k: v / 1000.0 for k, v in ROSCA.items()}
     bm = bmesh.new()
     bm.from_mesh(malha)
@@ -103,7 +103,7 @@ def acrescentar_rosca(malha):
     triangulo = bm.faces.new([bm.verts.new((r['raiz'], 0.0, meio + r['meia_base'])),
                               bm.verts.new((r['crista'], 0.0, meio)),
                               bm.verts.new((r['raiz'], 0.0, meio - r['meia_base']))])
-    # o pe' do ultimo filete para em `fim`
+    # The last thread base stops at `fim`.
     voltas = (r['inicio'] - r['fim'] - 2 * r['meia_base']) / r['passo']
     passos = round(voltas * PASSOS_POR_VOLTA)
     bmesh.ops.spin(bm, geom=[triangulo, *triangulo.verts, *triangulo.edges],
@@ -115,7 +115,7 @@ def acrescentar_rosca(malha):
     ponta = PERFIL[-1][1] / 1000.0
     for v in novos:
         if v.co.z < r['afina']:
-            # o filete some na ponta, como o do parafuso de verdade
+            # The thread fades out at the tip, like a real screw.
             fator = max(0.0, (v.co.z - ponta) / (r['afina'] - ponta))
             v.co.x *= fator
             v.co.y *= fator
@@ -126,7 +126,7 @@ def acrescentar_rosca(malha):
 
 
 def suavizar(malha):
-    """Vivo acima de 30 graus, como o Smooth by Angle das outras pecas."""
+    """Sharp above 30 degrees, like Smooth by Angle on other components."""
     bm = bmesh.new()
     bm.from_mesh(malha)
     for e in bm.edges:
@@ -139,12 +139,12 @@ def suavizar(malha):
 
 
 def marcar_fora_do_arame(malha):
-    """So' o TOPO da cabeca (o circulo e a cruz) fica no
-    arame: o resto ganha `cabinet_sem_arame` = 1 e a previa, a selecao e o
-    contorno do puxador o pulam. Desenhado por cima de tudo, o fundo da
-    cruz, a borda dupla e o cone embaralhavam a cabeca (print do usuario);
-    a rosca enchia a dobradica de linhas. O atributo vai junto quando o
-    add-on copia o parafuso para outra malha. Mesma regra em
+    """Only the head TOP (circle and cross) appears in the wireframe:
+    the rest gets `cabinet_sem_arame` = 1 and is skipped by previews,
+    selection, and handle outlines. Drawing everything on top made the
+    cross bottom, doubled edge, and cone obscure the head (user screenshot);
+    the thread filled the hinge with lines. The attribute survives when
+    the add-on copies the screw to another mesh. Same rule as
     `ferragens.marcar_arame_parafuso`."""
     topo = max(v.co.z for v in malha.vertices) - 1e-6
     camada = malha.attributes.new(ATRIBUTO_SEM_ARAME, 'INT', 'EDGE')
@@ -154,14 +154,14 @@ def marcar_fora_do_arame(malha):
 
 
 def elevar(malha):
-    """A origem desce para a superficie da peca: o topo fica `SALIENCIA`
-    acima dela, como o usuario deixou."""
+    """Move the origin down to the component surface: the top sits
+    `SALIENCIA` above it, matching the user's model."""
     for v in malha.vertices:
         v.co.z += SALIENCIA / 1000.0
 
 
 def material():
-    # bicromatizado: o amarelo da foto de referencia do usuario
+    # Yellow chromate finish: yellow from the user's reference photo.
     cor = (0.78, 0.62, 0.28, 1.0)
     mat = bpy.data.materials.new(MATERIAL)
     mat.use_nodes = True
@@ -184,13 +184,13 @@ marcar_fora_do_arame(objeto.data)
 objeto.data['cabinet_versao'] = VERSAO
 objeto.data.materials.append(material())
 for idb in (objeto.data, objeto.data.materials[0]):
-    idb['cabinet_origem'] = idb.name          # o add-on deduplica por isto
+    idb['cabinet_origem'] = idb.name          # The add-on uses this for deduplication.
 bpy.data.orphans_purge(do_recursive=True)
 os.makedirs(DESTINO, exist_ok=True)
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(DESTINO, 'parafuso.blend'),
                             compress=True, copy=True)
 vs = [v.co for v in objeto.data.vertices]
-print('[parafuso] %s: %d vertices, %d faces, cabeca %.2f mm, comprimento %.2f mm' % (
+print("[screw] %s: %d vertices, %d faces, head %.2f mm, length %.2f mm" % (
     NOME, len(vs), len(objeto.data.polygons),
     2000 * max(Vector((v.x, v.y)).length for v in vs),
     1000 * (max(v.z for v in vs) - min(v.z for v in vs))))

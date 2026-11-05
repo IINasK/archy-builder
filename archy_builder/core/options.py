@@ -1,14 +1,17 @@
-"""Opcoes da engrenagem (preferencias do add-on) e unidade das medidas."""
+"""Gear-menu options (add-on preferences) and measurement units."""
 
 import bpy, os
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _biblioteca = _eventos = None
+DIRECTION_LABELS = {'CIMA':'Top', 'BAIXO':'Bottom', 'ESQUERDA':'Left',
+                    'DIREITA':'Right', 'ACIMA':'Above', 'ABAIXO':'Below',
+                    'FRENTE':'Front', 'TRAS':'Back'}
 
 def _pasta_addon():
-    """A pasta `biblioteca/` que viaja dentro do addon."""
-    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "biblioteca")
+    """The `assets/library/` folder bundled with the add-on."""
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets/library")
 
 
 def _prefs():
@@ -18,18 +21,18 @@ def _prefs():
         return None
 
 
-# ------------------------------------------------ opcoes (engrenagem)
-# (fator para mm, sufixo, casas decimais na tela)
+# ------------------------------------------------ options (gear menu)
+# (mm conversion factor, suffix, display decimal places).
 UNIDADES_MEDIDA = {'MM': (1.0, 'mm', 1), 'CM': (10.0, 'cm', 2),
                    'M': (1000.0, 'm', 3)}
-# Atalhos do seletor de cor; o resto se escolhe no quadrado + matiz.
-# 'TEMA' (so' nas linhas) = cor do texto do tema, a mesma da gaveta.
+# Color-picker shortcuts; choose other colors in the square/hue controls.
+# 'TEMA', for lines only, uses theme text color, matching the sidebar.
 CORES_ATALHO = (('BRANCO', (1.0, 1.0, 1.0)), ('CINZA', (0.55, 0.55, 0.55)),
                 ('PRETO', (0.04, 0.04, 0.04)), ('CIANO', (0.2, 0.85, 1.0)),
                 ('LARANJA', (1.0, 0.35, 0.05)), ('AMARELO', (1.0, 0.85, 0.1)),
                 ('VERDE', (0.3, 0.9, 0.35)))
 COR_REALCE_PADRAO = (1.0, 0.35, 0.05)
-# (minimo, maximo, passo do arraste) dos campos de faixa da engrenagem
+# (minimum, maximum, drag step) for gear-menu range fields.
 FAIXAS_OPCOES = {'hud_espessura_linha': (1.0, 50.0, 0.5),
                  'hud_tamanho_rotulo': (1, 50, 1)}
 OPCOES_PADRAO = {'unidade_padrao': 'MM', 'hud_espessura_linha': 1.5,
@@ -39,12 +42,12 @@ OPCOES_PADRAO = {'unidade_padrao': 'MM', 'hud_espessura_linha': 1.5,
                  'ocultar_contorno_grupo': True, 'ocultar_origens_grupo': True,
                  'hud_pontos_apoio': True, 'hud_setas_quinas': True,
                  'tecla_corrente': 'ALT'}
-# Lembradas sem controle na engrenagem: o lugar da biblioteca escolhido
-# no botao "Lugar" (pedido do usuario: vale para todo arquivo, nao so' a
-# screen) e se ele ja' foi escolhido alguma vez (`lugar_escolhido`).
+# Remember settings without gear-menu controls: library location chosen
+# with Location (applies to every file, not only the screen) and
+# whether it was ever chosen (`lugar_escolhido`).
 OPCOES_INTERNAS = {'biblioteca_lugar': 'MENU', 'biblioteca_lugar_definido': False}
-# Sem preferencias (add-on carregado por script, testes) as opcoes
-# vivem aqui, para a engrenagem continuar funcionando.
+# Without preferences (script-loaded add-on/tests), keep options here
+# so the gear menu still works.
 _opcoes_sem_preferencias = {**OPCOES_PADRAO, **OPCOES_INTERNAS}
 
 
@@ -52,7 +55,7 @@ def _opcao(nome):
     p = _prefs()
     if p is not None and hasattr(p, nome):
         valor = getattr(p, nome)
-        # cor vem como bpy_prop_array, que nao compara nem se guarda
+        # Colors arrive as bpy_prop_array, unsuitable for comparison/storage.
         return tuple(valor) if nome.startswith('hud_rgb_') else valor
     return _opcoes_sem_preferencias[nome]
 
@@ -63,8 +66,8 @@ def _definir_opcao(nome, valor):
         setattr(p, nome, valor)
     else:
         _opcoes_sem_preferencias[nome] = valor
-    # a HUD mora na viewport vizinha: sem isto a mudanca so' aparece
-    # no proximo movimento do mouse la'
+    # HUD lives in the neighboring viewport: without this, changes appear
+    # only on its next mouse movement.
     try:
         for janela in bpy.context.window_manager.windows:
             for area in janela.screen.areas:
@@ -84,14 +87,14 @@ def _numero_formatado(valor, casas=5):
 
 
 def _texto_medida(mm, unidade=None):
-    """Medida em mm escrita na unidade padrao, com sufixo."""
+    """Format a measurement in mm using the default unit and suffix."""
     unidade = unidade or _opcao('unidade_padrao')
     fator, sufixo, _casas = UNIDADES_MEDIDA[unidade]
     return '%s %s' % (_numero_formatado(mm / fator, {'MM': 2, 'CM': 3, 'M': 5}[unidade]), sufixo)
 
 
 def _numero_na_unidade(mm):
-    """So' o numero, na unidade padrao -- o texto inicial ao digitar."""
+    """Number only in the default unit, used as initial typed-input text."""
     fator, _sufixo, casas = UNIDADES_MEDIDA[_opcao('unidade_padrao')]
     return '%g' % round(mm / fator, casas + 2)
 
@@ -100,87 +103,74 @@ class ArchyBuilderPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__.rsplit(".", 1)[0]
 
     pasta_biblioteca: bpy.props.StringProperty(
-        name="Pasta da biblioteca",
+        name="Library folder",
         subtype='DIR_PATH',
-        description="Vazio: usa a pasta do proprio addon (a biblioteca da "
-                    "empresa). Aponte para uma pasta de rede para "
-                    "compartilhar entre os computadores",
+        description="Empty: uses the add-on's own folder (the company library). Choose a network folder to share between computers",
         default="")
 
     foto_clicavel: bpy.props.BoolProperty(
-        name="Foto do preset clicavel",
-        description="Liga o clique na FOTO para posicionar o modulo. Em "
-                    "troca a imagem pode aparecer listrada: ela e' montada "
-                    "em ladrilhos e o bpy nao deixa fixar a largura deles, "
-                    "entao so' fecha em certas larguras da barra lateral. "
-                    "Desligado, a foto sai perfeita e o clique fica no nome",
+        name="Clickable preset photo",
+        description="Enables clicking the PHOTO to place the cabinet. The image may appear striped: it is assembled from tiles, and bpy does not allow fixing their width, so they only align at certain sidebar widths. When disabled, the photo displays perfectly and the name is clickable",
         default=False)
 
     selecao_por_grupo: bpy.props.BoolProperty(
-        name="Clique seleciona o modulo inteiro",
-        description="Um clique acende todas as pecas do modulo; dois "
-                    "cliques isolam a chapa. Desligado, o clique volta a "
-                    "ser o do Blender",
+        name="Click selects the entire cabinet",
+        description="One click highlights all cabinet parts; two clicks isolate the panel. When disabled, clicking uses Blender's behavior",
         default=True)
 
-    # Opcoes da engrenagem da gaveta. Ficam nas preferencias porque valem
-    # para todo arquivo, nao para uma cena.
+    # Sidebar gear-menu options live in preferences because they apply
+    # to every file rather than one scene.
     unidade_padrao: bpy.props.EnumProperty(
-        name="Unidade padrao", default='MM',
-        description="Unidade de um numero digitado sem unidade",
+        name="Default unit", default='MM',
+        description="Unit for a number entered without a unit",
         items=[(k, v[1], "") for k, v in UNIDADES_MEDIDA.items()])
     hud_espessura_linha: bpy.props.FloatProperty(
-        name="Espessura das linhas", default=1.5,
+        name="Line thickness", default=1.5,
         min=FAIXAS_OPCOES['hud_espessura_linha'][0],
         max=FAIXAS_OPCOES['hud_espessura_linha'][1])
-    # Cores com nome novo (eram Enum): reaproveitar o nome faria o
-    # Blender ler o inteiro gravado do Enum antigo como cor.
-    # COLOR_GAMMA: o valor vai direto para a tela, como as cores do tema.
+    # Colors use new names, formerly Enum properties: reusing names would
+    # make Blender read saved enum integers as colors.
+    # COLOR_GAMMA passes values directly to display, like theme colors.
     hud_linha_tema: bpy.props.BoolProperty(
-        name="Linhas na cor do tema", default=True)
+        name="Use theme color for lines", default=True)
     hud_rgb_linha: bpy.props.FloatVectorProperty(
-        name="Cor das linhas", subtype='COLOR_GAMMA', size=3,
+        name="Line color", subtype='COLOR_GAMMA', size=3,
         min=0.0, max=1.0, default=(1.0, 1.0, 1.0))
     hud_rgb_realce: bpy.props.FloatVectorProperty(
-        name="Cor do realce", subtype='COLOR_GAMMA', size=3,
+        name="Highlight color", subtype='COLOR_GAMMA', size=3,
         min=0.0, max=1.0, default=COR_REALCE_PADRAO)
     hud_realce_gizmo: bpy.props.BoolProperty(
-        name="Realce nas cores do gizmo", default=False,
-        description="L vermelho (X), A azul (Z), P verde (Y), E laranja")
+        name="Use gizmo colors for highlights", default=False,
+        description="L red (X), A blue (Z), P green (Y), E orange")
     hud_tamanho_rotulo: bpy.props.IntProperty(
-        name="Tamanho dos rotulos", default=14,
+        name="Label size", default=14,
         min=FAIXAS_OPCOES['hud_tamanho_rotulo'][0],
         max=FAIXAS_OPCOES['hud_tamanho_rotulo'][1])
     tecla_corrente: bpy.props.EnumProperty(
-        name="Correntes", default='ALT',
-        items=[('ALT', "Segurar Alt", ""), ('CTRL', "Segurar Ctrl", ""),
-               ('SHIFT', "Segurar Shift", ""), ('SEMPRE', "Sempre", "")],
-        description="Quando as correntes de adjacencia aparecem")
+        name="Links", default='ALT',
+        items=[('ALT', "Hold Alt", ""), ('CTRL', "Hold Ctrl", ""),
+               ('SHIFT', "Hold Shift", ""), ('SEMPRE', "Always", "")],
+        description="When adjacency links appear")
     ocultar_contorno_grupo: bpy.props.BoolProperty(
-        name="Ocultar o contorno do Blender no modulo", default=True,
-        description="Com um modulo ou porta selecionado, desliga o "
-                    "contorno de selecao da viewport e devolve o estado "
-                    "anterior ao terminar")
+        name="Hide Blender's outline on the cabinet", default=True,
+        description="When a cabinet or door is selected, disables the viewport selection outline and restores the previous state when finished")
     ocultar_origens_grupo: bpy.props.BoolProperty(
-        name="Ocultar origens no grupo", default=True,
-        description="Oculta os pontos de origem nativos ao selecionar um grupo; "
-                    "restaura a configuracao anterior ao selecionar uma peca ou sair do grupo")
+        name="Hide origins in group", default=True,
+        description="Hides native origin points when selecting a group; restores the previous setting when selecting a part or leaving the group")
     hud_pontos_apoio: bpy.props.BoolProperty(
-        name="Bolinhas de apoio", default=True,
-        description="Mostra os controles circulares no centro das faces do volume")
+        name="Support dots", default=True,
+        description="Shows circular controls at the centers of the volume faces")
     hud_setas_quinas: bpy.props.BoolProperty(
-        name="Guias nas quinas", default=True,
-        description="Mostra a direcao do redimensionamento ao passar o mouse nas cotas")
+        name="Corner guides", default=True,
+        description="Shows the resize direction when hovering over dimensions")
     biblioteca_lugar: bpy.props.EnumProperty(
-        name="Lugar da biblioteca", default='MENU',
-        items=[('FAIXA', "Faixa superior", "Acima do menu e da cena"),
-               ('MENU', "Dentro do menu", "Embaixo da divisoria do menu")],
-        description="Onde a biblioteca abre em qualquer arquivo. O botao "
-                    "Lugar da biblioteca troca e grava aqui")
+        name="Library location", default='MENU',
+        items=[('FAIXA', "Top strip", "Above the menu and scene"),
+               ('MENU', "Inside the sidebar", "Below the sidebar divider")],
+        description="Where the library opens in any file. The Library location button changes and saves this setting")
     biblioteca_lugar_definido: bpy.props.BoolProperty(
         default=False, options={'HIDDEN'},
-        description="O lugar ja' foi escolhido no botao (antes ele ficava "
-                    "so' no arquivo)")
+        description="The location has already been chosen using the button (previously it was stored only in the file)")
 
     def draw(self, context):
         layout = self.layout
@@ -191,7 +181,7 @@ class ArchyBuilderPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "biblioteca_lugar")
         layout.separator()
         layout.prop(self, "pasta_biblioteca")
-        layout.label(text="Em uso: " + _biblioteca.pasta_biblioteca(),
+        layout.label(text="In use: " + _biblioteca.pasta_biblioteca(),
                      icon='ASSET_MANAGER')
         layout.operator("object.cabinet_registrar_bibliotecas", icon='FILE_REFRESH')
         layout.operator("object.cabinet_refiliar", icon='ASSET_MANAGER')

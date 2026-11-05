@@ -12,9 +12,9 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-JSON = os.path.join(AQUI, 'archy_builder', 'ferragens', 'dobradica_reta.json')
-ANGULO_VINCO = 30.0          # graus entre as faces para a aresta aparecer
-FORA = ('furo', 'controle')  # cortador e controlador: nao sao a peca
+JSON = os.path.join(AQUI, 'archy_builder', "assets/hardware", 'dobradica_reta.json')
+ANGULO_VINCO = 30.0          # Angle in degrees between faces required to display an edge.
+FORA = ('furo', 'controle')  # Cutter and controller: not the component.
 ATRIBUTO_SEM_ARAME = 'cabinet_sem_arame'    # `arame.ATRIBUTO_SEM_ARAME`
 
 
@@ -22,7 +22,7 @@ def arame():
     raiz = next(o for o in bpy.data.objects if o.get('cabinet_peca') == 'raiz')
     controle = next(o for o in bpy.data.objects
                     if o.get('cabinet_peca') == 'controle')
-    controle.rotation_euler.z = -math.radians(0.5)       # porta fechada
+    controle.rotation_euler.z = -math.radians(0.5)       # Door closed.
     malhas, pecas = {}, []
     for o in sorted(bpy.data.objects, key=lambda o: o.name):
         if o.type != 'MESH' or o.get('cabinet_peca') in FORA:
@@ -40,7 +40,7 @@ def arame():
                 bm.from_mesh(avaliado.to_mesh())
                 avaliado.to_mesh_clear()
                 pontos = []
-                # do parafuso padrao, so' a cabeca: a rosca fica na madeira
+                # Standard screw: head only; the thread is inside the wood.
                 fora = bm.edges.layers.int.get(ATRIBUTO_SEM_ARAME)
                 for e in bm.edges:
                     if fora is not None and e[fora]:
@@ -71,8 +71,8 @@ with open(JSON, encoding='utf-8') as f:
     dados_json = json.load(f)
 dados_json['arame'] = dados_arame
 with open(JSON, 'w', encoding='utf-8') as f:
-    # compacto: com indent cada numero do arame ia numa linha (MBs)
+    # Compact: indentation put each wireframe number on its own line, adding megabytes.
     json.dump(dados_json, f, separators=(',', ':'))
-print('[arame] %d pecas, %d malhas, %d segmentos' % (
+print("[wireframe] %d components, %d meshes, %d segments" % (
     len(dados_arame['pecas']), len(dados_arame['malhas']),
     sum(len(v) // 6 for v in dados_arame['malhas'].values())))

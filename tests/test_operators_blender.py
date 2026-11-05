@@ -1,14 +1,8 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_operators_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_operators_blender.py
 
-Rede de seguranca dos operadores e orquestradores que nao tinham teste:
-adjacencia depois da escala, absorcao da escala do Empty, espessura de
-modulo/grupo/chapa, handler e timer, puxadores, poll da selecao e a
-limpeza do unregister.
+Safety net for previously untested operators and coordinators: post-scale adjacency, Empty scale absorption, cabinet/group/panel thickness, handlers and timers, handles, selection poll and unregister cleanup.
 
-Bug achado por esta suite vira teste marcado `expectedFailure` com um
-`# BUG:` em cima; consertado, o marcador sai e o teste fica de
-regressao (os tres primeiros foram consertados na versao 126).
-"""
+Bugs found here receive expectedFailure with a BUG comment. Once fixed, remove that marker and retain the regression test; the first three were fixed in v126."""
 import contextlib
 import os
 import sys
@@ -27,7 +21,7 @@ X, Y, Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
 
 
 def caixa(nome, dims, centro):
-    """Malha de caixa sem marcador, como viria de um arquivo de fora."""
+    """Create an unmarked box mesh as it would arrive from an external file."""
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     for v in bm.verts:
@@ -60,7 +54,7 @@ def limites(objs):
 
 @contextlib.contextmanager
 def ocupado():
-    """Simula o add-on no meio de uma escrita (guarda de reentrancia)."""
+    """Simulate the add-on in the middle of a write under its reentrancy guard."""
     antes = addon.chapas._ocupado[0]
     addon.chapas._ocupado[0] = True
     try:
@@ -140,7 +134,7 @@ class TestOperadores(unittest.TestCase):
         addon.selecao.VIEW3D_MT_grupo_porta.draw(SimpleNamespace(layout=layout),bpy.context)
         self.assertEqual(layout.operator_context,'EXEC_DEFAULT')
         layout.operator.assert_called_once_with('object.cabinet_selecionar_montagem_porta',icon='OUTLINER_OB_GROUP_INSTANCE')
-        layout.operator_menu_enum.assert_called_once_with('object.select_grouped','type',text='Grupos do Blender')
+        layout.operator_menu_enum.assert_called_once_with('object.select_grouped','type',text="Blender Groups")
         if bpy.context.window_manager.keyconfigs.addon is not None:
             self.assertTrue(any(k.idname=='object.cabinet_selecionar_montagem_porta' and k.type=='G' and k.shift
                 for m,k in addon.selecao._keymaps))
@@ -156,8 +150,8 @@ class TestOperadores(unittest.TestCase):
         self.assertEqual(bpy.ops.object.cabinet_esconder_porta(),{'FINISHED'})
 
     def test_tab_reduz_altura_sem_refazer_puxadores_editados(self):
-        # Regressao 357: reconstruir o perfil depois do G anulava a
-        # translacao nativa e separava o puxador da madeira recortada.
+        # Regression v357: rebuilding the profile after G canceled native translation
+        # and separated the handle from the cutout wood.
         conj = addon.modulos.criar_armario(bpy.context, 'Altura pelo Tab', 600, 2400, 550)
         grupo = addon.portas.porta_no_modulo(conj)
         puxadores = addon.puxadores.perfis_na_porta(bpy.context, grupo, 'CIMA')
@@ -217,8 +211,8 @@ class TestOperadores(unittest.TestCase):
             self.assertPerto(raiz.matrix_world.translation, antes[raiz.name] + delta)
 
     def test_tab_materializa_espelho_da_dobradica_antes_do_arraste_nativo(self):
-        # Regressao v344: Mirror/Clipping prendia a metade virtual no
-        # lugar antigo. O teste move pelo TRANSFORM nativo, ainda no Tab.
+        # Regression v344: Mirror/Clipping kept the virtual half at its old location.
+        # This test moves using native transform while still in Edit Mode.
         conj = addon.modulos.criar_armario(bpy.context, 'Espelho editavel', 600, 800, 550)
         grupo = addon.portas.porta_no_modulo(conj)
         raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
@@ -322,16 +316,16 @@ class TestOperadores(unittest.TestCase):
         bpy.ops.object.cabinet_editar_grupo()
 
     def test_tab_move_dobradica_inteira_com_rig_furo_e_curva(self):
-        # Regressao v343: mover vertices deixava armacoes/furo/mola no
-        # lugar antigo e distorcia a dobradica ao abrir a porta.
+        # Regression v343: moving vertices left rigs, holes and springs at their old
+        # positions, distorting the hinge when opening the door.
         conj = addon.modulos.criar_armario(bpy.context, 'Dobradicas editaveis', 600, 1800, 550)
         conj.rotation_euler.z = .7
         grupo = addon.portas.porta_no_modulo(conj)
         raiz = next(o for o in grupo.children_recursive if o.get('cabinet_peca') == 'raiz')
         fixa = next(o for o in grupo.children_recursive
                     if o.get('cabinet_peca') == 'raiz' and o != raiz)
-        # Tab materializa Mirror: o transporte rigido compara a malha editavel,
-        # sem depender de outra prova ter deixado uma copia ja' expandida no cache.
+        # Tab materializes Mirror: rigid transport compares the editable mesh without
+        # depending on a prior test leaving an already-expanded copy in cache.
         addon.ferragens.preparar_malhas_para_editar(bpy.context,
             [o for o in grupo.children_recursive if o.type == 'MESH'])
         bpy.context.view_layer.update()
@@ -362,7 +356,7 @@ class TestOperadores(unittest.TestCase):
             obj = bpy.data.objects[nome]
             for v, ponto in zip(obj.data.vertices, pontos):
                 self.assertLess((v.co - ponto).length, .000001)
-        # Reaplicar parametros e abrir/fechar conserva a edicao e os furos.
+        # Reapplying parameters and opening/closing preserves edits and holes.
         addon.ferragens._refazer_ferragens(grupo)
         folha = addon.portas._folhas_portas(grupo)[0]
         addon.ferragens._definir_abertura(bpy.context, folha, .5)
@@ -370,7 +364,7 @@ class TestOperadores(unittest.TestCase):
         bpy.context.view_layer.update()
         for obj in [raiz, *partes]:
             self.assertPerto(obj.matrix_world.translation, mundos[obj.name].translation + delta)
-        # Outro Tab sem movimento nao reaplica o deslocamento anterior.
+        # Another Tab with no movement must not reapply the previous displacement.
         bpy.ops.object.cabinet_editar_grupo()
         bpy.ops.object.cabinet_editar_grupo()
         self.assertPerto(raiz.matrix_world.translation, mundos[raiz.name].translation + delta)
@@ -529,7 +523,7 @@ class TestOperadores(unittest.TestCase):
 
     def test_chanfrar_mover_tab_undo_redo_conserva_topologia_e_copia_nativa(self):
         conj=addon.modulos.criar_armario(bpy.context,'Regressao do chanfro undo',600,400,300)
-        o=next(o for o in conj.children if 'Direita' in o.name);nome=o.name
+        o=next(o for o in conj.children if "Right" in o.name);nome=o.name
         selecionar(o);bpy.ops.ed.undo_push(message='Antes do chanfro')
         bpy.ops.object.mode_set(mode='EDIT');addon.chapas.absorver_edicoes_de_malha()
         bpy.ops.mesh.select_all(action='DESELECT');bpy.ops.mesh.select_mode(type='EDGE')
@@ -577,7 +571,7 @@ class TestOperadores(unittest.TestCase):
         addon.chapas.absorver_malha_editada(o)
         self.assertAlmostEqual(o.chapa_espessura_mm,18,places=4)
         self.assertGreater((max(v.co.z for v in me.vertices)-min(v.co.z for v in me.vertices))*1000,130)
-        # Arquivo antigo ja' recentrado e com a prop contaminada pela AABB.
+        # Old file already recentered, with a property contaminated by the AABB.
         with ocupado():o.chapa_espessura_mm=(max(v.co.z for v in me.vertices)-min(v.co.z for v in me.vertices))*1000
         self.assertTrue(addon.chapas.absorver_malha_editada(o))
         self.assertAlmostEqual(o.chapa_espessura_mm,18,places=4)
@@ -669,7 +663,7 @@ class TestOperadores(unittest.TestCase):
                                         dict(quantidade=3,profundidade_mm=560))
         return conj,grupo,addon.gavetas.gavetas_do_grupo(grupo)
 
-    # Regressao (era BUG, corrigido na 383): Empty da unidade nao era grupo editavel.
+    # Regression, fixed in v383: the unit Empty was not an editable group.
     def test_tab_da_gaveta_individual_abre_caixa_e_puxador_sem_as_vizinhas(self):
         conj,grupo,gavetas=self._gavetas_para_tab()
         alvo=gavetas[1]
@@ -740,7 +734,7 @@ class TestOperadores(unittest.TestCase):
         self.assertFalse(addon._segura_dado(addon.selecao._edicao_grupo[0]))
 
     def test_tab_do_grupo_entra_no_edit_mode_nativo_das_malhas(self):
-        conj=addon.modulos.criar_armario(bpy.context,'Editar',600,700,550)
+        conj=addon.modulos.criar_armario(bpy.context,"Edit",600,700,550)
         addon.portas.porta_no_modulo(conj)
         for o in bpy.context.selected_objects:o.select_set(False)
         conj.select_set(True);bpy.context.view_layer.objects.active=conj
@@ -776,8 +770,8 @@ class TestOperadores(unittest.TestCase):
         contorno=[(-.5,-.5),(.5,-.5),(.5,-.2),(.1,-.2),(.1,.5),(-.5,.5)]
         vs=[(x,y,z) for z in (-.009,.009) for x,y in contorno]
         fs=[tuple(range(5,-1,-1)),tuple(range(6,12))]+[(i,(i+1)%6,(i+1)%6+6,i+6) for i in range(6)]
-        m=bpy.data.meshes.new('Recorte');m.from_pydata(vs,[],fs)
-        o=bpy.data.objects.new('Recorte',m);bpy.context.scene.collection.objects.link(o)
+        m=bpy.data.meshes.new("Cutout");m.from_pydata(vs,[],fs)
+        o=bpy.data.objects.new("Cutout",m);bpy.context.scene.collection.objects.link(o)
         o[addon.chapas.MARCA_CHAPA]=1
         with ocupado():o.chapa_largura_mm=1000;o.chapa_comprimento_mm=1000;o.chapa_espessura_mm=18
         faces=[tuple(f.vertices) for f in m.polygons]
@@ -796,9 +790,9 @@ class TestOperadores(unittest.TestCase):
         addon.chapas._ocupado[0] = False
         addon.chapas._havia_modal[0] = False
         bpy.context.scene.tool_settings.use_transform_correct_face_attributes = False
-        # O handler de depsgraph tambem normaliza a cada view_layer.update():
-        # fora daqui os testes chamam os orquestradores na mao, um de cada
-        # vez, para saber QUEM fez o trabalho.
+        # The depsgraph handler also normalizes at every view_layer.update(). Outside this
+        # fixture, tests call coordinators individually to identify which one
+        # performed the work.
         lista = bpy.app.handlers.depsgraph_update_post
         self._tinha_handler = addon.chapas.ao_atualizar_depsgraph in lista
         if self._tinha_handler:
@@ -814,9 +808,9 @@ class TestOperadores(unittest.TestCase):
         for x, y in zip(a, b):
             self.assertAlmostEqual(x, y, places=casas)
 
-    # ------------------------------------------------------------ cenas
+    # ------------------------------------------------------------ Scenes
     def nicho_solto(self, L=600.0, A=400.0, P=300.0, E=18.0):
-        """Duas laterais, base e tampo, SEM Empty, com adjacencia."""
+        """Create two sides, base and top with adjacency but without an Empty."""
         li = L - 2 * E
         C = bpy.context
         pecas = {
@@ -825,7 +819,7 @@ class TestOperadores(unittest.TestCase):
             'Lat_D': addon.chapas.nova_chapa('Lat_D', A, P, E, (L / 2 - E / 2, 0, A / 2),
                                       (0, 90, 0), C),
             'Base': addon.chapas.nova_chapa('Base', li, P, E, (0, 0, E / 2), (0, 0, 0), C),
-            'Tampo': addon.chapas.nova_chapa('Tampo', li, P, E, (0, 0, A - E / 2),
+            "Top": addon.chapas.nova_chapa("Top", li, P, E, (0, 0, A - E / 2),
                                       (0, 0, 0), C),
         }
         C.view_layer.update()
@@ -850,10 +844,10 @@ class TestOperadores(unittest.TestCase):
         self.assertEqual(bpy.ops.object.cabinet_folha_de_objetos(), {'FINISHED'})
         return addon.portas._grupo_portas(placa), placa
 
-    # ================================================= 1. ADJACENCIA
+    # ================================================= 1. ADJACENCY
     def test_adjacencia_fecha_o_vao_aberto_pela_escala(self):
-        # Escalar o movel por F multiplica a POSICAO das laterais mas nao a
-        # espessura delas: sobra (E/2)*(F-1) por lado entre base e lateral.
+        # Scaling furniture by F multiplies side-panel positions but not thickness,
+        # leaving (E/2)*(F-1) per side between base and side panel.
         L, E, F = 600.0, 18.0, 1.5
         C = bpy.context
         lat_e = addon.chapas.nova_chapa('Lat_E', 400, 300, E, (-(L / 2 - E / 2), 0, 200),
@@ -866,40 +860,40 @@ class TestOperadores(unittest.TestCase):
         addon.chapas.detectar_adjacencia([lat_e, lat_d, base])
         self.assertEqual(base['adj_x_pos_uid'], lat_d['chapa_uid'])
         self.assertEqual(base['adj_x_neg_uid'], lat_e['chapa_uid'])
-        # o que o S faria no grupo inteiro, em torno da origem
+        # What S would do to the entire group around the origin.
         for lat in (lat_e, lat_d):
             lat.location.x *= F
         C.view_layer.update()
         for lat in (lat_e, lat_d):
-            lat.scale = (1.0, 1.0, F)      # local Z = X do mundo: espessura
+            lat.scale = (1.0, 1.0, F)      # Local Z = world X: thickness.
         base.scale = (F, 1.0, 1.0)
         ajustadas = addon.chapas.normalizar_chapas()
         C.view_layer.update()
         self.assertEqual(set(ajustadas), {lat_e, lat_d, base})
         for obj in (lat_e, lat_d, base):
             self.assertPerto(obj.scale, (1, 1, 1))
-        # espessura imune a escala (invariante 1)
+        # Thickness is unaffected by scale, invariant 1.
         self.assertAlmostEqual(lat_d.chapa_espessura_mm, E, places=4)
         self.assertAlmostEqual(lat_d.chapa_largura_mm, 400, places=3)
-        # a base levou o vao a mais: (L-2E)*F + 2*(E/2)*(F-1)
+        # The base takes up the extra opening: (L-2E)*F + 2*(E/2)*(F-1).
         so_escala = (L - 2 * E) * F
         self.assertAlmostEqual(base.chapa_largura_mm - so_escala,
                                2 * (E / 2) * (F - 1), places=2)
         self.assertAlmostEqual(base.chapa_largura_mm, (L - E) * F - E, places=2)
-        # e encosta exatamente na face interna de cada lateral
+        # And touches each side panel's inner face exactly.
         b_lo, b_hi = addon.chapas._faixa(base, X)
         self.assertAlmostEqual(b_hi, addon.chapas._faixa(lat_d, X)[0], places=5)
         self.assertAlmostEqual(b_lo, addon.chapas._faixa(lat_e, X)[1], places=5)
 
-    # Regressao (era BUG, corrigido na 126): o eixo Y relia o centro de
-    # um matrix_world defasado e desfazia o deslocamento do eixo X.
+    # Regression, fixed in v126: Y reread the center from a stale matrix_world
+    # and undid the displacement along X.
     def test_adjacencia_fecha_dois_eixos_ao_mesmo_tempo(self):
         C = bpy.context
         prat = addon.chapas.nova_chapa('Prat', 400, 300, 18, (0, 0, 0), (0, 0, 0), C)
-        # lateral encostada em X+ (X 200..218), fundo encostado em Y+
-        # (Y 150..168); estreitos o bastante para nao encostar nas quinas
+        # Side touching X+ at X 200..218, back touching Y+ at Y 150..168;
+        # both narrow enough not to touch the corners.
         lat = addon.chapas.nova_chapa('Lat', 300, 100, 18, (209, 0, 0), (0, 90, 0), C)
-        fundo = addon.chapas.nova_chapa('Fundo', 200, 300, 18, (0, 159, 0),
+        fundo = addon.chapas.nova_chapa("Back Panel", 200, 300, 18, (0, 159, 0),
                                  (90, 0, 0), C)
         C.view_layer.update()
         addon.chapas.detectar_adjacencia([prat, lat, fundo])
@@ -910,9 +904,9 @@ class TestOperadores(unittest.TestCase):
         C.view_layer.update()
         self.assertAlmostEqual(prat.chapa_largura_mm, 500.0, places=2)
         self.assertAlmostEqual(prat.chapa_comprimento_mm, 375.0, places=2)
-        # X: -300 (lado livre cresceu) .. 200 (face da lateral)
+        # X: -300 at the extended free side .. 200 at the side-panel face.
         self.assertPerto(addon.chapas._faixa(prat, X), (-0.3, 0.2), 4)
-        # Y: -225 .. 150 (face do fundo)
+        # Y: -225 .. 150 at the back face.
         self.assertPerto(addon.chapas._faixa(prat, Y), (-0.225, 0.15), 4)
 
     def test_resolver_vizinho_prefere_uid_do_irmao_na_copia(self):
@@ -927,18 +921,18 @@ class TestOperadores(unittest.TestCase):
         base2 = self.peca(copia, 'Base')
         lat_d1 = self.peca(conj, 'Lateral_Dir')
         lat_d2 = self.peca(copia, 'Lateral_Dir')
-        # a copia herda NOME e UID do original: so' o UID + irmaos distingue
+        # A copy inherits the original's name and UID; only UID plus siblings distinguishes it.
         self.assertEqual(base2['adj_x_pos'], lat_d1.name)
         self.assertEqual(lat_d2['chapa_uid'], lat_d1['chapa_uid'])
         self.assertIs(addon.chapas._resolver_vizinho(
             base2, base2['adj_x_pos_uid'], base2['adj_x_pos']), lat_d2)
-        # sem UID, cai no nome (e acha o original)
+        # Without UID, fall back to the name and find the original.
         self.assertIs(addon.chapas._resolver_vizinho(base2, '', base2['adj_x_pos']),
                       lat_d1)
-        # o UID repetido entre modulos resolve dentro do proprio modulo
+        # A UID repeated across cabinets resolves within its own cabinet.
         self.assertIs(addon.chapas._resolver_vizinho(
             lat_d2, lat_d2['chapa_uid'], ''), lat_d2)
-        # efeito: a base da copia fecha nas laterais DELA, nao do original
+        # Effect: the copy's base meets its own sides rather than the original's.
         base2.scale = (1.3, 1.0, 1.0)
         addon.chapas.normalizar_chapas()
         bpy.context.view_layer.update()
@@ -948,8 +942,8 @@ class TestOperadores(unittest.TestCase):
                                places=2)
 
     def test_vizinho_com_uid_duplicado_no_modulo_conserva_identidade_ao_mover(self):
-        # Regressao (era BUG, corrigido na 347): a solda trocava de
-        # lateral quando uma copia com o mesmo UID ficava mais perto.
+        # Regression, fixed in v347: the weld switched sides when a same-UID copy
+        # was closer.
         conj = self.modulo()
         base = self.peca(conj, 'Base')
         lateral = self.peca(conj, 'Lateral_Dir')
@@ -960,20 +954,20 @@ class TestOperadores(unittest.TestCase):
         bpy.context.view_layer.update()
         self.assertIs(addon.chapas._resolver_vizinho(
             base, base['adj_x_pos_uid'], base['adj_x_pos']), lateral)
-        # O nome nao supera o UID nem referencia um objeto de outro modulo.
+        # The name neither overrides UID nor references an object in another cabinet.
         self.assertIs(addon.chapas._resolver_vizinho(
             base, base['adj_x_pos_uid'], base.name), copia)
 
     def test_copia_de_chapa_no_mesmo_modulo_sai_sem_as_soldas(self):
-        # Ctrl+D numa chapa (pedido do usuario): a copia levava o UID e as
-        # soldas da original e esticava atras dos vizinhos dela
+        # User request: Ctrl+D on a panel copied its UID and welds, causing it
+        # to stretch toward the original panel's neighbors.
         conj = self.modulo()
         lat, base = self.peca(conj, 'Lateral_Dir'), self.peca(conj, 'Base')
         selecionar(lat)
         self.assertEqual(bpy.ops.object.duplicate(), {'FINISHED'})
         copia = bpy.context.selected_objects[0]
-        self.assertEqual(copia['chapa_uid'], lat['chapa_uid'])     # o rastro
-        # o handler agenda o timer (em background ele nao roda sozinho)
+        self.assertEqual(copia['chapa_uid'], lat['chapa_uid'])     # The residual record.
+        # The handler schedules the timer; background mode does not run it automatically.
         addon.chapas._separar_copias_no_timer()
         self.assertNotEqual(copia['chapa_uid'], lat['chapa_uid'])
         self.assertFalse(any(copia.get('adj_' + k) for k in addon.chapas.PONTAS))
@@ -986,13 +980,13 @@ class TestOperadores(unittest.TestCase):
         selecionar(lat)
         bpy.ops.object.duplicate()
         copia = bpy.context.selected_objects[0]
-        # levada para fora, como o revestimento do exemplo do usuario
+        # Moved outside, like the cladding in the user's example.
         copia.location.x += 0.018
         bpy.context.view_layer.update()
         selecionar(copia)
         self.assertEqual(bpy.ops.object.cabinet_recalcular_ancoragem(), {'FINISHED'})
         self.assertNotEqual(copia['chapa_uid'], lat['chapa_uid'])
-        # so' quem encosta de verdade (ate' 5 mm) fica soldado
+        # Only parts actually touching within 5 mm stay welded.
         for k in addon.chapas.PONTAS:
             vizinho = addon.solda._vizinho_da_ponta(copia, k)
             if vizinho is not None:
@@ -1003,7 +997,7 @@ class TestOperadores(unittest.TestCase):
         selecionar()
         self.assertFalse(addon.solda.OBJECT_OT_recalcular_ancoragem.poll(bpy.context))
 
-    # ============================== 2. OPERADOR DETECTAR ADJACENCIA
+    # ============================== 2. DETECT ADJACENCY OPERATOR
     def test_operador_detectar_adjacencia(self):
         C = bpy.context
         lat = addon.chapas.nova_chapa('Lat', 400, 300, 18, (291, 0, 200), (0, 90, 0), C)
@@ -1014,7 +1008,7 @@ class TestOperadores(unittest.TestCase):
                          {'CANCELLED'})
         self.assertNotIn('adj_x_pos', base)
         self.assertNotIn('chapa_uid', base)
-        # um nao-chapa na selecao nao conta como segunda chapa
+        # A selected non-panel does not count as the second panel.
         intruso = caixa('Intruso', (0.1, 0.1, 0.1), (2, 0, 0))
         selecionar(base, intruso)
         self.assertEqual(bpy.ops.object.cabinet_detectar_adjacencia(),
@@ -1025,13 +1019,13 @@ class TestOperadores(unittest.TestCase):
         self.assertEqual(base['adj_x_pos'], lat.name)
         self.assertEqual(base['adj_x_pos_uid'], lat['chapa_uid'])
         self.assertAlmostEqual(base['adj_x_pos_folga'], 0.0, places=6)
-        self.assertEqual(base['adj_x_pos_face'], 0)     # face mais proxima
-        self.assertEqual(base['adj_x_neg'], '')         # nada a esquerda
+        self.assertEqual(base['adj_x_pos_face'], 0)     # Nearest face.
+        self.assertEqual(base['adj_x_neg'], '')         # Nothing to the left.
         for ponta in addon.chapas.PONTAS:
             self.assertIn('adj_' + ponta, lat)
         self.assertNotIn(addon.chapas.MARCA_CHAPA, intruso)
 
-    # ===================================== 3. ABSORVER CONJUNTOS
+    # ===================================== 3. ABSORB ASSEMBLIES
     def test_absorver_conjuntos_sem_escala_nao_mexe(self):
         conj = self.modulo()
         antes = {o.name: o.matrix_world.copy() for o in conj.children}
@@ -1045,8 +1039,8 @@ class TestOperadores(unittest.TestCase):
         self.assertPerto((conj.conj_largura_mm, conj.conj_altura_mm,
                           conj.conj_profundidade_mm), medidas, 3)
 
-    # Regressao (era BUG, corrigido na 126): S no Empty do modulo nao
-    # surtia efeito -- os filhos voltavam pelo pai ainda escalado.
+    # Regression, fixed in v126: S on the cabinet Empty had no effect;
+    # children reverted through their still-scaled parent.
     def test_absorver_conjuntos_passa_escala_do_empty_para_as_chapas(self):
         F = 1.5
         conj = self.modulo()
@@ -1054,19 +1048,19 @@ class TestOperadores(unittest.TestCase):
         base = self.peca(conj, 'Base')
         conj.scale = (F, 1.0, 1.0)
         bpy.context.view_layer.update()
-        # pre-condicao: o S no Empty de fato levou a lateral para fora
+        # Precondition: S on the Empty actually moved the side outward.
         self.assertAlmostEqual(lat_d.matrix_world.translation.x, 0.291 * F,
                                places=5)
         addon.modulos.absorver_conjuntos()
         bpy.context.view_layer.update()
         self.assertPerto(conj.scale, (1, 1, 1))
-        # as chapas ficam onde o S as deixou...
+        # Panels stay where S put them...
         self.assertAlmostEqual(lat_d.matrix_world.translation.x, 0.291 * F,
                                places=5)
         addon.chapas.normalizar_chapas()
         bpy.context.view_layer.update()
-        # ...e, normalizadas, o modulo tem a medida nova: laterais com a
-        # mesma espessura e a base fechando o vao (E/2)*(F-1)
+        # ...and after normalization, the cabinet has its new dimensions: unchanged
+        # side thickness, with the base closing the (E/2)*(F-1) gap.
         for o in addon.modulos._chapas_do_conjunto(conj):
             self.assertPerto(o.scale, (1, 1, 1))
             self.assertAlmostEqual(o.chapa_espessura_mm, 18.0, places=4)
@@ -1076,7 +1070,7 @@ class TestOperadores(unittest.TestCase):
                                places=2)
         self.assertAlmostEqual(conj.conj_altura_mm, 400.0, places=2)
 
-    # ============================================= 4. ESPESSURA
+    # ============================================= 4. THICKNESS
     def test_espessura_do_modulo_engrossa_para_dentro(self):
         conj = self.modulo()
         caixa_antes = addon.modulos.medir_conjunto(conj)
@@ -1086,20 +1080,20 @@ class TestOperadores(unittest.TestCase):
         chapas = addon.modulos._chapas_do_conjunto(conj)
         for o in chapas:
             self.assertAlmostEqual(o.chapa_espessura_mm, 30.0, places=4)
-        # contorno externo parado (medidas e caixa real de malha)
+        # Outer outline stays fixed, both dimension properties and actual mesh box.
         self.assertPerto(addon.modulos.medir_conjunto(conj), caixa_antes, 2)
         lo, hi = limites(chapas)
         self.assertPerto(lo, lo_antes, 4)
         self.assertPerto(hi, hi_antes, 4)
-        # base e tampo encolhem para caber entre as laterais mais grossas
-        for nome in ('Base', 'Tampo'):
+        # Base and top shrink to fit between thicker sides.
+        for nome in ('Base', "Top"):
             self.assertAlmostEqual(self.peca(conj, nome).chapa_largura_mm,
                                    600 - 2 * 30, places=2)
         self.assertAlmostEqual(addon.chapas._faixa(self.peca(conj, 'Lateral_Dir'), X)[0],
                                0.3 - 0.030, places=5)
         self.assertAlmostEqual(addon.chapas._faixa(self.peca(conj, 'Base'), Z)[1],
                                0.030, places=5)
-        self.assertAlmostEqual(addon.chapas._faixa(self.peca(conj, 'Tampo'), Z)[0],
+        self.assertAlmostEqual(addon.chapas._faixa(self.peca(conj, "Top"), Z)[0],
                                0.4 - 0.030, places=5)
 
     def test_espessura_de_uma_chapa_ancora_na_face_externa(self):
@@ -1112,28 +1106,28 @@ class TestOperadores(unittest.TestCase):
         lat_d.chapa_espessura_mm = 30.0
         bpy.context.view_layer.update()
         self.assertAlmostEqual(lat_d.chapa_espessura_mm, 30.0, places=4)
-        # a face no limite do modulo fica; a nova espessura vai para dentro
+        # The face on the cabinet boundary stays fixed; added thickness extends inward.
         lo, hi = addon.chapas._faixa(lat_d, X)
         self.assertAlmostEqual(hi, lado_externo, places=5)
         self.assertAlmostEqual(hi - lo, 0.030, places=5)
-        # Pedido do usuario: a base NAO se mexe (nada "gruda" na solda);
-        # a solda dela com a lateral sai da origem e fica para a regua
+        # User request: the base must not move or stick to the weld. Its side weld
+        # deviates from the origin and is left for the ruler to resolve.
         self.assertAlmostEqual(base.chapa_largura_mm, largura_base, places=4)
         self.assertAlmostEqual(addon.chapas._faixa(base, X)[1], 0.3 - 0.018, places=5)
         self.assertIn(base, {l['a'] for l in addon.solda._pontas_fora_do_lugar([lat_d])}
                       | {l['b'] for l in addon.solda._pontas_fora_do_lugar([lat_d])})
-        # a malha acompanha as props, e as outras chapas nao mudaram
+        # The mesh follows the properties; other panels remain unchanged.
         self.assertAlmostEqual(limites([lat_d])[1][0], 0.3, places=5)
         self.assertAlmostEqual(self.peca(conj, 'Lateral_Esq').chapa_espessura_mm,
                                18.0, places=4)
         self.assertAlmostEqual(addon.modulos.medir_conjunto(conj)[0], 600.0, places=2)
 
     def test_espessura_de_uma_chapa_nao_puxa_peca_afastada(self):
-        # Bug do usuario: mudar o E de UMA chapa reaplicava TODAS as soldas
-        # da cena e puxava de volta a lateral afastada de proposito
+        # User bug: changing one panel's E reapplied every scene weld,
+        # pulling back a side panel intentionally moved away.
         conj = self.modulo()
         lat_d = self.peca(conj, 'Lateral_Dir')
-        tampo = self.peca(conj, 'Tampo')
+        tampo = self.peca(conj, "Top")
         lat_d.location.x += 0.2
         bpy.context.view_layer.update()
         longe = lat_d.matrix_world.translation.copy()
@@ -1163,9 +1157,9 @@ class TestOperadores(unittest.TestCase):
         self.assertPerto(lo, lo_antes, 4)
         self.assertPerto(hi, hi_antes, 4)
         self.assertAlmostEqual(pecas['Base'].chapa_largura_mm, 540.0, places=2)
-        self.assertAlmostEqual(addon.chapas._faixa(pecas['Tampo'], Z)[0], 0.37, places=5)
+        self.assertAlmostEqual(addon.chapas._faixa(pecas["Top"], Z)[0], 0.37, places=5)
 
-    # ======================================= 5. HANDLER E TIMER
+    # ======================================= 5. HANDLER AND TIMER
     def chapa_escalada(self):
         chapa = addon.chapas.nova_chapa('Solta', 600, 400, 18, (0, 0, 0), (0, 0, 0),
                                  bpy.context)
@@ -1185,14 +1179,14 @@ class TestOperadores(unittest.TestCase):
         self.assertAlmostEqual(chapa.chapa_comprimento_mm, 200.0, places=3)
         self.assertAlmostEqual(chapa.chapa_espessura_mm, 18.0, places=4)
         self.assertFalse(addon.chapas._havia_modal[0])
-        # a malha foi refeita com a medida nova
+        # Mesh rebuilt with the new dimension.
         bpy.context.view_layer.update()
         lo, hi = limites([chapa])
         self.assertPerto((hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]),
                          (1.2, 0.2, 0.018), 5)
 
     def test_handler_termina_o_modal_que_havia(self):
-        # transicao "o modal acabou": recalcula e esquece o modal
+        # Modal-finished transition: recalculate and forget the modal operator.
         chapa = self.chapa_escalada()
         addon.chapas._havia_modal[0] = True
         addon.chapas.ao_atualizar_depsgraph(bpy.context.scene, None)
@@ -1211,9 +1205,9 @@ class TestOperadores(unittest.TestCase):
         self.assertAlmostEqual(chapa.chapa_largura_mm, 1200.0, places=3)
         self.assertAlmostEqual(chapa.chapa_espessura_mm, 18.0, places=4)
 
-    # ============================================== 6. PUXADORES
+    # ============================================== 6. HANDLES
     def test_converter_puxador_marca_so_o_que_nao_e_chapa(self):
-        chapa = addon.chapas.nova_chapa('Chapa', 600, 400, 18, (0, 0, 0), (0, 0, 0),
+        chapa = addon.chapas.nova_chapa("Panel", 600, 400, 18, (0, 0, 0), (0, 0, 0),
                                  bpy.context)
         pux = caixa('Pux', (0.02, 0.03, 0.15), (1, 0, 0))
         selecionar(chapa)
@@ -1225,11 +1219,11 @@ class TestOperadores(unittest.TestCase):
                          {'FINISHED'})
         self.assertIn(addon.chapas.MARCA_PUXADOR, pux)
         self.assertEqual(list(pux[addon.chapas.CHAVE_TRAVAS_PUXADOR]), [1, 1, 1])
-        self.assertNotIn(addon.chapas.MARCA_PUXADOR, chapa)     # chapa nao vira puxador
+        self.assertNotIn(addon.chapas.MARCA_PUXADOR, chapa)     # A panel must not become a handle.
         self.assertIn(addon.chapas.MARCA_CHAPA, chapa)
         self.assertIsNone(pux.parent)
-        self.assertEqual(limites([pux]), antes)          # medidas preservadas
-        # ja' puxador: nao aparece mais como malha solta
+        self.assertEqual(limites([pux]), antes)          # Dimensions preserved.
+        # Already a handle: no longer appears as a loose mesh.
         selecionar(pux)
         self.assertFalse(addon.importacao.OBJECT_OT_converter_puxador.poll(bpy.context))
 
@@ -1240,7 +1234,7 @@ class TestOperadores(unittest.TestCase):
         selecionar(pux, grupo, placa)
         puxadores, folhas = addon.importacao._puxadores_e_folhas_da_selecao(bpy.context)
         self.assertEqual(puxadores, [pux])
-        self.assertEqual(folhas, [placa])                # sem repetir
+        self.assertEqual(folhas, [placa])                # Without repetition.
         selecionar(pux)
         self.assertEqual(addon.importacao._puxadores_e_folhas_da_selecao(bpy.context),
                          ([pux], []))
@@ -1260,17 +1254,17 @@ class TestOperadores(unittest.TestCase):
         bpy.context.view_layer.update()
         for a, b in zip(pux.matrix_world, mundo):
             self.assertLess((a - b).length, 1e-6)
-        # inversa identidade: matrix_basis E' o referencial da folha
+        # Identity inverse: matrix_basis is the leaf reference frame.
         for a, b in zip(pux.matrix_parent_inverse, Matrix.Identity(4)):
             self.assertLess((a - b).length, 1e-6)
-        # pendurado, acompanha a folha
+        # Parented to and following the leaf.
         placa2.matrix_world = (Matrix.Translation((0, 0, 0.1))
                                @ placa2.matrix_world)
         bpy.context.view_layer.update()
         self.assertAlmostEqual(pux.matrix_world.translation.z,
                                mundo.translation.z + 0.1, places=6)
 
-    # ======================================== 7. POLL DA SELECAO
+    # ======================================== 7. SELECTION POLL
     def contexto_viewport(self):
         janela = bpy.context.window_manager.windows[0]
         area = next(a for a in janela.screen.areas if a.type == 'VIEW_3D')
@@ -1280,7 +1274,7 @@ class TestOperadores(unittest.TestCase):
     def test_poll_da_selecao_por_grupo(self):
         janela, area, regiao = self.contexto_viewport()
         outra = next(a for a in janela.screen.areas if a.type != 'VIEW_3D')
-        chapa = addon.chapas.nova_chapa('Chapa', 600, 400, 18, (0, 0, 0), (0, 0, 0),
+        chapa = addon.chapas.nova_chapa("Panel", 600, 400, 18, (0, 0, 0), (0, 0, 0),
                                  bpy.context)
         selecionar(chapa)
         poll = addon.selecao.OBJECT_OT_selecionar.poll
@@ -1288,7 +1282,7 @@ class TestOperadores(unittest.TestCase):
         try:
             with bpy.context.temp_override(window=janela, area=area,
                                            region=regiao):
-                # sem preferencias (add-on por script): opcao ligada
+                # Without preferences, as in scripted add-on loading, the option is enabled.
                 self.assertIsNone(addon.opcoes._prefs())
                 self.assertTrue(poll(bpy.context))
                 addon.opcoes._prefs = lambda: SimpleNamespace(selecao_por_grupo=False)
@@ -1304,11 +1298,11 @@ class TestOperadores(unittest.TestCase):
                     bpy.ops.object.mode_set(mode='OBJECT')
                 self.assertTrue(poll(bpy.context))
             with bpy.context.temp_override(window=janela, area=outra):
-                self.assertFalse(poll(bpy.context))     # fora da viewport
+                self.assertFalse(poll(bpy.context))     # Outside the viewport.
         finally:
             addon.opcoes._prefs = prefs_original
 
-    # ===================================== 9. MEDIDAS DO GRUPO SOLTO
+    # ===================================== 9. LOOSE GROUP DIMENSIONS
     def test_largura_do_grupo_solto_pela_cena(self):
         pecas = self.nicho_solto()
         selecionar(pecas['Base'], *pecas.values())
@@ -1320,7 +1314,7 @@ class TestOperadores(unittest.TestCase):
         s.grupo_largura_mm = 800.0
         bpy.context.view_layer.update()
         lo, hi = limites(list(pecas.values()))
-        # ancora 'min' em X: a esquerda fica, a direita anda 200 mm
+        # X anchor 'min': left stays fixed, right moves 200 mm.
         self.assertAlmostEqual(lo[0], lo_antes[0], places=5)
         self.assertAlmostEqual(hi[0], hi_antes[0] + 0.2, places=5)
         self.assertPerto(lo[1:], lo_antes[1:], 5)
@@ -1328,7 +1322,7 @@ class TestOperadores(unittest.TestCase):
         for o in pecas.values():
             self.assertAlmostEqual(o.chapa_espessura_mm, 18.0, places=4)
             self.assertPerto(o.scale, (1, 1, 1))
-        for nome in ('Base', 'Tampo'):
+        for nome in ('Base', "Top"):
             self.assertAlmostEqual(pecas[nome].chapa_largura_mm, 764.0, places=2)
         self.assertAlmostEqual(pecas['Lat_D'].chapa_largura_mm, 400.0, places=2)
         self.assertAlmostEqual(addon.chapas._faixa(pecas['Base'], X)[1],
@@ -1343,7 +1337,7 @@ class TestOperadores(unittest.TestCase):
         addon.modulos.redimensionar_grupo_da_cena(bpy.context.scene, bpy.context)
         self.assertPerto(avulsa.dimensions, (0.1, 0.1, 0.1))
 
-    # ================================== 10. FUNCOES DE APOIO
+    # ================================== 10. HELPERS
     def test_sem_modal_em_background(self):
         self.assertGreater(len(bpy.context.window_manager.windows), 0)
         self.assertFalse(addon.eventos._ha_modal_ativo())
@@ -1353,23 +1347,23 @@ class TestOperadores(unittest.TestCase):
         try:
             addon.portas._marcar_apanhando(True)
             self.assertTrue(addon.portas._apanhando_vao[0])
-            addon.portas._marcar_apanhando(True)                # idempotente
+            addon.portas._marcar_apanhando(True)                # Idempotent.
             self.assertTrue(addon.portas._apanhando_vao[0])
             rotulo, acao = addon.gaveta._botao_criar_portas(bpy.context)
-            self.assertEqual(rotulo, 'Marcando o vao... (Esc cancela)')
+            self.assertEqual(rotulo, "Marking the opening... (Esc cancels)")
             self.assertTrue(acao[2])
             addon.portas._marcar_apanhando(False)
             self.assertFalse(addon.portas._apanhando_vao[0])
             rotulo, acao = addon.gaveta._botao_criar_portas(bpy.context)
-            self.assertEqual(rotulo, 'Criar Portas')
+            self.assertEqual(rotulo, "Create Doors")
             self.assertFalse(acao[2])
         finally:
             addon.portas._apanhando_vao[0] = antes
 
     def test_modal_terminado_larga_os_objetos_da_cena(self):
-        # Crash do usuario (repetivel): Ctrl+Z enquanto a porta nascia. O
-        # wizard terminado seguia vivo (REGISTER) segurando os objetos do
-        # ima, e o undo os liberava com o Python ainda segurando.
+        # Reproducible user crash: Ctrl+Z during door creation. The finished REGISTER
+        # wizard remained alive holding snap-target objects; undo freed them while
+        # Python still retained references.
         modais = [c for c in addon.CLASSES if isinstance(c, type)
                   and issubclass(c, bpy.types.Operator) and 'modal' in c.__dict__]
         self.assertIn(addon.assistente.OBJECT_OT_apanhar_vao_portas, modais)
@@ -1391,7 +1385,7 @@ class TestOperadores(unittest.TestCase):
         modal = addon._envolver_evento(Falso.modal)
         op = Falso()
         self.assertEqual(modal(op, 'ctx', {'RUNNING_MODAL'}), {'RUNNING_MODAL'})
-        self.assertIsNotNone(op._alvos)          # rodando: nada muda
+        self.assertIsNotNone(op._alvos)          # While running, change nothing.
         modal(op, 'ctx', {'FINISHED'})
         self.assertIsNone(op._alvos)
         self.assertIsNone(op._mapa)
@@ -1431,12 +1425,12 @@ class TestOperadores(unittest.TestCase):
                 self.assertFalse([k for k in km.keymap_items
                                   if k.idname.startswith('object.cabinet')])
             for classe in addon.CLASSES:
-                # gizmo nao tem `is_registered`; o bl_rna sai no unregister
+                # Gizmos have no is_registered; bl_rna disappears on unregister.
                 self.assertNotIn('bl_rna', classe.__dict__, classe.__name__)
             self.assertFalse(hasattr(bpy.types.Scene, 'cabinet_aba'))
         finally:
             addon.register()
-        # e volta inteiro
+        # And returns intact.
         self.assertIsNotNone(addon.hud._handler_grid[0])
         self.assertIsNotNone(addon.hud._handler_hud_texto[0])
         self.assertIn(addon.chapas.ao_atualizar_depsgraph, lista)
@@ -1446,8 +1440,8 @@ class TestOperadores(unittest.TestCase):
         if not self._tinha_handler:
             lista.remove(addon.chapas.ao_atualizar_depsgraph)
 
-    # Regressao (era BUG, corrigido na 126): timers do register() sem
-    # remocao no unregister (invariante 13), inclusive um lambda.
+    # Regression, fixed in v126: register() timers, including a lambda, were not
+    # removed on unregister, violating invariant 13.
     def test_unregister_remove_timer_adiado(self):
         self.assertTrue(bpy.app.timers.is_registered(addon._registrar_bibliotecas_adiado))
         addon.unregister()
@@ -1462,4 +1456,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestOperadores)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de operadores')
+    raise RuntimeError("Operator tests failed")

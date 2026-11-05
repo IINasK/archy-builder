@@ -1,7 +1,6 @@
-"""Ferramentas de manutencao: somente pastas temporarias e --help.
+"""Maintenance tools: temporary directories and --help only.
 
-Nao executa migracoes sobre a biblioteca real nem importa DXFs do usuario.
-"""
+Do not run migrations on the real library or import the user's DXFs."""
 import ast
 import contextlib
 import importlib
@@ -52,7 +51,7 @@ class TestMigracoes(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='cabinet_migracao_')
         self.addCleanup(self.tmp.cleanup)
         self.raiz = Path(self.tmp.name)
-        self.biblioteca = self.raiz / 'biblioteca'
+        self.biblioteca = self.raiz / "library"
         self.biblioteca.mkdir()
         self.destino = self.raiz / 'preparo'
 
@@ -109,7 +108,7 @@ class TestMigracoes(unittest.TestCase):
                      contextlib.redirect_stdout(saida), self.assertRaises(SystemExit) as fim:
                     runpy.run_path(str(RAIZ.joinpath(*nome.split('.')).with_suffix('.py')), run_name='__main__')
                 self.assertEqual(fim.exception.code, 0)
-                self.assertIn('--destino', saida.getvalue())
+                self.assertIn('--destination', saida.getvalue())
         finally:
             diag.validar = anterior
         self.assertEqual(list(self.biblioteca.iterdir()), [])
@@ -127,18 +126,18 @@ class TestMigracoes(unittest.TestCase):
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding='utf-8', errors='replace', timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout)
-                self.assertIn('--destino', result.stdout)
+                self.assertIn('--destination', result.stdout)
                 self.assertNotIn('Traceback', result.stdout)
         self.assertEqual(list(self.raiz.iterdir()), [self.biblioteca])
 
     def test_source_paths_are_explicit_before_preparing(self):
         scripts = (
             ('library/import_dxf_library.py', []),
-            ('library/integrate_dxf_library.py', ['--destino', str(self.destino)]),
-            ('migrations/adjust_doors.py', ['--destino', str(self.destino)]),
-            ('migrations/audit_and_repair_integration.py', ['--destino', str(self.destino)]),
-            ('migrations/refine_corners.py', ['--destino', str(self.destino)]),
-            ('migrations/repair_library_internals.py', ['--destino', str(self.destino)]),
+            ('library/integrate_dxf_library.py', ['--destination', str(self.destino)]),
+            ('migrations/adjust_doors.py', ['--destination', str(self.destino)]),
+            ('migrations/audit_and_repair_integration.py', ['--destination', str(self.destino)]),
+            ('migrations/refine_corners.py', ['--destination', str(self.destino)]),
+            ('migrations/repair_library_internals.py', ['--destination', str(self.destino)]),
         )
         for relative, arguments in scripts:
             errors = io.StringIO()
@@ -152,15 +151,15 @@ class TestMigracoes(unittest.TestCase):
 
     def test_hardware_resources_stay_in_addon_after_relocation(self):
         resources = (
-            ('hardware/extract_hinge.py', 'DESTINO', 'ferragens'),
-            ('hardware/extract_hinge_wireframe.py', 'JSON', 'ferragens/dobradica_reta.json'),
-            ('hardware/extract_profile_handle.py', 'DESTINO', 'ferragens'),
-            ('hardware/extract_edge_handle.py', 'DESTINO', 'ferragens'),
-            ('hardware/extract_light_track.py', 'DESTINO', 'ferragens/trilho_moldura.json'),
-            ('hardware/extract_frame_track.py', 'DESTINO', 'ferragens/trilho_moldura.json'),
-            ('hardware/generate_screw.py', 'DESTINO', 'ferragens'),
-            ('hardware/replace_hinge_screws.py', 'FERRAGENS', 'ferragens'),
-            ('library/generate_default_photos.py', 'PASTA', 'fotos'),
+            ('hardware/extract_hinge.py', 'DESTINO', 'assets/hardware'),
+            ('hardware/extract_hinge_wireframe.py', 'JSON', 'assets/hardware/dobradica_reta.json'),
+            ('hardware/extract_profile_handle.py', 'DESTINO', 'assets/hardware'),
+            ('hardware/extract_edge_handle.py', 'DESTINO', 'assets/hardware'),
+            ('hardware/extract_light_track.py', 'DESTINO', 'assets/hardware/trilho_moldura.json'),
+            ('hardware/extract_frame_track.py', 'DESTINO', 'assets/hardware/trilho_moldura.json'),
+            ('hardware/generate_screw.py', 'DESTINO', 'assets/hardware'),
+            ('hardware/replace_hinge_screws.py', 'FERRAGENS', 'assets/hardware'),
+            ('library/generate_default_photos.py', 'PASTA', 'assets/previews'),
         )
         for relative, variable, expected in resources:
             source = RAIZ / 'tools' / relative
@@ -211,8 +210,8 @@ class TestMigracoes(unittest.TestCase):
 
     def preparar_retiradas(self):
         mod=importlib.import_module('tools.migrations.consolidate_library_variants')
-        itens=[dict(arquivo=n+'.blend',nome=n,tipo='modulo',n1='Armarios',n2='Cozinha',n3='Diagonais',
-                    niveis=['Armarios','Cozinha','Inferiores','Diagonais'],extra='preservado')
+        itens=[dict(arquivo=n+'.blend',nome=n,tipo='modulo',n1="Cabinets",n2="Kitchen",n3="Diagonals",
+                    niveis=["Cabinets","Kitchen","Base Cabinets","Diagonals"],extra='preservado')
                for n in ('Curvo','RetoEsquerdo','RetoDireito')]
         for i in itens:
             for extensao in ('.blend','.png'):
@@ -259,4 +258,4 @@ if __name__ == '__main__':
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nos testes das migracoes')
+        raise RuntimeError("Migration tests failed")

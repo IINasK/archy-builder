@@ -1,139 +1,79 @@
-# Drag-and-drop da biblioteca com preview espacial
+# Library drag-and-drop with spatial preview
 
-## Estado
+## Status and objective
 
-Implementado na versao 56.0.0. Este documento descreve o contrato de
-comportamento e as decisoes que precisam ser preservadas em manutencoes.
+Implemented in 56.0.0. This historical document records the behavior and decisions
+to preserve during maintenance. Move a library preset from the N-panel into the
+viewport with an anchor crosshair and physical-volume wireframe before creating
+the final instance.
 
-## Objetivo
+## UI entry points
 
-Permitir que um preset da biblioteca seja levado do painel N para a viewport
-com feedback espacial antes de criar a instancia definitiva. Durante a
-operacao, o usuario ve uma mira no ponto de ancoragem e uma caixa wireframe
-com o volume fisico do preset.
+1. The preset-name button starts placement: click enables preview and the next viewport click inserts; press/drag attempts placement on viewport release. The separate arrow retains immediate insertion at the 3D cursor.
+2. Trigger: `LEFTMOUSE` + `PRESS` in `User Interface`; a 6 px threshold distinguishes drag from click. The historical proposal registered `head=True` to precede other entries.
+3. Read `context.button_operator`; accept only `object.cabinet_inserir_preset`.
+4. Drags over fields, pencil, lock and other controls return `PASS_THROUGH`, preserving sliders and Blender interactions.
+5. `UILayout.template_icon` is the only widget displaying an enlarged preview. It exposes neither operator nor drag event in Python; real image dragging belongs to Asset Shelf.
 
-## Entradas de interface
+## Operator lifecycle
 
-1. O botao com o nome do preset chama o posicionador:
-   - clique simples: ativa o preview; o clique seguinte na viewport insere;
-   - pressionar e arrastar: tenta iniciar o preview e soltar na viewport.
-   - a seta separada preserva a insercao imediata no cursor 3D.
-2. O disparo usa `LEFTMOUSE` + `PRESS` no keymap `User Interface`. O modal
-   aplica internamente um limiar de 6 px para separar clique de arraste.
-   Registrar o item com `head=True`, evitando bloqueio por outro item.
-3. O operador identifica o botao sob o cursor por
-   `context.button_operator` e aceita somente
-   `object.cabinet_inserir_preset`.
-4. Arrastes sobre controles, lapis, cadeado e outros botoes retornam
-   `PASS_THROUGH`. Isso preserva sliders e demais interacoes do Blender.
-5. A imagem do painel usa `UILayout.template_icon`, unico widget que exibe
-   o preview realmente ampliado. Ele nao expoe operador nem evento de drag
-   na API Python; o drag verdadeiro pela imagem pertence a Asset Shelf.
+Capture selection, active object, existing collections, the same `VIEW_3D` area's
+`WINDOW`/`region_3d`, and region pointer to prevent drawing elsewhere.
 
-## Ciclo de vida do operador
+Stage with `inserir_preset(..., destino=(0, 0, 0))`; identify new objects, roots
+and collections. Update the dependency graph and measure before hiding. Save
+`hide_viewport` and `hide_get()` states and hide imported objects while placement
+is undecided.
 
-### 1. Captura do estado
+For `TIPOS_COM_VOLUME`, use `_cantos_avaliados` to include transforms/modifiers,
+compute world min/max, eight corners and twelve edges. Anchor at the bottom-face
+center `((min_x + max_x) / 2, (min_y + max_y) / 2, min_z)`. Never visually
+normalize the box: it represents actual preset dimensions in Blender units.
 
-- Guardar objetos selecionados e objeto ativo.
-- Guardar o conjunto de colecoes existentes antes da importacao.
-- Localizar a regiao `WINDOW` e `region_3d` da mesma area `VIEW_3D`.
-- Guardar o ponteiro da regiao para impedir desenho em outra viewport.
+Convert global event coordinates to region coordinates; obtain ray origin and
+direction using `view3d_utils`. Try evaluated `scene.ray_cast`, ignoring staging
+objects. On hit use its point/normal; otherwise intersect an XY plane at the 3D
+cursor's Z, allowing placement in empty viewport space. Translate roots only;
+children follow. Apply the same displacement to the eight GPU corners.
 
-### 2. Staging
+Register `SpaceView3D.draw_handler_add` at `POST_VIEW`. Draw a green box using
+`LINES`/`UNIFORM_COLOR`; the crosshair has two tangent axes and one surface-normal
+axis. Yellow indicates a surface hit, white the fallback plane. Draw only in the
+originating `WINDOW`. Remove the handler on confirmation, cancellation or error.
 
-- Importar o preset na origem por `inserir_preset(..., destino=(0, 0, 0))`.
-- Identificar objetos novos, raizes e colecoes novas.
-- Medir antes de ocultar, depois de atualizar o dependency graph.
-- Salvar o estado anterior de `hide_viewport` e `hide_get()`.
-- Ocultar todos os objetos importados. Nenhuma geometria definitiva deve
-  aparecer enquanto o usuario ainda decide a posicao.
+## Completion and cleanup
 
-### 3. Caixa de dimensoes
+A real drag confirms on left RELEASE; explicit operator invocation accepts the
+next PRESS. Require a valid target inside the viewport. Remove the handler,
+restore imported visibility, select imports and make a root active. The operator's
+Undo covers the result.
 
-- Considerar todos os objetos de `TIPOS_COM_VOLUME`.
-- Usar `_cantos_avaliados` para incluir transformacoes e modificadores.
-- Calcular minimo e maximo em espaco de mundo.
-- Construir oito cantos e doze arestas da caixa.
-- Usar como ancora o centro da face inferior:
-  `((min_x + max_x) / 2, (min_y + max_y) / 2, min_z)`.
-- A caixa nunca e' normalizada visualmente: seus lados correspondem ao
-  tamanho fisico real do preset em unidades do Blender.
+Right-click, Esc, window deactivation, invalid target or release outside the
+viewport cancels. Remove handler/status text, imported objects with
+`do_unlink=True` and newly created collections; restore original selection/active
+object. Leave no object, wireframe, crosshair or collection behind.
 
-### 4. Posicao sob o cursor
+Initialize object/collection lists before importing so partial exceptions can be
+cleaned. If no volumetric geometry exists, fall back to root positions; cancel
+if those are absent too. Log raycast failures and use the cursor plane without
+ending the modal. GPU failures must not kill placement. Never remove collections
+that existed before the drag.
 
-- Converter coordenadas globais do evento em coordenadas da regiao.
-- Produzir origem e direcao com `view3d_utils`.
-- Tentar primeiro `scene.ray_cast` com o dependency graph avaliado.
-- Ignorar qualquer objeto pertencente ao staging.
-- Se houver acerto, usar ponto e normal retornados pelo raycast.
-- Se nao houver acerto, intersectar o raio com um plano XY na altura Z do
-  cursor 3D. Esse fallback permite soltar em area vazia da viewport.
-- Transladar somente os objetos raiz. Filhos acompanham a hierarquia.
-- Aplicar o mesmo deslocamento aos oito cantos usados pelo desenho GPU.
+## Acceptance criteria
 
-### 5. Desenho GPU
+1. Dragging a name onto a face shows the yellow crosshair exactly under the pointer.
+2. The green box follows the pointer with unchanged physical dimensions.
+3. Empty-space placement uses the 3D cursor's horizontal plane.
+4. Releasing inside reveals/selects the instance; releasing outside creates nothing.
+5. Right-click/Esc immediately remove staging and preview.
+6. No handler/status text survives completion.
+7. Single-click starts placement; the arrow inserts directly at the cursor.
+8. Sliders, pencil and lock still work.
+9. Registration/unregistration succeed in Blender 4.2 and 5.2.
 
-- Registrar um `SpaceView3D.draw_handler_add` em `POST_VIEW`.
-- Desenhar a caixa verde com primitiva `LINES` e shader `UNIFORM_COLOR`.
-- Desenhar a mira com tres eixos centrados no alvo.
-- Orientar dois eixos no plano tangente da superficie e o terceiro na
-  normal do acerto.
-- Usar amarelo quando existe superficie e branco no plano de fallback.
-- Desenhar somente na regiao `WINDOW` que iniciou o operador.
-- Remover o draw handler em toda saida: confirmar, cancelar ou erro.
+## Recorded validation
 
-## Resolucao
-
-### Confirmacao
-
-- Ocorre no `RELEASE` do botao esquerdo para um drag real.
-- Para chamada explicita do operador, aceita o proximo `PRESS`.
-- Exige cursor dentro da regiao da viewport e alvo valido.
-- Remove o handler, restaura a visibilidade original do preset, seleciona
-  os objetos importados e define uma raiz como objeto ativo.
-- O resultado fica coberto pelo Undo do operador.
-
-### Cancelamento
-
-- Gatilhos: botao direito, Esc, desativacao da janela, alvo invalido ou
-  soltura fora da viewport.
-- Remove handler e texto de status.
-- Remove todos os objetos importados com `do_unlink=True`.
-- Remove as colecoes criadas pela importacao.
-- Restaura selecao e objeto ativo anteriores.
-- Nao deixa objeto, caixa, mira ou colecao residual.
-
-## Falhas e limpeza
-
-- Inicializar listas de objetos e colecoes antes de importar. Assim uma
-  excecao parcial ainda pode ser limpa.
-- Se o preset nao trouxer geometria com volume, aceitar posicoes das raizes
-  como ultimo recurso; se nem isso existir, cancelar.
-- Falhas do raycast nao encerram o modal: registrar no console e usar o
-  plano do cursor.
-- Falha de desenho GPU nao pode derrubar o operador modal.
-- Nunca remover colecoes que existiam antes do inicio do drag.
-
-## Criterios de aceite
-
-1. Arrastar o nome para uma face mostra mira amarela exatamente sob o cursor.
-2. A caixa verde acompanha o cursor e preserva as dimensoes do preset.
-3. Mover para area sem geometria usa o plano horizontal do cursor 3D.
-4. Soltar dentro da viewport revela e seleciona a instancia final.
-5. Soltar fora da viewport nao cria nada.
-6. Botao direito e Esc removem imediatamente preview e staging.
-7. Nenhum handler ou texto de status permanece apos terminar.
-8. Clique simples no nome ativa o posicionamento; a seta insere diretamente
-   no cursor 3D.
-9. Sliders, lapis e cadeado continuam operando normalmente.
-10. O add-on registra e remove sem erro no Blender 4.2 e 5.2.
-
-## Validacoes executadas
-
-- Registro e `unregister` no Blender 4.2.1 LTS.
-- Registro e `unregister` no Blender 5.2.1 LTS.
-- Preset de teste de 600 x 400 x 300 mm produz bbox de
-  0.6 x 0.4 x 0.3 m nas duas versoes.
-- Ocultacao e restauracao do staging verificadas nas duas versoes.
-- Remocao do staging no cancelamento verificada nas duas versoes.
-- Shader `UNIFORM_COLOR` verificado na sessao grafica do Blender 5.2.1.
+- Registration/unregister in Blender 4.2.1 LTS and 5.2.1 LTS.
+- A 600 x 400 x 300 mm test preset yielded a 0.6 x 0.4 x 0.3 m bbox in both.
+- Staging hide/restore and cancellation removal checked in both versions.
+- `UNIFORM_COLOR` checked in a Blender 5.2.1 graphical session.

@@ -1,12 +1,12 @@
-"""Formas de PLANTA: o modulo que nao e' caixa -- canto em L (RECORTE),
-diagonal (CHANFRO) -- lido da propria geometria e editado
-pela HUD: a profundidade de CADA lado (P1/P2), a diagonal R e as medidas
-totais (L/P) sem deformar o canto.
+"""PLAN shapes for nonbox cabinets: L corners (RECORTE), diagonals
+(CHANFRO), recognized from actual geometry and edited through the HUD:
+each side's depth (P1/P2), diagonal R and total L/P without distorting
+the corner.
 
-A forma nao fica gravada: sai das pecas a cada mudanca (como as medidas
-L/A/P). Cada quina da caixa e' medida andando da quina para dentro ate'
-a primeira peca: recuo constante = recorte, linear = diagonal, que cai
-rapido = contorno livre por segmentos retos.
+Shapes are derived on every change, not persisted, like L/A/P. Measure
+each box corner inward to the first part: constant setback means a
+notch, linear means a diagonal, rapidly decreasing means a free outline
+of straight segments.
 """
 
 import math
@@ -18,47 +18,47 @@ import bmesh
 from mathutils import Matrix, Vector
 from mathutils.geometry import convex_hull_2d, delaunay_2d_cdt
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _portas = _prateleiras = None
 _gavetas = None
 _frentes = None
 
-# Recuo menor que isto numa quina e' folga de porta/fita, nao forma
+# Smaller corner setbacks are door/edge-band gaps, not shape features.
 TOL_FORMA_MM = 30.0
-# Recorte em L: o braco que falta. Menor que isto e' a quina de tras
-# aberta (passagem de cano), nao muda o desenho nem ganha medida
+# Missing L-shaped arm: smaller notches are rear pipe openings,
+# which do not change the outline or gain a dimension.
 RECORTE_MINIMO_MM = 100.0
-# Faixa em volta da face interna que anda junto com ela: porta,
-# travessa e a ponta das pecas que chegam nela
+# Band around the moving inner face: the door, crosspiece
+# and ends of parts meeting it move together.
 FAIXA_MM = 100.0
-# Peca cortada pelo plano do esticar mais fina que isto anda inteira
+# Parts thinner than this across the stretch plane move rigidly.
 RIGIDA_MM = 60.0
-# Na diagonal, o que esta' ate' esta distancia do lado anda inteiro (a
-# lateral nao entorta); dali ate' a outra ponta, cada vez menos
+# For diagonals, geometry this close to the side moves intact so the
+# side cannot bend; displacement decreases toward the opposite end.
 MARGEM_CHANFRO_MM = 30.0
-MENOR_LADO_MM = 50.0      # nenhuma edicao deixa um lado menor que isto
-# A diagonal do lado inteiro: sobra ate' isto = a quina AFIADA (vai ate'
-# ela); mais = a ponta acaba na ESPESSURA de uma chapa (a prateleira da
-# cantoneira encosta na face de dentro da lateral), e o trecho que sobra,
-# ate' ESPESSURA_PONTA_MM, e' so' contorno (a ponta da chapa, sem medida)
+MENOR_LADO_MM = 50.0      # No edit may make a side smaller than this.
+# Full-side diagonal: a remainder within this threshold means a SHARP
+# corner, reaching it; a larger remainder ends at panel THICKNESS
+# (corner shelf touching the side's inner face). Up to ESPESSURA_PONTA_MM,
+# the remaining panel tip is outline only, without a dimension.
 PONTA_AFIADA_MM = 3.0
 ESPESSURA_PONTA_MM = 40.0
-# Peca curva do DXF (porta/painel em arco): nao e' chapa, mas deforma
-# junto com a forma (gravado no .blend)
+# DXF curved part (arched door/panel): not a panel, but deforms
+# with the shape; marker saved in .blend.
 MARCA_CURVA = "eh_peca_curva"
 
-# Quinas da caixa em ordem anti-horaria: (sinal em X, sinal em Y)
+# Box corners counterclockwise: (X sign, Y sign).
 QUINAS = ((-1, -1), (1, -1), (1, 1), (-1, 1))
 
-_cache = {}     # nome do modulo/chapa -> (assinatura, {plano: forma})
+_cache = {}     # Cabinet/panel name -> (signature, {plane: shape}).
 CHAVE_EDICAO = 'forma_edicao'
 VERSAO_REFERENCIA = 7
 ATR_ANGULO = 'cabinet_forma_angulo'
 
 
 def _base_do_plano(plano):
-    # Bases direitas: o mesmo solver 2D serve a planta e as elevacoes.
+    # Right-handed bases let the same 2D solver handle plan and elevations.
     eixos = {'XY': ((1,0,0),(0,1,0),(0,0,1)),
              'XZ': ((1,0,0),(0,0,1),(0,-1,0)),
              'YZ': ((0,1,0),(0,0,1),(1,0,0))}
@@ -84,8 +84,8 @@ def _pecas_da_edicao(conj):
 
 
 def _digital_edicao(conj):
-    """Mudanca manual invalida a referencia; mover/abrir o movel nao.
-    foreach_get copia a malha pelo Blender, sem uma leitura RNA por co.
+    """Manual edits invalidate the reference; cabinet movement/opening does not.
+    foreach_get copies the mesh natively without a separate RNA read per co.
     """
     registros=[]
     inv = matriz_do_modulo(conj).inverted()
@@ -108,16 +108,16 @@ def _digital_edicao(conj):
                 m=(tuple(round(v,5) for linha in inv @ o.matrix_world for v in linha)
                    if chave!='porta_parametros' else ())
                 parametros=p.to_dict()
-                # Curso medido e' cache de movimento, nao geometria.
-                # Recalcula-lo ao abrir nao descarta a referencia do resize.
+                # Measured travel is a motion cache, not geometry.
+                # Recalculating it during opening must not discard the resize reference.
                 if chave=='porta_parametros':parametros.pop('abertura_limite_graus',None)
                 h.update(repr((chave,m,parametros)).encode())
                 if chave=='porta_parametros':
                     vao=o.get(_portas.CHAVE_VAO_ORIENTADO)
                     h.update(repr(vao.to_dict() if vao else None).encode())
                 registros.append(h.digest())
-    # Append pode reordenar filhos sem mudar a geometria. A assinatura
-    # e' de um conjunto de pecas/sistemas, nao da ordem do Outliner.
+    # Append can reorder children without changing geometry. The signature
+    # describes a set of parts/systems rather than Outliner order.
     return hashlib.sha1(b''.join(sorted(registros))).hexdigest()
 
 
@@ -129,12 +129,12 @@ def concluir_edicao(conj):
 
 
 def _preparar_edicao(conj, chave, lado, plano='XY'):
-    """Editar uma medida sempre parte da MESMA geometria de referencia.
-    Copias nativas de Mesh conservam topologia, atributos, UV e recortes;
-    a referencia acompanha undo, salvar/anexar e duplicar o modulo.
+    """Every dimension edit starts from the SAME reference geometry. Native
+    Mesh copies retain topology, attributes, UVs and cutouts; the reference
+    follows undo, saving/appending and cabinet duplication.
     """
-    # A identidade semantica deve preceder a deformacao e a copia de
-    # referencia; depois dela o guia legado ja' pode estar em outro plano.
+    # Establish semantic identity before deformation and reference copying;
+    # afterwards, the legacy guide may already lie on another plane.
     for o in conj.children:
         if o.type=='MESH' and _chapas.MARCA_FUNDO in o:
             _chapas.absorver_malha_editada(o)
@@ -150,8 +150,8 @@ def _preparar_edicao(conj, chave, lado, plano='XY'):
             and all(isinstance(d.get('objeto'), bpy.types.Object)
                     and isinstance(d.get('malha'), bpy.types.Mesh)
                     for d in estado['pecas'].values())):
-        # A origem mudou com a medida; apenas movimento EXTERNO deve
-        # transformar a referencia original.
+        # Dimension changes move the origin; only EXTERNAL movement should
+        # transform the original reference.
         delta = conj.matrix_world @ _matriz_gravada(estado['fim']).inverted()
         mundo = delta @ _matriz_gravada(estado['inicio'])
         ocupado=_chapas._ocupado[0]
@@ -167,7 +167,7 @@ def _preparar_edicao(conj, chave, lado, plano='XY'):
                 velha = o.data
                 _frentes.copiar_rotulos(velha,d['malha'])
                 if chave[0]=='JUNTA' and velha.users==1:
-                    # A edicao de angulo conserva o ID usado pelo undo.
+                    # Angle editing retains the ID used by undo.
                     bm=bmesh.new()
                     try:bm.from_mesh(d['malha']);bm.to_mesh(velha)
                     finally:bm.free()
@@ -202,8 +202,8 @@ def _preparar_edicao(conj, chave, lado, plano='XY'):
                             if chave.startswith('porta_vao_'):del o[chave]
                         for chave,valor in d['porta'].items():
                             o[chave]=_portas._copiar_parametros(valor)
-            # Restaurar pais antes das matrizes mundiais dos filhos.
-            # A prateleira antes ganhava DUAS vezes a compensacao da origem.
+            # Restore parents before children's world matrices.
+            # Shelves previously received origin compensation TWICE.
             bpy.context.view_layer.update()
             for d in estado['pecas'].values():
                 d['objeto'].matrix_world=mundo @ _matriz_gravada(d['matriz'])
@@ -214,7 +214,7 @@ def _preparar_edicao(conj, chave, lado, plano='XY'):
         return
     if chave[0]=='ANG':
         _marcar_aresta_angular(conj,chave[1],plano)
-    # Referencias descartadas nao ficam acumulando malhas orfas.
+    # Discarded references must not accumulate orphan meshes.
     antigas = [d.get('malha') for d in estado['pecas'].values()] if estado else []
     inv = matriz_do_modulo(conj).inverted()
     pecas = {str(i): dict(objeto=o, malha=o.data.copy(),
@@ -256,14 +256,14 @@ def esquecer():
 
 
 def matriz_do_modulo(conj, plano='XY'):
-    # Quaternion perde a reflexao e restaurava a referencia sem o Mirror.
+    # Quaternion conversion loses reflection and restored references without Mirror.
     matriz=conj.matrix_world.to_3x3().normalized().to_4x4()
     matriz.translation=conj.matrix_world.translation
     return matriz @ _base_do_plano(plano)
 
 
 def _pecas(conj):
-    """Chapas da caixa e pecas curvas: o que desenha a planta."""
+    """Body panels and curved parts contributing to the plan outline."""
     if conj.type=='MESH' and _chapas.MARCA_CHAPA in conj:return [conj]
     return [o for o in conj.children_recursive if o.type == 'MESH' and (
         o.get('porta_curva_modelada') or _prateleiras.MARCA_PRATELEIRA in o or (o.parent == conj and (
@@ -281,8 +281,8 @@ def _assinatura(conj, pecas):
 
 
 def _marcar_aresta_angular(conj,k,plano='XY'):
-    """Aresta nativa conserva identidade quando o chanfro fica reto.
-    Nao se grava indice: subdividir/editar transporta o atributo EDGE.
+    """A native edge retains identity when a chamfer becomes straight.
+    Store no index: subdivision/editing transports its EDGE attribute.
     """
     forma=forma_do_modulo(conj,plano)
     if forma is None or forma['cantos'][k] is None:return
@@ -302,14 +302,14 @@ def _marcar_aresta_angular(conj,k,plano='XY'):
 
 
 def _planta(conj, pecas, plano='XY'):
-    """(poligonos 2D, lo, hi) em mm no referencial do modulo. Chapa
-    deitada entra com o contorno de verdade (recorte, curva); o resto,
-    com o casco convexo da projecao."""
+    """(2D polygons, lo, hi) in cabinet-space mm. Horizontal panels use
+    their actual notched/curved outline; other parts use the convex
+    hull of their projection."""
     inversa = matriz_do_modulo(conj,plano).inverted()
     poligonos, todos, deitadas, bordas, marcadas = [], [], [], [], []
     for o in pecas:
-        # A frente ja' integrada acompanha a carcaca. Sua espessura e a
-        # folga nao podem aumentar a planta usada para medir o armario.
+        # Integrated fronts follow the body. Their thickness and clearance
+        # must not enlarge the plan used to measure the cabinet.
         if o.get('porta_curva_modelada') and o.parent and o.parent.get('porta_perfil_corpo'):
             continue
         fechado=_portas._ferragens._matriz_fechada(o) if o.get('porta_curva_modelada') else o.matrix_world
@@ -327,8 +327,8 @@ def _planta(conj, pecas, plano='XY'):
             faces = [[(pts[i].x, pts[i].y) for i in f.vertices]
                      for f in o.data.polygons if f.normal.z > 0.99]
             deitadas += faces
-            # Identidade so' durante a extracao. O cache guarda vetores,
-            # nunca indices; triangulos coplanares nao criam lados falsos.
+            # Identity only during extraction. The cache stores vectors, never
+            # indices; coplanar triangles must not create false sides.
             contagens={}
             for face in o.data.polygons:
                 if face.normal.z<=.99:continue
@@ -356,8 +356,8 @@ def _planta(conj, pecas, plano='XY'):
 
 
 def _cortes(poligonos, eixo, valor):
-    """Onde a reta (coordenada `eixo` = valor) cruza as bordas: a OUTRA
-    coordenada de cada cruzamento."""
+    """Where the line with coordinate `eixo` = value crosses edges:
+    return the OTHER coordinate at each crossing."""
     outro = 1 - eixo
     saida = []
     for pol in poligonos:
@@ -375,8 +375,8 @@ def _cortes(poligonos, eixo, valor):
 
 
 def _recuo(poligonos, lo, hi, k, eixo, t):
-    """Distancia (mm) da quina k ate' a primeira peca andando ao longo
-    de `eixo`, numa reta a `t` mm do lado da caixa."""
+    """Distance in mm from corner k to the first part along `eixo`,
+    on a line `t` mm from the box side."""
     sx, sy = QUINAS[k]
     if eixo == 0:
         y = hi.y - t if sy > 0 else lo.y + t
@@ -392,9 +392,9 @@ def _recuo(poligonos, lo, hi, k, eixo, t):
 
 
 def _feicao(poligonos, lo, hi, k, tolerancia=TOL_FORMA_MM):
-    """O que falta na quina k: None ou {'tipo', 'a' (perna em X), 'b'
-    (perna em Y)}. Na metade da perna b o recuo e' ~a no recorte, ~a/2
-    na diagonal. Outros perfis conservam o contorno livre da malha."""
+    """Missing corner k: None or {'tipo', 'a' (X leg), 'b' (Y leg)}.
+    Halfway along b, setback is ~a for a notch, ~a/2 for a diagonal.
+    Other profiles retain the mesh's free outline."""
     amostra=min(1.0,tolerancia/4)
     a = _recuo(poligonos, lo, hi, k, 0, amostra)
     b = _recuo(poligonos, lo, hi, k, 1, amostra)
@@ -404,10 +404,10 @@ def _feicao(poligonos, lo, hi, k, tolerancia=TOL_FORMA_MM):
         return None
     meio = _recuo(poligonos, lo, hi, k, 0, b / 2.0)
     if inteira_a or inteira_b:
-        # a DIAGONAL que toma o lado inteiro (cantoneira, modulo de ponta:
-        # pedido do usuario, a linha branca seguia a caixa) -- ou os dois
-        # (modulo triangular): so' chanfro, com a perna do lado inteiro ate'
-        # a outra quina se ela for afiada
+        # A DIAGONAL spanning a whole side (corner/end cabinet, where the white
+        # line previously followed the box) or both sides (triangular cabinet):
+        # chamfer only, with its full-side leg reaching the other corner
+        # when that corner is sharp.
         if not 0.3 * a <= meio <= 0.75 * a:
             return None
         if inteira_a and largura - a <= PONTA_AFIADA_MM:
@@ -416,15 +416,15 @@ def _feicao(poligonos, lo, hi, k, tolerancia=TOL_FORMA_MM):
             b = fundo
         return {'tipo': 'CHANFRO', 'a': a, 'b': b}
     if meio > 0.75 * a:
-        # o fundo do recorte (porta, travessa), nao a ponta do outro braco
+        # Notch rear (door/crosspiece), not the other arm's tip.
         b = _recuo(poligonos, lo, hi, k, 1, a / 2.0)
         if min(meio, b) < RECORTE_MINIMO_MM:
             return None
         return {'tipo': 'RECORTE', 'a': meio, 'b': b}
     if meio >= 0.3 * a:
         return {'tipo': 'CHANFRO', 'a': a, 'b': b}
-    # Perfis arredondados conservam as arestas modeladas. Nao inferir
-    # circulos nem oferecer deformacao radial a partir de amostras.
+    # Rounded profiles retain modeled edges. Do not infer circles
+    # or offer radial deformation from sampled points.
     return None
 
 
@@ -448,9 +448,9 @@ def _perfil_contem_pecas(forma,poligonos,margem):
 
 
 def _detectar_planos_curvos(conj,pecas):
-    """So' bordas das faces estruturais; porta/prateleira nao define caixa.
-    Contagens eliminam diagonais da triangulacao sem alterar a Mesh.
-    A projecao por plano conserva uma inclinacao real na outra elevacao.
+    """Structural-face edges only: doors/shelves do not define the body.
+    Counts eliminate triangulation diagonals without changing Mesh.
+    Per-plane projection preserves actual tilt in the other elevation.
     """
     if conj.type=='MESH':return ()
     inv=matriz_do_modulo(conj).inverted();curvos=set()
@@ -470,8 +470,8 @@ def _detectar_planos_curvos(conj,pecas):
         normal=m.to_3x3().col[2].normalized()
         principal=max(range(3),key=lambda e:abs(normal[e]))
         for plano,eixos,fora in (('XY',(0,1),2),('XZ',(0,2),1),('YZ',(1,2),0)):
-            # Uma tampa inclinada continua sendo tampa: suas projecoes
-            # curvas nao tornam as duas elevacoes arredondadas tambem.
+            # An inclined cap remains a cap: its curved projections must not
+            # make both elevations rounded too.
             if plano in curvos or fora!=principal:continue
             segmentos=[tuple(Vector((pts[i][eixos[0]],pts[i][eixos[1]],0)) for i in par) for par in bordas]
             extensao=max(max(p[e] for p in pts.values())-min(p[e] for p in pts.values()) for e in eixos)
@@ -486,8 +486,8 @@ def planos_curvos(conj):
 
 
 def forma_do_modulo(conj, plano='XY'):
-    """{'lo', 'hi' (mm, referencial do modulo), 'cantos': [4 x feicao]}
-    ou None para caixa e contorno livre (arestas nativas da blocagem)."""
+    """Return {'lo', 'hi' (cabinet-space mm), 'cantos': [4 x feature]},
+    or None for boxes/free outlines using native blockout edges."""
     if conj is None or not (_chapas.MARCA_CONJUNTO in conj or
             (conj.type=='MESH' and _chapas.MARCA_CHAPA in conj)):
         return None
@@ -517,9 +517,9 @@ def forma_do_modulo(conj, plano='XY'):
                 if 'pontas' not in f:cantos[k]=None
         if any(cantos):
             forma = {'lo': lo, 'hi': hi, 'cantos': cantos, 'plano': plano}
-            # Uma aresta inclinada nao basta: outras chapas podem ter
-            # ficado fora do perfil depois de uma edicao parcial por Tab.
-            # Nao recortar a madeira pelo modelo idealizado da sua vizinha.
+            # One tilted edge is insufficient: other panels may lie outside
+            # the profile after partial Tab editing.
+            # Never trim wood to an idealized model of its neighbor.
             margem=max((getattr(o,'chapa_espessura_mm',0.) for o in pecas),default=0.)+.1
             if forma is not None and not _perfil_contem_pecas(forma,poligonos,margem):forma=None
     guardado[1][plano] = forma
@@ -527,9 +527,9 @@ def forma_do_modulo(conj, plano='XY'):
 
 
 def _uniao_da_secao(poligonos):
-    """CDT nativo resolve sobreposicoes, concavidades e ilhas. Apenas
-    triangulos cobertos por alguma chapa entram na uniao; nao se fecha
-    um vazio pelo casco convexo do conjunto nem se desenha triangulacao.
+    """Native CDT resolves overlaps, concavities and islands. Include only
+    triangles covered by a panel; never fill voids with the group's
+    convex hull or draw triangulation.
     """
     pts,faces=[],[]
     for pol in poligonos:
@@ -561,9 +561,9 @@ def _na_borda_da_secao(p,bordas):
 
 
 def blocagem_do_modulo(conj):
-    """Duas laterais sustentam o contorno, nao a tessela da frente.
-    Faces de fora desenham a madeira; faces de dentro definem as juntas.
-    O cache guarda so' numeros/nomes, inclusive depois de Tab e undo.
+    """Two sides support the outline, not the front's tessellation.
+    Outer faces trace wood; inner faces define joints. The cache retains
+    only numbers/names, including after Tab and undo.
     """
     forma_do_modulo(conj)
     memoria=_cache.get(conj.name)
@@ -601,8 +601,8 @@ def blocagem_do_modulo(conj):
         for z,saida in ((fora,externos),(dentro,internos)):
             vs=[m@v.co*1000 for v in o.data.vertices if abs(v.co.z-z)<.00005]
             if len(vs)<4:return None
-            # A lateral pode ser trapezoidal. Quatro extremos no plano
-            # conservam a inclinacao sem multiplicar vertices do contorno.
+            # Sides may be trapezoidal. Four planar extrema preserve tilt
+            # without multiplying outline vertices.
             h0,h1=min(p[outro] for p in vs),max(p[outro] for p in vs)
             z0,z1=min(p.z for p in vs),max(p.z for p in vs)
             usados=set()
@@ -619,8 +619,8 @@ def blocagem_do_modulo(conj):
         ponto=m@Vector((0,0,dentro))*1000
         planos.append((tuple(normal),normal.dot(ponto)))
         nomes.append(o.name)
-    # Retangularizar so' a projecao arredondada. Os outros componentes
-    # conservam, por exemplo, um teto inclinado acima de uma frente curva.
+    # Rectangularize only the rounded projection. Other components retain,
+    # for example, an inclined ceiling above a curved front.
     envolvente=[list(p) for p in externos]
     for plano in dados['planos_curvos']:
         eixos={'XY':(0,1),'XZ':(0,2),'YZ':(1,2)}[plano]
@@ -637,21 +637,21 @@ def blocagem_do_modulo(conj):
 
 def dados_junta(conj,chave,bloco=None):
     bloco=blocagem_do_modulo(conj) if bloco is None else bloco
-    if bloco is None:raise ValueError('As laterais nao definem mais esta junta')
+    if bloco is None:raise ValueError("The side panels no longer define this joint")
     _tipo,s,t,indice=chave
-    if s!=bloco['eixo']:raise ValueError('O apoio da junta mudou')
+    if s!=bloco['eixo']:raise ValueError("The joint support has changed")
     ps=[Vector(p) for p in bloco['internos']]
     a,b,c,d=(ps[i] for i in (indice,indice^(1<<s),indice^(1<<t),indice^(1<<s)^(1<<t)))
     u=c-a;v=b-a
-    if min(u.length,v.length)<.01:raise ValueError('A junta nao tem comprimento livre')
+    if min(u.length,v.length)<.01:raise ValueError("The joint has no free length")
     angulo=math.degrees(u.angle(v))
     return dict(a=a,b=b,c=c,d=d,s=s,t=t,angulo=angulo,bloco=bloco)
 
 
 def blocagem_cobre_estrutura(conj,bloco):
-    """Reconhece um corpo entre duas laterais, sem fechar um L ou uma
-    quina extra por uma corda. Convex hull nativo UMA vez por assinatura;
-    frentes/prateleiras curvas nao definem a topologia dos apoios.
+    """Recognize a body between two sides without closing an L or extra
+    corner with a chord. Native convex hull ONCE per signature; curved
+    fronts/shelves do not define support topology.
     """
     if 'cobre_estrutura' in bloco:return bloco['cobre_estrutura']
     bm=bmesh.new()
@@ -684,13 +684,13 @@ def blocagem_cobre_estrutura(conj,bloco):
 def _delta_da_junta(j,graus):
     a,b,c,d,s,t=(j[k] for k in ('a','b','c','d','s','t'))
     u=(c-a).normalized();v=d-a;w=b-d
-    # Intersecao da reta do apoio com o cone do angulo. A reta pode
-    # estar fora do plano cartesiano da quina quando ha mais inclinacoes.
-    # E' uma quadratica escalar; nao consulta malhas nem itera vertices.
+    # Intersect the support line with the angle cone. With additional
+    # tilts, the line may lie outside the corner's Cartesian plane.
+    # This is a scalar quadratic: no mesh queries or vertex iteration.
     def dot(x,y):return math.fsum(float(p)*float(q) for p,q in zip(x,y))
     cos=math.cos(math.radians(float(graus)));uv,uw=dot(u,v),dot(u,w)
     vv,vw,ww=dot(v,v),dot(v,w),dot(w,w)
-    if ww<.0001:raise ValueError('O apoio nao tem comprimento livre')
+    if ww<.0001:raise ValueError("The support has no free length")
     if abs(cos)<1e-8:
         raizes=[-uv/uw] if abs(uw)>1e-9 else ([1.] if abs(uv)<.001 else [])
     else:
@@ -709,19 +709,19 @@ def _delta_da_junta(j,graus):
         if ponto.length<.01:continue
         if abs(dot(u,ponto)/ponto.length-cos)>1e-5:continue
         validas.append(t)
-    if not validas:raise ValueError('O angulo nao cabe entre os apoios')
+    if not validas:raise ValueError("The angle does not fit between the supports")
     t=min(validas,key=lambda t:abs(t-1.))
     return d+w*t-b
 
 
 def aplicar_angulo_junta(context,conj,chave,graus):
-    """Gira a referencia pelo vertice INTERNO e corta na face de apoio.
-    Uma unica deformacao transporta o conjunto; a secao de cada chapa
-    e' reconstruida pela sua normal, sem engrossar, cisalhar ou soldar.
+    """Rotate the reference about the INNER vertex and trim at the support
+    face. A single deformation transports the assembly; reconstruct each
+    panel section along its normal without thickening, shearing or welding.
     """
-    if not 1<float(graus)<179:raise ValueError('O angulo deve ficar entre 1 e 179 graus')
-    # Recusar um apoio invertido antes de restaurar a referencia: uma
-    # entrada impossivel nao pode modificar o ultimo angulo confirmado.
+    if not 1<float(graus)<179:raise ValueError("The angle must be between 1 and 179 degrees")
+    # Reject inverted supports before restoring the reference: impossible
+    # input must not change the last confirmed angle.
     _delta_da_junta(dados_junta(conj,chave),graus)
     _preparar_edicao(conj,chave,None)
     j=dados_junta(conj,chave);a,b,c,d,s,t=(j[k] for k in ('a','b','c','d','s','t'))
@@ -736,9 +736,9 @@ def aplicar_angulo_junta(context,conj,chave,graus):
 
 
 def estrutura_hud(conj):
-    """Contorno livre quando nao ha uma forma parametrica reconhecida.
-    Preparado uma vez por assinatura/Tab. Cache so' numerico; BMesh e
-    CDT leem a geometria nativa sem alterar Mesh, UV, props ou selecao.
+    """Free outline when no parametric shape is recognized. Prepare once per
+    signature/Tab. Numeric cache only; BMesh/CDT read native geometry
+    without changing Mesh, UVs, properties or selection.
     """
     for plano in ('XY','XZ','YZ'):forma_do_modulo(conj,plano)
     guardado=_cache.get(conj.name)
@@ -754,17 +754,17 @@ def estrutura_hud(conj):
         perfis.append((_base_do_plano(plano).to_3x3().transposed(),bordas))
         l,p=hi.x-lo.x,hi.y-lo.y
         obliqua=any(min(abs(b.x-a.x),abs(b.y-a.y))>.05 for a,b in bordas)
-        # Vazios de montagem numa caixa ortogonal nao sao deformacao
-        # da carcaca. Um perfil obliquo sem classificacao exige contorno
-        # real, mesmo com ripas ou outros degraus no mesmo perimetro.
+        # Assembly gaps in an orthogonal box are not body deformation.
+        # An unclassified oblique profile needs its actual outline even
+        # with strips or other steps along the same perimeter.
         livre=livre or (obliqua and l*p-area>.02*(l+p))
     if not livre:
         dados['estrutura']=None
         return None
     inv=matriz_do_modulo(conj).inverted();arestas={}
     for o in sorted(_pecas(conj),key=lambda o:o.get('chapa_uid',o.name)):
-        # Folha articulada nao e' carcaca. Seu desenho fechado aparece
-        # separado na HUD de portas, nunca como madeira fixa do modulo.
+        # An articulated leaf is not body geometry. Its closed outline appears
+        # separately in door HUD, never as fixed cabinet wood.
         if o.get('porta_curva_modelada'):continue
         m=inv@(_portas._ferragens._matriz_fechada(o)
                if o.get('porta_curva_modelada') else o.matrix_world)
@@ -775,8 +775,8 @@ def estrutura_hud(conj):
             lo=Vector([min(v.co[i] for v in bm.verts) for i in range(3)])
             hi=Vector([max(v.co[i] for v in bm.verts) for i in range(3)])
             def referencia(v):
-                # Fracoes locais identificam a borda durante o arraste;
-                # nao se conservam indices nativos ou objetos no cache.
+                # Local fractions identify the edge during drag;
+                # retain no native indices or objects in the cache.
                 return tuple(round((v.co[i]-lo[i])/max(hi[i]-lo[i],1e-9),4) for i in range(3))
             for e in bm.edges:
                 if len(e.link_faces)==2 and abs(e.link_faces[0].normal.dot(e.link_faces[1].normal))>.99999:
@@ -794,11 +794,11 @@ def estrutura_hud(conj):
     return dados['estrutura']
 
 
-# ------------------------------------------------------------ contorno
+# ------------------------------------------------------------ outline
 def _diagonal_real(poligonos, lo, hi, k, f, bordas=(), referencia=(),tolerancia=TOL_FORMA_MM):
-    """Amostras a 1 mm detectam a forma, mas nao sao as pontas da chapa.
-    A aresta real termina na face interna da lateral, inclusive quando
-    AMBAS as pontas estao recuadas pela espessura. Medir uma vez no cache.
+    """1 mm samples detect shape, not panel endpoints. Actual edges end
+    at the side's inner face even when BOTH ends are inset by thickness.
+    Measure once into the cache.
     """
     sx, sy = QUINAS[k]
     xc, yc = (hi.x if sx > 0 else lo.x), (hi.y if sy > 0 else lo.y)
@@ -850,8 +850,8 @@ def angulo_diagonal(forma, k):
 
 
 def lado_da_ponta(forma, k, ponta):
-    """Direcao real do lado vizinho, depois dos trechos da espessura.
-    HUD e digitacao usam a mesma referencia numerica; nenhuma Mesh no redraw.
+    """Actual neighboring-side direction beyond thickness segments.
+    HUD and typed input share this numeric reference; no Mesh in redraw.
     """
     lados=forma['cantos'][k].get('lados')
     if lados:
@@ -884,7 +884,7 @@ def dados_angulo_da_ponta(forma, k, ponta):
     pa,pb=pontas_diagonal(forma,k)
     vertice,outra=(pa,pb) if ponta=='A' else (pb,pa)
     lado,_=lado_da_ponta(forma,k,ponta)
-    if lado is None:raise ValueError('O canto nao tem lado de apoio')
+    if lado is None:raise ValueError("The corner has no supporting side")
     ate=(outra-vertice).normalized()
     giro=math.atan2(lado.x*ate.y-lado.y*ate.x,lado.dot(ate))
     sx,sy=QUINAS[k]
@@ -894,31 +894,31 @@ def dados_angulo_da_ponta(forma, k, ponta):
 
 
 def aplicar_angulo_interno(context,conj,k,ponta,graus,plano='XY'):
-    """Resolve o angulo entre as duas arestas, nunca uma base quantizada.
-    Cada tentativa restaura a Mesh de origem pelo canal ANG existente.
+    """Solve the angle between two edges, never a quantized basis.
+    Each attempt restores the source Mesh through the existing ANG channel.
     """
     chave=('ANG',k)
     _preparar_edicao(conj,chave,None,plano)
     forma=forma_do_modulo(conj,plano)
     if forma is None or forma['cantos'][k] is None:
-        raise ValueError('O canto nao tem mais diagonal')
+        raise ValueError("The corner no longer has a diagonal")
     anterior=angulo_diagonal(forma,k)
     _,base,sinal=dados_angulo_da_ponta(forma,k,ponta)
     alvo=(float(graus)-base)/sinal
     if not -.0001<=alvo<=90.0001:
-        raise ValueError('Esse angulo ultrapassa o lado do modulo')
+        raise ValueError("This angle extends beyond the cabinet side")
     for _ in range(4):
         aplicar(context,conj,chave,max(0.,min(90.,alvo)),plano=plano)
         forma=forma_do_modulo(conj,plano)
-        # Nos extremos a diagonal vira um canto ortogonal e deixa de
-        # ser uma feicao CHANFRO. A referencia nativa permite voltar.
+        # At extremes the diagonal becomes an orthogonal corner and ceases
+        # to be a CHANFRO feature; the native reference allows returning.
         visto=(dados_angulo_da_ponta(forma,k,ponta)[0]
                if forma and forma['cantos'][k] else 90.0)
         erro=float(graus)-visto
         if abs(erro)<=.01:return
         alvo+=erro/sinal
     aplicar(context,conj,chave,anterior,plano=plano)
-    raise ValueError('O angulo nao cabe com as folgas atuais do modulo')
+    raise ValueError("The angle does not fit with the cabinet's current clearances")
 
 
 def _quina(forma, k):
@@ -928,8 +928,8 @@ def _quina(forma, k):
 
 
 def _pontos_do_canto(forma, k):
-    """[(x, y, sobe)] do canto k em ordem anti-horaria; `sobe` = tem
-    aresta vertical."""
+    """Corner k points [(x, y, rises)] counterclockwise; rises means
+    a vertical edge exists."""
     sx, sy = QUINAS[k]
     xc, yc = _quina(forma, k)
     f = forma['cantos'][k]
@@ -937,7 +937,7 @@ def _pontos_do_canto(forma, k):
         return [(xc, yc, True)]
     a, b = f['a'], f['b']
     px, py = (xc - sx * a, yc), (xc, yc - sy * b)
-    x_antes = sx * sy < 0          # chega pelo lado horizontal
+    x_antes = sx * sy < 0          # Arrive along the horizontal side.
     primeiro, segundo = (px, py) if x_antes else (py, px)
     if f['tipo'] == 'RECORTE':
         return [(*primeiro, True), (xc - sx * a, yc - sy * b, True),
@@ -950,18 +950,18 @@ def _pontos_do_canto(forma, k):
             if (Vector(p) - Vector(saida[-1][:2])).length > .01:
                 saida.append((*p, True))
         return saida
-    raise ValueError('Formato sem edicao parametrica por segmentos retos')
+    raise ValueError("Shape cannot be edited parametrically using straight segments")
 
 
 def contorno(forma):
-    """Pontos da planta [(x, y, sobe)] em ordem anti-horaria."""
+    """Plan points [(x, y, rises)] counterclockwise."""
     return [p for k in range(4) for p in _pontos_do_canto(forma, k)]
 
 
 def intervalos_no_perfil(forma,a,b):
-    """Recorta uma linha pela secao numerica ja' preparada, sem ler Mesh.
-    Intersecoes parametricas conservam a mesma linha nos tres planos,
-    inclusive quando o teto inclinado corta uma aresta da planta.
+    """Clip a line using prepared numeric sections without reading Mesh.
+    Parametric intersections preserve the same line across all three
+    planes, even when an inclined top cuts a plan edge.
     """
     pol=[Vector(p[:2]) for p in contorno(forma)]
     a,b=Vector(a),Vector(b);d=b-a
@@ -989,11 +989,11 @@ def intervalos_no_perfil(forma,a,b):
 
 
 def segmentos(forma):
-    """Arestas da planta: {'a', 'b', 'chave', 'letra', 'direcao',
-    'cantos'}. `chave` None = so' contorno. Lado inteiro = L ou P total
-    (de min para max, `cantos` = quinas da caixa); lado que chega num
-    recorte/diagonal = P1 (vertical) ou P2 (horizontal), de `a` (ponta
-    de fora) para `b` (a que anda); diagonal = R."""
+    """Plan edges: {'a', 'b', 'chave', 'letra', 'direcao', 'cantos'}.
+    `chave` None means outline only. Whole sides use total L/P min-to-max
+    with box corners. Sides meeting a notch/diagonal use P1 (vertical) or
+    P2 (horizontal), from outer endpoint `a` to moving endpoint `b`.
+    Diagonals use R."""
     pontos = [_pontos_do_canto(forma, k) for k in range(4)]
     saida = []
     for k in range(4):
@@ -1013,7 +1013,7 @@ def segmentos(forma):
         g = forma['cantos'][j]
         p, q = pontos[k][-1][:2], pontos[j][0][:2]
         if (Vector(p) - Vector(q)).length < 1.0:
-            continue                # a diagonal tomou o lado inteiro
+            continue                # The diagonal spans the whole side.
         horizontal = k in (0, 2)
         seg = {'a': p, 'b': q, 'chave': None, 'letra': None,
                'direcao': None, 'cantos': None}
@@ -1031,7 +1031,7 @@ def segmentos(forma):
             com, kc = (f, k) if f is not None else (g, j)
             if (com['tipo'] in ('RECORTE', 'CHANFRO')
                     and (Vector(p) - Vector(q)).length > ESPESSURA_PONTA_MM):
-                # (mais curto e' a ponta da chapa onde a diagonal acaba)
+                # A shorter remainder is the panel tip where the diagonal ends.
                 fora, dentro = (q, p) if f is not None else (p, q)
                 letra = 'P2' if horizontal else 'P1'
                 seg.update(a=fora, b=dentro, chave=(letra, kc), letra=letra)
@@ -1040,10 +1040,10 @@ def segmentos(forma):
 
 
 def valor(conj, chave, plano='XY'):
-    """Medida (mm) que a linha `chave` da HUD mostra."""
+    """Dimension in mm displayed by HUD line `chave`."""
     forma = forma_do_modulo(conj,plano)
     if forma is None:
-        raise ValueError("O modulo nao tem mais esse formato")
+        raise ValueError("The cabinet no longer has this shape")
     if chave[0] == 'L':
         return forma['hi'].x - forma['lo'].x
     if chave[0] == 'P':
@@ -1051,38 +1051,38 @@ def valor(conj, chave, plano='XY'):
     if chave[0] == 'R':
         f = forma['cantos'][chave[1]]
         if f is None:
-            raise ValueError("O canto nao tem mais diagonal")
+            raise ValueError("The corner no longer has a diagonal")
         if (plano!='XY' or conj.type=='MESH') and f['tipo']=='CHANFRO':
             a,b=pontas_diagonal(forma,chave[1])
             return (b-a).length
         return (f['a'] + f['b']) / 2.0
     if chave[0] == 'ANG':
-        # angulo da diagonal com o lado da FRENTE (o da perna a)
+        # Diagonal angle to the FRONT side, corresponding to leg a.
         f = forma['cantos'][chave[1]]
         if f is None or f['tipo'] != 'CHANFRO':
-            raise ValueError("O canto nao tem mais diagonal")
+            raise ValueError("The corner no longer has a diagonal")
         return angulo_diagonal(forma, chave[1])
     for seg in segmentos(forma):
         if seg['chave'] == tuple(chave):
             return (Vector(seg['a']) - Vector(seg['b'])).length
-    raise ValueError("O modulo nao tem mais essa medida")
+    raise ValueError("The cabinet no longer has this dimension")
 
 
-# ------------------------------------------------------------- edicao
+# ------------------------------------------------------------- editing
 def _no_canto(forma, k, p):
-    """(X', Y'): coordenadas a partir da quina k, para dentro."""
+    """(X', Y'): coordinates measured inward from corner k."""
     sx, sy = QUINAS[k]
     xc, yc = _quina(forma, k)
     return sx * (xc - p.x), sy * (yc - p.y)
 
 
 def _reajustar(o, era_caixa, cima):
-    """Chapa com vertices mexidos volta a' convencao: malha centrada na
-    origem e L/C nas props. Caixa que entortou (porta diagonal com uma
-    ponta movida) e' refeita: gira em volta da vertical e estica."""
+    """Restore edited panels to convention: mesh centered at origin, L/C in
+    properties. Rebuild distorted boxes, such as diagonal doors with one
+    end moved, by rotating about vertical and stretching."""
     malha = o.data
-    # A chapa que define a secao pode deixar de ser retangular. Refazer
-    # sua caixa apagaria a inclinacao ao partir de 90 graus (ou append).
+    # A section-defining panel may stop being rectangular. Rebuilding its
+    # box would erase tilt when starting from 90 degrees or after append.
     no_perfil=abs(o.matrix_world.to_3x3().col[2].normalized().dot(cima))>.99
     if era_caixa and not no_perfil and not _chapas._malha_e_caixa(malha):
         _refazer_caixa(o, cima)
@@ -1133,13 +1133,13 @@ def _refazer_caixa(o, cima):
     o.matrix_world = Matrix.LocRotScale(centro, nova.to_quaternion(),
                                         Vector((1.0, 1.0, 1.0)))
     o.data.clear_geometry()
-    _chapas.gerar_malha_chapa(o)       # malha vazia nasce caixa
+    _chapas.gerar_malha_chapa(o)       # An empty mesh starts as a box.
 
 
 def _deformar_chapa_com_secao(o,matriz,desloc,ancora,apoios):
-    """Transporta uma face e conserva a distancia NORMAL da outra.
-    O corte das pontas e' a intersecao com o apoio, nao a caixa girada.
-    Isso permite uma unica quina de contato mesmo com os lados obliquos.
+    """Transport one face while retaining the other's NORMAL distance.
+    Trim endpoints by support intersections, not a rotated box, allowing
+    a single contact corner even with oblique sides.
     """
     inv=matriz.inverted();m=inv@o.matrix_world
     normal=m.to_3x3().col[2].normalized()
@@ -1157,7 +1157,7 @@ def _deformar_chapa_com_secao(o,matriz,desloc,ancora,apoios):
     x=(mover(origem+dx)-mover(origem-dx))/(2*hx)
     y=(mover(origem+dy)-mover(origem-dy))/(2*hy)
     n=x.cross(y).normalized()
-    if n.length<.9:raise ValueError('A inclinacao elimina a secao da chapa')
+    if n.length<.9:raise ValueError("The tilt eliminates the panel's cross-section")
     x.normalize();y=n.cross(x).normalized()
     rot=Matrix((x,y,n)).transposed()
     nova=Matrix.LocRotScale((q-n*z*1000)/1000,rot.to_quaternion(),Vector((1,1,1)))
@@ -1165,8 +1165,8 @@ def _deformar_chapa_com_secao(o,matriz,desloc,ancora,apoios):
     for v in o.data.vertices:
         p=m@Vector((v.co.x,v.co.y,z))*1000
         original=m@v.co*1000
-        # O perfil pode ter recortes: conservar o campo em cada vertice,
-        # projetando so' a componente normal para a face continuar plana.
+        # Profiles may contain cutouts: retain each vertex's displacement field,
+        # projecting only the normal component so the face remains planar.
         ponto=mover(p)
         ponto-=n*n.dot(ponto-q)
         ponto+=n*(v.co.z-z)*1000
@@ -1186,10 +1186,9 @@ def _deformar_chapa_com_secao(o,matriz,desloc,ancora,apoios):
 
 def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
               conservar_espessura=False,apoios=None):
-    """Aplica `desloc(p) -> Vector` (mm, referencial do modulo) a cada
-    vertice das pecas. `rigida(pts, deslocs)` pode devolver UM
-    deslocamento para a peca inteira (anda sem esticar). Acessorio comum
-    anda inteiro pelo deslocamento do proprio centro."""
+    """Apply `desloc(p) -> Vector` in cabinet-space mm to each part vertex.
+    `rigida(pts, deslocs)` may return ONE displacement for the whole part
+    to move rigidly. Ordinary accessories follow their own center displacement."""
     matriz = matriz_do_modulo(conj,plano)
     inversa = matriz.inverted()
     giro = matriz.to_3x3()
@@ -1215,10 +1214,10 @@ def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
             if normal.dot(n)<0:normal.negate()
             contatos.append((nome,n,dist,normal,normal.dot(novos[0])))
         ancora=sum((Vector(p) for p in apoios['internos']),Vector())/8
-        # A face externa da chapa e' a que olha para a junta editada.
+        # The panel's outer face is the one facing the edited joint.
         ancora=para_plano@Vector(apoios.get('ancora',ancora))
-    # Fundo/travessa nao definem o envelope, mas pertencem a deformacao.
-    # Mantem o recorte e a espessura reais em vez de refaze-los pela AABB.
+    # Backs/crosspieces do not define the envelope but participate in deformation.
+    # Preserve actual cuts/thickness instead of rebuilding them from AABB.
     pecas = list(dict.fromkeys([o for o in _pecas(conj) if not o.get('porta_curva_modelada')]
              + [o for o in conj.children if o.type == 'MESH'
                 and _chapas.MARCA_CHAPA in o and _chapas.eh_dependente(o)]))
@@ -1241,9 +1240,9 @@ def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
         if _chapas.MARCA_FUNDO in o and o!=conj:
             if not reencaixar_paineis and all(d.length<.001 for d in deslocs):
                 continue
-            # Um painel acompanha suas duas pontas no plano, conservando
-            # a secao. Aplicar o campo a frente/verso separadamente cisalha
-            # a espessura; refazer pela caixa perderia a malha editada.
+            # A panel follows both planar endpoints while retaining its section.
+            # Applying the field separately to front/rear shears thickness;
+            # box rebuilding would lose the edited mesh.
             _transportar_painel(o,pts,deslocs,matriz,cima,desloc,paineis.get(o))
             continue
         inteira = rigida(pts, deslocs) if rigida is not None else None
@@ -1263,8 +1262,8 @@ def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
         o.data.update()
         if _chapas.MARCA_CHAPA in o:
             _reajustar(o, era_caixa, cima)
-    # Folha curva e' um sistema nativo, mas seu contorno participa da
-    # mesma deformacao linear. Calcular FECHADA, inclusive com slider aberto.
+    # A curved leaf is a native system, but its outline participates in the
+    # same linear deformation. Calculate CLOSED even when the slider is open.
     for o in [o for o in conj.children_recursive if o.get('porta_curva_modelada')]:
         fechado=_portas._ferragens._matriz_fechada(o)
         para_modulo=inversa @ fechado
@@ -1278,9 +1277,9 @@ def _deformar(conj, desloc, rigida=None, reencaixar_paineis=False, plano='XY',
 
 
 def _apoios_dos_paineis(conj,matriz):
-    """Arestas reais das chapas deitadas, preparadas fora do desenho.
-    O fundo segue seu apoio, conservando o recuo normal ao plano; um
-    cisalhamento aplicado ao centro reduziria esse recuo ao girar.
+    """Actual horizontal-panel edges, prepared outside drawing. Backs follow
+    their supports with normal setback preserved; shearing their centers
+    would reduce setback on rotation.
     """
     inversa=matriz.inverted();arestas=[]
     for o in _pecas(conj):
@@ -1344,8 +1343,8 @@ def _transportar_painel(o,pts,deslocs,matriz,cima,desloc,apoio=None):
             comprimento=(max(v.co[longo] for v in o.data.vertices)-
                          min(v.co[longo] for v in o.data.vertices))*1000
             entra=max(0.,_modulos.CANAL_FUNDO_MM-_modulos.FOLGA_CANAL_FUNDO_MM)
-            # Uma chapa cisalhada por edicao antiga pode ter crescido ao
-            # ser alinhada. Cabe no apoio mais a entrada real nos canais.
+            # A panel sheared by older edits may have grown when aligned.
+            # Fit it to support plus actual groove penetration.
             corte=min(comprimento*proporcao,novo_d.length+2*entra)
             proporcao=corte/max(comprimento,1e-9)
             margem=(corte/2-entra)/novo_d.length
@@ -1354,9 +1353,9 @@ def _transportar_painel(o,pts,deslocs,matriz,cima,desloc,apoio=None):
             if n.dot(normal)<0:n.negate()
             pos=nova_origem.xy+novo_d*t+n*recuo
             meio=matriz@(Vector((*pos,centro_apoio.z))/1000)
-            # Transportar a rotacao DO APOIO conserva a secao modelada
-            # do painel; alinha-lo ao eixo novo apagava sua inclinacao
-            # residual mesmo quando a operacao nao tinha deslocamento.
+            # Transporting the SUPPORT rotation preserves the panel's modeled
+            # section; aligning it to the new axis erased residual tilt
+            # even when the operation had zero displacement.
             a=(giro@Vector((*d,0))).normalized()
             b=(giro@Vector((*novo_d,0))).normalized()
     angulo=math.atan2(cima.dot(a.cross(b)),a.dot(b))
@@ -1376,9 +1375,8 @@ def _transportar_painel(o,pts,deslocs,matriz,cima,desloc,apoio=None):
 
 
 def _rigida_na_faixa(forma, k, eixo, centro, faixa=FAIXA_MM):
-    """Peca INTEIRA na faixa da face que anda (travessa, porta da frente
-    do braco) vai junto sem esticar, mesmo a parte que entra no outro
-    braco."""
+    """A WHOLE part within the moving face band (crosspiece, arm-front door)
+    moves rigidly, including any portion entering the other arm."""
     def rigida(pts, deslocs):
         if not any(d.length > 1e-6 for d in deslocs):
             return None
@@ -1390,9 +1388,9 @@ def _rigida_na_faixa(forma, k, eixo, centro, faixa=FAIXA_MM):
 
 
 def _mover_perna(conj, forma, k, perna, variacao, angular=False):
-    """Aumenta a perna `perna` ('a' em X, 'b' em Y) da feicao da quina k
-    em `variacao` mm: a face interna (ou a ponta da diagonal) anda para
-    dentro do modulo; o outro braco fica onde esta'."""
+    """Increase corner k feature leg `perna` ('a' on X, 'b' on Y) by
+    `variacao` mm: move the inner face/diagonal endpoint inward;
+    keep the other arm fixed."""
     f = forma['cantos'][k]
     if f is None or f['tipo'] not in ('RECORTE', 'CHANFRO'):
         return
@@ -1410,18 +1408,18 @@ def _mover_perna(conj, forma, k, perna, variacao, angular=False):
     variacao = novo - atual
     if abs(variacao) < 1e-6:
         if angular:
-            # Voltar ao valor da referencia tambem reencaixa um fundo
-            # antigo que ja' estava maior que seu apoio.
+            # Returning to the reference value also refits an old back
+            # already larger than its support.
             _deformar(conj,lambda p:Vector(),reencaixar_paineis=True,plano=forma.get('plano','XY'))
         return
     passo = Vector((-sx * variacao, 0.0, 0.0)) if eixo == 0 else \
         Vector((0.0, -sy * variacao, 0.0))
-    ao_longo = f[perna]                         # onde esta' a face que anda
+    ao_longo = f[perna]                         # Moving face position.
     largura_coluna = f['b' if eixo == 0 else 'a']
-    # A faixa fixa de 100 mm alcancava as COSTAS ao reduzir o braco:
-    # no retorno os mesmos vertices passavam a pertencer a outro lado.
-    # Separar as duas extremidades pelo meio do espaco que sobra mantem
-    # a espessura e a identidade das pontas, inclusive em bracos curtos.
+    # The fixed 100 mm band reached the REAR when shortening an arm:
+    # on restoration, the same vertices then belonged to another side.
+    # Splitting endpoints at the midpoint of remaining space preserves
+    # thickness and endpoint identity, including on short arms.
     meio = (ao_longo + lado) / 2.0
     if f['tipo'] == 'RECORTE':
         def peso(p):
@@ -1453,16 +1451,16 @@ def _mover_perna(conj, forma, k, perna, variacao, angular=False):
 
 
 def _vizinha(k, eixo):
-    """A outra quina do mesmo lado da caixa: no lado horizontal (perna a)
-    ou no vertical (perna b)."""
+    """Other corner on the same box side: horizontal for leg a, vertical
+    for leg b."""
     sx, sy = QUINAS[k]
     alvo = (-sx, sy) if eixo == 0 else (sx, -sy)
     return QUINAS.index(alvo)
 
 
 def _concluir_transformacao(context,conj,sistemas=True):
-    # As duas familias de angulo/medida transportam a mesma referencia
-    # fechada. Reancorar depois do rig evita deformar a porta duas vezes.
+    # Both angle/dimension families transport the same closed reference.
+    # Reanchor after the rig to avoid deforming the door twice.
     context.view_layer.update()
     curvas=[(o.parent,[_portas._ferragens._matriz_fechada(o)@v.co for v in o.data.vertices])
             for o in conj.children_recursive if o.get('porta_curva_modelada')]
@@ -1474,9 +1472,9 @@ def _concluir_transformacao(context,conj,sistemas=True):
 
 
 def _corte(forma, eixo):
-    """(posicao do plano que estica o total, folga ate' onde encolher).
-    Com recorte/diagonal, o plano passa na coluna DELE (so' um braco ali:
-    o outro braco nao muda de profundidade)."""
+    """(total-stretch plane position, available shortening clearance).
+    For notches/diagonals, place the plane in ITS column containing only
+    one arm, so the other arm's depth stays unchanged."""
     lo, hi = forma['lo'][eixo], forma['hi'][eixo]
     colunas, ocupado = [], []
     for k, f in enumerate(forma['cantos']):
@@ -1507,8 +1505,8 @@ def _corte(forma, eixo):
 
 
 def _esticar_total(conj, forma, eixo, variacao, lado):
-    """L (eixo 0) ou P (eixo 1) total: um plano corta o modulo e o lado
-    oposto a `lado` ('min'/'max', o que fica parado) anda `variacao`."""
+    """Total L (axis 0) or P (axis 1): cut the cabinet with a plane and move
+    the side opposite fixed `lado` ('min'/'max') by `variacao`."""
     corte, folga = _corte(forma, eixo)
     variacao = max(variacao, -(folga - 10.0))
     if abs(variacao) < 1e-6:
@@ -1529,9 +1527,9 @@ def _esticar_total(conj, forma, eixo, variacao, lado):
 
 
 def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _eixo_corpo=None, plano='XY'):
-    """Leva a medida `chave` da forma a `novo` mm (arraste/digitacao da HUD)."""
-    # O limite reduzido pode esconder uma feicao no detector. Restaurar
-    # antes de procurar a medida permite voltar ao formato de origem.
+    """Set shape dimension `chave` to `novo` mm through HUD drag/typing."""
+    # A reduced boundary may hide a feature from detection. Restore before
+    # looking up the dimension to allow return to the original shape.
     _preparar_edicao(conj, chave, lado, plano)
     forma = forma_do_modulo(conj,plano)
     if forma is None:return
@@ -1542,15 +1540,15 @@ def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _
     if tipo in ('L', 'P'):
         _esticar_total(conj, forma, 0 if tipo == 'L' else 1, variacao, lado or 'min')
     elif tipo in ('P1', 'P2'):
-        # lado mais comprido = perna menor
+        # Longer side = shorter leg.
         _mover_perna(conj, forma, chave[1], 'b' if tipo == 'P1' else 'a', -variacao)
     elif tipo == 'ANG':
-        # pedido do usuario: a frente do canto (P2, perna a) fica e a
-        # ponta do outro lado (P1) anda ate' dar o angulo
+        # User requirement: keep corner front P2/leg a fixed and move
+        # the opposite P1 endpoint to achieve the angle.
         k = chave[1]
         f = forma['cantos'][k]
-        # Um angulo reto pode encerrar o chanfro; o minimo de P1/P2
-        # nao pode devolver silenciosamente 97 graus ao digitar 90.
+        # A right angle may eliminate the chamfer; P1/P2 minima must not
+        # silently return 97 degrees when the user types 90.
         graus = max(0.0, min(90.0, float(novo) + _correcao))
         angulo = math.radians(graus)
         pa, pb = pontas_diagonal(forma, k)
@@ -1559,7 +1557,7 @@ def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _
         if (graus >= 90.0 or (graus > 0.0 and
                 f['b'] >= forma['hi'].y - forma['lo'].y - TOL_FORMA_MM
                 and f['a'] < forma['hi'].x - forma['lo'].x - TOL_FORMA_MM)):
-            # a diagonal toma o lado INTEIRO: ele fica, a frente anda
+            # Diagonal spans the WHOLE side: hold it fixed and move the front.
             _mover_perna(conj, forma, k, 'a', recuo_x + (f['b']-recuo_y) / math.tan(angulo) - f['a'], angular=True)
         else:
             _mover_perna(conj, forma, k, 'b', recuo_y + (f['a']-recuo_x) * math.tan(angulo) - f['b'], angular=True)
@@ -1571,21 +1569,21 @@ def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _
             rx,ry=abs(pb.x-xc),abs(pa.y-yc)
             dx,dy=abs(pb.x-pa.x),abs(pb.y-pa.y)
             if f['b']>=forma['hi'].y-forma['lo'].y-TOL_FORMA_MM:
-                if novo<dy:raise ValueError('A diagonal nao pode ser menor que sua altura')
+                if novo<dy:raise ValueError("The diagonal cannot be shorter than its height")
                 _mover_perna(conj,forma,k,'a',rx+math.sqrt(max(0.,novo*novo-dy*dy))-f['a'],angular=True)
             elif f['a']>=forma['hi'].x-forma['lo'].x-TOL_FORMA_MM:
-                if novo<dx:raise ValueError('A diagonal nao pode ser menor que sua largura')
+                if novo<dx:raise ValueError("The diagonal cannot be shorter than its width")
                 _mover_perna(conj,forma,k,'b',ry+math.sqrt(max(0.,novo*novo-dx*dx))-f['b'],angular=True)
             else:
                 fator=novo/max((pb-pa).length,1e-9)
                 _mover_perna(conj,forma,k,'a',rx+dx*fator-f['a'],angular=True)
                 _cache.pop(conj.name,None)
                 atual=forma_do_modulo(conj,plano)
-                # a 1a perna pode ter zerado a diagonal (R ~ 0): a forma some
+                # The first leg may eliminate the diagonal (R ~ 0), hiding the shape.
                 if atual is not None and atual['cantos'][k] is not None:
                     _mover_perna(conj,atual,k,'b',ry+dy*fator-atual['cantos'][k]['b'],angular=True)
         else:
-            # diagonal: as duas pernas recebem a mesma medida
+            # Diagonal: both legs receive the same dimension.
             _mover_perna(conj, forma, k, 'b', novo - f['b'])
             _cache.pop(conj.name, None)
             forma = forma_do_modulo(conj,plano)
@@ -1595,17 +1593,17 @@ def aplicar(context, conj, chave, novo, lado=None, _correcao=0., _tentativa=0, _
     if conj.type=='MESH':
         _chapas.absorver_malha_editada(conj)
         _frentes.preparar(conj,forcar=True)
-        # Um recorte individual pode mudar sem alterar L/A/E: a forma
-        # do pai tambem precisa abandonar a secao anterior.
+        # An individual notch may change without changing L/A/E:
+        # invalidate the parent's previous section too.
         esquecer()
         context.view_layer.update()
         concluir_edicao(conj)
         return
     _concluir_transformacao(context,conj,sistemas=abs(variacao)>.01)
     if tipo in ('P1','P2','ANG') and _tentativa<3 and _eixo_corpo is None:
-        # Girar uma chapa obliqua tambem desloca sua espessura projetada.
-        # Corrigir esse pequeno erro pela MESMA referencia, sem somar
-        # deformacoes. Limites fisicos (trilho, madeira) nao sao iterados.
+        # Rotating an oblique panel also shifts projected thickness.
+        # Correct that small error using the SAME reference, without accumulating
+        # deformations. Do not iterate physical limits such as tracks/wood.
         try:erro=novo-valor(conj,chave,plano)
         except ValueError:return
         if .01<abs(erro)<5:

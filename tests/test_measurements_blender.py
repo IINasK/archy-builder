@@ -1,4 +1,4 @@
-"""Medidas localizadas, edicao sem perder o texto e apresentacao da HUD."""
+"""Localized dimensions, editing without losing text and HUD presentation."""
 import os,sys,tempfile,unittest
 from unittest.mock import patch
 import bpy
@@ -15,7 +15,7 @@ class TestMedidas(unittest.TestCase):
         self.addCleanup(self.p.stop)
 
     def test_ctrl_z_e_redo_restauram_texto_cursor_e_selecao_sem_undo_da_cena(self):
-        # Regressao 392: Ctrl+Z era ignorado ou inseria o unicode do atalho.
+        # Regression v392: Ctrl+Z was ignored or inserted its shortcut's Unicode character.
         estado=dict(texto='100',cursor=3,selecionado=False)
         G._tecla_no_texto(estado,'PLUS','+')
         G._tecla_no_texto(estado,'V','50cm')
@@ -37,7 +37,7 @@ class TestMedidas(unittest.TestCase):
         self.assertEqual(vazio['texto'],'7')
 
     def test_entrada_do_menu_nao_seleciona_tudo_e_backspace_apaga_so_um(self):
-        # Regressao 392: entrar no campo e Backspace limpava o valor todo.
+        # Regression v392: entering a field and pressing Backspace cleared the entire value.
         classe=addon.gaveta_eventos.OBJECT_OT_editar_medida_gaveta
         area=SimpleNamespace(as_pointer=lambda:123,tag_redraw=lambda:None)
         ctx=SimpleNamespace(area=area,window_manager=SimpleNamespace(modal_handler_add=lambda _:None))
@@ -222,4 +222,4 @@ with tempfile.TemporaryDirectory(prefix='medidas_') as pasta, \
     addon.register()
     try:resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestMedidas))
     finally:addon.unregister()
-    if not resultado.wasSuccessful():raise RuntimeError('Falha nas medidas formatadas')
+    if not resultado.wasSuccessful():raise RuntimeError("Formatted-dimension tests failed")

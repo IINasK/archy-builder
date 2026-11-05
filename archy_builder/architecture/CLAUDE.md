@@ -54,7 +54,7 @@ functions or add a second loader. Reload owners before their consumers.
   own reversible cut and preserve its components.
 - Depsgraph callbacks invalidate caches; heavy extraction belongs to the
   stable timer, never hover/draw. During undo, defer selection/mesh work.
-- Installation images remain in the existing fotos/instalacoes data tree.
+- Installation images live in assets/previews/installations under the add-on.
   Resolve from the add-on resource root after moving installations.py,
   not from its new architecture directory.
 

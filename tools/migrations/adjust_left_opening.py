@@ -21,7 +21,7 @@ def preparar(biblioteca,destino):
         cs,objs=carregar(os.path.join(biblioteca,nomes[0]))
         conj,=[o for o in objs if addon.chapas.MARCA_CONJUNTO in o]
         antes=estado(cs,objs)
-        # Os descendentes sao copiados por NOME antes da reconfiguracao.
+        # Copy descendants by NAME before reconfiguration.
         sistemas={o.name for g in addon.portas._portas_do_conjunto(conj) for o in [g,*g.children_recursive]}
         alteradas=addon.portas.preferir_esquerda_no_modulo(bpy.context,conj)
         for g in addon.portas._portas_do_conjunto(conj):
@@ -55,15 +55,15 @@ def preparar(biblioteca,destino):
             assert digital(os.path.join(biblioteca,s))==hashes[s]
             m['arquivos'].append(dict(nome=s,original=hashes[s],novo=digital(os.path.join(novos,s))))
         m['modulos'].append(dict(arquivo=it['arquivo'],portas=alteradas))
-        print('[esquerda]',it['arquivo'],alteradas,flush=True)
+        print("[left]",it['arquivo'],alteradas,flush=True)
     limpar();addon.unregister()
     json.dump(m,open(os.path.join(destino,'manifesto.json'),'w',encoding='utf-8'),indent=1)
-    print('VERIFICADOS',m['verificados'],'CORRIGIDOS',len(m['modulos']),'APOIOS PRESERVADOS',len(m['apoios_preservados']),flush=True)
+    print('VERIFICADOS',m['verificados'],'CORRIGIDOS',len(m['modulos']),"SUPPORTS PRESERVED",len(m['apoios_preservados']),flush=True)
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--destino',required=True)
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'));p.add_argument('--aplicar',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY');p.add_argument('--apply', action='store_true', dest='aplicar')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:publicar(a.destino)

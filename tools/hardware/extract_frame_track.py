@@ -1,6 +1,6 @@
 """Extract heavy sliding-door frame track sections from the user source scene.
 
-Updates CIMA/BAIXO in archy_builder/ferragens/trilho_moldura.json without
+Updates CIMA/BAIXO in archy_builder/assets/hardware/trilho_moldura.json without
 removing LEVE. End-face polygons are recorded in millimeters for extrusion."""
 from pathlib import Path
 import json
@@ -10,14 +10,14 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens',
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware",
                        'trilho_moldura.json')
 TRILHOS = {'CIMA': 'Trilho superior', 'BAIXO': 'Trilho inferior'}
 TOL = 1e-4          # m
 
 
 def _poligonos_da_ponta(obj):
-    """Faces da ponta de menor Y, em mundo (m), cada uma em ordem."""
+    """Faces at the minimum-Y end, in world space (m), each in order."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bm.transform(obj.matrix_world)
@@ -30,7 +30,7 @@ def _poligonos_da_ponta(obj):
 
 
 def main():
-    # Atualiza CIMA/BAIXO sem perder o LEVE (gravado por tools/hardware/extract_light_track.py)
+    # Update CIMA/BAIXO without losing LEVE, saved by tools/hardware/extract_light_track.py.
     saida = {'trilhos': {}}
     if os.path.exists(DESTINO):
         with open(DESTINO, encoding='utf-8') as arq:
@@ -53,7 +53,7 @@ def main():
               dados['profundidade_mm'], dados['altura_mm'])
     with open(DESTINO, 'w', encoding='utf-8') as arq:
         json.dump(saida, arq, indent=1)
-    print('Gravado', DESTINO)
+    print("Saved", DESTINO)
 
 
 main()

@@ -1,10 +1,9 @@
-"""Timer de seguranca, contorno nativo da selecao e handlers do
-desfazer (Ctrl+Z)."""
+"""Safety timer, native selection outlines and undo (Ctrl+Z) handlers."""
 
 import bpy
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _opcoes = _puxadores = _gaveta = _hud = _paredes = None
 _ferragens = _prateleiras = _selecao = _formas = _divisorias = None
 _frentes = _solda = _fundos = None
@@ -17,18 +16,18 @@ _editor = None
 _areas_criacao = None
 _visibilidade = None
 
-# =========================== REDE DE SEGURANCA: verificacao por timer
-# O handler de depsgraph depende de uma atualizacao chegar DEPOIS que o
-# operador modal sai de cena. Se a ultima atualizacao acontecer ainda
-# com o modal registrado e nenhuma outra vier em seguida, o recalculo
-# nunca dispararia. Este timer fecha essa brecha: a cada 0.2s verifica
-# se existe alguma chapa com escala != 1 e nenhum modal ativo.
+# =========================== SAFETY NET: timer checks
+# The depsgraph handler depends on an update arriving AFTER the modal
+# operator finishes. If its last update occurs while the modal is still
+# registered, with no subsequent update, recalculation never runs.
+# This timer closes that gap: every 0.2 s, check for panel scale != 1
+# with no active modal.
 INTERVALO_TIMER = 0.2
 
 
 def modal_interativo(operador):
-    # O observador da parede so' repassa eventos; nao segura G/Tab nem
-    # pode impedir a sincronizacao depois de o gesto nativo terminar.
+    # The wall observer only forwards events: it must not capture G/Tab
+    # or prevent synchronization after the native gesture finishes.
     return getattr(operador, 'bl_idname', '') != 'OBJECT_OT_cabinet_observar_parede'
 
 
@@ -43,10 +42,10 @@ def _ha_modal_ativo():
 
 
 def _transformando():
-    """Mover, girar ou escalar (G/R/S, gizmo nativo) em andamento.
+    """Native move/rotate/scale (G/R/S or gizmo) in progress.
 
-    A HUD le a geometria e o alvo do hover de ANTES do gesto: desenhada
-    durante ele, a seta e as linhas ficavam voando no lugar de origem.
+    HUD geometry/hover targets come from BEFORE the gesture; drawing them
+    during it left arrows and lines floating at the old location.
     """
     try:
         for janela in bpy.context.window_manager.windows:
@@ -59,8 +58,8 @@ def _transformando():
 
 
 def verificar_periodicamente():
-    # O timer pode vencer antes do callback que encerra o undo. A mesma
-    # guarda do depsgraph deve valer ANTES de consultar selecao/malhas.
+    # The timer may fire before the undo-completion callback. Apply the
+    # same depsgraph guard BEFORE querying selection/meshes.
     if _desfazendo[0]:
         return INTERVALO_TIMER
     _areas_criacao.verificar()
@@ -69,7 +68,7 @@ def verificar_periodicamente():
         _paredes_edicao.verificar()
     except Exception as erro:
         _paredes_edicao.encerrar()
-        print('[Archy Builder] edicao de parede:', erro)
+        print("[Archy Builder] wall editing:", erro)
     sincronizar_contornos()
     if not _chapas._ocupado[0] and not _ha_modal_ativo():
         try:
@@ -85,42 +84,42 @@ def verificar_periodicamente():
             _frentes.processar_pendentes()
             _puxadores._conferir_rebaixos()
             _modulos._sincronizar_medidas_ativas()
-            # modulo associado: segue a parede / volta ao plano dela
+            # Linked cabinet: follow the wall/return to its plane.
             _paredes.manter_nas_paredes()
             _alvenaria.verificar()
             _instalacoes.verificar()
-            # controlador/furo do rig: so' o slider abre a porta
+            # Rig controller/cutter: only the slider opens the door.
             _ferragens.ocultar_pecas_do_rig()
             _paredes.atualizar_guias()
         except Exception as e:
-            print("[Archy Builder] erro no timer:", e)
+            print("[Archy Builder] timer error:", e)
     return INTERVALO_TIMER
 
 
-# ------------------------------------------- contorno nativo da selecao
-# Um clique seleciona o modulo inteiro, e o Blender pinta de laranja o
-# contorno de cada chapa. Nao existe contorno por objeto na API: o
-# `show_outline_selected` vale para a viewport inteira. Entao ele e'
-# desligado na selecao exclusiva do add-on e DEVOLVIDO na selecao mista.
+# ------------------------------------------- native selection outline
+# One click selects the whole cabinet; Blender outlines every panel
+# orange. The API has no per-object outline: show_outline_selected
+# affects the whole viewport. Disable it for add-on-only selections
+# and RESTORE it for mixed selections.
 #
-# Nunca se liga ou desliga as cegas: so' se desliga o que estava ligado,
-# e so' se religa o que foi este add-on quem desligou. Quem ja' trabalha
-# com o contorno desligado nao ve diferenca nenhuma, e quem o religa na
-# mao durante a edicao manda naquela viewport ate' trocar de selecao.
-_contornos_desligados = set()   # as_pointer() das viewports desligadas
-_contornos_do_usuario = {}      # as_pointer() -> grupos da edicao
-_origens_ocultas = set()        # (ponteiro do espaco, propriedade nativa)
+# Never toggle blindly: disable only an enabled setting and restore only
+# what THIS add-on disabled. Users already working without outlines
+# see no change. Manually reenabling during editing governs that viewport
+# until the selection changes.
+_contornos_desligados = set()   # as_pointer() of viewports whose outlines were disabled.
+_contornos_do_usuario = {}      # as_pointer() -> editing groups.
+_origens_ocultas = set()        # (space pointer, native property).
 _origens_do_usuario = {}
 
 
 def _novo_contorno(ptr, ligado, grupos):
-    """Mesmo contrato legado, com controle de propriedade compartilhado."""
+    """Same legacy contract with shared property ownership tracking."""
     return _novo_overlay(ptr, ligado, grupos, _contornos_desligados,
                          _contornos_do_usuario)
 
 
 def _novo_overlay(ptr, ligado, grupos, desligados, usuario):
-    """So' devolve o que desligamos; respeita intervencao manual por selecao."""
+    """Restore only what we disabled; respect manual changes per selection."""
     if not grupos:
         usuario.pop(ptr, None)
         if ptr in desligados:
@@ -133,23 +132,23 @@ def _novo_overlay(ptr, ligado, grupos, desligados, usuario):
     usuario.pop(ptr, None)
     if ptr in desligados:
         if ligado:
-            # religado na mao no meio da edicao: o usuario quer ver
+            # Manually reenabled during editing: the user wants it visible.
             desligados.discard(ptr)
             usuario[ptr] = grupos
         return None
     if ligado:
         desligados.add(ptr)
         return False
-    # ja' estava desligado antes: nao e' nosso, nao se devolve nada
+    # Already disabled beforehand: not ours to restore.
     usuario[ptr] = grupos
     return None
 
 
 def _grupos_selecionados(view_layer, marcas=None):
-    # Nao percorre `view_layer.objects.selected`: logo apos um Ctrl+Z essa
-    # colecao ainda pode trazer bases da memoria velha, e o Blender caia
-    # criando o objeto Python (crash do usuario, 2x). `select_get` acha a
-    # base de cada objeto nosso na hora.
+    # Do not traverse `view_layer.objects.selected`: immediately after Ctrl+Z,
+    # it may retain old-memory bases, crashing Blender when creating Python
+    # objects (two user crashes). `select_get` resolves each add-on object's
+    # current base on demand.
     try:
         if marcas is None:
             marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS, _chapas.MARCA_FOLHA)
@@ -161,7 +160,7 @@ def _grupos_selecionados(view_layer, marcas=None):
 
 
 def _viewports_da_janela(janela):
-    """Viewports da janela, menos a gaveta (que nao tem overlay)."""
+    """Window viewports excluding the sidebar, which has no overlay."""
     screen = janela.screen
     for area in screen.areas:
         if area.type == 'VIEW_3D' and not _gaveta._eh_area_gaveta_bruto(area):
@@ -169,7 +168,7 @@ def _viewports_da_janela(janela):
 
 
 def _selecao_exige_contorno_nativo(view_layer, grupos):
-    """O contorno da HUD nao representa um objeto comum somado com Shift."""
+    """HUD outlines do not represent an ordinary object added with Shift."""
     for obj in view_layer.objects:
         if not obj.select_get(view_layer=view_layer):
             continue
@@ -183,7 +182,7 @@ def _selecao_exige_contorno_nativo(view_layer, grupos):
 
 
 def _sincronizar_origens(espaco, grupos, devolver=False):
-    """Duas flags nativas: origens selecionadas e todas as origens."""
+    """Two native flags: selected origins and all origins."""
     for nome in ('show_object_origins', 'show_object_origins_all'):
         chave = (espaco.as_pointer(), nome)
         if devolver:
@@ -198,14 +197,14 @@ def _sincronizar_origens(espaco, grupos, devolver=False):
 
 
 def sincronizar_contornos(devolver=False):
-    """Sincroniza contorno e origens nativos, com preferencias independentes.
+    """Synchronize native outlines/origins with independent preferences.
 
-    `devolver=True` religa tudo que o add-on desligou, sem esquecer
-    quem o usuario religou: e' o caminho de salvar, abrir e desligar.
+    `devolver=True` restores everything disabled by the add-on while
+    respecting user reenabling; used for save, load and disable.
     """
     if devolver:
-        # Todas as telas, nao so' a ativa: a viewport de outro workspace
-        # tambem vai para o .blend.
+        # All screens, not just active: another workspace's viewport state
+        # is also saved to .blend.
         try:
             for tela in bpy.data.screens:
                 for area in tela.areas:
@@ -217,7 +216,7 @@ def sincronizar_contornos(devolver=False):
                         _contornos_desligados.discard(espaco.as_pointer())
                         espaco.overlay.show_outline_selected = True
         except Exception as e:
-            print("[Archy Builder] contorno:", e)
+            print("[Archy Builder] outline:", e)
         return
     try:
         janelas = bpy.context.window_manager.windows
@@ -244,13 +243,13 @@ def sincronizar_contornos(devolver=False):
                 if novo is not None:
                     overlay.show_outline_selected = novo
         except Exception as e:
-            print("[Archy Builder] contorno:", e)
+            print("[Archy Builder] outline:", e)
 
 
 @bpy.app.handlers.persistent
 def _devolver_contornos(*_args):
-    """Antes de salvar ou abrir: o .blend guarda o estado do usuario,
-    nunca o desligamento temporario."""
+    """Before saving/loading, restore user state so .blend never stores
+    temporary disabled settings."""
     sincronizar_contornos(devolver=True)
 
 
@@ -261,7 +260,7 @@ def _retomar_contornos(*_args):
 
 @bpy.app.handlers.persistent
 def _esquecer_contornos(*_args):
-    # arquivo novo: os ponteiros antigos podem ser reaproveitados
+    # New file: old pointer values can be reused.
     _contornos_desligados.clear()
     _contornos_do_usuario.clear()
     _origens_ocultas.clear()
@@ -271,9 +270,8 @@ def _esquecer_contornos(*_args):
 
 @bpy.app.handlers.persistent
 def _esquecer_referencias(*_args):
-    """Antes de desfazer/refazer/abrir: o hover da HUD guarda OBJETOS, que
-    essas acoes liberam (ver `_hud._alvo_vivo`). O proximo movimento do mouse
-    acha o alvo de novo."""
+    """Before undo/redo/load, clear HUD hover OBJECTS that these actions free
+    (see `_hud._alvo_vivo`). The next mouse movement resolves the target again."""
     _visibilidade.esquecer_edicao()
     _paredes_edicao.encerrar()
     _paredes_selecao.esquecer()
@@ -297,22 +295,22 @@ def _esquecer_referencias(*_args):
     _ferragens._contagem_objetos[0] = None
 
 
-# Ctrl+Z / Ctrl+Shift+Z: os dados acabaram de ser recarregados e o
-# primeiro recalculo da cena chama o handler do depsgraph -- ler a selecao
-# ali derrubava o Blender (crash do usuario, 2x, depois de criar porta).
-# Entre o undo e o proximo tique o handler nao faz nada; o timer devolve
-# o contorno. Fora do undo nada muda: o contorno segue na hora.
+# Ctrl+Z / Ctrl+Shift+Z reload data; initial scene recalculation calls
+# the depsgraph handler. Reading selection there crashed Blender
+# twice for the user after creating a door.
+# Between undo and the next tick the handler does nothing; the timer
+# restores outlines. Outside undo, outlines still follow immediately.
 _desfazendo = [False]
 
 
 @bpy.app.handlers.persistent
 def _antes_de_desfazer(*_args):
     _paredes_edicao.encerrar()
-    # Undo dentro do Edit Mode conserva o escopo atual (so' nomes/digitais).
+    # Undo inside Edit Mode retains current scope as names/signatures only.
     edicao = _prateleiras._edicao[0] if bpy.context.mode == 'EDIT_MESH' else None
     grupo = _selecao._edicao_grupo[0] if bpy.context.mode == 'EDIT_MESH' else None
-    # Refazer Tab ainda precisa medir a malha confirmada. Guardar nomes
-    # conserva essa transicao sem reter IDs que o undo vai liberar.
+    # Redoing Tab still needs to measure confirmed geometry. Keeping names
+    # preserves that transition without retaining IDs freed by undo.
     chapas = set(_chapas._chapas_em_edicao) if bpy.context.mode == 'EDIT_MESH' else set()
     _desfazendo[0] = True
     _esquecer_referencias()
@@ -330,8 +328,8 @@ def _depois_de_desfazer(*_args):
 
 def _fim_do_desfazer():
     _desfazendo[0] = False
-    # O depsgraph ainda pode estar copiando os IDs restaurados. As
-    # referencias pendentes voltam pelo timer normal, fora deste fecho.
+    # Depsgraph may still be copying restored IDs. Rebuild pending
+    # references in the normal timer, outside this completion callback.
     sincronizar_contornos()
     return None
 

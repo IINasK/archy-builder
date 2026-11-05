@@ -1,12 +1,8 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_shelves_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_shelves_blender.py
 
-Prateleiras internas (pedido do usuario): grupo de prateleiras num vao do
-modulo, criado como as gavetas (2 cliques na diagonal, scroll = quantas,
-mouse = profundidade), com aba propria: quantidade, espessura, o
-espacamento entre elas e o de CADA uma (na aba e na HUD).
+Internal shelves, as requested: a shelf group in a cabinet opening, created like drawers (two opposite-corner clicks, scroll for count, mouse for depth), with its own tab for count, thickness, shared spacing and each individual spacing in both tab and HUD.
 
-O assistente com eventos de verdade esta' em `gui_interaction.py`.
-"""
+The wizard's real events are covered in gui_interaction.py."""
 import os
 import sys
 import tempfile
@@ -356,7 +352,7 @@ class TestPrateleiras(unittest.TestCase):
         primeira, meio, ultima = P.prateleiras_do_grupo(grupo)
         z = ultima.matrix_world.translation.z
         bpy.data.objects.remove(meio, do_unlink=True)
-        # O resize pode chegar antes do tique de seguranca.
+        # Resize can arrive before the safety tick.
         P.atualizar_do_conjunto(self.conj)
         self.assertEqual(P.parametros(grupo)['quantidade'], 2)
         modelo = P.parametros_individuais(P.parametros(grupo), 1)
@@ -401,7 +397,7 @@ class TestPrateleiras(unittest.TestCase):
         self.recortar(fonte)
         self.assertIsNone(P.editar_individual(bpy.context, grupo, 1, 'espessura_mm', 25))
         bpy.data.objects.remove(P.prateleiras_do_grupo(grupo)[2], do_unlink=True)
-        # O clique tambem precisa absorver exclusao ainda nao vista pelo timer.
+        # Clicking must also absorb deletion not yet observed by the timer.
         P.selecionar(bpy.context, grupo, 'GRUPO')
         restantes = P.prateleiras_do_grupo(grupo)
         antes = [(o.data, self.geometria(o)) for o in restantes]
@@ -433,7 +429,7 @@ class TestPrateleiras(unittest.TestCase):
                 antes = [(o.data, self.geometria(o), o.matrix_world.copy()) for o in unidades]
                 alturas = self.alturas(grupo)
                 altura = P.vao(grupo)[1]
-                # Limites sao as faces das vizinhas, ou o limite do vao.
+                # Limits are neighboring faces or the opening boundary.
                 apoio_baixo = alturas[indice - 1] + 18 if indice else 0
                 apoio_cima = alturas[indice + 1] if indice + 1 < quantidade else altura
                 esperado = (apoio_baixo + apoio_cima - 25) / 2
@@ -465,7 +461,7 @@ class TestPrateleiras(unittest.TestCase):
         self.assertAlmostEqual(self.alturas(grupo)[1], (apoio + 664 - 18) / 2, places=3)
 
     def test_centralizar_individual_undo_redo_restaura_posicao_e_selecao(self):
-        # Em background o loop nao executa o timer que libera a guarda.
+        # In background mode, the loop does not run the timer releasing the guard.
         self.addCleanup(addon.eventos._fim_do_desfazer)
         grupo = self.prateleiras(espacamento='LIVRE', vaos_mm=[40., 160., 110.])
         alvo = P.prateleiras_do_grupo(grupo)[1]
@@ -488,8 +484,8 @@ class TestPrateleiras(unittest.TestCase):
         grupo = self.prateleiras()
         bpy.context.scene.cabinet_aba = 'PRATELEIRAS'
         acao = ('operador', 'object.cabinet_alinhar_prateleiras')
-        # Simbolo proprio: o hit-test ocupa o botao inteiro, sem disco
-        # nativo por cima que possa conservar uma corrente do pool.
+        # Custom symbol: hit-test uses the entire button without a native disk
+        # above it that could retain a chain from the pool.
         self.assertIsNone(addon.gaveta_eventos._icone_acao_gaveta(acao))
         for nivel in ('GRUPO', 'PRATELEIRA'):
             P.selecionar(bpy.context, P.prateleiras_do_grupo(grupo)[0], nivel)
@@ -500,7 +496,7 @@ class TestPrateleiras(unittest.TestCase):
                     contador, = [w for w in widgets if w[5] and w[5][:2] ==
                                   ('contador', 'prateleiras_quantidade')]
                     basicas = [w for w in widgets if w[5] and w[5][0] == 'medida'
-                               and w[5][3] in {'Largura', 'Altura', 'Profundidade'}]
+                               and w[5][3] in {"Width", "Height", "Depth"}]
                     self.assertEqual(len(basicas), 3 if nivel == 'GRUPO' else 2)
                     for campo in basicas:
                         self.assertAlmostEqual(campo[2], basicas[0][2])
@@ -508,9 +504,9 @@ class TestPrateleiras(unittest.TestCase):
                     if largura >= 480:
                         self.assertTrue(all(w[1] == contador[1] for w in basicas))
                     self.assertEqual(icone[3], contador[3])
-                    self.assertEqual(icone[4], 'Centralizar espacamento')
+                    self.assertEqual(icone[4], "Center Spacing")
                     self.assertEqual(icone[0], 12)
-                    # A barra reserva uma coluna; o botao conserva toda a area util.
+                    # The bar reserves a column; the button retains its entire usable area.
                     tem_barra = any(w[5] and w[5][:2] ==
                         ('rolagem', addon.gaveta._CHAVE_ROLAGEM) for w in widgets)
                     self.assertEqual(icone[2], largura - 24 - (12 if tem_barra else 0))
@@ -579,7 +575,7 @@ class TestPrateleiras(unittest.TestCase):
         ctx = SimpleNamespace(screen=SimpleNamespace(areas=[
             SimpleNamespace(type='VIEW_3D', regions=[primeira]),
             SimpleNamespace(type='VIEW_3D', regions=[segunda])]))
-        P._referencia_pendente[0] = dict(grupo='Grupo', quantidade=5, regiao=None, mouse=None)
+        P._referencia_pendente[0] = dict(grupo="Group", quantidade=5, regiao=None, mouse=None)
         with patch.object(addon.gaveta_eventos, '_gaveta_sob_evento', return_value=None), \
              patch.object(addon.eventos, '_redesenhar_viewports') as redesenhar:
             for x, y, regiao, esperado in ((410, 290, 123, (110, 190)),
@@ -591,7 +587,7 @@ class TestPrateleiras(unittest.TestCase):
                 pedido = P._referencia_pendente[0]
                 self.assertEqual(tuple(pedido['mouse']), esperado)
                 self.assertEqual(pedido['regiao'], regiao)
-                self.assertEqual(pedido['recado'], 'Selecione a prateleira de referencia')
+                self.assertEqual(pedido['recado'], "Select the Reference Shelf")
                 self.assertEqual(pedido['quantidade'], 5)
             self.assertEqual(redesenhar.call_count, 3)
 
@@ -600,7 +596,7 @@ class TestPrateleiras(unittest.TestCase):
                                  as_pointer=lambda: 123)
         ctx = SimpleNamespace(screen=SimpleNamespace(areas=[
             SimpleNamespace(type='VIEW_3D', regions=[regiao])]))
-        P._referencia_pendente[0] = dict(grupo='Grupo', quantidade=5, regiao=123,
+        P._referencia_pendente[0] = dict(grupo="Group", quantidade=5, regiao=123,
                                          mouse=Vector((50, 60)))
         with patch.object(addon.eventos, '_redesenhar_viewports'), \
              patch.object(addon.gaveta_eventos, '_gaveta_sob_evento', return_value=None):
@@ -634,7 +630,7 @@ class TestPrateleiras(unittest.TestCase):
         grupo = self.prateleiras()
         P.selecionar(bpy.context, grupo, 'GRUPO')
         ev = addon.gaveta_eventos
-        acao = ('contador', 'prateleiras_quantidade', 3, 1, 20, grupo.name, 'Prateleiras')
+        acao = ('contador', 'prateleiras_quantidade', 3, 1, 20, grupo.name, "Shelves")
         op = SimpleNamespace(_campo=dict(acao=acao, x0=0, arrastou=False, valor=3, meio=20))
         ctx = SimpleNamespace(area=SimpleNamespace(tag_redraw=lambda: None))
         mover = SimpleNamespace(type='MOUSEMOVE', mouse_region_x=48)
@@ -732,7 +728,7 @@ class TestPrateleiras(unittest.TestCase):
         self.assertEqual([self.geometria(o) for o in P.prateleiras_do_grupo(grupo)], antes)
 
     def recortar(self, obj):
-        # Um chanfro assimetrico distingue a geometria sem mudar a caixa.
+        # An asymmetric chamfer distinguishes the geometry without changing the box.
         obj.data.vertices[0].co.x += .035
         obj.data.vertices[0].co.y += .025
         obj.data.update()
@@ -833,7 +829,7 @@ class TestPrateleiras(unittest.TestCase):
         self.assertEqual(bpy.context.object, b)
 
     def test_undo_redo_do_g_nativo_restaura_malha_posicao_e_cotas(self):
-        # O teste de undo anterior nao entrega o loop ao timer em background.
+        # The previous undo test does not yield to the timer in background mode.
         addon.eventos._fim_do_desfazer()
         self.addCleanup(addon.eventos._fim_do_desfazer)
         grupo = self.prateleiras()
@@ -881,7 +877,7 @@ class TestPrateleiras(unittest.TestCase):
         grupo = self.prateleiras()
         fora = self.prateleiras()
         antes = [self.geometria(o) for o in P.prateleiras_do_grupo(fora)]
-        # O segundo vao fica em outro modulo, mesmo que use o mesmo Mesh.
+        # The second opening belongs to another cabinet, even if both share a Mesh.
         outro = bpy.data.objects.new('Outro modulo', None)
         bpy.context.scene.collection.objects.link(outro)
         fora.parent = outro
@@ -911,7 +907,7 @@ class TestPrateleiras(unittest.TestCase):
         P.selecionar(bpy.context, grupo, 'GRUPO')
         bpy.ops.object.cabinet_editar_grupo()
         self.editar_vertice_nativo(atuais[1])
-        # Saida pelo seletor nativo de modo tambem conclui no timer existente.
+        # Exiting through the native mode selector also finishes through the existing timer.
         bpy.ops.object.mode_set(mode='OBJECT')
         P.concluir_edicao()
         self.assertTrue(all(self.geometria(o) == self.geometria(atuais[1]) for o in atuais))
@@ -1029,8 +1025,8 @@ class TestPrateleiras(unittest.TestCase):
         camada = bpy.context.view_layer
         camada.active_layer_collection = camada.layer_collection
         P.esquecer()
-        # balcao 800 x 700 x 560, chapa 18: o vao de dentro e' 764 x 664
-        self.conj = addon.modulos.criar_armario(bpy.context, 'Balcao', 800, 700, 560,
+        # Base cabinet 800 x 700 x 560, 18 mm panels: inner opening 764 x 664.
+        self.conj = addon.modulos.criar_armario(bpy.context, "Base Cabinet", 800, 700, 560,
                                                 fundo=False)
         bpy.context.view_layer.update()
 
@@ -1040,7 +1036,7 @@ class TestPrateleiras(unittest.TestCase):
         return P.criar_prateleiras(bpy.context, self.conj, (18, 18, 18, 18, 0), padrao)
 
     def alturas(self, grupo):
-        """z de baixo de cada prateleira, em mm, no grupo."""
+        """Return each shelf's lower z in mm in the group reference frame."""
         inversa = grupo.matrix_world.inverted()
         return [round((inversa @ o.matrix_world.translation).z * 1000.0
                       - o.chapa_espessura_mm / 2.0, 3) for o in P.prateleiras_do_grupo(grupo)]
@@ -1048,31 +1044,31 @@ class TestPrateleiras(unittest.TestCase):
     def test_calculo_igual_e_livre(self):
         p = dict(P.PARAMETROS_PADRAO, quantidade=3, espessura_mm=18.0, profundidade_mm=500.0)
         dados = P.calcular(764.0, 664.0, p)
-        # 664 - 3 x 18 = 610 em 4 vaos iguais
+        # 664 - 3 x 18 = 610 in four equal openings.
         self.assertEqual([round(v, 3) for v in dados['vaos']], [152.5] * 4)
         self.assertAlmostEqual(dados['prateleiras'][1][4], 152.5 * 2 + 18.0)
-        # LIVRE: o de cima e' o que sobra
+        # Free mode: the top opening takes the remainder.
         livre = dict(p, espacamento='LIVRE', vaos_mm=[100.0, 200.0, 50.0])
         self.assertAlmostEqual(P.vaos(664.0, livre)[-1], 610.0 - 350.0)
-        with self.assertRaisesRegex(ValueError, 'passam do topo'):
+        with self.assertRaisesRegex(ValueError, 'exceed the opening top'):
             P.vaos(664.0, dict(livre, vaos_mm=[300.0, 300.0, 100.0]))
-        with self.assertRaisesRegex(ValueError, 'nao cabem'):
+        with self.assertRaisesRegex(ValueError, 'do not fit'):
             P.calcular(764.0, 664.0, dict(p, quantidade=20, espessura_mm=40.0))
-        with self.assertRaisesRegex(ValueError, 'rasa'):
+        with self.assertRaisesRegex(ValueError, 'too shallow'):
             P.calcular(764.0, 664.0, dict(p, recuo_mm=480.0))
 
     def test_mover_um_vao_anda_so_uma_prateleira(self):
         p = dict(P.PARAMETROS_PADRAO, quantidade=3, espessura_mm=18.0)
-        # vao 2 (entre a 1a e a 2a) em 100: so' a 2a desce; o 3o cede
+        # Opening 2 between shelves 1 and 2 set to 100: only shelf 2 drops; opening 3 yields.
         self.assertEqual([round(v, 3) for v in P.mover_vao(664.0, p, 1, 100.0)],
                          [152.5, 100.0, 205.0])
-        # o do topo em 100: a mais alta sobe (o vao de baixo dela cresce)
+        # Top opening set to 100: the highest shelf rises, enlarging the opening below.
         self.assertEqual([round(v, 3) for v in P.mover_vao(664.0, p, 3, 100.0)],
                          [152.5, 152.5, 205.0])
-        # o "Acima" da 2a: anda ELA (o vao de baixo dela cede)
+        # Editing Above for shelf 2 moves that shelf; its lower opening yields.
         self.assertEqual([round(v, 3) for v in P.mover_vao(664.0, p, 2, 100.0, de_baixo=True)],
                          [152.5, 205.0, 100.0])
-        with self.assertRaisesRegex(ValueError, 'Nao cabe'):
+        with self.assertRaisesRegex(ValueError, 'Does not fit'):
             P.mover_vao(664.0, p, 1, 400.0)
 
     def test_cria_chapas_no_vao_sem_mexer_no_modulo(self):
@@ -1088,11 +1084,11 @@ class TestPrateleiras(unittest.TestCase):
             self.assertAlmostEqual(o.chapa_comprimento_mm, 540.0 - 20.0, places=3)
             self.assertAlmostEqual(o.chapa_espessura_mm, 18.0, places=3)
         self.assertEqual(self.alturas(grupo), [152.5, 323.0, 493.5])
-        # o modulo nao ganha chapa nem muda de medida
+        # The cabinet gains no panel and keeps its dimensions.
         self.assertEqual(len(addon.modulos._chapas_do_conjunto(self.conj)), chapas)
         for a, b in zip(antes, addon.modulos.medir_conjunto(self.conj)):
             self.assertAlmostEqual(a, b, places=3)
-        # o orcamento conta as prateleiras; a pintura pega todas
+        # The estimate counts shelves; painting applies to all.
         self.assertEqual(addon.orcamento._pecas_internas(self.conj)[0], 3)
         self.assertEqual(len(addon.materiais.pecas_dos_alvos([grupo])), 3)
 
@@ -1101,22 +1097,22 @@ class TestPrateleiras(unittest.TestCase):
         segunda = P.prateleiras_do_grupo(grupo)[1]
         nome = segunda.name
         self.assertIsNone(P.editar(bpy.context, grupo, 'espessura_mm', 25.0))
-        self.assertEqual(P.prateleiras_do_grupo(grupo)[1].name, nome)   # a mesma
+        self.assertEqual(P.prateleiras_do_grupo(grupo)[1].name, nome)   # The same one.
         self.assertAlmostEqual(segunda.chapa_espessura_mm, 25.0, places=3)
-        # entre todas: LIVRE com o mesmo vao; mais uma continua com ele
+        # Shared spacing: free mode with the same opening; adding one keeps it.
         self.assertIsNone(P.editar(bpy.context, grupo, 'entre_mm', 120.0))
         self.assertEqual(self.alturas(grupo), [120.0, 265.0, 410.0])
         self.assertIsNone(P.editar(bpy.context, grupo, 'prateleiras_quantidade', 4))
         self.assertEqual(self.alturas(grupo), [120.0, 265.0, 410.0, 555.0])
-        # 5 a 120 nao cabem: volta a dividir igual
+        # Five at 120 do not fit: restore equal distribution.
         self.assertIsNone(P.editar(bpy.context, grupo, 'quantidade', 5))
         self.assertEqual(P.parametros(grupo)['espacamento'], 'IGUAL')
         self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 5)
-        # nao cabe: devolve o erro e fica como estava
+        # Does not fit: return the error and preserve the previous state.
         erro = P.editar(bpy.context, grupo, 'espessura_mm', 200.0)
-        self.assertIn('nao cabem', erro)
+        self.assertIn('do not fit', erro)
         self.assertEqual(P.parametros(grupo)['espessura_mm'], 25.0)
-        # LIVRE parte dos vaos de hoje; IGUAL divide de novo
+        # Free mode starts from current openings; equal mode redistributes them.
         antes = self.alturas(grupo)
         self.assertIsNone(P.editar(bpy.context, grupo, 'espacamento', 'LIVRE'))
         self.assertEqual(self.alturas(grupo), antes)
@@ -1162,9 +1158,9 @@ class TestPrateleiras(unittest.TestCase):
 
     def test_modulo_que_muda_de_medida_leva_as_prateleiras(self):
         grupo = self.prateleiras()
-        self.conj.conj_largura_mm = 1000.0          # dispara o redimensionar
+        self.conj.conj_largura_mm = 1000.0          # Trigger resize.
         bpy.context.view_layer.update()
-        # v288: aumentar a caixa deixa folga; o bloco conserva a escolha.
+        # v288: enlarging the box leaves clearance; the block retains its chosen extent.
         self.assertAlmostEqual(P.medidas(grupo)[0], 764.0, places=2)
         self.assertAlmostEqual(P.prateleiras_do_grupo(grupo)[0].chapa_largura_mm, 764.0, places=2)
 
@@ -1197,16 +1193,16 @@ class TestPrateleiras(unittest.TestCase):
         self.assertEqual([l['face'] for l in vaos], [('V', k) for k in range(4)])
         self.assertEqual({l['letra'] for l in geometria['linhas'] if not l.get('vao')},
                          {'L', 'A', 'P'})
-        # a linha do 2o vao: arrastar/digitar anda so' a 2a prateleira
+        # Opening 2 line: dragging or typing moves only shelf 2.
         self.assertAlmostEqual(addon.hud._valor_hud(vaos[1]), 152.5, places=3)
         addon.hud._aplicar_valor_hud(bpy.context, vaos[1], 100.0)
         self.assertEqual(self.alturas(grupo), [152.5, 270.5, 493.5])
-        # o Esc do arraste devolve os parametros
+        # Esc during dragging restores the parameters.
         estado = addon.hud._estado_arraste_hud(bpy.context, vaos[1])
         addon.hud._aplicar_valor_hud(bpy.context, vaos[1], 60.0)
         addon.hud._restaurar_arraste_hud(bpy.context, estado)
         self.assertEqual(self.alturas(grupo), [152.5, 270.5, 493.5])
-        # duplo clique: so' ela
+        # Double click: only that shelf.
         P.selecionar(bpy.context, segunda, 'PRATELEIRA')
         self.assertEqual(bpy.context.view_layer.objects.active, segunda)
         self.assertEqual(len(addon.hud._itens_da_selecao(bpy.context)), 1)
@@ -1229,7 +1225,7 @@ class TestPrateleiras(unittest.TestCase):
         self.assertTrue({'largura', 'altura', 'profundidade_mm', 'espessura_mm', 'recuo_mm',
                          'folga_lateral_mm', 'vao_0', 'vao_3'} <= medidas, medidas)
         self.assertNotIn('entre_mm', medidas)
-        # Uma so' (duplo) mostra apenas os vaos do trecho local.
+        # One double-clicked shelf shows only the openings in its local segment.
         segunda = P.prateleiras_do_grupo(grupo)[1]
         P.selecionar(bpy.context, segunda, 'PRATELEIRA')
         acoes = [v[5] for v in addon.gaveta._widgets_gaveta(bpy.context, 480, 1400) if v[5]]
@@ -1237,15 +1233,15 @@ class TestPrateleiras(unittest.TestCase):
         self.assertEqual([rotulos['E%d' % i] for i in (2, 3)], ['vao_1', 'vao_2'])
         self.assertNotIn('E1', rotulos)
         self.assertNotIn('E4', rotulos)
-        self.assertNotIn('Abaixo', rotulos)
-        self.assertNotIn('Acima', rotulos)
+        self.assertNotIn("Below", rotulos)
+        self.assertNotIn("Above", rotulos)
         self.assertNotIn('Entre prateleiras', rotulos)
-        self.assertEqual(rotulos['Largura'], 'individual_1_largura_mm')
+        self.assertEqual(rotulos["Width"], 'individual_1_largura_mm')
         for largura in (190, 320, 564):
             widgets = addon.gaveta._widgets_gaveta(bpy.context, largura, 1400)
             self.assertTrue(any(w[5] and w[5][:2] == ('contador', 'prateleiras_quantidade')
                                 for w in widgets))
-        # os campos chegam pelos mesmos caminhos da porta/gavetas
+        # Fields use the same paths as doors and drawers.
         ev = addon.gaveta_eventos
         self.assertIsNone(ev.aplicar_medida(bpy.context, 'prateleiras', segunda.name,
                                             'vao_1', 0.1))
@@ -1254,8 +1250,8 @@ class TestPrateleiras(unittest.TestCase):
             bpy.context, ('contador', 'prateleiras_quantidade', 3, 1, 20, grupo.name), 2))
         self.assertEqual(len(P.prateleiras_do_grupo(grupo)), 2)
         self.assertIn('OBJECT_OT_criar_prateleiras', [c.__name__ for c in addon.CLASSES])
-        # so' 2 pontos (pedido do usuario): o clique da quantidade ja' cria,
-        # sem a etapa de profundidade das gavetas
+        # Only two points, as requested: clicking the count creates the shelves
+        # without the drawers' depth step.
         self.assertNotIn('PROFUNDIDADE', P.OBJECT_OT_criar_prateleiras.RECADOS)
         self.assertIsNot(P.OBJECT_OT_criar_prateleiras._depois_da_quantidade,
                          addon.gavetas.AssistenteDoVao._depois_da_quantidade)
@@ -1266,4 +1262,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPrateleiras)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de prateleiras')
+    raise RuntimeError("Shelf tests failed")

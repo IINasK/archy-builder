@@ -1,29 +1,29 @@
-"""Perguntas Sim/Nao (pop-up na viewport, caixa preta na gaveta)."""
+"""Yes/No questions (viewport popup, black box in the sidebar)."""
 
 import bpy
 from bpy.props import IntProperty
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _eventos = None
 _editor = None
 
 def _abrir_pergunta(context):
-    """Pop-up so' com janela: em --background o popup_menu derruba o
-    Blender (EXCEPTION_ACCESS_VIOLATION). A resposta pendente fica gravada
-    do mesmo jeito -- e' assim que os testes respondem."""
+    """Only open a popup with a window: in --background, popup_menu crashes Blender
+    (EXCEPTION_ACCESS_VIOLATION). The pending answer is still recorded; this is how
+    tests supply answers."""
     return not bpy.app.background and getattr(context, 'window', None)
 
 
-# ------------------------------------------------------- perguntas
-# REGRA DE DESIGN (pedido do usuario, vale para tudo daqui em diante):
-# pop-up SO' quando a acao veio da VIEWPORT (atalho, Alt+corrente/regua,
-# Enter no modo de vertices). Veio de um botao da GAVETA: a pergunta
-# aparece DENTRO dela, logo abaixo do botao, numa caixa preta
-# (`_pergunta_na_gaveta`). Toda confirmacao passa por `_perguntar`.
-_pergunta_atual = [None]   # {'texto', 'opcoes': [(rotulo, icone, op, props)], 'na_gaveta'}
-_na_gaveta = [False]       # True enquanto a gaveta trata um clique
+# ------------------------------------------------------- questions
+# DESIGN RULE (user request, applies to all future actions): use a popup ONLY for
+# actions originating in the VIEWPORT (shortcut, Alt+chain/ruler, Enter in vertex mode).
+# For a SIDEBAR button, show the question INSIDE the sidebar, directly below the button,
+# in a black box (`_pergunta_na_gaveta`). Every confirmation goes through `_perguntar`.
+_pergunta_atual = [None]   # {'texto', 'opcoes': [(label, icon, operator, properties)],
+                           # 'na_gaveta'}
+_na_gaveta = [False]       # True while the sidebar handles a click.
 
 
 def _menu_pergunta(self, context):
@@ -37,8 +37,8 @@ def _menu_pergunta(self, context):
 
 
 def _perguntar(context, texto, opcoes, na_gaveta=None):
-    """Faz a pergunta no lugar certo: na gaveta (caixa preta) se o clique
-    veio dela, em pop-up se veio da viewport."""
+    """Ask in the appropriate place: a sidebar black box for sidebar clicks, a popup
+    for viewport actions."""
     na_gaveta = _na_gaveta[0] if na_gaveta is None else na_gaveta
     _pergunta_atual[0] = {'texto': texto, 'opcoes': list(opcoes),
                           'na_gaveta': bool(na_gaveta)}
@@ -50,9 +50,9 @@ def _perguntar(context, texto, opcoes, na_gaveta=None):
 
 
 class OBJECT_OT_responder_pergunta(Operator):
-    """Responde a pergunta pendente (caixa da gaveta ou pop-up)"""
+    """Answer the pending question (sidebar box or popup)."""
     bl_idname = 'object.cabinet_responder_pergunta'
-    bl_label = 'Responder'
+    bl_label = "Answer"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     opcao: IntProperty(options={'SKIP_SAVE'})

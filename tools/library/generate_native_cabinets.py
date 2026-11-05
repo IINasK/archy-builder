@@ -17,7 +17,7 @@ import archy_builder as addon  # noqa: E402
 
 def main():
     addon.register()
-    for obj in list(bpy.data.objects):          # cubo, camera e luz de fabrica
+    for obj in list(bpy.data.objects):          # Factory cube, camera, and light.
         bpy.data.objects.remove(obj, do_unlink=True)
     feitos = 0
     try:
@@ -25,11 +25,11 @@ def main():
             arq = addon.biblioteca.gerar_armario_nativo(
                 bpy.context, tipo, L, A, P, niveis, portas)
             feitos += 1
-            print('[armarios nativos] %s' % os.path.basename(arq))
+            print("[native cabinets] %s" % os.path.basename(arq))
     except Exception:
         traceback.print_exc()
         sys.exit(1)
-    print('[armarios nativos] %d presets em %s'
+    print("[native cabinets] %d presets in %s"
           % (feitos, addon.biblioteca.pasta_biblioteca()))
 
 

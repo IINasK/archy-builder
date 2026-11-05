@@ -1,4 +1,4 @@
-"""Visibilidade por categoria sem retirar a geometria do snap nativo."""
+"""Category visibility without removing geometry from native snapping."""
 import os
 import sys
 import tempfile
@@ -231,7 +231,7 @@ class TestVisibilidade(unittest.TestCase):
             itens=V.widgets(bpy.context,12,largura,900)
             botoes=[v for v in itens if V.eh_acao(v[5])]
             rotulo=next(v for v in itens if v[5]==('rotulo',))
-            self.assertEqual(rotulo[4],'Visibilidade de objetos' if largura>=260 else 'Visibilidade')
+            self.assertEqual(rotulo[4],"Object Visibility" if largura>=260 else "Visibility")
             self.assertLessEqual(rotulo[0]+rotulo[2]+6,botoes[0][0])
             self.assertTrue(all(v[2:4]==(36,30) and not v[4] for v in botoes))
             self.assertEqual(botoes[-1][0]+botoes[-1][2],12+largura)
@@ -354,10 +354,10 @@ class TestVisibilidade(unittest.TestCase):
         nome=self.modulo.name
         with tempfile.TemporaryDirectory(prefix='visual_blend_') as pasta:
             caminho=os.path.join(pasta,'teste.blend')
-            # Copia mantem o arquivo atual distinto; o 4.2 cai ao relinka-lo em si.
+            # Copying keeps the current file distinct; Blender 4.2 crashes when relinking it to itself.
             bpy.ops.wm.save_as_mainfile(filepath=caminho,copy=True,relative_remap=False)
             self.assertTrue(all(V.esmaecido(o) for o in V.membros(bpy.context,self.modulo,'PORTAS')))
-            # Ler como biblioteca nao executa o timer do add-on na copia.
+            # Reading as a library does not execute the add-on's timer in the copy.
             with bpy.data.libraries.load(caminho,link=False) as (origem,destino):
                 destino.objects=list(origem.objects)
             copia=next(o for o in destino.objects if o and V.ATIVOS in o)
@@ -368,7 +368,7 @@ class TestVisibilidade(unittest.TestCase):
         self.assertEqual(self.modulo.name,nome)
 
     def test_faixa_fixa_nao_desaparece_sem_portas_ou_apos_cancelar_criacao(self):
-        # Regressao 387: o olho 386 dependia de portas e da captura em andamento.
+        # Regression v387: the v386 eye depended on doors and an active capture.
         addon.areas_criacao.esquecer()
         posicoes = []
         for aba in ('MODULOS', 'PORTAS', 'FUNDOS', 'GAVETAS', 'PRATELEIRAS', 'PUXADORES'):
@@ -415,4 +415,4 @@ with tempfile.TemporaryDirectory(prefix='visibilidade_') as pasta, \
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha na visibilidade por categoria')
+        raise RuntimeError("Category-visibility tests failed")

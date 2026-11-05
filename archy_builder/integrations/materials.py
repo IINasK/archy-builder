@@ -1,70 +1,70 @@
-"""Materiais da biblioteca (MDF/MDP): catalogo de CORES SOLIDAS em cascata,
-aplicadas nas chapas como um Material do Blender so' com a cor (pedido do
-usuario: sem textura por enquanto; a cor aparece no Solid da viewport).
-A preview e' uma esfera sombreada (como a de material do Blender),
-rasterizada aqui mesmo -- nenhum render, nenhum arquivo de foto."""
+"""Library materials (MDF/MDP): hierarchical SOLID COLOR catalog,
+applied to panels as Blender Materials with color only, as requested
+by the user: no textures yet; color appears in the Solid viewport.
+The preview is a shaded sphere like Blender's material preview,
+rasterized here without rendering or photo files."""
 
 import bpy, json, os, time
 from bpy.props import StringProperty, FloatVectorProperty, EnumProperty, BoolProperty
 from bpy.types import Operator, Menu
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _biblioteca = _chapas = _ferragens = _perguntas = _gaveta = _portas = None
 _orcamento = None
 _gavetas = None
 _prateleiras = None
 _divisorias = None
 
-# 1o clique numa esfera: (chave, instante, mouse_x, mouse_y). Clique
-# simples NAO pinta (pedido do usuario: um clique errado mudaria o que nao
-# devia); so' o 2o, rapido e no mesmo lugar, aplica na selecao.
+# First sphere click: (key, timestamp, mouse_x, mouse_y). A single click
+# does NOT apply color, as requested by the user: a misplaced click could
+# change unintended objects. Only a quick second click at the same position applies it.
 _clique_esfera = [None]
 
 NOME_ARQUIVO = "materiais.json"
-# ID prop do Material do Blender: a chave do item do catalogo. E' por ela
-# (nunca pelo nome, que o Blender sufixa com .001) que o material e'
-# reencontrado ao reaplicar ou editar.
+# Blender Material ID property: catalog item key. Use it to find
+# the material when reapplying or editing, never its name,
+# which Blender may suffix with .001.
 CHAVE_MATERIAL = "cabinet_material"
 
-# Cascata de fabrica: nivel 1 = MDF/MDP (pedido do usuario); os niveis
-# de baixo tambem nascem dos itens do arquivo, como os da biblioteca.
+# Factory hierarchy: level 1 = MDF/MDP, as requested by the user;
+# lower levels also derive from file items, like the library.
 ARVORE_MATERIAIS = {
-    "MDF": {"Unicolores": [], "Madeirados": []},
-    "MDP": {"Unicolores": [], "Madeirados": []},
+    "MDF": {"Solid Colors": [], "Woodgrains": []},
+    "MDP": {"Solid Colors": [], "Woodgrains": []},
 }
 
-# Catalogo inicial, usado enquanto a biblioteca nao tem `materiais.json`
-# (o arquivo nasce na primeira edicao). Cor = sRGB em hexa, como se le
-# num catalogo de fornecedor.
+# Initial catalog, used until the library has `materiais.json`
+# (created on the first edit). Color = hexadecimal sRGB, as read
+# in a supplier catalog.
 MATERIAIS_PADRAO = (
-    ("MDF", "Unicolores", "Branco TX", "#EDEDE8"),
-    ("MDF", "Unicolores", "Branco Neve", "#F7F7F4"),
-    ("MDF", "Unicolores", "Preto TX", "#222222"),
-    ("MDF", "Unicolores", "Cinza Cristal", "#B4B6B3"),
-    ("MDF", "Unicolores", "Grafite", "#4B4D50"),
-    ("MDF", "Unicolores", "Areia", "#D9CDB8"),
-    ("MDF", "Unicolores", "Fendi", "#C3B7A6"),
-    ("MDF", "Madeirados", "Freijo", "#A97C50"),
-    ("MDF", "Madeirados", "Carvalho", "#BC9567"),
-    ("MDF", "Madeirados", "Nogueira", "#6F4C35"),
-    ("MDF", "Madeirados", "Louro Preto", "#5B4334"),
-    ("MDF", "Madeirados", "Cumaru", "#8E5B3D"),
-    ("MDP", "Unicolores", "Branco TX", "#EDEDE8"),
-    ("MDP", "Unicolores", "Preto TX", "#222222"),
-    ("MDP", "Unicolores", "Cinza Cristal", "#B4B6B3"),
-    ("MDP", "Unicolores", "Grafite", "#4B4D50"),
-    ("MDP", "Madeirados", "Freijo", "#A97C50"),
-    ("MDP", "Madeirados", "Carvalho", "#BC9567"),
-    ("MDP", "Madeirados", "Nogueira", "#6F4C35"),
+    ("MDF", "Solid Colors", "White TX", "#EDEDE8"),
+    ("MDF", "Solid Colors", "Snow White", "#F7F7F4"),
+    ("MDF", "Solid Colors", "Black TX", "#222222"),
+    ("MDF", "Solid Colors", "Crystal Gray", "#B4B6B3"),
+    ("MDF", "Solid Colors", "Graphite", "#4B4D50"),
+    ("MDF", "Solid Colors", "Sand", "#D9CDB8"),
+    ("MDF", "Solid Colors", "Fendi", "#C3B7A6"),
+    ("MDF", "Woodgrains", "Freijo", "#A97C50"),
+    ("MDF", "Woodgrains", "Oak", "#BC9567"),
+    ("MDF", "Woodgrains", "Walnut", "#6F4C35"),
+    ("MDF", "Woodgrains", "Louro Preto", "#5B4334"),
+    ("MDF", "Woodgrains", "Cumaru", "#8E5B3D"),
+    ("MDP", "Solid Colors", "White TX", "#EDEDE8"),
+    ("MDP", "Solid Colors", "Black TX", "#222222"),
+    ("MDP", "Solid Colors", "Crystal Gray", "#B4B6B3"),
+    ("MDP", "Solid Colors", "Graphite", "#4B4D50"),
+    ("MDP", "Woodgrains", "Freijo", "#A97C50"),
+    ("MDP", "Woodgrains", "Oak", "#BC9567"),
+    ("MDP", "Woodgrains", "Walnut", "#6F4C35"),
 )
 
-_cache = [None]          # (caminho, mtime, itens): a gaveta le a cada redesenho
-_texturas_esfera = {}    # cor hexa -> GPUTexture da esfera
-_apagar_pendente = [None]  # chave esperando o "Apagar?" da caixa preta
+_cache = [None]          # (path, mtime, items): the sidebar reads on every redraw.
+_texturas_esfera = {}    # Hex color -> sphere GPUTexture.
+_apagar_pendente = [None]  # Key awaiting "Delete?" in the black box.
 
 
-# ------------------------------------------------------------- catalogo
+# ------------------------------------------------------------- catalog
 def chave_de(it):
     return "/".join((it.get("n1", ""), it.get("n2", ""), it.get("n3", ""),
                      it.get("nome", "")))
@@ -89,9 +89,9 @@ def caminho_arquivo():
 
 
 def ler_materiais(estrito=False):
-    """Itens do catalogo (dicts com n1/n2/n3/nome/cor/chave). Sem
-    arquivo na biblioteca: o catalogo de fabrica. `estrito` (quem vai
-    regravar): arquivo ilegivel levanta, em vez de virar o de fabrica."""
+    """Catalog items (dicts with n1/n2/n3/nome/cor/chave). Without a library
+    file, use the factory catalog. `estrito` (for rewriting): raise for
+    an unreadable file instead of substituting the factory catalog."""
     caminho = caminho_arquivo()
     try:
         mtime = os.path.getmtime(caminho)
@@ -107,24 +107,24 @@ def ler_materiais(estrito=False):
     except Exception as e:
         if estrito:
             raise
-        print("[Archy Builder] materiais ilegiveis:", e)
+        print("[Archy Builder] unreadable materials:", e)
         return _padrao()
     _cache[0] = (caminho, mtime, itens)
     return [dict(it) for it in itens]
 
 
 def _itens_para_gravar(op):
-    """None (com aviso) se o arquivo existe mas esta' ilegivel: gravar por
-    cima trocaria o catalogo do usuario pelo de fabrica."""
+    """None with a warning if the file exists but is unreadable:
+    overwriting it would replace the user's catalog with the factory catalog."""
     try:
         return ler_materiais(estrito=True)
     except Exception as e:
-        op.report({'ERROR'}, "%s ilegivel: %s" % (NOME_ARQUIVO, e))
+        op.report({'ERROR'}, "%s unreadable: %s" % (NOME_ARQUIVO, e))
         return None
 
 
 def gravar_materiais(itens):
-    """Grava o catalogo inteiro (atomico, so' se mudou)."""
+    """Write the entire catalog atomically, only if changed."""
     limpos = [{"nome": it["nome"], "n1": it["n1"], "n2": it.get("n2", ""),
                "n3": it.get("n3", ""), "cor": it["cor"]} for it in itens]
     texto = json.dumps(limpos, ensure_ascii=False, indent=1) + "\n"
@@ -162,7 +162,7 @@ def filhos_n3(itens, n1, n2):
                               + _niveis_extra(itens).get(n1, {}).get(n2, [])))
 
 
-# ------------------------------------------------------------------ cor
+# ------------------------------------------------------------------ color
 def _hexa_valido(texto):
     texto = (texto or "").strip().lstrip("#")
     if len(texto) != 6:
@@ -175,7 +175,7 @@ def _hexa_valido(texto):
 
 
 def rgb_de(hexa):
-    """sRGB 0..1 de '#RRGGBB'."""
+    """sRGB 0..1 from '#RRGGBB'."""
     hexa = _hexa_valido(hexa) or "#808080"
     return tuple(int(hexa[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
 
@@ -189,11 +189,11 @@ def _linear(c):
 
 
 def rgb_linear(hexa):
-    """O Material guarda cor LINEAR; o catalogo, sRGB."""
+    """The Material stores LINEAR color; the catalog stores sRGB."""
     return tuple(_linear(c) for c in rgb_de(hexa))
 
 
-# ------------------------------------------------------ material na cena
+# ------------------------------------------------------ scene material
 def material_da_chave(chave):
     return next((m for m in bpy.data.materials
                  if m.get(CHAVE_MATERIAL) == chave), None)
@@ -204,22 +204,22 @@ def nome_do_material(it):
 
 
 def garantir_material(it):
-    """O Material do Blender do item: so' a cor solida -- a do Solid da
-    viewport (`diffuse_color`) e a do Principled (Material Preview e
-    render). Existindo, so' acompanha nome e cor do catalogo."""
+    """The item's Blender Material: solid color only, both viewport Solid
+    (`diffuse_color`) and Principled (Material Preview and rendering).
+    If it exists, update only its name and color from the catalog."""
     mat = material_da_chave(it["chave"])
     nome = nome_do_material(it)
     if mat is None:
         mat = bpy.data.materials.new(nome)
         mat[CHAVE_MATERIAL] = it["chave"]
     elif mat.name != nome and not mat.name.startswith(nome + "."):
-        # so' o sufixo .001 e' tolerado: "Branco TX" -> "Branco" renomeia
+        # Only the .001 suffix is tolerated: "Branco TX" -> "Branco" renames it.
         mat.name = nome
     cor = (*rgb_linear(it["cor"]), 1.0)
     mat.diffuse_color = cor
     if mat.node_tree is None:
         try:
-            mat.use_nodes = True        # 4.x; no 5.x ja' nasce com nos
+            mat.use_nodes = True        # 4.x; in 5.x it is created with nodes already enabled.
         except Exception:
             pass
     arvore = mat.node_tree
@@ -231,7 +231,7 @@ def garantir_material(it):
 
 
 def protegida_no_grupo(obj):
-    """A marca pode estar no Empty do acessorio, nao na malha filha."""
+    """The marker may be on the accessory Empty, not its child mesh."""
     while obj is not None:
         if (any(m in obj for m in (_chapas.MARCA_PUXADOR,_chapas.MARCA_ACESSORIO,
                                   _ferragens.CHAVE_FERRAGEM))
@@ -242,8 +242,8 @@ def protegida_no_grupo(obj):
 
 
 def _eh_peca(obj):
-    """Malha que leva material: chapa, folha, moldura ou objeto comum --
-    nunca puxador, acessorio ou ferragem (essas tem o material delas)."""
+    """Mesh eligible for material: panel, leaf, frame, or ordinary object;
+    never a handle, accessory, or hardware, which have their own materials."""
     return obj.type=='MESH' and not protegida_no_grupo(obj)
 
 
@@ -254,7 +254,7 @@ def _pintando_grupo(context):
 
 
 class _LayoutVinculos:
-    """Reutiliza o menu nativo, trocando so' a acao de material do grupo."""
+    """Reuse the native menu, replacing only the group's material action."""
     def __init__(self,layout):object.__setattr__(self,'_layout',layout)
     def __getattr__(self,nome):return getattr(self._layout,nome)
     def __setattr__(self,nome,valor):setattr(self._layout,nome,valor)
@@ -267,7 +267,7 @@ class _LayoutVinculos:
                 self._layout.separator();continue
             if item.identifier=='MATERIAL':
                 self._layout.operator(OBJECT_OT_vincular_materiais.bl_idname,
-                    text='Vincular materiais',icon_value=item.icon)
+                    text="Link Materials",icon_value=item.icon)
             else:
                 self._layout.operator(operador,text=item.name,icon_value=item.icon).type=item.identifier
 
@@ -280,7 +280,7 @@ class _MenuVinculos:
 
 class VIEW3D_MT_vinculos(Menu):
     bl_idname='VIEW3D_MT_cabinet_vinculos'
-    bl_label='Vincular/Transferir Dados'
+    bl_label="Link/Transfer Data"
 
     def draw(self,context):
         menu=_MenuVinculos(self) if _pintando_grupo(context) else self
@@ -289,8 +289,8 @@ class VIEW3D_MT_vinculos(Menu):
 
 class OBJECT_OT_vincular_materiais(Operator):
     bl_idname='object.cabinet_vincular_materiais'
-    bl_label='Vincular Materiais'
-    bl_description='Vincula materiais preservando puxadores e ferragens do grupo'
+    bl_label="Link Materials"
+    bl_description="Link materials while preserving the group's handles and hardware"
     bl_options={'REGISTER','UNDO'}
 
     @classmethod
@@ -300,7 +300,7 @@ class OBJECT_OT_vincular_materiais(Operator):
     def execute(self,context):
         if not _pintando_grupo(context):
             return bpy.ops.object.make_links_data(type='MATERIAL')
-        # Contexto filtrado preserva a selecao para G, H, Delete e duplicacao.
+        # Filtered context preserves selection for G, H, Delete, and duplication.
         alvos=[o for o in context.selected_editable_objects
                if o==context.active_object or not protegida_no_grupo(o)]
         with context.temp_override(selected_objects=alvos,selected_editable_objects=alvos):
@@ -308,14 +308,14 @@ class OBJECT_OT_vincular_materiais(Operator):
 
 
 def pecas_dos_alvos(objs):
-    """As pecas que um material pinta, pela regra da selecao: MODULO =
-    as chapas dele (a porta e' outro item); PORTA = folhas e moldura;
-    peca solta ou folha (duplo clique) = so' ela."""
+    """Components painted by a material, following selection rules: CABINET =
+    its panels (the door is a separate item); DOOR = leaves and frame;
+    separate component or leaf (double click) = only that component."""
     pecas = []
     for obj in objs:
         if (_gavetas.MARCA_GRUPO in obj or _gavetas.MARCA_GAVETA in obj
                 or _prateleiras.MARCA_GRUPO in obj):
-            # gavetas: frentes e caixas (trilho tem o material dele)
+            # Drawers: fronts and boxes (rails have their own material).
             pecas += [f for f in obj.children_recursive
                       if _chapas.MARCA_CHAPA in f and _eh_peca(f)]
         elif _chapas.MARCA_CONJUNTO in obj:
@@ -331,10 +331,10 @@ def pecas_dos_alvos(objs):
 
 
 def pecas_do_solte(obj, selecionados):
-    """As pecas que a esfera SOLTA sobre `obj` pinta. `obj` na selecao: a
-    selecao (o duplo clique ja' isolou a peca, se for o caso); fora dela:
-    o que um clique em `obj` selecionaria -- o modulo, a porta inteira ou
-    a peca solta."""
+    """Components painted when the sphere is DROPPED onto `obj`. If `obj`
+    is selected, use the selection (double clicking already isolated a
+    component if needed); otherwise use what clicking `obj` would select:
+    the cabinet, whole door, or separate component."""
     if obj.select_get():
         return pecas_dos_alvos(selecionados)
     dono = (_portas._grupo_portas(obj) or _portas._modulo_da_chapa(obj)
@@ -343,9 +343,9 @@ def pecas_do_solte(obj, selecionados):
 
 
 def duplo_clique_na_esfera(chave, x, y, limite_ms, agora=None):
-    """True se este PRESS fecha um duplo clique na esfera `chave` (rapido e
-    no mesmo lugar); senao, guarda-o como o 1o. Pelo relogio, como o da
-    foto: o 2o clique chega a' gaveta como PRESS, nao DOUBLE_CLICK."""
+    """True if this PRESS completes a quick double click at the same position
+    on sphere `chave`; otherwise store it as the first click. Use the clock,
+    like photos: the sidebar receives the second click as PRESS, not DOUBLE_CLICK."""
     agora = time.monotonic() if agora is None else agora
     raio = _biblioteca.RAIO_DUPLO_CLIQUE_PX
     anterior = _clique_esfera[0]
@@ -357,8 +357,8 @@ def duplo_clique_na_esfera(chave, x, y, limite_ms, agora=None):
 
 
 def aplicar(pecas, mat):
-    """Material no slot do OBJETO (`link='OBJECT'`): sobrevive a' malha
-    refeita (porta, moldura) e nao pinta quem divide a malha."""
+    """Material in the OBJECT slot (`link='OBJECT'`): survives mesh rebuilding
+    (door, frame) and does not paint objects sharing that mesh."""
     for obj in pecas:
         if not obj.material_slots:
             obj.data.materials.append(None)
@@ -368,7 +368,7 @@ def aplicar(pecas, mat):
 
 
 def chave_aplicada(obj):
-    """Chave do material do catalogo na peca (ou no 1o item do grupo)."""
+    """Catalog material key on the component, or the group's first item."""
     pecas = pecas_dos_alvos([obj]) if obj is not None else []
     for peca in pecas[:1]:
         for slot in peca.material_slots:
@@ -377,15 +377,15 @@ def chave_aplicada(obj):
     return ""
 
 
-# ------------------------------------------------------- esfera (preview)
+# ------------------------------------------------------- sphere (preview)
 LADO_ESFERA = 96
-LUZ_ESFERA = (-0.45, 0.55, 0.70)    # de cima a' esquerda, como a do Blender
+LUZ_ESFERA = (-0.45, 0.55, 0.70)    # From the upper left, like Blender's.
 
 
 def esfera_rgba(rgb, lado=LADO_ESFERA):
-    """Pixels RGBA (float, linha 0 embaixo) de uma esfera da cor `rgb`
-    (sRGB): difusa + ambiente + brilho, borda suavizada. Fundo
-    transparente, para cair sobre o quadrado do tema."""
+    """RGBA pixels (float, row 0 at the bottom) for a sphere of color `rgb`
+    (sRGB): diffuse + ambient + specular, smoothed edges. Transparent
+    background to sit on the theme square."""
     import numpy as np
     eixo = (np.arange(lado, dtype=np.float32) + 0.5) / lado * 2.0 - 1.0
     x, y = np.meshgrid(eixo, eixo)
@@ -403,14 +403,14 @@ def esfera_rgba(rgb, lado=LADO_ESFERA):
     saida = np.zeros((lado, lado, 4), dtype=np.float32)
     for i in range(3):
         saida[:, :, i] = np.clip(rgb[i] * tom + 0.30 * brilho, 0.0, 1.0)
-    # cobertura pela distancia (px) ate' o contorno: borda sem serrilhado
+    # Coverage from distance (px) to the outline: antialiased edge.
     borda = (1.0 - np.sqrt(r2)) * raio * lado / 2.0
     saida[:, :, 3] = np.clip(borda + 0.5, 0.0, 1.0)
     return saida.ravel()
 
 
 def desenhar_esfera(hexa, x, y, w, h):
-    """A esfera do material no quadrado (x, y, w, h) da gaveta."""
+    """Material sphere in sidebar rectangle (x, y, w, h)."""
     import gpu
     from gpu_extras.batch import batch_for_shader
     textura = _texturas_esfera.get(hexa)
@@ -433,36 +433,36 @@ def desenhar_esfera(hexa, x, y, w, h):
     batch.draw(shader)
 
 
-# ------------------------------------------------------------ operadores
+# ------------------------------------------------------------ operators
 class OBJECT_OT_aplicar_material(Operator):
-    """Pinta a selecao com o material: modulo = as chapas dele, porta =
-    folhas e moldura, peca = so' ela"""
+    """Apply the material to selection: cabinet = its panels, door =
+    leaves and frame, component = only itself."""
     bl_idname = "object.cabinet_aplicar_material"
-    bl_label = "Aplicar Material"
+    bl_label = "Apply Material"
     bl_options = {'REGISTER', 'UNDO'}
 
     chave: StringProperty(options={'SKIP_SAVE'})
-    # nome do objeto onde a esfera foi SOLTA (vazio = a selecao)
+    # Name of the object onto which the sphere was DROPPED (empty = selection).
     alvo: StringProperty(options={'SKIP_SAVE'})
 
     def execute(self, context):
         it = achar(self.chave)
         if it is None:
-            self.report({'ERROR'}, "Material nao encontrado: %s" % self.chave)
+            self.report({'ERROR'}, "Material not found: %s" % self.chave)
             return {'CANCELLED'}
         if self.alvo:
             obj = bpy.data.objects.get(self.alvo)
             pecas = (pecas_do_solte(obj, context.selected_objects)
                      if obj is not None else [])
-            aviso = "Solte o material sobre um modulo, porta ou peca"
+            aviso = "Drop the material onto a cabinet, door, or component"
         else:
             pecas = pecas_dos_alvos(context.selected_objects)
-            aviso = "Selecione um modulo, porta ou peca para aplicar"
+            aviso = "Select a cabinet, door, or component to apply the material"
         if not pecas:
             self.report({'WARNING'}, aviso)
             return {'CANCELLED'}
         aplicar(pecas, garantir_material(it))
-        self.report({'INFO'}, "%s em %d peca(s)" % (nome_do_material(it), len(pecas)))
+        self.report({'INFO'}, "%s on %d component(s)" % (nome_do_material(it), len(pecas)))
         return {'FINISHED'}
 
 
@@ -471,12 +471,12 @@ def _itens_n1(self, context):
 
 
 class _CamposMaterial:
-    nome: StringProperty(name="Nome", default="Novo material")
-    cor: FloatVectorProperty(name="Cor", subtype='COLOR_GAMMA', size=3,
+    nome: StringProperty(name="Name", default="New Material")
+    cor: FloatVectorProperty(name="Color", subtype='COLOR_GAMMA', size=3,
                              min=0.0, max=1.0, default=(0.8, 0.8, 0.8))
     n1: EnumProperty(name="Material", items=_itens_n1)
-    n2: StringProperty(name="Categoria", default="Unicolores")
-    n3: StringProperty(name="Subcategoria", default="")
+    n2: StringProperty(name="Category", default="Solid Colors")
+    n3: StringProperty(name="Subcategory", default="")
 
     def draw(self, context):
         for campo in ("nome", "cor", "n1", "n2", "n3"):
@@ -489,14 +489,14 @@ class _CamposMaterial:
 
 
 class OBJECT_OT_novo_material(_CamposMaterial, Operator):
-    """Acrescenta um material (cor solida) a' biblioteca"""
+    """Add a material (solid color) to the library."""
     bl_idname = "object.cabinet_novo_material"
-    bl_label = "Novo Material"
+    bl_label = "New Material"
     bl_options = {'REGISTER'}
 
     def invoke(self, context, event):
         s = context.scene
-        # nasce na categoria que esta' aberta na cascata
+        # Start in the category currently open in the hierarchy.
         if s.cabinet_mat_n1 in filhos_n1(ler_materiais()):
             self.n1 = s.cabinet_mat_n1
         self.n2 = s.cabinet_mat_n2 or self.n2
@@ -506,24 +506,24 @@ class OBJECT_OT_novo_material(_CamposMaterial, Operator):
     def execute(self, context):
         novo = self._item()
         if not novo["nome"]:
-            self.report({'ERROR'}, "Material sem nome")
+            self.report({'ERROR'}, "Material has no name")
             return {'CANCELLED'}
         itens = _itens_para_gravar(self)
         if itens is None:
             return {'CANCELLED'}
         if achar(novo["chave"], itens) is not None:
-            self.report({'ERROR'}, "Ja' existe %s nessa categoria" % novo["nome"])
+            self.report({'ERROR'}, "%s already exists in this category" % novo["nome"])
             return {'CANCELLED'}
         gravar_materiais(itens + [novo])
-        self.report({'INFO'}, "Material %s criado" % nome_do_material(novo))
+        self.report({'INFO'}, "Material %s created" % nome_do_material(novo))
         return {'FINISHED'}
 
 
 class OBJECT_OT_editar_material(_CamposMaterial, Operator):
-    """Muda nome, cor ou categoria de um material da biblioteca (os
-    Materiais ja' aplicados acompanham)"""
+    """Change a library material's name, color, or category; already
+    applied Materials follow the changes."""
     bl_idname = "object.cabinet_editar_material"
-    bl_label = "Editar Material"
+    bl_label = "Edit Material"
     bl_options = {'REGISTER', 'UNDO'}
 
     chave: StringProperty(options={'SKIP_SAVE'})
@@ -531,7 +531,7 @@ class OBJECT_OT_editar_material(_CamposMaterial, Operator):
     def invoke(self, context, event):
         it = achar(self.chave)
         if it is None:
-            self.report({'ERROR'}, "Material nao encontrado")
+            self.report({'ERROR'}, "Material not found")
             return {'CANCELLED'}
         self.nome, self.cor = it["nome"], rgb_de(it["cor"])
         self.n1, self.n2, self.n3 = it["n1"], it["n2"], it["n3"]
@@ -544,10 +544,10 @@ class OBJECT_OT_editar_material(_CamposMaterial, Operator):
         antigo = achar(self.chave, itens)
         novo = self._item()
         if antigo is None or not novo["nome"]:
-            self.report({'ERROR'}, "Material nao encontrado")
+            self.report({'ERROR'}, "Material not found")
             return {'CANCELLED'}
         if novo["chave"] != antigo["chave"] and achar(novo["chave"], itens):
-            self.report({'ERROR'}, "Ja' existe %s nessa categoria" % novo["nome"])
+            self.report({'ERROR'}, "%s already exists in this category" % novo["nome"])
             return {'CANCELLED'}
         gravar_materiais([novo if it["chave"] == antigo["chave"] else it
                           for it in itens])
@@ -559,9 +559,9 @@ class OBJECT_OT_editar_material(_CamposMaterial, Operator):
 
 
 class OBJECT_OT_apagar_material(Operator):
-    """Tira um material da biblioteca (as pecas pintadas continuam)"""
+    """Remove a material from the library, preserving painted components."""
     bl_idname = "object.cabinet_apagar_material"
-    bl_label = "Apagar Material"
+    bl_label = "Delete Material"
     bl_options = {'REGISTER', 'INTERNAL'}
 
     chave: StringProperty(options={'SKIP_SAVE'})
@@ -579,41 +579,41 @@ class OBJECT_OT_apagar_material(Operator):
 
 
 def perguntar_apagar(context, it):
-    """"Apagar?" na caixa preta, logo abaixo do material, na gaveta."""
+    """"Delete?" in the black box directly below the material in the sidebar."""
     _apagar_pendente[0] = it["chave"]
     _pintar_pendente[0] = None
     op = OBJECT_OT_apagar_material.bl_idname
-    _perguntas._perguntar(context, "Apagar o material %s?" % nome_do_material(it),
-                          [("Sim, apagar", 'TRASH', op,
+    _perguntas._perguntar(context, "Delete material %s?" % nome_do_material(it),
+                          [("Yes, Delete", 'TRASH', op,
                             {"chave": it["chave"], "apagar": True}),
-                           ("Nao", 'X', op, {"chave": it["chave"], "apagar": False})],
+                           ("No", 'X', op, {"chave": it["chave"], "apagar": False})],
                           na_gaveta=True)
-    # a caixa nasce na BIBLIOTECA (sob o material), nao na aba de cima
+    # Create the box in the LIBRARY below the material, not the upper tab.
     _perguntas._pergunta_atual[0]['biblioteca'] = True
     _gaveta._rolar_biblioteca_ate_pergunta(context)
 
 
-# ------------------------------------------------------ pintura rapida
-# Pedido do usuario: na biblioteca, mouse sobre o material + botao DIREITO
-# = pintar modulos INTEIROS pelo comodo em que estao (Cozinha, Quarto...)
-# e, numa 2a pergunta, o que deles: tudo, so' a caixa ou so' as portas.
-# As perguntas sao a caixa preta logo abaixo do material (regra da gaveta:
-# pergunta que vem dela fica nela, nunca pop-up).
-_pintar_pendente = [None]   # chave do material com a "Pintar?" aberta
+# ------------------------------------------------------ quick painting
+# User request: hover over a library material and RIGHT click
+# to paint WHOLE cabinets by their room (Kitchen, Bedroom, etc.);
+# a second question chooses everything, box only, or doors only.
+# Questions appear in the black box directly below the material:
+# sidebar questions stay in the sidebar, never a popup.
+_pintar_pendente = [None]   # Material key with "Paint?" open.
 TODOS = '@todos'
 CANCELAR = '@cancelar'
-PARTES_PINTURA = (('TUDO', "Tudo"), ('CAIXA', "So' a caixa"),
-                  ('PORTAS', "So' as portas"))
-SEM_COMODO = "Sem comodo"
+PARTES_PINTURA = (('TUDO', "Everything"), ('CAIXA', "Box Only"),
+                  ('PORTAS', "Doors Only"))
+SEM_COMODO = "No Room"
 
 
 def chave_da_caixa():
-    """O material sob o qual a caixa preta abre (apagar ou pintar)."""
+    """Material under which the black box opens (delete or paint)."""
     return _apagar_pendente[0] or _pintar_pendente[0]
 
 
 def modulos_por_comodo(cena):
-    """{nome do comodo ('' = sem comodo): [modulos]} da cena."""
+    """{room name ('' = no room): [cabinets]} for the scene."""
     grupos = {}
     for conj in cena.objects:
         if _chapas.MARCA_CONJUNTO not in conj:
@@ -624,9 +624,9 @@ def modulos_por_comodo(cena):
 
 
 def pecas_do_modulo(conj, parte):
-    """As pecas que a pintura rapida pinta: 'CAIXA' = as chapas do corpo
-    (laterais, base, tampo, fundo, prateleiras); 'PORTAS' = folhas e
-    moldura das portas dele; 'TUDO' = as duas."""
+    """Components painted by quick painting: 'CAIXA' = body panels
+    (sides, base, top, back, shelves); 'PORTAS' = its door leaves
+    and frames; 'TUDO' = both."""
     portas = _portas._portas_do_conjunto(conj)
     pecas = []
     if parte in ('TUDO', 'CAIXA'):
@@ -644,7 +644,7 @@ def _rotulo_comodo(nome, n):
 
 
 def perguntar_pintar(context, it):
-    """1a pergunta: quais modulos (por comodo)."""
+    """First question: which cabinets, by room."""
     grupos = modulos_por_comodo(context.scene)
     if not grupos:
         return False
@@ -655,10 +655,10 @@ def perguntar_pintar(context, it):
     opcoes = [(_rotulo_comodo(n, len(grupos[n])), 'HOME', op,
                {"chave": it["chave"], "comodo": n}) for n in ordem]
     if len(grupos) > 1:
-        opcoes.append(("Todos (%d)" % sum(len(v) for v in grupos.values()),
+        opcoes.append(("All (%d)" % sum(len(v) for v in grupos.values()),
                        'WORLD', op, {"chave": it["chave"], "comodo": TODOS}))
-    opcoes.append(("Cancelar", 'X', op, {"chave": it["chave"], "comodo": CANCELAR}))
-    _perguntas._perguntar(context, "Pintar com %s quais modulos?" % nome_do_material(it),
+    opcoes.append(("Cancel", 'X', op, {"chave": it["chave"], "comodo": CANCELAR}))
+    _perguntas._perguntar(context, "Which cabinets should use %s?" % nome_do_material(it),
                           opcoes, na_gaveta=True)
     _perguntas._pergunta_atual[0]['biblioteca'] = True
     _gaveta._rolar_biblioteca_ate_pergunta(context)
@@ -668,29 +668,29 @@ def perguntar_pintar(context, it):
 def _perguntar_parte(context, it, comodo, n):
     _pintar_pendente[0] = it["chave"]
     op = OBJECT_OT_pintar_modulos.bl_idname
-    quem = ("Todos os %d modulos" % n if comodo == TODOS
-            else _rotulo_comodo(comodo, n).replace(' (', ': ').rstrip(')') + " modulo(s)")
+    quem = ("All %d cabinets" % n if comodo == TODOS
+            else _rotulo_comodo(comodo, n).replace(' (', ': ').rstrip(')') + " cabinet(s)")
     opcoes = [(rotulo, 'BRUSH_DATA', op,
                {"chave": it["chave"], "comodo": comodo, "parte": parte})
               for parte, rotulo in PARTES_PINTURA]
-    opcoes.append(("Cancelar", 'X', op, {"chave": it["chave"], "comodo": CANCELAR}))
-    _perguntas._perguntar(context, "%s: pintar o que com %s?" % (quem, nome_do_material(it)),
+    opcoes.append(("Cancel", 'X', op, {"chave": it["chave"], "comodo": CANCELAR}))
+    _perguntas._perguntar(context, "%s: what should use %s?" % (quem, nome_do_material(it)),
                           opcoes, na_gaveta=True)
     _perguntas._pergunta_atual[0]['biblioteca'] = True
     _gaveta._rolar_biblioteca_ate_pergunta(context)
 
 
 class OBJECT_OT_pintar_modulos(Operator):
-    """Pinta os modulos de um comodo inteiro com o material (botao direito
-    na esfera): tudo, so' a caixa ou so' as portas"""
+    """Apply material to an entire room's cabinets (right click on the sphere):
+    everything, box only, or doors only."""
     bl_idname = "object.cabinet_pintar_modulos"
-    bl_label = "Pintar Modulos"
+    bl_label = "Paint Cabinets"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     chave: StringProperty(options={'SKIP_SAVE'})
-    # nome do comodo ('' = sem comodo), TODOS ou CANCELAR
+    # Room name ('' = no room), TODOS or CANCELAR.
     comodo: StringProperty(options={'SKIP_SAVE'})
-    # vazio = ainda pergunta (a 2a pergunta); TUDO, CAIXA ou PORTAS
+    # Empty = ask the second question; TUDO, CAIXA or PORTAS.
     parte: StringProperty(options={'SKIP_SAVE'})
 
     def execute(self, context):
@@ -703,18 +703,18 @@ class OBJECT_OT_pintar_modulos(Operator):
                    else grupos.get(self.comodo, []))
         if not modulos:
             _pintar_pendente[0] = None
-            self.report({'WARNING'}, "Nenhum modulo nesse comodo")
+            self.report({'WARNING'}, "No cabinets in this room")
             return {'CANCELLED'}
         if not self.parte:
-            # so' a 1a resposta: a 2a pergunta, sem passo de desfazer
+            # First answer only: ask the second question without an undo step.
             _perguntar_parte(context, it, self.comodo, len(modulos))
             return {'CANCELLED'}
         _pintar_pendente[0] = None
         pecas = [p for m in modulos for p in pecas_do_modulo(m, self.parte)]
         if not pecas:
-            self.report({'WARNING'}, "Nada para pintar (sem portas?)")
+            self.report({'WARNING'}, "Nothing to paint (no doors?)")
             return {'CANCELLED'}
         aplicar(list(dict.fromkeys(pecas)), garantir_material(it))
-        self.report({'INFO'}, "%s em %d peca(s) de %d modulo(s)"
+        self.report({'INFO'}, "%s on %d component(s) in %d cabinet(s)"
                     % (nome_do_material(it), len(pecas), len(modulos)))
         return {'FINISHED'}

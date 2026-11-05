@@ -1,19 +1,20 @@
-"""Alvenaria definida pelo usuario: arraste direito associa costas a parede
-ou base ao piso, mantendo o armario em pe. O marco permite snap em todas
-as faces daquele bloco. O plano orienta, sem limitar o tamanho do movel.
+"""User-defined masonry: right drag associates a cabinet back with a wall
+or its base with a floor, keeping the cabinet upright. Marking a block
+enables snapping on all its faces. The plane orients the cabinet
+without limiting its size.
 
-Associado de verdade: o modulo guarda a parede (UID gravado nela) e o
-ponto das costas no referencial dela. Mover/girar a parede leva o modulo;
-mover com G conserva a folga normal; R orienta no apoio. Selecionado,
-mostra as guias ate' as pontas, o piso e o teto; clicar
-no numero digita, arrastar de lado muda.
+A real association stores the wall (its persisted UID) and the rear
+reference point in wall coordinates. Moving/rotating the wall carries
+the cabinet; G preserves the normal gap; R orients it on its support.
+When selected, guides extend to the ends, floor, and ceiling; click
+a number to type, or drag sideways to change it.
 
-Referencial do modulo (ver `_portas._folgas_do_vao`): Empty no centro X/Y
-e na base Z. As costas sao o lado OPOSTO a' porta (pedido do usuario: o
-preset com a porta em X encostava a lateral), gravado em `parede_costas`;
-a roda do mouse no arraste troca. A caixa das funcoes daqui ja' vem girada
-para o "referencial da parede" (`caixa_do_modulo`): X ao longo dela, costas
-em +Y."""
+Cabinet frame (see `_portas._folgas_do_vao`): Empty at the X/Y center
+and Z base. The back is OPPOSITE the door (a user-reported preset with
+a door on X used to place its side against the wall), stored in
+`parede_costas`; the mouse wheel changes it while dragging. Boxes from
+these functions are already rotated into the wall frame
+(`caixa_do_modulo`): X along the wall, back at +Y."""
 
 import bpy, math, uuid, time
 import numpy as np
@@ -23,8 +24,8 @@ from bpy_extras import view3d_utils
 from mathutils import Matrix, Vector
 from bpy.types import Gizmo, GizmoGroup, Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _portas = _ferragens = _hud = _opcoes = _gaveta = _gavetas = None
 _gaveta_desenho = None
 _paredes_edicao = _paredes_selecao = None
@@ -33,53 +34,53 @@ _alvenaria = None
 _instalacoes = _esquadrias = None
 _iluminacao = None
 
-# ID props gravadas nos .blend (nao renomear: ver invariante 2)
-CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # na superficie
-CHAVE_PAREDE = 'parede_uid'                 # no modulo: qual parede
-CHAVE_PAREDE_NOME = 'parede_nome'           # dica (Shift+D copia o UID)
-CHAVE_PAREDE_PONTO = 'parede_ponto'         # costas no referencial dela
-CHAVE_PAREDE_NORMAL = 'parede_normal'       # normal no referencial dela
-CHAVE_PAREDE_FACE = 'parede_face'           # a FACE: indice na malha avaliada
-CHAVE_AFASTAMENTO = 'parede_afastamento_mm' # folga costas-parede (DXF)
-CHAVE_COSTAS = 'parede_costas'              # lado do modulo contra a parede
-CHAVE_EIXO_PISO = 'parede_piso_eixo'        # direcao local que conserva o giro em pe
-CHAVE_ALVENARIA = 'cabinet_alvenaria_definida'  # autorizacao explicita do usuario para snap
+# ID properties saved in .blend files (do not rename: see invariant 2).
+CHAVE_UID_PAREDE = 'cabinet_parede_uid'     # On the surface.
+CHAVE_PAREDE = 'parede_uid'                 # On the cabinet: associated wall.
+CHAVE_PAREDE_NOME = 'parede_nome'           # Hint (Shift+D copies the UID).
+CHAVE_PAREDE_PONTO = 'parede_ponto'         # Back point in its frame.
+CHAVE_PAREDE_NORMAL = 'parede_normal'       # Normal in its frame.
+CHAVE_PAREDE_FACE = 'parede_face'           # The FACE: index in the evaluated mesh.
+CHAVE_AFASTAMENTO = 'parede_afastamento_mm' # Back-to-wall gap (DXF).
+CHAVE_COSTAS = 'parede_costas'              # Cabinet side against the wall.
+CHAVE_EIXO_PISO = 'parede_piso_eixo'        # Local direction that preserves upright rotation.
+CHAVE_ALVENARIA = 'cabinet_alvenaria_definida'  # Explicit user authorization for snapping.
 
-# lado das costas -> quartos de volta em Z que o levam a +Y; nesta ordem a
-# roda gira o modulo de 90 em 90 graus
+# Back side -> Z quarter-turns that bring it to +Y; in this order,
+# the wheel rotates the cabinet in 90-degree steps.
 GIRO_COSTAS = {'POS_Y': 0, 'POS_X': 1, 'NEG_Y': 2, 'NEG_X': 3}
 LADOS_COSTAS = tuple(GIRO_COSTAS)
 OPOSTO = {'POS_Y': 'NEG_Y', 'NEG_Y': 'POS_Y', 'POS_X': 'NEG_X', 'NEG_X': 'POS_X'}
 
-INCLINACAO_MAX = 0.5        # |normal.z| acima disto e' piso/teto/tampo
-TOLERANCIA_PLANO_M = 0.002  # faces a ate' 2 mm do plano sao a mesma parede
-COPLANAR_MIN = 0.999        # cosseno entre normais da mesma parede
-SNAP_PX = 12                # pontas, piso e teto grudam a 12 px
+INCLINACAO_MAX = 0.5        # |normal.z| above this threshold means floor/ceiling/countertop.
+TOLERANCIA_PLANO_M = 0.002  # Faces within 2 mm of the plane belong to the same wall.
+COPLANAR_MIN = 0.999        # Cosine between normals on the same wall.
+SNAP_PX = 12                # Ends, floor, and ceiling snap within 12 px.
 LIMIAR_ARRASTE_PX = 6
-DESLOCAMENTO_GUIA_M = 0.001  # as guias ficam 1 mm a' frente da parede
+DESLOCAMENTO_GUIA_M = 0.001  # Guides sit 1 mm in front of the wall.
 LADOS = ('esquerda', 'direita', 'piso', 'teto')
-NOMES_LADO = {'esquerda': 'Esquerda', 'direita': 'Direita',
-              'piso': 'Piso', 'teto': 'Teto', 'frente': 'Frente', 'tras': 'Tras',
-              'afastamento': 'Afastamento'}
+NOMES_LADO = {'esquerda': "Left", 'direita': "Right",
+              'piso': "Floor", 'teto': "Ceiling", 'frente': "Front", 'tras': "Back",
+              'afastamento': "Offset"}
 Z = Vector((0.0, 0.0, 1.0))
 
-# Estado global: so' NOMES e vetores, nunca objetos (Ctrl+Z libera a
-# memoria deles; ver CLAUDE.md, armadilhas da API)
-_conferidos = {}        # modulo -> (assinatura da parede, do modulo)
-_retangulos = {}        # (objeto, matriz, malha) -> [regioes de `regiao_da_parede`]
-_guias = [None]         # guias do modulo ativo (ver `calcular_guias`)
-_rotulos = {}           # regiao -> [(lado, x0, y0, x1, y1, direcao, mm/px)]
-_hover_guia = [None]    # lado sob o mouse
+# Global state: NAMES and vectors only, never objects (Ctrl+Z frees
+# their memory; see CLAUDE.md, API traps).
+_conferidos = {}        # Cabinet -> (wall signature, cabinet signature).
+_retangulos = {}        # (object, matrix, mesh) -> [regions from `regiao_da_parede`].
+_guias = [None]         # Active cabinet guides (see `calcular_guias`).
+_rotulos = {}           # Region -> [(side, x0, y0, x1, y1, direction, mm/px)].
+_hover_guia = [None]    # Side under the mouse.
 _edicao_guia = [None]   # {'lado', 'texto', 'cursor', 'selecionado'}
-_arraste_parede = [None]  # {'modulo', 'valido'}: previa do arraste
+_arraste_parede = [None]  # {'modulo', 'valido'}: drag preview.
 _erro_apoio = [None]
 PISCA_ERRO_S = .10
 COR_ALVO_APOIO = (1.0, .08, .04, 1.0)
 
 
-# ------------------------------------------------------------- geometria
+# ------------------------------------------------------------- geometry
 def eh_movel(obj):
-    """Peca ou grupo do add-on: nunca e' parede."""
+    """Add-on component or group: never a wall."""
     marcas = (_chapas.MARCA_CHAPA, _chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
               _chapas.MARCA_FOLHA, _chapas.MARCA_PUXADOR, _chapas.MARCA_ACESSORIO,
               _chapas.MARCA_MOLDURA, _ferragens.CHAVE_FERRAGEM)
@@ -91,8 +92,8 @@ def eh_movel(obj):
 
 
 def modulo_de(obj):
-    """O modulo (Empty do conjunto) de `obj` -- ele mesmo, uma chapa, a
-    porta ou uma ferragem dele --, ou None."""
+    """Cabinet (assembly Empty) for `obj`, whether itself, one of its panels,
+    its door, or its hardware; or None."""
     while obj is not None:
         if _chapas.MARCA_CONJUNTO in obj:
             return obj
@@ -112,7 +113,7 @@ def tipo_superficie(normal):
 
 class OBJECT_OT_definir_alvenaria(Operator):
     bl_idname = 'object.cabinet_definir_alvenaria'
-    bl_label = 'Definir Alvenaria'
+    bl_label = "Define Masonry"
     bl_options = {'REGISTER','UNDO'}
 
     @classmethod
@@ -136,7 +137,7 @@ class OBJECT_OT_definir_alvenaria(Operator):
 
 
 def ponto_livre_na_face(conj,ponto,s,caixa=None,tolerancia=0):
-    """O plano orienta o modulo; seus limites nao limitam a colocacao."""
+    """The plane orients the cabinet; its bounds do not limit placement."""
     caixa=caixa or caixa_do_modulo(conj)
     if caixa is None: return None
     lo,hi=caixa;escala=escala_no_referencial(conj)
@@ -148,8 +149,8 @@ def ponto_livre_na_face(conj,ponto,s,caixa=None,tolerancia=0):
 
 
 def eixos_da_parede(normal):
-    """(n, u): normal HORIZONTAL da parede e o "para a direita" de quem a
-    olha de frente. None se a superficie nao e' vertical."""
+    """(n, u): HORIZONTAL wall normal and the viewer's right direction
+    when facing it. None if the surface is not vertical."""
     normal = Vector(normal)
     if normal.length < 1e-9 or abs(normal.normalized().z) > INCLINACAO_MAX:
         return None
@@ -158,7 +159,7 @@ def eixos_da_parede(normal):
 
 
 def rotacao_na_parede(n, u):
-    """Costas (+Y do modulo) contra a parede: X = u, Y = -n, Z = Z."""
+    """Back (+Y of the cabinet) against the wall: X = u, Y = -n, Z = Z."""
     return Matrix((u, -n, Z)).transposed()
 
 
@@ -172,8 +173,8 @@ def _normal_no_mundo(parede, normal_local):
 
 
 def _ler(colecao, atributo, n, largura=1, tipo=np.float64):
-    # foreach_get so' e' rapido no tipo nativo (float32/int32); a conta e'
-    # feita depois, no tipo pedido.
+    # foreach_get is fast only with native types (float32/int32); perform
+    # calculations afterward in the requested type.
     dados = np.empty(n * largura, dtype=np.int32 if np.issubdtype(tipo, np.integer) else np.float32)
     colecao.foreach_get(atributo, dados)
     dados = dados.astype(tipo)
@@ -181,9 +182,9 @@ def _ler(colecao, atributo, n, largura=1, tipo=np.float64):
 
 
 def _ler_atributo(malha, nome, campo, n, largura, reserva):
-    """Atributo interno da malha (`.corner_edge`, `position`...): lido em
-    bloco, ~100x mais rapido que `loops.edge_index` numa casa real.
-    `reserva` = (colecao, atributo) antigo, se o atributo nao existir."""
+    """Internal mesh attribute (`.corner_edge`, `position`, etc.), read in
+    bulk, about 100x faster than `loops.edge_index` for a real house.
+    `reserva` = legacy (collection, attribute) if the attribute is missing."""
     atributo = malha.attributes.get(nome)
     inteiro = nome.startswith('.')
     tipo = np.int64 if inteiro else np.float64
@@ -193,7 +194,7 @@ def _ler_atributo(malha, nome, campo, n, largura, reserva):
 
 
 def _faixas(inicios, totais):
-    """Indices de todas as faixas [inicio, inicio + total), concatenados."""
+    """Concatenated indices of all [start, start + count) ranges."""
     if not len(totais):
         return np.empty(0, dtype=np.int64)
     fins = np.cumsum(totais)
@@ -201,9 +202,9 @@ def _faixas(inicios, totais):
 
 
 def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, conferir_vertices=False, v=Z, mascara=None):
-    """Regiao da face em lote (numpy): uma casa real tem centenas de milhares
-    de faces, e o laco em Python por face travava o Blender a cada passo do
-    mouse (relato do usuario, v321)."""
+    """Batch face region (numpy): a real house has hundreds of thousands
+    of faces, and a per-face Python loop froze Blender on every mouse
+    movement (user report, v321)."""
     n_faces = len(malha.polygons)
     if not n_faces:
         return None
@@ -221,7 +222,7 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, 
                                        (malha.loops, 'vertex_index'))
     vertices = _ler_atributo(malha, 'position', 'vector', len(malha.vertices), 3,
                              (malha.vertices, 'co')) @ m3.T + desloc
-    # centro = media dos vertices, como o `poly.center` do Blender
+    # Center = mean of vertices, like Blender's `poly.center`.
     centros = np.add.reduceat(vertices[vertices_dos_lacos], inicios) / totais[:, None]
     n = np.array(normal, dtype=np.float64)
     coplanar = normais @ n >= (COPLANAR_MIN if orientacao_min is None else orientacao_min)
@@ -242,7 +243,7 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, 
             centros[candidatas] - np.array(ponto), axis=1))])
     no_plano = np.flatnonzero(coplanar & (np.abs((centros - centros[semente]) @ n)
                                           <= TOLERANCIA_PLANO_M))
-    # Vizinhas por aresta, so' entre as faces do plano.
+    # Edge neighbors, only among faces in the plane.
     arestas_dos_lacos = _ler_atributo(malha, '.corner_edge', 'value', n_lacos, 1,
                                       (malha.loops, 'edge_index'))
     lacos = _faixas(inicios[no_plano], totais[no_plano])
@@ -267,7 +268,7 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, 
         visitada[vizinhas] = True
         fronteira = vizinhas
     faces = no_plano[visitada]
-    # Pontos, contorno (aresta de uma face so') e leque de triangulos.
+    # Points, outline (edge belonging to one face only), and triangle fan.
     lacos = _faixas(inicios[faces], totais[faces])
     usadas, vezes = np.unique(arestas_dos_lacos[lacos], return_counts=True)
     borda = usadas[vezes == 1]
@@ -288,7 +289,7 @@ def _calcular_regiao(malha, mundo, ponto, normal, face, u, orientacao_min=None, 
         'retangulo': (float((usados @ u).min()), float((usados @ u).max()),
                       float((usados @ np.array(v)).min()), float((usados @ np.array(v)).max())),
         'contorno': [(Vector(vertices[i]), Vector(vertices[j])) for i, j in pontas],
-        # numpy (n, 3), float32: vai direto para a GPU
+        # numpy (n, 3), float32: passed directly to the GPU.
         'triangulos': triangulos.astype(np.float32),
         'normal': tuple(n), 'plano': tuple(centros[semente]),
     }
@@ -303,15 +304,15 @@ def _face_no_plano(malha, mundo, ponto, normal, face):
 
 
 def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
-    """A PAREDE e' a face clicada mais as vizinhas no mesmo plano (pedido
-    do usuario: associar a' FACE, nao ao objeto -- uma sala inteira num
-    objeto so' tem uma parede por face). Devolve {'face' (semente),
-    'faces', 'retangulo' (s0, s1, z0, z1 em m: s ao longo de u a partir da
-    origem do mundo, z de mundo), 'contorno' [(a, b)] e 'triangulos' (numpy)
-    em mundo} ou None se a superficie nao e' parede.
+    """The WALL is the clicked face plus its coplanar neighbors, as requested
+    by the user: associate with the FACE, not the object; a whole room in
+    one object still has a wall per face. Return {'face' (seed), 'faces',
+    'retangulo' (s0, s1, z0, z1 in m: s along u from the world origin, world z),
+    'contorno' [(a, b)], and 'triangulos' (numpy) in world space},
+    or None if the surface is not a wall.
 
-    A regiao calculada vale para TODAS as faces dela: o mouse andando pela
-    mesma parede so' consulta o cache."""
+    The calculated region applies to ALL its faces: moving the mouse
+    across the same wall only queries the cache."""
     s=_paredes_edicao._sessao[0]
     if s and s.get('recorte_explicito') and parede is not None and parede.name==s['parede']:
         n=Vector(s['normal'])
@@ -335,8 +336,8 @@ def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
         if face in regiao['faces']:
             return regiao if regiao['face'] == face else dict(regiao, face=face)
     if no_plano and not _face_no_plano(malha, mundo, ponto, normal, face):
-        # Sem indice valido (associacao antiga, malha refeita): o timer
-        # pergunta a cada tique, e recalcular a casa toda travava.
+        # Without a valid index (old association, rebuilt mesh), the timer
+        # queries every tick; recalculating the whole house used to freeze it.
         s, z = ponto.dot(u), ponto.z
         for regiao in no_plano:
             s0, s1, z0, z1 = regiao['retangulo']
@@ -353,14 +354,14 @@ def regiao_da_parede(parede, ponto, normal, dep=None, face=None):
 
 
 def retangulo_da_parede(parede, ponto, normal, dep=None, face=None):
-    """(s0, s1, z0, z1) da parede (`regiao_da_parede`), ou None."""
+    """Wall (s0, s1, z0, z1) from `regiao_da_parede`, or None."""
     regiao = regiao_da_parede(parede, ponto, normal, dep, face)
     return regiao['retangulo'] if regiao is not None else None
 
 
 def eh_piso(normal):
     n = Vector(normal)
-    # Base plana e modulo em pe: rampa nao e' um apoio horizontal.
+    # Flat base and upright cabinet: a ramp is not a horizontal support.
     return n.length > 1e-9 and n.normalized().z >= 1-1e-6
 
 
@@ -422,9 +423,9 @@ def _matriz_no_piso(conj, piso, ponto):
 
 
 def caixa_local_do_modulo(conj):
-    """(lo, hi) do envelope do GRUPO nos eixos do modulo, em m, ou None."""
+    """GROUP envelope (lo, hi) along cabinet axes, in m, or None."""
     inversa = conj.matrix_world.inverted_safe()
-    # A mesma referencia nominal da HUD inclui apoios/molduras, sem contar portas abertas.
+    # The same nominal HUD reference includes supports/frames, excluding open doors.
     pontos = [inversa @ p for o in _modulos.pecas_do_envelope(conj)
               for p in _chapas._cantos(o)]
     if not pontos:
@@ -434,9 +435,9 @@ def caixa_local_do_modulo(conj):
 
 
 def frente_do_modulo(conj, caixa_local=None):
-    """Lado ('NEG_Y', 'POS_X'...) das folhas de porta e frentes de gaveta,
-    ou None. Pela POSICAO de cada uma (o centro fica na face que ela
-    fecha): nao depende de como a peca foi girada."""
+    """Side ('NEG_Y', 'POS_X', etc.) of door leaves and drawer fronts, or None.
+    Use each component's POSITION (its center lies on the face it closes),
+    independent of how the component was rotated."""
     caixa_local = caixa_local or caixa_local_do_modulo(conj)
     if caixa_local is None:
         return None
@@ -452,19 +453,19 @@ def frente_do_modulo(conj, caixa_local=None):
         p = inversa @ (peca.matrix_world @ (sum((Vector(c) for c in peca.bound_box), Vector()) / 8.0))
         razoes = [abs(p[i] - centro[i]) / meio[i] if meio[i] > 1e-6 else 0.0 for i in (0, 1)]
         eixo = 0 if razoes[0] > razoes[1] else 1
-        if razoes[eixo] < 0.5:          # no meio do modulo: nao e' frente
+        if razoes[eixo] < 0.5:          # At the cabinet center: not a front.
             continue
         lado = ('NEG_' if p[eixo] < centro[eixo] else 'POS_') + 'XY'[eixo]
         votos[lado] = votos.get(lado, 0) + 1
     if not votos:
         return None
-    # empate fica com a frente comum (-Y)
+    # Break ties using the usual front (-Y).
     return max(votos, key=lambda lado: (votos[lado], lado == 'NEG_Y'))
 
 
 def lado_das_costas(conj, caixa_local=None):
-    """O lado gravado (roda do mouse ou associacao), senao o oposto a'
-    porta; sem porta, +Y (a frente comum e' -Y)."""
+    """Stored side (mouse wheel or association), otherwise opposite the
+    door; without a door, +Y (the usual front is -Y)."""
     lado = conj.get(CHAVE_COSTAS)
     if lado in GIRO_COSTAS:
         return lado
@@ -473,12 +474,12 @@ def lado_das_costas(conj, caixa_local=None):
 
 
 def giro_das_costas(lado):
-    """Rotacao (3x3) dos eixos do modulo para os da parede (costas em +Y)."""
+    """Rotation (3x3) from cabinet axes to wall axes (back at +Y)."""
     return Matrix.Rotation(math.pi / 2.0 * GIRO_COSTAS[lado], 3, 'Z')
 
 
 def girar_caixa(caixa_local, lado):
-    """A caixa local vista no referencial da parede (`giro_das_costas`)."""
+    """Local box expressed in the wall frame (`giro_das_costas`)."""
     lo, hi = caixa_local
     giro = giro_das_costas(lado)
     cantos = [giro @ Vector((x, y, 0.0)) for x in (lo.x, hi.x) for y in (lo.y, hi.y)]
@@ -487,8 +488,8 @@ def girar_caixa(caixa_local, lado):
 
 
 def caixa_do_modulo(conj):
-    """(lo, hi) da caixa das chapas no referencial da PAREDE (X ao longo
-    dela, costas em +Y; ver `referencial`), em m, ou None."""
+    """Panel box (lo, hi) in the WALL frame (X along the wall, back at +Y;
+    see `referencial`), in m, or None."""
     local = caixa_local_do_modulo(conj)
     if local is None:
         return None
@@ -496,34 +497,34 @@ def caixa_do_modulo(conj):
 
 
 def referencial(conj):
-    """Matriz de mundo do referencial da parede: leva a caixa de
-    `caixa_do_modulo` ao mundo."""
+    """World matrix of the wall frame: transforms the `caixa_do_modulo`
+    box to world space."""
     return conj.matrix_world @ giro_das_costas(lado_das_costas(conj)).transposed().to_4x4()
 
 
 def girar_costas(conj, passos):
-    """Roda do mouse no arraste: a face seguinte do modulo vai contra a
-    parede (pedido do usuario)."""
+    """Mouse wheel during dragging: place the next cabinet face against
+    the wall, as requested by the user."""
     i = LADOS_COSTAS.index(lado_das_costas(conj))
     conj[CHAVE_COSTAS] = LADOS_COSTAS[(i + passos) % len(LADOS_COSTAS)]
     return conj[CHAVE_COSTAS]
 
 
 def passos_da_roda(event):
-    """+1/-1 na roda do mouse, 0 nos outros eventos."""
+    """+1/-1 for mouse wheel events, 0 for other events."""
     return {'WHEELUPMOUSE': 1, 'WHEELDOWNMOUSE': -1}.get(event.type, 0)
 
 
 def medidas_na_parede(conj, medidas):
-    """(L, A, P) do modulo como a parede ve: no giro de 90 a largura ao
-    longo dela e' a profundidade do modulo (e vice-versa)."""
+    """Cabinet (L, A, P), meaning width, height, depth as seen by the wall:
+    a 90-degree rotation makes its depth the wall-aligned width and vice versa."""
     if GIRO_COSTAS[lado_das_costas(conj)] % 2:
         return (medidas[2], medidas[1], medidas[0])
     return tuple(medidas)
 
 
 def escala_no_referencial(conj):
-    """Escala do Empty nos eixos da parede: o giro de 90 troca X e Y."""
+    """Empty scale along wall axes: a 90-degree rotation swaps X and Y."""
     escala = conj.matrix_world.to_scale()
     if GIRO_COSTAS[lado_das_costas(conj)] % 2:
         escala.x, escala.y = escala.y, escala.x
@@ -531,7 +532,7 @@ def escala_no_referencial(conj):
 
 
 def afastamento(conj):
-    """Folga (m) entre as costas do modulo e o plano da parede."""
+    """Gap (m) between the cabinet back and wall plane."""
     return max(0.0, float(conj.get(CHAVE_AFASTAMENTO, 0.0))) / 1000.0
 
 
@@ -543,7 +544,7 @@ def definir_afastamento(conj, valor_m):
 
 
 def ponto_das_costas(conj, caixa=None):
-    """Centro da base das costas do modulo, em mundo."""
+    """Center of the cabinet's rear base in world space."""
     caixa = caixa or caixa_do_modulo(conj)
     if caixa is None:
         return None
@@ -552,16 +553,16 @@ def ponto_das_costas(conj, caixa=None):
 
 
 def matriz_na_parede(conj, costas, n, u, caixa=None):
-    """Matriz de mundo do modulo com o centro da base das costas em
-    `costas` (NO plano da parede) mais o afastamento dele, virado para
-    fora da parede. A escala do Empty fica."""
+    """Cabinet world matrix with its rear base center at `costas` (ON the
+    wall plane) plus its offset, facing away from the wall.
+    Preserve the Empty's scale."""
     caixa = caixa or caixa_do_modulo(conj)
     lo, hi = caixa
     escala = conj.matrix_world.to_scale()
     lado = lado_das_costas(conj)
     if conj.get(CHAVE_COSTAS) != lado:
-        # gravado ANTES de mover: depois, as filhas ficam defasadas ate' o
-        # proximo update e a porta seria lida no lugar antigo
+        # Store BEFORE moving: child transforms remain stale until the next
+        # update, which would read the door at its old position.
         conj[CHAVE_COSTAS] = lado
     giro = giro_das_costas(lado)
     local = giro.transposed() @ Vector(((lo.x + hi.x) / 2.0, hi.y, lo.z))
@@ -572,7 +573,7 @@ def matriz_na_parede(conj, costas, n, u, caixa=None):
             @ rotacao.to_4x4() @ Matrix.Diagonal((*escala, 1.0)))
 
 
-# ---------------------------------------------------------- associacao
+# ---------------------------------------------------------- association
 def _uid_da_parede(parede):
     uid = parede.get(CHAVE_UID_PAREDE)
     if not uid:
@@ -582,8 +583,8 @@ def _uid_da_parede(parede):
 
 
 def parede_do_modulo(conj):
-    """A parede associada ao modulo, ou None. Pelo UID (renomear nao
-    solta); o nome so' desempata a parede duplicada (Shift+D copia o UID)."""
+    """Wall associated with the cabinet, or None. Use UID so renaming does
+    not detach it; the name only disambiguates duplicates (Shift+D copies UID)."""
     uid = conj.get(CHAVE_PAREDE)
     if not uid:
         return None
@@ -595,13 +596,13 @@ def parede_do_modulo(conj):
 
 
 def associar(conj, parede, costas, normal, face=None):
-    """Grava a associacao a' FACE: o objeto (UID), o indice da face e o
-    ponto das costas e a normal no referencial dele (assim a parede pode
-    andar e girar levando o modulo). Se a malha mudar e o indice nao bater
-    mais, vale a face do mesmo plano mais perto (`_calcular_regiao`)."""
+    """Store the FACE association: object (UID), face index, rear point,
+    and normal in its frame, so moving/rotating the wall carries the cabinet.
+    If mesh changes invalidate the index, use the nearest coplanar face
+    (`_calcular_regiao`)."""
     conj[CHAVE_PAREDE] = _uid_da_parede(parede)
     conj[CHAVE_PAREDE_NOME] = parede.name
-    # gravado: a porta mudada depois nao gira o modulo associado
+    # Persist it: later door changes must not rotate the associated cabinet.
     conj[CHAVE_COSTAS] = lado_das_costas(conj)
     if eh_piso(normal):
         conj[CHAVE_EIXO_PISO] = tuple(parede.matrix_world.to_3x3().inverted_safe() @ _eixos_no_piso(conj)[0])
@@ -634,7 +635,7 @@ def desassociar(conj):
 
 
 def plano_do_modulo(conj, parede=None):
-    """(costas gravadas, normal) em mundo, ou None."""
+    """(stored rear point, normal) in world space, or None."""
     parede = parede or parede_do_modulo(conj)
     if parede is None or CHAVE_PAREDE_PONTO not in conj:
         return None
@@ -643,7 +644,7 @@ def plano_do_modulo(conj, parede=None):
 
 
 def colocar_na_parede(conj, parede, costas, normal, caixa=None):
-    """Leva o modulo para `costas` (no plano) e grava o ponto."""
+    """Move the cabinet to `costas` (in the plane) and store the point."""
     if eh_piso(normal) and caixa_local_do_modulo(conj) is not None:
         conj.matrix_world = _matriz_no_piso(conj, parede, costas)
         gravar_ponto(conj, parede, costas)
@@ -663,9 +664,9 @@ def _projetar_no_plano(ponto, plano_ponto, n):
 
 
 def manter_nas_paredes(context=None):
-    """Chamado pelo timer de seguranca (fora de modal): a parede que andou
-    leva os modulos dela; o modulo que andou (G/R, medida) volta ao plano
-    da parede -- associado, ele so' desliza nela."""
+    """Called by the safety timer outside a modal: a moved wall carries its
+    cabinets; a moved cabinet (G/R, measurement) returns to the wall plane.
+    While associated, it only slides along the wall."""
     mudou = False
     vivos = set()
     for conj in [o for o in bpy.data.objects if o.get(CHAVE_PAREDE)]:
@@ -682,8 +683,8 @@ def manter_nas_paredes(context=None):
         piso = CHAVE_EIXO_PISO in conj
         eixos = (Z, _eixos_no_piso(conj,parede)[0]) if piso else eixos_da_parede(normal)
         if CHAVE_COSTAS not in conj:
-            # associado antes de `parede_costas`: grava o lado oposto a' porta
-            # (o arraste mede a caixa dos vizinhos a cada movimento)
+            # Associated before `parede_costas` existed: store the side opposite the door.
+            # Dragging measures neighbor boxes on every movement.
             conj[CHAVE_COSTAS] = lado_das_costas(conj)
             mudou = True
         caixa = caixa_do_modulo(conj)
@@ -691,11 +692,11 @@ def manter_nas_paredes(context=None):
             continue
         n, u = eixos
         if antes is not None and antes[0] != assinatura[0]:
-            destino = costas_gravadas          # a parede andou: vai junto
+            destino = costas_gravadas          # The wall moved: move with it.
         else:
             apoio = _ponto_da_base(conj) if piso else ponto_das_costas(conj, caixa)
             destino = _projetar_no_plano(apoio, costas_gravadas, n)
-            # G altera a folga; R/S nao inventam afastamento pela mudanca da caixa.
+            # G changes the gap; R/S must not invent an offset from box changes.
             mesma_base = antes is None or all(antes[1][i*4+j] == assinatura[1][i*4+j]
                                              for i in range(3) for j in range(3))
             if mesma_base:
@@ -717,11 +718,11 @@ def manter_nas_paredes(context=None):
     return mudou
 
 
-# --------------------------------------------------------------- guias
+# --------------------------------------------------------------- guides
 def calcular_guias(conj, dep=None):
-    """{'modulo', 'valores' (mm por lado), 'linhas' (lado -> (a, b) em
-    mundo, b na ponta do MODULO), 'contorno' (bordas da FACE, [(a, b)])}
-    ou None. Esquerda/direita como quem olha a parede de frente."""
+    """{'modulo', 'valores' (mm per side), 'linhas' (side -> (a, b) in
+    world space, b at the CABINET end), 'contorno' (FACE edges, [(a, b)])},
+    or None. Left/right as seen when facing the wall."""
     parede = parede_do_modulo(conj)
     plano = plano_do_modulo(conj, parede) if parede is not None else None
     caixa = caixa_do_modulo(conj)
@@ -750,7 +751,7 @@ def calcular_guias(conj, dep=None):
     meio_z, meio_s = base + altura / 2.0, sc
 
     def ponto(s, z):
-        # no plano das costas: s ao longo de u, z de mundo
+        # In the back plane: s along u, world z.
         return costas + u * (s - sc) + Z * (z - base) + frente
     guias = {
         'modulo': conj.name,
@@ -792,7 +793,7 @@ def _guias_no_piso(conj,piso,ponto,normal,dep=None):
 
 
 def aplicar_guia(conj, lado, valor_mm, dep=None):
-    """Leva o modulo para ficar a `valor_mm` daquele lado da parede."""
+    """Move the cabinet to `valor_mm` from that side of the wall."""
     guias = calcular_guias(conj, dep)
     if guias is None:
         return False
@@ -813,7 +814,7 @@ def aplicar_guia(conj, lado, valor_mm, dep=None):
 
 
 def _modulo_das_guias(context):
-    """O modulo ativo, selecionado e associado (as guias sao dele)."""
+    """Active, selected, associated cabinet whose guides are shown."""
     camada = getattr(context, 'view_layer', None)
     ativo = camada.objects.active if camada is not None else None
     conj = modulo_de(ativo)
@@ -823,8 +824,8 @@ def _modulo_das_guias(context):
 
 
 def atualizar_guias(context=None):
-    """Recalcula as guias do modulo ativo FORA do desenho (o desenho nao
-    avalia o depsgraph): timer e modais chamam."""
+    """Recalculate active cabinet guides OUTSIDE drawing (drawing does not
+    evaluate the depsgraph); called by the timer and modals."""
     context = context or bpy.context
     _ambientes.atualizar(context)
     conj = _modulo_das_guias(context)
@@ -882,16 +883,16 @@ def _tique_erro_apoio():
     return .04
 
 
-# ------------------------------------------------------------- desenho
+# ------------------------------------------------------------- drawing
 def _texto_do_valor(lado, valor):
     edicao = _edicao_guia[0]
     if edicao is not None and edicao['lado'] == lado:
         return _gaveta_desenho._com_cursor(edicao['texto'], edicao['cursor'],medida=True)
-    return ('Afast. ' if lado == 'afastamento' else '') + _opcoes._texto_medida(valor)
+    return ("Offset " if lado == 'afastamento' else '') + _opcoes._texto_medida(valor)
 
 
 def desenhar_guias(context):
-    """Linhas das guias e os numeros (POST_PIXEL, chamado pela HUD)."""
+    """Guide lines and numbers (POST_PIXEL, called by the HUD)."""
     regiao = context.region
     _rotulos.pop(regiao.as_pointer(), None)
     rv3d = context.region_data
@@ -924,7 +925,7 @@ def desenhar_guias(context):
         gpu.state.line_width_set(1.0)
         shader.bind()
         if arraste is None:
-            # a face da parede, discreta (no arraste ela vem acesa)
+            # Subtle wall face (highlighted during dragging).
             pares = _segmentos_na_tela(guias['contorno'], tela)
             if pares:
                 shader.uniform_float('color', (*realce[:3], 0.35))
@@ -955,13 +956,13 @@ def desenhar_guias(context):
             folga = 4 * escala
             mm_por_px = ((b3 - a3).length * 1000.0 / linha.length
                          if linha.length > 1 else 1.0)
-            # arrastar no sentido parede -> modulo AUMENTA a distancia
+            # Dragging from wall toward cabinet INCREASES the distance.
             rotulos.append((lado, x - folga, y - folga, x + largura + folga,
                             y + altura + folga,
                             linha.normalized() if linha.length > 1 else Vector((1, 0)),
                             mm_por_px))
     except Exception as e:
-        print("[Archy Builder] guias da parede:", e)
+        print("[Archy Builder] wall guides:", e)
     finally:
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
@@ -978,9 +979,9 @@ def _segmentos_na_tela(segmentos, tela):
 
 
 def _na_tela_em_lote(regiao, rv3d, pontos):
-    """`location_3d_to_region_2d` em lote (numpy); None se algum ponto
-    fica atras da camera. A parede de uma casa real tem milhares de
-    triangulos: um a um, o desenho travava."""
+    """Batch `location_3d_to_region_2d` (numpy); None if any point is behind
+    the camera. A real house wall has thousands of triangles; drawing
+    them one by one used to freeze the UI."""
     if not len(pontos):
         return None
     pm = np.array(rv3d.perspective_matrix, dtype=np.float64)
@@ -993,8 +994,8 @@ def _na_tela_em_lote(regiao, rv3d, pontos):
 
 
 def _desenhar_face_alvo(arraste, tela, realce, regiao, rv3d):
-    """A face que vai receber o modulo: veu translucido e contorno
-    grosso na cor de realce."""
+    """Face receiving the cabinet: translucent overlay and thick outline
+    in the highlight color."""
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     try:
         gpu.state.blend_set('ALPHA')
@@ -1009,7 +1010,7 @@ def _desenhar_face_alvo(arraste, tela, realce, regiao, rv3d):
             shader.uniform_float('color', (*realce[:3], 1.0))
             batch_for_shader(shader, 'LINES', {'pos': pares}).draw(shader)
     except Exception as e:
-        print("[Archy Builder] realce da parede:", e)
+        print("[Archy Builder] wall highlight:", e)
     finally:
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
@@ -1023,22 +1024,22 @@ def rotulo_sob(context, posicao):
     return None
 
 
-# ------------------------------------------------------ arraste (direito)
+# ------------------------------------------------------ dragging (right)
 def _raio_ignorando(context, regiao, rv3d, coord, ignorar):
-    """(objeto, ponto, normal, face) do 1o acerto fora de `ignorar`.
+    """(object, point, normal, face) of the first hit outside `ignorar`.
 
-    O modulo encostado tem as costas NO plano da parede: pular o acerto
-    nele (andando 0,1 mm) atravessava a face da parede e pegava o outro
-    lado dela ou nada -- o modulo piscava e, solto, "nao era parede"
-    (relato do usuario). Achado o objeto, o raio e' refeito so' contra
-    ele, da camera: a 1a face DELE, com o indice exato."""
+    A cabinet against the wall has its back ON the wall plane: skipping
+    a hit on it by advancing 0.1 mm crossed the wall face and hit its back
+    side or nothing. The cabinet flickered and on release was reported as
+    not on a wall (user report). Once the object is found, cast again
+    from the camera against it alone: ITS first face with the exact index."""
     inicio = view3d_utils.region_2d_to_origin_3d(regiao, rv3d, coord)
     direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv3d, coord)
     return raio_ate_parede(context, inicio, direcao, ignorar)
 
 
 def raio_ate_parede(context, inicio, direcao, ignorar):
-    """O mesmo, com o raio em mundo (sem a tela: o teste usa)."""
+    """Same query with a world-space ray (no screen; used by tests)."""
     inicio, direcao = Vector(inicio), Vector(direcao).normalized()
     dep = context.evaluated_depsgraph_get()
     s=_paredes_edicao._sessao[0]
@@ -1090,7 +1091,7 @@ def _px_por_metro(regiao, rv3d, ponto, eixo):
 
 
 def posicao_no_arraste(retangulo, s, base, largura, altura, tolerancia):
-    """Gruda nas pontas, no piso e no teto a menos de `tolerancia` (m)."""
+    """Snap to ends, floor, and ceiling within `tolerancia` (m)."""
     s0, s1, z0, z1 = retangulo
     if abs((s - largura / 2.0) - s0) <= tolerancia:
         s = s0 + largura / 2.0
@@ -1104,10 +1105,10 @@ def posicao_no_arraste(retangulo, s, base, largura, altura, tolerancia):
 
 
 class OBJECT_OT_arrastar_na_parede(Operator):
-    """Botao direito segurado num modulo: solte numa parede para encostar
-    as costas nela e associar (clique sem arrastar abre o menu)"""
+    """Hold right click on a cabinet and release on a wall to place its
+    back against it and associate it; clicking without dragging opens the menu."""
     bl_idname = 'object.cabinet_arrastar_na_parede'
-    bl_label = "Associar a' Parede"
+    bl_label = "Attach to Wall"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -1117,7 +1118,7 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         return (context.mode == 'OBJECT' and context.area is not None
                 and context.area.type == 'VIEW_3D'
                 and not _gaveta._eh_area_gaveta(context)
-                # quem seleciona com o direito: o botao e' do Blender
+                # For right-click selection, Blender owns the button.
                 and getattr(preferencias, 'select_mouse', 'LEFT') != 'RIGHT')
 
     def invoke(self, context, event):
@@ -1131,20 +1132,20 @@ class OBJECT_OT_arrastar_na_parede(Operator):
             return {'CANCELLED'}
         conj = modulo_de(atingido[0]) if atingido is not None else None
         if conj is None:
-            return {'PASS_THROUGH'}         # o menu de contexto de sempre
+            return {'PASS_THROUGH'}         # The usual context menu.
         self._modulo = conj.name
         self._ignorar = {conj.name, *(o.name for o in conj.children_recursive)}
         self._inicio = Vector((event.mouse_region_x, event.mouse_region_y))
         self._arrastou = False
         self._matriz = conj.matrix_world.copy()
-        # COPIA (to_list): o array da ID prop morre no `desassociar`
+        # COPY (to_list): the ID property array dies in `desassociar`.
         self._associacao = {k: getattr(conj[k], 'to_list', lambda: conj[k])()
                             for k in CHAVES_ASSOCIACAO if k in conj}
         self._regiao = context.region
         self._rv3d = context.region_data
         self._caixa = caixa_do_modulo(conj)
         self._parede = None
-        # Solto onde nao ha' parede (o "limbo"): desassocia sem mover.
+        # Release where there is no wall (the void): disassociate without moving.
         self._limbo = False
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
@@ -1173,35 +1174,35 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         conj = bpy.data.objects.get(self._modulo)
         if conj is None or self._caixa is None:
             return
-        self._motivo_erro = "Solte o modulo sobre uma parede ou piso"
+        self._motivo_erro = "Drop the cabinet onto a wall or floor"
         coord = (event.mouse_region_x, event.mouse_region_y)
         acerto = _raio_ignorando(context, self._regiao, self._rv3d, coord,
                                  self._ignorar)
         dep = context.evaluated_depsgraph_get()
-        regiao, motivo = None, "Arraste ate' uma parede"
+        regiao, motivo = None, "Drag to a wall"
         if acerto is not None:
             parede, ponto, normal, face = acerto
             tipo = _alvenaria.superficie(parede, face, normal,
                                          parede.evaluated_get(dep).data) if parede.type == 'MESH' else None
             if not alvenaria_definida(parede):
-                motivo = "Selecione a malha e use Criar Alvenaria"
+                motivo = "Select the mesh and use Create Masonry"
             elif not (tipo == 'PAREDE' and eixos_da_parede(normal)
                       or tipo == 'PISO' and eh_piso(normal)):
-                motivo = "Use uma parede vertical ou piso; teto nao e' apoio"
+                motivo = "Use a vertical wall or floor; the ceiling is not a support surface"
             elif parede.type != 'MESH':
-                motivo = "So' malha vira parede"
+                motivo = "Only meshes can become walls"
             else:
                 regiao = (regiao_do_piso(parede,ponto,normal,dep,face) if eh_piso(normal)
                           else regiao_da_parede(parede, ponto, normal, dep, face))
         if regiao is None:
-            # fora de parede: o modulo volta para onde estava
+            # Outside a wall: return the cabinet to its original position.
             self._parede = None
             self._limbo = True
             conj.matrix_world = self._matriz
             _arraste_parede[0] = {'modulo': self._modulo, 'valido': False}
             _guias[0] = None
             if self._associacao:
-                motivo = "Solte para desassociar da parede (o movel fica onde estava)"
+                motivo = "Release to detach from the wall (the cabinet stays in place)"
             self._status(context, motivo)
             return
         self._limbo = False
@@ -1230,12 +1231,12 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         if _esquadrias.colisao(context, conj, caixa=self._caixa):
             self._status(context, _esquadrias.AVISO)
         else:
-            self._status(context, ("Solte para associar ao piso %s (face %d)" if piso else
-                     "Solte para associar a' parede %s (face %d)") % (parede.name, regiao['face']))
+            self._status(context, ("Release to attach to floor %s (face %d)" if piso else
+                     "Release to attach to wall %s (face %d)") % (parede.name, regiao['face']))
 
     def _status(self, context, texto):
         try:
-            context.workspace.status_text_set(texto + " | Roda: trocar a face | Esc: cancelar")
+            context.workspace.status_text_set(texto + " | Wheel: switch face | Esc: cancel")
         except Exception:
             pass
 
@@ -1267,37 +1268,37 @@ class OBJECT_OT_arrastar_na_parede(Operator):
             return {'RUNNING_MODAL'}
         if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
             if not self._arrastou:
-                # clique simples: o menu de contexto, como sempre (no
-                # SOLTAR: no PRESS o release responderia a 1a opcao)
+                # Single click: the usual context menu, on RELEASE
+                # (on PRESS, that release would answer the first option).
                 self._encerrar(context)
                 bpy.ops.wm.call_menu('INVOKE_DEFAULT',
                                      name='VIEW3D_MT_object_context_menu')
                 return {'CANCELLED'}
-            # Confirmar reler a face real, mesmo se a topologia nao mudou.
+            # Confirmation rereads the actual face even if topology has not changed.
             _retangulos.clear()
             self._mover(context, event)
             if self._parede is None and self._limbo and self._associacao:
-                # Pedido do usuario: arrastar para fora de qualquer parede
-                # solta a associacao; o movel fica na posicao de origem.
+                # At the user's request, dragging outside all walls releases
+                # the association; the cabinet stays at its original position.
                 self._restaurar(context)
                 desassociar(bpy.data.objects[self._modulo])
                 self._encerrar(context)
-                self.report({'INFO'}, "Modulo desassociado da parede")
+                self.report({'INFO'}, "Cabinet detached from wall")
                 return {'FINISHED'}
             if self._parede is None:
                 self._restaurar(context)
                 self._encerrar(context)
-                self.report({'WARNING'}, getattr(self,'_motivo_erro',"Solte o modulo sobre uma parede ou piso"))
+                self.report({'WARNING'}, getattr(self,'_motivo_erro',"Drop the cabinet onto a wall or floor"))
                 return {'CANCELLED'}
-            # O ultimo modulo solto e' a referencia do proximo duplo clique.
+            # The last released cabinet becomes the next double click's reference.
             _paredes_edicao.registrar_posicionado(context, bpy.data.objects[self._modulo])
             self._encerrar(context)
             if _esquadrias.avisar(context, bpy.data.objects[self._modulo]):
                 self.report({'WARNING'}, _esquadrias.AVISO)
                 return {'FINISHED'}
             piso=CHAVE_EIXO_PISO in bpy.data.objects[self._modulo]
-            self.report({'INFO'}, ("Modulo associado ao piso %s" if piso else
-                                   "Modulo associado a' parede %s") % self._parede)
+            self.report({'INFO'}, ("Cabinet attached to floor %s" if piso else
+                                   "Cabinet attached to wall %s") % self._parede)
             return {'FINISHED'}
         if (event.type == 'ESC' and event.value == 'PRESS') or (
                 event.type == 'LEFTMOUSE' and event.value == 'PRESS'):
@@ -1311,12 +1312,11 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         self._encerrar(context)
 
 
-# ------------------------------------------------- editar uma guia
+# ------------------------------------------------- edit a guide
 class OBJECT_OT_guia_parede(Operator):
-    """Distancia do modulo a' parede: arraste de lado para mudar, clique
-    para digitar"""
+    """Cabinet-to-wall distance: drag sideways to change, click to type."""
     bl_idname = 'object.cabinet_guia_parede'
-    bl_label = "Distancia a' Parede"
+    bl_label = "Distance to Wall"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     @classmethod
@@ -1395,7 +1395,7 @@ class OBJECT_OT_guia_parede(Operator):
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             if self._arrastou:
                 return {'FINISHED'}
-            # clique sem arrastar: digita a distancia (Enter confirma)
+            # Click without dragging: type the distance (Enter confirms).
             texto = _opcoes._numero_na_unidade(self._valor)
             _edicao_guia[0] = {'lado': self._lado, 'texto': texto,
                                'cursor': len(texto), 'selecionado': False}
@@ -1412,16 +1412,16 @@ class OBJECT_OT_guia_parede(Operator):
 
 
 class OBJECT_OT_desassociar_parede(Operator):
-    """Solta os modulos selecionados da parede (ficam onde estao)"""
+    """Detach selected cabinets from the wall, leaving them in place."""
     bl_idname = 'object.cabinet_desassociar_parede'
-    bl_label = 'Desassociar da Parede'
+    bl_label = "Detach from Wall"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         modulos = {modulo_de(o) for o in context.selected_objects} - {None}
         soltos = [m for m in modulos if m.get(CHAVE_PAREDE)]
         if not soltos:
-            self.report({'WARNING'}, "Nenhum modulo associado a parede na selecao")
+            self.report({'WARNING'}, "No wall-attached cabinet in the selection")
             return {'CANCELLED'}
         for conj in soltos:
             desassociar(conj)
@@ -1429,10 +1429,10 @@ class OBJECT_OT_desassociar_parede(Operator):
         return {'FINISHED'}
 
 
-# --------------------------------------------- gizmo dos numeros
+# --------------------------------------------- number gizmo
 class VIEW3D_GT_guia_parede(Gizmo):
-    """Pick dos numeros das guias (o desenho e' da HUD): o clique neles
-    ganha da selecao, que e' keymap."""
+    """Pick guide numbers (the HUD draws them): clicking them takes priority
+    over keymap-based selection."""
     bl_idname = 'VIEW3D_GT_guia_parede'
 
     def draw(self, context):
@@ -1449,7 +1449,7 @@ class VIEW3D_GT_guia_parede(Gizmo):
 
 class VIEW3D_GGT_guias_parede(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_guias_parede'
-    bl_label = 'Guias da parede Archy Builder'
+    bl_label = "Archy Builder wall guides"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}
@@ -1465,7 +1465,7 @@ class VIEW3D_GGT_guias_parede(GizmoGroup):
 
 
 def esquecer():
-    """Undo/abrir: nada guardado aponta para dado velho."""
+    """Undo/open: no stored reference points to stale data."""
     _conferidos.clear()
     _retangulos.clear()
     _guias[0] = None

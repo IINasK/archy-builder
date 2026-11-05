@@ -1,8 +1,7 @@
-"""Biblioteca horizontal acima do menu e da cena, com areas nativas.
+"""Horizontal library above the menu and scene, using native areas.
 
-O split termina no tique seguinte: cada etapa guarda so' nomes e valores,
-nunca referencias de areas que o Blender pode destruir ao fechar/juntar.
-"""
+Splitting completes on the next tick: each stage stores only names and values, never
+area references Blender may destroy when closing or merging."""
 import os
 import time
 import hashlib
@@ -19,14 +18,14 @@ CHAVE_CENA = 'cabinet_viewport_area'
 CHAVE_LAYOUT = 'cabinet_layout'
 CHAVE_RECOLHIDA = 'cabinet_biblioteca_recolhida'
 CHAVE_ALTURA = 'cabinet_biblioteca_altura'
-# Lugar escolhido (pedido do usuario): 'MENU' (padrao: na lateral esquerda,
-# dentro do menu, embaixo da divisoria) ou 'FAIXA' (acima do menu e da cena). Vale
-# para TODO arquivo: fica nas preferencias (`lugar_escolhido`); na screen
-# fica so' a copia, e a de arquivo antigo vira a preferencia na 1a vez.
+# Chosen location (user request): 'MENU' (default: on the left, inside the menu below
+# the divider) or 'FAIXA' (above the menu and scene). Applies to EVERY file: stored in
+# preferences (`lugar_escolhido`); the screen holds only a copy. An old file's value
+# becomes the preference on first use.
 CHAVE_LUGAR = 'cabinet_biblioteca_lugar'
 OP_LUGAR = 'object.cabinet_lugar_biblioteca'
 _pendentes = [{}]
-_menus_pendentes = [{}]     # screen -> ponteiro da cena a dividir
+_menus_pendentes = [{}]     # Screen -> pointer to the scene area to split.
 _catalogos = [{}]
 _alturas = [{}]
 ALTURA_INICIAL = 180
@@ -90,7 +89,7 @@ def abrir(context):
     menu = _gaveta._area_gaveta(screen)
     if menu is not None:
         principal = viewport(screen)
-        # A area_close so' junta o menu com o vizinho da mesma altura.
+        # area_close only joins the menu with a neighbor of equal height.
         with context.temp_override(area=menu):
             bpy.ops.screen.area_close()
         screen[_gaveta._CHAVE_GAVETA] = 0
@@ -112,7 +111,7 @@ def configurar_pendentes():
             continue
         estado['tentativas'] += 1
         if estado['tentativas'] > 100:
-            print('[Archy Builder] nao foi possivel preparar a biblioteca superior')
+            print("[Archy Builder] could not prepare the upper library")
             fechar(janela, screen)
             continue
         principal = next((a for a in screen.areas
@@ -186,7 +185,7 @@ def reconectar(screen):
     ocultas = [a for a in screen.areas if a.type == 'VIEW_3D'
                and not a.spaces.active.show_region_header
                and not a.spaces.active.overlay.show_overlays]
-    # A largura so' descreve o menu antigo; a faixa inteira e' mais larga.
+    # Width describes only the old menu; the full strip is wider.
     if (area_da_faixa(screen) is None and len(ocultas) == 2
             and (screen.get(CHAVE_AREA) or screen.get(_gaveta._CHAVE_GAVETA))):
         topo = max(ocultas, key=lambda a: a.y)
@@ -228,9 +227,9 @@ def esquecer():
 
 
 def lugar_escolhido(screen=None):
-    """'FAIXA' ou 'MENU', das preferencias do add-on (pedido do usuario:
-    lembrar a escolha em qualquer arquivo). Antes da preferencia existir, a
-    escolha ficava so' na screen: a 1a screen marcada vira a preferencia."""
+    """'FAIXA' or 'MENU' from add-on preferences (user request: remember the choice
+    across files). Before this preference existed, the choice lived only on the
+    screen: the first marked screen supplies the preference."""
     if not _opcoes._opcao('biblioteca_lugar_definido'):
         antigo = screen.get(CHAVE_LUGAR) if screen else None
         if antigo in ('FAIXA', 'MENU'):
@@ -246,17 +245,17 @@ def definir_lugar(lugar, screen=None):
 
 
 def acoplada(screen):
-    """A biblioteca mora dentro do menu, e nao na faixa superior."""
+    """The library lives inside the menu rather than in the top strip."""
     return bool(screen) and lugar_escolhido(screen) == 'MENU'
 
 
 def abrir_menu(context):
-    """So' o menu a' esquerda da area atual, com a biblioteca dentro
-    dele (a divisoria interativa no meio, `gaveta.DIVISA_PADRAO`)."""
+    """Only the menu left of the current area, with the library inside it (interactive
+    divider in the middle, `gaveta.DIVISA_PADRAO`)."""
     screen = context.screen
     screen[CHAVE_LAYOUT] = 1
     screen[_gaveta._CHAVE_PENDENTE] = str(context.area.as_pointer())
-    # Teto de metade: numa tela estreita o menu abre menor que o padrao.
+    # Cap at half the screen: on narrow screens, open the menu smaller than the default.
     fator = max(0.08, min(0.5, _gaveta._largura_inicial_gaveta(context)
                           / max(1, context.area.width)))
     with context.temp_override(area=context.area):
@@ -266,12 +265,12 @@ def abrir_menu(context):
 
 
 def trocar_lugar(context):
-    """Faixa <-> menu, no TIMER: o clique vem de dentro do menu ou da
-    faixa, e fechar a area que esta' atendendo o operador a liberaria
-    debaixo dele. Grava so' o nome da screen."""
+    """Strip <-> menu on the TIMER: the click originates inside the menu or strip;
+    closing the area serving the operator would free it from under the operator.
+    Store only the screen name."""
     screen = context.screen
     if viewport(screen) is None:
-        return 'Nenhuma viewport para receber a biblioteca'
+        return "No viewport available for the library"
     _menus_pendentes[0][screen.name] = None
     if not bpy.app.timers.is_registered(_abrir_menus_pendentes):
         bpy.app.timers.register(_abrir_menus_pendentes, first_interval=0.0)
@@ -282,8 +281,8 @@ def _trocar_agora(janela, screen):
     principal = viewport(screen)
     if principal is None:
         return
-    # Troca o que esta' ABERTO: arquivo antigo pode abrir com a faixa
-    # enquanto a preferencia ja' e' o menu.
+    # Switch what is actually OPEN: an old file may open with the strip while
+    # preferences already specify the menu.
     no_menu = (area_da_faixa(screen) is None
                and (_gaveta._area_gaveta(screen) is not None or acoplada(screen)))
     if no_menu:
@@ -295,7 +294,7 @@ def _trocar_agora(janela, screen):
     ptr = principal.as_pointer()
     if area_da_faixa(screen) is not None or _gaveta._area_gaveta(screen) is not None:
         fechar(janela, screen)
-    # A geometria das areas juntadas so' existe no tique seguinte.
+    # Merged area geometry only exists on the next tick.
     _menus_pendentes[0][screen.name] = ptr
     if not bpy.app.timers.is_registered(_abrir_menus_pendentes):
         bpy.app.timers.register(_abrir_menus_pendentes, first_interval=0.05)
@@ -310,22 +309,22 @@ def _abrir_menus_pendentes():
         if ptr is None:
             _trocar_agora(janela, screen)
             continue
-        # A cena pode ter sido juntada: vale a maior viewport que sobrou.
+        # The scene area may have been merged: use the largest remaining viewport.
         principal = next((a for a in screen.areas if a.as_pointer() == ptr), None) or max(
             (a for a in screen.areas if a.type == 'VIEW_3D'),
             key=lambda a: a.width * a.height, default=None)
         if principal is not None:
             with bpy.context.temp_override(window=janela, area=principal):
                 abrir_menu(bpy.context)
-    # Registrar dentro do proprio tique e' ignorado: segue vivo enquanto
-    # a troca para o menu ainda espera a divisao da cena.
+    # Registering from within the timer's own tick is ignored: keep it alive while
+    # switching to the menu still awaits the scene-area split.
     return 0.05 if _menus_pendentes[0] else None
 
 
 class OBJECT_OT_lugar_biblioteca(Operator):
-    """Leva a biblioteca da faixa superior para dentro do menu, ou volta"""
+    """Move the library from the top strip into the menu, or back."""
     bl_idname = OP_LUGAR
-    bl_label = 'Lugar da biblioteca'
+    bl_label = "Library location"
 
     def execute(self, context):
         erro = trocar_lugar(context)
@@ -358,8 +357,8 @@ def _linha(context, itens, x, y, w, valores, nivel, selecionado, pai=None,
     completa = cabem(0, w)
     rola = len(completa) < len(ordenados)
     espaco = w - 34 if rola else w
-    # Medir o fim tambem: nomes de larguras diferentes nao podem deixar
-    # a ultima categoria fora do alcance da seta/roda.
+    # Measure the end too: varying name widths must not put the last category beyond
+    # arrow/wheel reach.
     limite = max(0, len(ordenados) - len(cabem(0, espaco, inverso=True))) if rola else 0
     inicio = max(0, min(limite, int(context.screen.get(chave, 0))))
     fatia = cabem(inicio, espaco) if rola else completa
@@ -387,7 +386,7 @@ def _indice(materiais):
     chave = (pasta, materiais, id(leitor), id(_biblioteca.itens_de_fabrica))
     agora = time.monotonic()
     guardado = _catalogos[0].get(chave)
-    # Nem JSON nem milhares de caminhos nem stat em rede a cada redraw.
+    # No JSON, thousands of paths or network stat calls on every redraw.
     if guardado and agora - guardado['instante'] < 0.25:
         return guardado
     caminho = os.path.join(pasta, _materiais.NOME_ARQUIVO if materiais else _biblioteca.NOME_INDICE)
@@ -441,9 +440,8 @@ def catalogo(context):
 
 
 def _subcategorias_em_linha(context, itens, linhas, largura, y, prefixo):
-    """Uma caixa por nivel, incluindo o seletor Modulos/Materiais.
-    As abas e os alvos de hover compartilham os mesmos retangulos.
-    """
+    """One box per level, including the Cabinets/Materials selector. Tabs and hover
+    targets share the same rectangles."""
     if not linhas:
         return
     livre = largura - 12 - INTERVALO_NIVEIS * (len(linhas) - 1)
@@ -460,13 +458,13 @@ def _subcategorias_em_linha(context, itens, linhas, largura, y, prefixo):
     pendentes = list(range(len(linhas)))
     restante = livre
     if linhas[0][0] == 0:
-        # Conservar os dois modos inteiros quando os niveis couberem;
-        # em faixa estreita, o carrossel continua dando acesso a ambos.
+        # Keep both modes fully visible when levels fit; in a narrow strip the carousel
+        # still provides access to both.
         tamanhos[0] = min(desejadas[0], max(56, livre - 56 * (len(linhas) - 1)))
         restante -= tamanhos[0]
         pendentes.remove(0)
-    # Os niveis curtos nao desperdicam uma coluna inteira; a sobra fica
-    # para os que precisam rolar, sem esmagar o nivel vizinho.
+    # Short levels do not waste a whole column; give spare space to levels needing
+    # scrolling without squeezing their neighbors.
     while pendentes:
         cota = restante / len(pendentes)
         curtos = [i for i in pendentes if desejadas[i] <= cota]
@@ -497,7 +495,7 @@ def caixa_categoria(acao):
 
 
 def retangulos_filhos(caixa, itens):
-    """O fundo recebe hover so' no espaco que nao pertence a uma aba."""
+    """The background receives hover only in space not belonging to a tab."""
     x, y, w, h = caixa[:4]
     return [v[:4] for v in itens if v[5] and not caixa_categoria(v[5])
             and v[5][0] != 'separador'
@@ -509,7 +507,7 @@ def realces_das_categorias(itens, acesos):
     chave = _gaveta_desenho._chave_widget
     for caixa in itens:
         if caixa_categoria(caixa[5]):
-            # O contorno pertence ao hover das ABAS, nao ao fundo vazio.
+            # The outline belongs to TAB hover, not the empty background.
             acesos.discard(chave(caixa[5]))
             filhos = retangulos_filhos(caixa, itens)
             if any(v[:4] in filhos and chave(v[5]) in acesos for v in itens):
@@ -517,7 +515,7 @@ def realces_das_categorias(itens, acesos):
 
 
 def widgets(context, largura, altura):
-    """Uma fila de fotos. So' os itens visiveis viram widgets/texturas."""
+    """One image row. Only visible items become widgets/textures."""
     escala = max(1.0, context.preferences.system.ui_scale)
     w, h = largura / escala, altura / escala
     itens = []
@@ -528,7 +526,7 @@ def widgets(context, largura, altura):
             itens.append((6 + i * 64, h - TOPO_CATEGORIA, 61, ALTURA_CATEGORIA, nome,
                           ('biblioteca', modo, s.cabinet_bib_modo == modo)))
     itens.append((max(6, w - 66), h - TOPO_CATEGORIA, 60, ALTURA_CATEGORIA,
-                  'Expandir' if recolhida else 'Recolher',
+                  "Expand" if recolhida else "Collapse",
                   ('operador', 'object.cabinet_recolher_biblioteca')))
     if recolhida:
         return [(x * escala, y * escala, bw * escala, bh * escala, nome, acao)
@@ -542,7 +540,7 @@ def widgets(context, largura, altura):
     modos = [nome for _modo, nome in _gaveta.MODOS_BIBLIOTECA]
     escolhido = dict(_gaveta.MODOS_BIBLIOTECA)[s.cabinet_bib_modo]
     grupos = [(0, modos, escolhido, None), *visiveis]
-    # +1: o botao que leva a biblioteca para dentro do menu (OP_LUGAR)
+    # +1: the button moving the library into the menu (OP_LUGAR).
     ferramentas = 74 + 21 * (len(_gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo]) + 1)
     _subcategorias_em_linha(context, itens, grupos, w - ferramentas,
                            h - TOPO_CATEGORIA, prefixo)
@@ -552,11 +550,11 @@ def widgets(context, largura, altura):
     disponivel = max(0, y - reserva)
     referencia = ALTURA_INICIAL - 35 - reserva
     tamanho = (68 + (s.chapa_tam_bloco - 2) * 14) * disponivel / referencia
-    # A proporcao segue a altura da area. A largura ainda precisa caber
-    # junto das setas, inclusive numa biblioteca alta e estreita.
+    # Aspect ratio follows area height. Width must still fit alongside the arrows, even
+    # in a tall, narrow library.
     lado = min(tamanho, disponivel, max(0, w - (74 if len(daqui) > 1 else 22)))
     if lado < 12:
-        daqui = []   # faixa quase recolhida: nao criar alvos fora da area
+        daqui = []   # Nearly collapsed strip: do not create targets outside the area.
     bw, bh = lado + 10, lado + 27
     caminho = repr(
         _biblioteca.trilha_da_cena(s) if s.cabinet_bib_modo == 'MODULOS'
@@ -579,11 +577,11 @@ def widgets(context, largura, altura):
         itens.append((bx, by, bw, bh, it.get('nome', ''), acao))
         if material:
             sw = (bw - 4) / 2
-            for j, nome in enumerate(('Edit.', 'Apagar')):
+            for j, nome in enumerate(('Edit.', "Delete")):
                 itens.append((bx + j * (sw + 4), by - 24, sw, 21, nome,
                               ('material_item', it, j)))
-    # Ferramentas do catalogo permanecem acessiveis, sem abrir arquivos no draw.
-    botoes = _gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo] + (('Lugar', OP_LUGAR),)
+    # Catalog tools remain accessible without opening files during drawing.
+    botoes = _gaveta.BOTOES_BIBLIOTECA[s.cabinet_bib_modo] + (("Location", OP_LUGAR),)
     for i, (nome, op) in enumerate(botoes):
         itens.append((w - 87 - i * 21, h - TOPO_CATEGORIA, 18, ALTURA_CATEGORIA,
                       nome, ('operador', op)))
@@ -607,8 +605,8 @@ def interativos(context):
         itens = respostas + ([fundo] if fundo else []) + [v for v in itens if not (
             v == pergunta or v in respostas or
             v[0] < x + w and x < v[0] + v[2] and v[1] < y + h and y < v[1] + v[3])]
-    # O fundo nao intercepta o clique de uma aba. O gizmo dele atende
-    # apenas o espaco vazio, e o operador tambem o trata por ultimo.
+    # The background does not intercept tab clicks. Its gizmo only serves empty space,
+    # and the operator also handles it last.
     itens = [v for v in itens if not caixa_categoria(v[5])] + [v for v in itens if caixa_categoria(v[5])]
     return [v for v in itens if v[1] >= 0 and v[1] + v[3] <= context.region.height
             and v[0] >= 0 and v[0] + v[2] <= context.region.width]
@@ -644,7 +642,7 @@ def rolar(context, event):
         alvo = next((v[5] for v in itens if v[:4] in filhos
                      and v[5] and v[5][0] in ('navegar', 'rolar_nivel')), None)
     if alvo is None:
-        # Sobre a foto ou o vao entre fotos, rola a galeria inteira.
+        # Over an image or the gap between images, scroll the entire gallery.
         alvo = next((v[5] for v in itens if v[5] and v[5][0] == 'rolar_nivel'
                      and 'faixa_itens' in v[5][1]
                      and v[1] <= event.mouse_region_y <= v[1] + v[3]), None)
@@ -668,17 +666,17 @@ def _capacidade_niveis(largura):
 def opcoes_do_item(it):
     protegido = bool(it.get('fabrica'))
     bloqueado = _biblioteca.item_bloqueado(it) or protegido
-    return (('Inserir', 'IMPORT', True),
-            ('Editar', 'GREASEPENCIL', not bloqueado),
-            ('Desbloquear' if bloqueado else 'Bloquear',
+    return (("Insert", 'IMPORT', True),
+            ("Edit", 'GREASEPENCIL', not bloqueado),
+            ("Unlock" if bloqueado else "Lock",
              'LOCKED' if bloqueado else 'UNLOCKED', not protegido))
 
 
 def abrir_menu_item(context, it):
-    """Menu contextual solicitado para foto E nome, somente no RELEASE."""
+    """Requested context menu for BOTH image and name, only on RELEASE."""
     if not _perguntas._abrir_pergunta(context):
         return False
-    # Capturar valores, nao o operador modal que sera' limpo ao terminar.
+    # Capture values, not the modal operator that will be cleared on completion.
     pasta, arquivo = it['pasta'], it['arquivo']
     opcoes = opcoes_do_item(it)
     def desenhar(menu, _context):
@@ -688,26 +686,26 @@ def abrir_menu_item(context, it):
             linha.enabled = habilitado
             op = linha.operator('object.cabinet_acao_item_biblioteca', text=rotulo, icon=icone)
             op.pasta, op.arquivo, op.indice = pasta, arquivo, indice
-    context.window_manager.popup_menu(desenhar, title=it.get('nome', 'Modulo'))
+    context.window_manager.popup_menu(desenhar, title=it.get('nome', "Cabinet"))
     return True
 
 
 class OBJECT_OT_acao_item_biblioteca(Operator):
     bl_idname = 'object.cabinet_acao_item_biblioteca'
-    bl_label = 'Acao do Item da Biblioteca'
+    bl_label = "Library Item Action"
     bl_options = {'INTERNAL'}
     pasta: StringProperty(options={'SKIP_SAVE'})
     arquivo: StringProperty(options={'SKIP_SAVE'})
     indice: IntProperty(min=0, max=2, options={'SKIP_SAVE'})
 
     def execute(self, context):
-        # Reconsultar: o bloqueio pode mudar enquanto o menu esta' aberto.
+        # Recheck: lock state may change while the menu is open.
         it = _indice(False)['por_arquivo'].get((self.pasta, self.arquivo))
         if it is None:
-            self.report({'WARNING'}, 'Item removido da biblioteca')
+            self.report({'WARNING'}, "Item removed from library")
             return {'CANCELLED'}
         if not opcoes_do_item(it)[self.indice][2]:
-            self.report({'WARNING'}, 'Modelo protegido ou bloqueado')
+            self.report({'WARNING'}, "Model is protected or locked")
             return {'CANCELLED'}
         if _gaveta_eventos._eh_modelo_do_criador(it):
             if _gaveta_eventos._modelo_do_criador(self, context, it, self.indice):
@@ -740,8 +738,8 @@ def redimensionar_altura(context, desejada, mouse=None):
 
 
 def _mover_cursor(janela, x, y):
-    # O simulador usa eventos virtuais: nunca mover o mouse real do
-    # usuario nas janelas de teste que ficam em segundo plano.
+    # The simulator uses virtual events: never move the user's real mouse in background
+    # test windows.
     if bpy.app.use_event_simulate:
         janela.event_simulate('MOUSEMOVE', 'NOTHING', x=int(x), y=int(y))
     else:
@@ -773,9 +771,9 @@ def _ajustar_alturas():
                 _alturas[0].pop(janela.screen.name, None)
                 area.tag_redraw()
             elif not estado['warp'] and estado['mouse']:
-                # O poll nativo exige mouse na fronteira (active_region
-                # nula). Deferir permite processar o movimento e restaurar
-                # imediatamente o mouse ao botao depois do resize.
+                # Native poll requires the mouse on the boundary (active_region is
+                # null). Deferring allows movement to be processed and the mouse
+                # restored to the button immediately after resizing.
                 _mover_cursor(janela, area.x + area.width // 2, area.y)
                 estado['warp'] = True
             elif estado['tiques'] > 20:
@@ -783,13 +781,13 @@ def _ajustar_alturas():
                     _mover_cursor(janela, *estado['mouse'])
                 janela.screen[CHAVE_RECOLHIDA] = estado['recolhida_antes']
                 _alturas[0].pop(janela.screen.name, None)
-                print('[Archy Builder] mova a fronteira nativa para ajustar a altura')
+                print("[Archy Builder] move the native border to adjust height")
     return 0.02 if _alturas[0] else None
 
 
 class OBJECT_OT_recolher_biblioteca(Operator):
     bl_idname = 'object.cabinet_recolher_biblioteca'
-    bl_label = 'Recolher ou Expandir Biblioteca'
+    bl_label = "Collapse or Expand Library"
 
     @classmethod
     def poll(cls, context):

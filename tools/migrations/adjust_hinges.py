@@ -50,7 +50,7 @@ def preparar(biblioteca, destino):
             for d in (a, b):
                 d['props'].pop('porta_ferragens_encaixe', None)
             conferir(a, b, obj.name)
-        conferir(antes['assets'], depois['assets'], 'Catalogos')
+        conferir(antes['assets'], depois['assets'], "Catalogs")
         for nome in nomes:
             shutil.copy2(caminho_da_peca(biblioteca, nome), os.path.join(originais, nome))
         blend, png = [os.path.join(novos, nome) for nome in nomes]
@@ -69,10 +69,10 @@ def preparar(biblioteca, destino):
         conferir(esperado, estado(cols, objs))
         for nome in nomes:
             if digital(caminho_da_peca(biblioteca, nome)) != hashes[nome]:
-                raise RuntimeError('Biblioteca editada durante preparo: ' + nome)
+                raise RuntimeError("Library edited during preparation: " + nome)
             m['arquivos'].append(dict(nome=nome, original=hashes[nome], novo=digital(os.path.join(novos, nome))))
         m['modulos'].append(dict(arquivo=it['arquivo'], portas=alterados))
-        print('[dobradicas] %s: %s' % (it['arquivo'], alterados), flush=True)
+        print("[hinges] %s: %s" % (it['arquivo'], alterados), flush=True)
     limpar()
     addon.unregister()
     with open(os.path.join(destino, 'manifesto.json'), 'w', encoding='utf-8') as f:
@@ -82,9 +82,9 @@ def preparar(biblioteca, destino):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--destino', required=True)
-    p.add_argument('--biblioteca', default=os.path.join(RAIZ, 'archy_builder', 'biblioteca'))
-    p.add_argument('--aplicar', action='store_true')
+    p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    p.add_argument('--apply', action='store_true', dest='aplicar')
     a = p.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     destino, biblioteca = os.path.abspath(a.destino), os.path.abspath(a.biblioteca)
     validar_destino(biblioteca, destino)

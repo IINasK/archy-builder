@@ -38,16 +38,16 @@ def preparar(biblioteca,destino):
             assert digital(os.path.join(biblioteca,s))==hashes[s]
             m['arquivos'].append(dict(nome=s,original=hashes[s],novo=digital(os.path.join(novos,s))))
         m['modulos'].append(dict(arquivo=it['arquivo']))
-        print('[fotos]',len(m['modulos']),it['arquivo'],'montagem preservada',flush=True)
+        print("[photos]",len(m['modulos']),it['arquivo'],"assembly preserved",flush=True)
     limpar();addon.unregister()
     with open(os.path.join(destino,'manifesto.json'),'w',encoding='utf-8') as f:json.dump(m,f,indent=1)
-    print('FOTOS VERIFICADAS',len(m['modulos']),flush=True)
+    print("PHOTOS VERIFIED",len(m['modulos']),flush=True)
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--destino',required=True)
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'))
-    p.add_argument('--aplicar',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    p.add_argument('--apply', action='store_true', dest='aplicar')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:publicar(a.destino)

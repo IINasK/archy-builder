@@ -1,6 +1,5 @@
-"""Ferragens: o rig da dobradica reta do usuario, pistoes, montagem
-das ferragens na porta, abertura da folha e a edicao das
-ferragens selecionadas."""
+"""Hardware: user's straight-hinge rig, pistons, door hardware assembly,
+leaf opening and editing selected hardware."""
 
 import bpy, bmesh, math, os, json, gpu
 from gpu_extras.batch import batch_for_shader
@@ -11,8 +10,8 @@ from mathutils.bvhtree import BVHTree
 _promob = None
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = None
 _modulos = None
 _eventos = None
@@ -24,46 +23,46 @@ _hud = None
 _solda = None
 _arame = None
 
-# ============================== FERRAGENS, PIVO E ABERTURA (Fase 3)
-# Backlog do usuario (Epico 1.7/1.8 e Epico 4). A folha continua uma
-# chapa CENTRADA e filha direta do grupo (`_grupo_portas`, `_cantos`, HUD
-# e puxadores dependem disso): o pivo NAO e' um Empty nem a origem
-# deslocada -- a abertura entra na matrix_basis dela como um giro em
-# volta da borda da dobradica: quina das COSTAS na sobreposta, da FRENTE
-# na embutida (`_eixo_da_dobradica`). Correr desliza no trilho.
-# Ferragens: malhas que a porta refaz (as caixas) ou posiciona (o rig) a cada
-# `_aplicar_portas`. Corpo da dobradica e haste do pistao sao filhos do
-# GRUPO (ficam no modulo); caneco e corpo do pistao, da FOLHA (giram com
-# ela). Pistao = rigging de verdade: cada metade tem um Damped Track
-# mirando a outra ponta, entao encolhe e estica sozinho com o angulo.
-# A haste fica na ponta de BAIXO (na lateral), como pedem os fabricantes;
-# os suportes (plaquinha na lateral, pino na folha) seguem o mesmo pai.
-CHAVE_FERRAGEM = 'porta_ferragem'          # tipo; marca a ferragem
-CHAVE_ID_FERRAGEM = 'porta_ferragem_id'    # estavel: reaproveita o objeto
-CHAVE_ABERTURA = 'porta_fracao_aberta'     # na folha: 0 fechada .. 1 aberta
-CHAVE_CENTRO_FOLHA = 'porta_centro_mm'     # centro da folha FECHADA
+# ============================== HARDWARE, PIVOT AND OPENING (Phase 3)
+# User backlog, Epics 1.7/1.8 and 4. The leaf remains a CENTERED panel
+# directly parented to its group: `_grupo_portas`, `_cantos`, HUD and
+# handles depend on this. The pivot is NOT an Empty or displaced origin;
+# opening enters matrix_basis as rotation around the hinge edge:
+# REAR corner for overlay, FRONT corner for inset
+# (`_eixo_da_dobradica`). Sliding doors travel along the track.
+# Hardware meshes are rebuilt (boxes) or positioned (rig) by every
+# `_aplicar_portas`. Hinge body and piston rod belong to the GROUP
+# and stay in the cabinet; cup and piston body belong to the LEAF
+# and move with it. Pistons use real rigging: each half has a Damped Track
+# aiming at the other end, extending/retracting automatically with angle.
+# The rod sits at the LOWER side-panel end per manufacturer guidance;
+# brackets (side plate, leaf pin) follow the same parent.
+CHAVE_FERRAGEM = 'porta_ferragem'          # Type; marks hardware.
+CHAVE_ID_FERRAGEM = 'porta_ferragem_id'    # Stable identifier for object reuse.
+CHAVE_ABERTURA = 'porta_fracao_aberta'     # On the leaf: 0 closed .. 1 open.
+CHAVE_CENTRO_FOLHA = 'porta_centro_mm'     # CLOSED leaf center.
 ABERTURA_MAX_GRAUS = {'GIRO': 110.0, 'BASCULANTE': 90.0}
-PISTAO_DA_LATERAL_MM = 25.0      # do eixo do pistao a' face interna
-# Trilho do correr (foto do usuario): em CIMA, um U alto com um canal
-# fundo por folha -- ela entra e sobra folga para levantar e tirar; em
-# BAIXO, uma chapa baixa com uma guia por folha, onde ela fica em pe'.
-TRILHO_CIMA_ALTURA_MM = 35.0    # do perfil de cima inteiro
-TRILHO_CIMA_CHAPA_MM = 2.0      # a chapa do topo dele
-TRILHO_LEVANTAR_MM = 10.0       # da folha ate' a chapa do topo
-TRILHO_PAREDE_MM = 2.0          # paredes de fora dos dois perfis
-TRILHO_BAIXO_CHAPA_MM = 3.0     # a chapa do perfil de baixo
-TRILHO_GUIA_MM = 5.0            # altura da guia sob cada folha
+PISTAO_DA_LATERAL_MM = 25.0      # Piston axis to inner face.
+# Sliding track from the user's photo: tall upper U with a deep channel
+# per leaf, leaving lift-out clearance; below, a low plate with one guide
+# per leaf to stand on.
+TRILHO_CIMA_ALTURA_MM = 35.0    # Entire upper profile.
+TRILHO_CIMA_CHAPA_MM = 2.0      # Its top plate.
+TRILHO_LEVANTAR_MM = 10.0       # Leaf to top plate.
+TRILHO_PAREDE_MM = 2.0          # Outer walls of both profiles.
+TRILHO_BAIXO_CHAPA_MM = 3.0     # Lower profile plate.
+TRILHO_GUIA_MM = 5.0            # Guide height beneath each leaf.
 TRILHO_GUIA_LARGURA_MM = 4.0
 
 
 def altura_trilho_baixo():
-    """Do fundo do vao ate' o pe' da folha de correr (mm)."""
+    """Opening bottom to sliding leaf bottom, in mm."""
     return TRILHO_BAIXO_CHAPA_MM + TRILHO_GUIA_MM
 NOME_MIRA_PISTAO = 'Cabinet Mira'
 
 
 def _lado_da_folha(p, indice, n):
-    """Lado das dobradicas de UMA folha de giro (2 folhas: uma de cada)."""
+    """Hinge side for ONE swing leaf; two leaves use opposite sides."""
     escolhido = p.get('dobradicas_lados_folhas', {}).get(str(indice))
     if p.get('abertura') == 'GIRO' and escolhido in ('ESQUERDA', 'DIREITA'):
         return escolhido
@@ -73,89 +72,89 @@ def _lado_da_folha(p, indice, n):
     return lado if lado in ('ESQUERDA', 'DIREITA') else 'ESQUERDA'
 
 
-# ---- Dobradica RETA de verdade: o modelo e o rig do usuario
-# (`extrair_dobradica.py` tira UMA dobradica do arquivo dele, sem refazer
-# malha nem rig). Cada dobradica da porta Reta e' uma copia desse asset:
-# armature com driver (0,385 x o controlador) + IK que fecha o braco, e
-# a CABECA (copo) e' quem leva a porta. A folha do add-on continua filha
-# do grupo (invariante): ela faz o MESMO movimento da cabeca pela tabela
-# medida no asset (`_passo_rig`), e o controlador de cada copia gira o
-# rig junto -- os dois andam sincronizados. O copo fura a folha por um
-# Boolean com o cortador do asset (filho da cabeca).
-# Referencial da raiz do asset: -X = para dentro do movel, +Y = frente,
-# Z = eixo das dobradicas. A da direita e a do basculante sao a MESMA
-# peca girada (o modelo e' simetrico em cima/baixo), nunca espelhada.
-# A raiz vai pela FOLHA, como no modelo: `borda_porta_mm` para dentro da
-# borda dela e `costas_mm` atras das costas (o copo e' furado a uma
-# distancia fixa da borda). Assim a folha abre como a do usuario. O
-# modelo cobre 12,75 mm da lateral; a Reta de 18 mm cobre 16, e a placa
-# base entrava ~3 mm na chapa (print do usuario). Levar o rig INTEIRO a'
-# face fazia o canto da folha aberta entrar no modulo; entao, como o
-# parafuso de cobertura da dobradica de verdade, so' a PLACA (e o suporte,
-# se passar da face) anda ate' a face interna -- copo e porta ficam.
-PASTA_FERRAGENS = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ferragens')
+# ---- Actual STRAIGHT hinge: the user's model and rig.
+# `extrair_dobradica.py` extracts ONE hinge without rebuilding mesh or rig.
+# Each straight-door hinge copies that asset: an armature with driver
+# (0.385 x controller) and IK closing the arm; its HEAD/cup carries
+# the door. The add-on leaf remains parented to the group (invariant)
+# and follows the SAME head motion using the measured asset table
+# (`_passo_rig`). Each copy's controller rotates its rig in sync.
+# The cup bores the leaf through a Boolean using the asset cutter,
+# which is parented to the head.
+# Asset-root coordinates: -X into cabinet, +Y front, Z hinge axis.
+# Right-side and lift-up hinges use the SAME part rotated, never mirrored;
+# the model is symmetric top/bottom.
+# Place the root relative to the LEAF: `borda_porta_mm` inward from its
+# edge and `costas_mm` behind its rear, giving a fixed edge-to-cup bore
+# distance and the user's leaf motion. Model overlay is 12.75 mm;
+# an 18 mm straight hinge covers 16, embedding the base plate about 3 mm
+# into the panel. Moving the ENTIRE rig to the face made the open leaf
+# corner enter the cabinet. Like a real hinge's overlay-adjustment screw,
+# move only the PLATE and any protruding support to the inner face;
+# leave cup and door in place.
+PASTA_FERRAGENS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets/hardware")
 ARQUIVO_DOBRADICA_RETA = os.path.join(PASTA_FERRAGENS, 'dobradica_reta.blend')
-# Parafuso padrao (pedido do usuario: o mesmo nas dobradicas e puxadores):
-# chipboard 3,5 x 14 cabeca CHATA Phillips de `gerar_parafuso.py` (a foto
-# de referencia do usuario), em tamanho real. Origem = centro da cabeca NA
-# SUPERFICIE da peca; +Z = para fora, cabeca escareada e haste em -Z. A
-# cabeca (5,78) nao afunda ate' o fim: o topo fica SALIENCIA acima (o
-# refinamento do usuario). O nome novo (era a panela) e a VERSAO fazem as
-# cenas carregarem este, nao reusarem a malha velha (`_anexar_sem_repetir`
-# deduplica por origem + versao).
+# Standard screw shared by hinges and handles: 3.5 x 14 chipboard screw,
+# FLAT Phillips head from `gerar_parafuso.py`, matching the user's photo
+# at actual size. Origin at head center ON the part surface; +Z outward,
+# countersunk head and shank toward -Z. The 5.78 mm head is not fully sunk:
+# its top remains SALIENCIA above the surface, per user refinement.
+# The new name (formerly pan head) and VERSION make scenes load this mesh
+# instead of reusing the old one; `_anexar_sem_repetir` deduplicates
+# by origin + version.
 ARQUIVO_PARAFUSO = os.path.join(PASTA_FERRAGENS, 'parafuso.blend')
 NOME_PARAFUSO = 'Parafuso Chipboard 3,5x14 Chata'
-VERSAO_PARAFUSO = 2          # 1 = cabeca de 7 mm rente (326)
+VERSAO_PARAFUSO = 2          # 1 = flush 7 mm head (326).
 COMPRIMENTO_PARAFUSO_MM = 14.0
 RAIO_CABECA_PARAFUSO_MM = 2.889
 SALIENCIA_PARAFUSO_MM = 0.876
-PARAFUSOS_ANTIGOS = {'Parafuso Chipboard 3,5x14'}   # a panela (323): trocar
-# Trilhos da porta de correr COM MOLDURA: os perfis de aluminio do
-# guarda-roupa do usuario (`extrair_trilho_moldura.py`), como poligonos da
-# secao (u = das costas para a frente, v = da base para cima), extrudados
-# na largura. Em cima, dois canais (meio de cada, medido no perfil); em
-# baixo, duas guias, cujo meio fica sob o meio dos canais.
+PARAFUSOS_ANTIGOS = {'Parafuso Chipboard 3,5x14'}   # Old pan head (323): replace.
+# FRAMED sliding-door tracks: the user's wardrobe aluminum profiles
+# (`extrair_trilho_moldura.py`) as section polygons
+# (u rear-to-front, v base-up), extruded across width. Upper profile:
+# two channels with centers measured from the profile. Lower profile:
+# two guides centered under the upper channels.
 ARQUIVO_TRILHO_MOLDURA = os.path.join(PASTA_FERRAGENS, 'trilho_moldura.json')
-CANAIS_TRILHO_MOLDURA_MM = (16.75, 47.0)      # (costas, frente)
+CANAIS_TRILHO_MOLDURA_MM = (16.75, 47.0)      # (rear, front).
 MEIO_GUIAS_TRILHO_BAIXO_MM = 23.8
 _perfis_trilho_moldura = [None]
 
 
 def perfil_trilho_moldura(lado):
-    """{'profundidade_mm', 'altura_mm', 'poligonos'} do trilho 'CIMA' ou
-    'BAIXO' (lido uma vez)."""
+    """Return {'profundidade_mm', 'altura_mm', 'poligonos'} for track 'CIMA'
+    or 'BAIXO', read once."""
     if _perfis_trilho_moldura[0] is None:
         with open(ARQUIVO_TRILHO_MOLDURA, encoding='utf-8') as arq:
             _perfis_trilho_moldura[0] = json.load(arq)['trilhos']
     return _perfis_trilho_moldura[0][lado]
-PREFIXO_FURO = 'Cabinet Copo '        # Boolean do copo na folha
+PREFIXO_FURO = 'Cabinet Copo '        # Cup Boolean on the leaf.
 PECAS_REALCE_RIG = ('base', 'suporte', 'cabeca')
-# x mais externo (mm, raiz do asset, +X = para dentro da chapa) das pecas
-# que o ajuste de cobertura leva a' face interna; medido no asset (v2)
+# Outermost x in mm (asset root, +X into panel) of parts moved to the
+# inner face by overlay adjustment; measured in asset v2.
 FACE_PECAS_CALCO = {'base': 0.0, 'suporte': -2.71}
-# as malhas do arame da previa que vao junto (filhas delas no asset)
+# Preview wireframe meshes moving with them, their children in the asset.
 MALHAS_CALCO = {'Dobradica Base': 'base', 'Dobradica Parafuso.001': 'base',
                 'Dobradica Parafuso.002': 'base', 'Dobradica Suporte': 'suporte',
                 'Dobradica Parafuso': 'suporte', 'Dobradica Pino.002': 'suporte'}
 
 
 def _calco_rig(cobertura):
-    """{peca: mm para DENTRO do movel} que a placa e o suporte andam para
-    nao entrar na chapa: a raiz fica `cobertura - borda_porta_mm` para
-    fora da face interna (a folha cobre mais que o modelo)."""
+    """Return {part: mm INWARD} for plate/support displacement avoiding
+    wood penetration: the root is `cobertura - borda_porta_mm` outside
+    the inner face because the leaf covers more than the model."""
     fora = float(cobertura) - _dados_dobradica_reta()['borda_porta_mm']
     return {peca: fora + x for peca, x in FACE_PECAS_CALCO.items()}
 
 
 def _matriz_calco(mm):
-    """Translacao (m) na raiz do asset: -X = para dentro do movel."""
+    """Asset-root translation in m: -X points into the cabinet."""
     return Matrix.Translation((-mm / 1000.0, 0.0, 0.0))
-_dobradica_reta = [None]              # o .json do asset, lido uma vez
+_dobradica_reta = [None]              # Asset .json, read once.
 
 
 def _dados_dobradica_reta():
-    """{'costas_mm', 'tabela': [(controle, giro, tx, ty)], ...} ou None
-    (sem o asset a Reta volta ao eixo fixo)."""
+    """Return {'costas_mm', 'tabela': [(control, rotation, tx, ty)], ...},
+    or None; without the asset, straight hinges revert to a fixed axis."""
     if _dobradica_reta[0] is None:
         try:
             with open(os.path.join(PASTA_FERRAGENS, 'dobradica_reta.json'),
@@ -181,9 +180,9 @@ def _usa_rig(p):
 
 
 def _afastamento_porta(p):
-    """Costas da folha ate' a frente do modulo (mm). Na Reta com o rig, no
-    minimo a folga do modelo do usuario (1,86 mm): o rig foi feito com ela
-    e, encostada, o canto da folha aberta entrava no modulo."""
+    """Leaf rear to cabinet front in mm. With the straight rig, keep at least
+    the user's model clearance (1.86 mm): its motion was designed for it;
+    a flush leaf's open corner would enter the cabinet."""
     afastamento = float(p['afastamento_mm'])
     if _usa_rig(p):
         afastamento = max(afastamento, _dados_dobradica_reta()['folga_modulo_mm'])
@@ -195,8 +194,8 @@ def _giro_maximo_rig():
 
 
 def _passo_rig(fracao):
-    """(graus do controlador, giro, tx, ty) com a folha aberta `fracao`
-    do giro maximo -- linear no ANGULO da folha (o controlador nao e')."""
+    """(controller degrees, rotation, tx, ty) at leaf opening `fracao` of
+    maximum rotation, linear in LEAF ANGLE, unlike the controller."""
     tabela = _dados_dobradica_reta()['tabela']
     alvo = max(0.0, min(1.0, float(fracao))) * tabela[-1][1]
     for a, b in zip(tabela, tabela[1:]):
@@ -207,7 +206,7 @@ def _passo_rig(fracao):
 
 
 def _referencial_rig(dentro, origem):
-    """Matriz (mm) da raiz do asset: -X = `dentro`, +Y = frente do vao."""
+    """Asset-root matrix in mm: -X=`dentro`, +Y=opening front."""
     x = -Vector((dentro[0], dentro[1], 0.0)).normalized()
     y = Vector((0.0, 0.0, 1.0))
     m = Matrix((x, y, x.cross(y))).transposed().to_4x4()
@@ -216,8 +215,8 @@ def _referencial_rig(dentro, origem):
 
 
 def _movimento_rig(dentro, origem_mm, fracao):
-    """Transformacao (metros, referencial do grupo) que a cabeca da
-    dobradica -- e a folha presa nela -- faz aberta `fracao`."""
+    """Transformation in meters/group coordinates of the hinge head and
+    its attached leaf at opening `fracao`."""
     raiz = _referencial_rig(dentro, Vector(origem_mm) / 1000.0)
     _controle, giro, tx, ty = _passo_rig(fracao)
     passo = (Matrix.Translation((tx / 1000.0, ty / 1000.0, 0.0))
@@ -226,10 +225,9 @@ def _movimento_rig(dentro, origem_mm, fracao):
 
 
 def _curso_correr(p, largura, n, l, x):
-    """(x fechada, x aberta) do CENTRO da folha de correr de largura `l`
-    fechada em `x` (mm, no vao): cada folha tem o seu trilho, entao corre
-    ate' a OUTRA ponta do vao, por cima das vizinhas (a unica e as da
-    esquerda vao para a direita)."""
+    """Closed/open CENTER x of a sliding leaf width `l`, closed at `x`,
+    in opening mm. Each leaf has its own track and travels to the OTHER
+    opening end over its neighbors; single/left leaves travel right."""
     esq, dir_ = _portas._inicios_porta(p)[:2]
     inicio, fim = esq + l / 2.0, largura - dir_ - l / 2.0
     if fim < inicio:
@@ -238,26 +236,25 @@ def _curso_correr(p, largura, n, l, x):
 
 
 def _eixo_da_dobradica(p, e):
-    """Altura do eixo de giro sobre as COSTAS da folha (mm).
+    """Rotation-axis height above the leaf REAR in mm.
 
-    Sobreposta (Reta/Curva) gira na quina das COSTAS, como a dobradica de
-    caneco real: aberta, as costas da folha ficam rente a' face de fora da
-    lateral (ou do tampo, no basculante) e a borda encosta na frente do
-    movel. Girando pela quina da frente sobrava um vao da espessura da
-    folha (print do usuario). A embutida gira pela FRENTE: pelas costas ela
-    entraria na lateral."""
+    Overlay hinges rotate around the REAR corner, as real cup hinges do:
+    open leaf rear lies flush with the side's outer face (top for lift-up),
+    and its edge meets the cabinet front. Rotating about the front corner
+    left a leaf-thickness gap. Inset hinges rotate about the FRONT:
+    rotation about the rear would enter the side panel."""
     return float(e) if p.get('dobradica') == 'SUPER_CURVA' else 0.0
 
 
 def _junta_zigzag(p, anterior, atual, indice):
-    """Eixo comum das duas metades, alternado entre frente e costas."""
+    """Shared axis of both halves, alternating front and rear."""
     ca, cb = Vector(anterior[3]), Vector(atual[3])
     z = cb.z + (atual[2] / 2 + 4.5) * (1 if indice % 2 == 0 else -1)
     return Vector(((ca.x + cb.x) / 2, cb.y, z))
 
 
 def _matrizes_zigzag(p, largura, folhas, fracao):
-    """Cadeia calculada uma vez: cada junta herda a pose da precedente."""
+    """Compute the chain once; each joint inherits its predecessor's pose."""
     simples = dict(p, abertura='GIRO', folhas=1)
     primeira = _matriz_abertura(simples, largura, 1, 0, folhas[0], fracao)
     movimento = primeira @ Matrix.Translation(-Vector(folhas[0][3]) / 1000)
@@ -273,8 +270,8 @@ def _matrizes_zigzag(p, largura, folhas, fracao):
 
 
 def _matriz_abertura(p, largura, n, indice, folha, fracao):
-    """matrix_basis (metros, referencial do grupo) da folha `indice`
-    aberta `fracao` (0..1). `folha` = (l, a, e, centro) em mm, fechada."""
+    """Leaf `indice` matrix_basis in meters/group coordinates at opening
+    `fracao` (0..1). `folha` is closed (l, a, e, center) in mm."""
     l, a, e, centro = folha
     c = Vector(centro)
     fechada = Matrix.Translation(c / 1000.0)
@@ -290,8 +287,8 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
         passo = Vector(((destino - fechado) * fracao, 0.0, 0.0))
         return Matrix.Translation(passo / 1000.0) @ fechada
     if _usa_rig(p):
-        # Reta: o movimento medido no rig do usuario, a partir da raiz
-        # da dobradica (pela borda e pelas costas da folha)
+        # Straight hinge: motion measured from the user's rig, relative to
+        # the hinge root at the leaf edge/rear.
         dados = _dados_dobradica_reta()
         fundo, borda = c.z - e / 2.0 - dados['costas_mm'], dados['borda_porta_mm']
         if abertura == 'BASCULANTE':
@@ -328,7 +325,7 @@ def _matriz_abertura(p, largura, n, indice, folha, fracao):
 
 
 def _dados_da_folha(folha):
-    """(l, a, e, centro) da folha FECHADA, em mm."""
+    """CLOSED leaf (l, a, e, center) in mm."""
     centro = folha.get(CHAVE_CENTRO_FOLHA)
     if centro is None:
         centro = folha.matrix_basis.translation * 1000.0
@@ -337,8 +334,8 @@ def _dados_da_folha(folha):
 
 
 def _matriz_fechada(folha):
-    """matrix_world da folha como se estivesse fechada (quem mede o vao
-    por uma folha de apoio nao pode ver a porta aberta)."""
+    """Leaf matrix_world in closed pose: opening measurements from a support
+    leaf must not see its open pose."""
     centro = folha.get(CHAVE_CENTRO_FOLHA)
     if centro is None or folha.parent is None:
         return folha.matrix_world.copy()
@@ -360,8 +357,8 @@ def _posicionar_folha(grupo, folha):
 
 
 def _definir_abertura(context, folha, fracao):
-    """Abre a folha `fracao` (0..1). Ferragens seguem por parentesco e o
-    pistao pela mira."""
+    """Open the leaf to `fracao` (0..1). Hardware follows through parenting;
+    the piston follows its tracking target."""
     grupo = _portas._grupo_portas(folha)
     if grupo is None or _chapas.MARCA_FOLHA not in folha:
         return False
@@ -397,8 +394,8 @@ def _definir_abertura(context, folha, fracao):
 
 
 def _dobradicas_da_porta(p, largura, altura, folhas):
-    """[(aresta, distancias, indice da folha)]: onde vao as dobradicas
-    (lado, quantidade e margem gravados pelo wizard)."""
+    """Return [(edge, distances, leaf index)] for hinges, using wizard-stored
+    side, count and margin."""
     if p.get('abertura') == 'CORRER' or not folhas:
         return []
     lateral = float(p['lateral_mm'])
@@ -419,8 +416,8 @@ def _dobradicas_da_porta(p, largura, altura, folhas):
         aresta = next((a for a in arestas if a['lado'] == lado), arestas[0])
         if p.get('abertura') == 'GIRO' and str(i) in p.get('dobradicas_lados_folhas', {}):
             l, a, _e, c = folhas[i]
-            # Uma folha parcial invertida prende na SUA borda, nunca na
-            # borda oposta do vao inteiro.
+            # A reversed partial leaf attaches at ITS edge, never the
+            # opposite edge of the whole opening.
             borda = c[0] + (-l / 2 if lado == 'ESQUERDA' else l / 2)
             x = borda + (aresta['cobertura'] if lado == 'ESQUERDA' else -aresta['cobertura'])
             aresta = dict(aresta, a=Vector((x, c[1]-a/2)), b=Vector((x, c[1]+a/2)))
@@ -432,13 +429,13 @@ def _dobradicas_da_porta(p, largura, altura, folhas):
         comprimento = (aresta['b'] - aresta['a']).length
         qtd = (int(p.get('dobradicas_qtd', 0) or 0)
                or _portas._qtd_dobradicas_padrao(comprimento))
-        # vale tambem para a porta gravada antes do limite
+        # Also applies to doors saved before the limit existed.
         qtd, ajustada = _portas._ajustar_dobradicas(comprimento, qtd, margem)
         referencia = p.get('dobradicas_referencia', {}).get(str(i))
         distancias = (_portas._posicoes_ferragens(comprimento, qtd, ajustada)
                       if referencia is None else [float(f) * comprimento for f in referencia])
         if referencia is not None:
-            # Ao encolher demais o vao, o limite fisico ainda prevalece.
+            # Physical limits still govern when shrinking the opening too far.
             minimo = _portas.PASSO_MIN_DOBRADICAS_MM
             if (any(d < _portas.MARGEM_MIN_DOBRADICAS_MM or
                     d > comprimento - _portas.MARGEM_MIN_DOBRADICAS_MM for d in distancias)
@@ -449,13 +446,13 @@ def _dobradicas_da_porta(p, largura, altura, folhas):
 
 
 def _pistoes_da_porta(p, largura, altura, folhas):
-    """Pistoes do basculante (mm, referencial do grupo, porta FECHADA).
+    """Lift-up pistons in mm/group coordinates, door CLOSED.
 
-    Modelo e posicao saem de `_pistao_do_vao` (automatico; o offset
-    manual do wizard so' sobe, ate' o limite do pistao). Corpo e haste
-    medem o FECHADO cada um: fechada a haste some no corpo, aberta os
-    dois somam o aberto. Suporte = plaquinha na lateral (do eixo a' face
-    interna) e pino nas costas da folha."""
+    `_pistao_do_vao` chooses automatic model/position; wizard manual offset
+    only moves upward within piston reach. Body and rod each measure
+    CLOSED length: the rod hides inside when closed; together they span
+    open length. Supports are a side plate from axis to inner face and
+    a pin on the leaf rear."""
     qtd = (int(p.get('pistoes_qtd', 0) or 0)
            or _portas._qtd_pistoes_padrao(folhas[0][0]))
     g = _portas._pistao_do_vao(altura, folhas[0],
@@ -502,8 +499,8 @@ def _pistoes_da_porta(p, largura, altura, folhas):
 
 
 def _prisma(origem, destino, raio, comprimento):
-    """8 cantos (ordem de ARESTAS_CAIXA) de um prisma quadrado de lado
-    2*raio, de `origem` rumo a `destino`: o volume de um cilindro."""
+    """Eight corners in ARESTAS_CAIXA order of a square prism side 2*raio,
+    from `origem` toward `destino`: a cylinder's bounding volume."""
     eixo = destino - origem
     eixo = eixo.normalized() if eixo.length > 1e-9 else Vector((0, 0, 1))
     n1 = eixo.orthogonal().normalized()
@@ -514,8 +511,8 @@ def _prisma(origem, destino, raio, comprimento):
 
 
 def _caixas_dos_itens_pistao(itens):
-    """Volumes (mm) do pistao FECHADO a partir dos itens de
-    `_pistoes_da_porta`: suportes como sao, corpo e haste rumo a' mira."""
+    """CLOSED piston volumes in mm from `_pistoes_da_porta`: supports as-is,
+    body and rod oriented toward their tracking targets."""
     por_id = {item['id']: item for item in itens}
     caixas = []
     for item in itens:
@@ -529,10 +526,10 @@ def _caixas_dos_itens_pistao(itens):
 
 
 def _volume_articulacao(p, folhas, i, y, sufixo):
-    """Volumetria nativa: placas, linguetas intercaladas, eixo e parafusos.
+    """Native volumes: plates, interleaved knuckles, pin and screws.
 
-    Cada metade pertence a uma folha; o eixo coincide com o da abertura.
-    E' representacao geometrica, sem importar ferragens do DXF.
+    Each half belongs to a leaf; the pin shares the opening axis.
+    Geometric representation only, without DXF hardware imports.
     """
     l, a, e, c = folhas[i]
     zig = p.get('abertura') == 'ZIGZAG'
@@ -552,35 +549,35 @@ def _volume_articulacao(p, folhas, i, y, sufixo):
     def caixa(nome, pai, x0, x1, z0, z1, h=50):
         lo, hi = Vector((min(x0, x1), y - h / 2, min(z0, z1))), Vector((max(x0, x1), y + h / 2, max(z0, z1)))
         cantos = [Vector((x, yy, z)) for x in (lo.x, hi.x) for yy in (lo.y, hi.y) for z in (lo.z, hi.z)]
-        saida.append(dict(id=sufixo + nome, nome='Dobradica Articulada ' + nome,
+        saida.append(dict(id=sufixo + nome, nome=_nome_visivel_ferragem("Articulated Hinge " + nome),
                          tipo='DOBRADICA' if pai == apoio else 'CANECO',
                          folha=pai, forma='CAIXA', cantos=cantos))
     for nome, pai, direcao, plano, faixas in (
             ('Apoio', apoio, -sinal, plano_apoio, ((-25, -15), (-5, 5), (15, 25))),
             ('Folha', i, sinal, c[2] + face * e / 2, ((-14.5, -5.5), (5.5, 14.5)))):
-        # A placa encosta na madeira. O pescoco liga-a ao eixo saliente.
+        # The plate rests on wood; its neck connects to the protruding axis.
         caixa('Placa ' + nome, pai, q.x + direcao * 5, q.x + direcao * 31, plano, plano + face * 3)
         caixa('Braco ' + nome, pai, q.x, q.x + direcao * 9, plano + face * 3, q.z, 30)
         for k, (baixo, cima) in enumerate(faixas):
-            saida.append(dict(id=sufixo + nome + str(k), nome='Dobradica Articulada No ' + nome,
+            saida.append(dict(id=sufixo + nome + str(k), nome=_nome_visivel_ferragem("Articulated Hinge Knuckle " + nome),
                 tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='CILINDRO',
                 origem=Vector((q.x, y + (baixo + cima) / 2, q.z)),
                 raio=4.5, comprimento=cima - baixo, eixo='Y'))
         for k, dy in enumerate((-17, 17)):
-            # o parafuso padrao, assentado na face de fora da placa
-            saida.append(dict(id=sufixo + 'Parafuso' + nome + str(k), nome='Dobradica Articulada Parafuso',
+            # Standard screw seated on the plate's outer face.
+            saida.append(dict(id=sufixo + 'Parafuso' + nome + str(k), nome="Articulated Hinge Screw",
                 tipo='DOBRADICA' if pai == apoio else 'CANECO', folha=pai, forma='PARAFUSO',
                 origem=Vector((q.x + direcao * 23, y + dy, plano + face * 3)), sentido=face))
-    saida.append(dict(id=sufixo + 'Eixo', nome='Dobradica Articulada Eixo', tipo='DOBRADICA',
+    saida.append(dict(id=sufixo + 'Eixo', nome="Articulated Hinge Pin", tipo='DOBRADICA',
         folha=apoio, forma='CILINDRO', origem=q, raio=2.5, comprimento=53, eixo='Y'))
     return saida
 
 
 def _apoios_obliquos(conj, matriz, p, largura, altura, folhas):
-    """Face REAL de apoio, por dobradica. Uma quina encostada nao e' encaixe.
+    """ACTUAL support face for each hinge; one touching corner is not a fit.
 
-    Ray cast nativo so' ao reconstruir; abrir pelo slider nao consulta
-    malhas. A face inteira da placa precisa caber, sem entrar na madeira.
+    Native ray cast only during rebuild, never when opening by slider.
+    The entire plate face must fit without entering wood.
     """
     if (conj is None or p.get('abertura') not in ('GIRO', 'ZIGZAG')
             or p.get('dobradica_articulada') or _usa_rig(p)):
@@ -622,8 +619,8 @@ def _apoios_obliquos(conj, matriz, p, largura, altura, folhas):
                         t = -t
                     cantos = [q + t * u + Vector((0, v, 0)) + n * z
                               for u in (-14, 14) for v in (-21, 21) for z in (0, 3)]
-                    # As quatro quinas da face encostada, nao o menor erro
-                    # entre todos os vertices (que aprovava uma ponta so').
+                    # Check all four contact-face corners, not the smallest error across
+                    # all vertices, which used to approve a single touching tip.
                     cabe = True
                     for v in cantos[::2]:
                         local = im @ (matriz @ (v / 1000))
@@ -641,25 +638,25 @@ def _apoios_obliquos(conj, matriz, p, largura, altura, folhas):
 
 
 def _dobradica_obliqua(apoio, caneco, i, sufixo, costas):
-    """Placa no plano da lateral e braco ligado a' folha por mira nativa."""
+    """Plate on the side plane; arm linked to the leaf by native tracking."""
     q, n = apoio['ponto'], apoio['normal']
     copo = sum(caneco, Vector()) / 8
     ponta = Vector((copo.x, copo.y, costas - 5))
     origem = q + n * 4
     return [
-        dict(id='DOBRADICA_' + sufixo, nome='Dobradica Base Angular', tipo='DOBRADICA',
+        dict(id='DOBRADICA_' + sufixo, nome="Angled Hinge Base", tipo='DOBRADICA',
              folha=None, forma='PRISMA', cantos=apoio['cantos'], apoio=apoio['objeto']),
-        dict(id='ART_PONTA_' + sufixo, nome='Dobradica Mira Angular', tipo='DOBRADICA_PONTO',
+        dict(id='ART_PONTA_' + sufixo, nome="Angled Hinge Target", tipo='DOBRADICA_PONTO',
              folha=i, forma='PONTO', origem=ponta),
-        dict(id='ART_BRACO_' + sufixo, nome='Dobradica Braco Angular', tipo='DOBRADICA',
+        dict(id='ART_BRACO_' + sufixo, nome="Angled Hinge Arm", tipo='DOBRADICA',
              folha=None, forma='BRACO', origem=origem, comprimento=(ponta - origem).length,
              destino=ponta, mira='ART_PONTA_' + sufixo),
     ]
 
 
 def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
-    """O que montar (mm, referencial do grupo, porta FECHADA): uma lista
-    de {'id', 'tipo', 'folha' (indice; None = no grupo), 'forma', ...}."""
+    """Assembly list in mm/group coordinates, door CLOSED:
+    {'id', 'tipo', 'folha' (index; None = on group), 'forma', ...}."""
     saida = []
     rig = _usa_rig(p)
     for aresta, distancias, i in _dobradicas_da_porta(p, largura, altura, folhas):
@@ -673,8 +670,8 @@ def _ferragens_da_porta(p, largura, altura, folhas, apoios=None):
                     saida.append(item)
             continue
         if rig:
-            # Reta: a dobradica de verdade (asset do usuario), raiz pela
-            # borda e pelas costas da folha (`_referencial_rig`)
+            # Straight hinge: actual user asset, root positioned by the
+            # leaf edge and rear (`_referencial_rig`).
             dados = _dados_dobradica_reta()
             fundo = centro[2] - e / 2.0 - dados['costas_mm']
             eixo = aresta['b'] - aresta['a']
@@ -727,11 +724,10 @@ def _caixa_mm(x0, x1, y0, y1, z0, z1):
 
 
 def _trilhos_correr(p, largura, altura, folhas):
-    """Blocagem dos trilhos (foto do usuario), o vao inteiro de largura.
-    CIMA: U alto -- chapa no topo e paredes por fora e entre os canais (no
-    vao entre os planos), um canal por folha. BAIXO: chapa baixa com uma
-    guia sob o meio de cada folha (ela fica em pe' nela). Com moldura,
-    os perfis do usuario (`_trilhos_moldura`)."""
+    """Full-opening-width track blockouts matching the user's photo.
+    CIMA: tall U, top plate and outer/inter-channel walls between leaf
+    planes, one channel per leaf. BAIXO: low plate with a guide under
+    each leaf center. Framed doors use `_trilhos_moldura` user profiles."""
     if _portas._correr_sobreposta(p):
         return _trilhos_moldura(p, largura, altura)
     e = folhas[0][2]
@@ -739,7 +735,7 @@ def _trilhos_correr(p, largura, altura, folhas):
     frente = max(c[2] + e / 2.0 for _l, _a, _e, c in folhas)
     fundo = min(c[2] - e / 2.0 for _l, _a, _e, c in folhas)
     z0, z1 = fundo - TRILHO_PAREDE_MM, frente + TRILHO_PAREDE_MM
-    # do vao inteiro (embutida) ou da cobertura (sobreposta): pelas folhas
+    # Full opening for inset or overlay span for overlay doors, from leaves.
     x0 = min(0.0, min(c[0] - l / 2.0 for l, _a, _e, c in folhas))
     x1 = max(largura, max(c[0] + l / 2.0 for l, _a, _e, c in folhas))
     y0 = min(c[1] - a / 2.0 for _l, a, _e, c in folhas) - altura_trilho_baixo()
@@ -762,44 +758,44 @@ def _trilhos_correr(p, largura, altura, folhas):
               for _l, _a, _e, c in folhas]
     return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
              'folha': None, 'forma': 'CAIXAS', 'caixas': caixas}
-            for lado, nome, caixas in (('CIMA', 'Trilho Superior', cima),
-                                       ('BAIXO', 'Trilho Inferior', baixo))]
+            for lado, nome, caixas in (('CIMA', "Upper Track", cima),
+                                       ('BAIXO', "Lower Track", baixo))]
 
 
 def _trilhos_moldura(p, largura, altura):
-    """Os dois perfis do usuario na largura da moldura (entre os
-    revestimentos): o de cima com a folha entrando `INSERCAO_CANAL_MM`
-    no canal, o de baixo sob o pe' dela, na base da moldura."""
+    """Both user profiles across frame width between side claddings: upper
+    with `INSERCAO_CANAL_MM` leaf insertion; lower under the leaf bottom
+    on the frame base."""
     lateral = float(p['lateral_mm'])
     x = (-lateral, largura + lateral)
     trilho_cima, _base, base_baixo, _fundo = _portas._alturas_moldura(p, altura)
     costas = _portas.TRILHO_MOLDURA_COSTAS_MM
     if _portas._trilho_leve(p):
-        # LEVE: o U de embutir do usuario dentro de cada canal fresado --
-        # embaixo na face de cima da base, em cima espelhado na face de
-        # baixo da base de cima. Chapa fina (pontas abertas), como o dele
+        # LIGHT: the user's inset U inside each routed channel: lower on the
+        # base top, upper mirrored under the upper base.
+        # Thin panel, open ends, matching the user's model.
         leve = perfil_trilho_moldura('LEVE')
         return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
                  'folha': None, 'forma': 'PERFIL', 'x': x, 'aberto': True,
                  'poligonos': [[(costas + u, y0 + sinal * v) for u, v in poligono]
                                for poligono in leve['poligonos']]}
                 for lado, nome, y0, sinal in (
-                    ('CIMA', 'Trilho Superior', trilho_cima, -1.0),
-                    ('BAIXO', 'Trilho Inferior', base_baixo, 1.0))]
+                    ('CIMA', "Upper Track", trilho_cima, -1.0),
+                    ('BAIXO', "Lower Track", base_baixo, 1.0))]
     meio = costas + sum(CANAIS_TRILHO_MOLDURA_MM) / 2.0
-    lugares = (('CIMA', 'Trilho Superior', costas, trilho_cima),
-               ('BAIXO', 'Trilho Inferior', meio - MEIO_GUIAS_TRILHO_BAIXO_MM,
+    lugares = (('CIMA', "Upper Track", costas, trilho_cima),
+               ('BAIXO', "Lower Track", meio - MEIO_GUIAS_TRILHO_BAIXO_MM,
                 base_baixo))
     return [{'id': 'TRILHO_' + lado, 'tipo': 'TRILHO', 'nome': nome,
              'folha': None, 'forma': 'PERFIL', 'x': x,
-             # secao no referencial da porta: (z, y) em mm
+             # Section in door coordinates: (z, y) in mm.
              'poligonos': [[(z0 + u, y0 + v) for u, v in poligono]
                            for poligono in perfil_trilho_moldura(lado)['poligonos']]}
             for lado, nome, z0, y0 in lugares]
 
 
 def _limites_perfil(item):
-    """(lo, hi) em mm da caixa do perfil extrudado."""
+    """Extruded-profile box (lo, hi) in mm."""
     pontos = [zy for poligono in item['poligonos'] for zy in poligono]
     lo = Vector((item['x'][0], min(y for _z, y in pontos), min(z for z, _y in pontos)))
     hi = Vector((item['x'][1], max(y for _z, y in pontos), max(z for z, _y in pontos)))
@@ -821,16 +817,16 @@ def _origem_da_ferragem(item):
 
 
 def _malha_da_ferragem(malha, item):
-    """Caixa (centrada), caneco (cilindro em Z, centrado) ou metade de
-    pistao (cilindro de 0 a +Y: o Damped Track aponta o Y para a mira)."""
+    """Centered box, centered cup cylinder on Z, or piston-half cylinder
+    from 0 to +Y, which Damped Track points at the target."""
     bm = bmesh.new()
     try:
         if item['forma'] == 'PERFIL':
-            # cada poligono da secao extrudado de x0 a x1 (o perfil do
-            # usuario e' feito de pedacos sobrepostos: um prisma por pedaco)
+            # Extrude each section polygon from x0 to x1: the user's profile
+            # uses overlapping pieces, one prism per piece.
             origem = _origem_da_ferragem(item)
-            # `aberto` (o U do trilho leve): chapa fina, contorno sem
-            # fechar e sem tampas, como a malha do usuario
+            # `aberto` (light-track U): thin panel with open outline
+            # and no caps, matching the user's mesh.
             aberto = item.get('aberto', False)
             for poligono in item['poligonos']:
                 pontas = [[bm.verts.new((Vector((x, y, z)) - origem) / 1000.0)
@@ -845,8 +841,8 @@ def _malha_da_ferragem(malha, item):
                     bm.faces.new(pontas[1])
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         elif item['forma'] == 'PRISMA':
-            # Preservar os cantos orientados: uma AABB desorientava a base
-            # de 135 graus e voltava a entrar na madeira.
+            # Preserve oriented corners: an AABB misoriented the 135-degree base
+            # and made it penetrate wood again.
             origem = _origem_da_ferragem(item)
             vs = [bm.verts.new((v - origem) / 1000) for v in item['cantos']]
             for face in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1),
@@ -858,7 +854,7 @@ def _malha_da_ferragem(malha, item):
             bmesh.ops.scale(bm, vec=(.012, item['comprimento'] / 1000, .006), verts=novos)
             bmesh.ops.translate(bm, vec=(0, item['comprimento'] / 2000, 0), verts=novos)
         elif item['forma'] in {'CAIXA', 'CAIXAS'}:
-            # varias caixas numa malha so', em volta da origem do item
+            # Multiple boxes in one mesh around the item origin.
             origem = _origem_da_ferragem(item)
             for cantos in item.get('caixas') or [item['cantos']]:
                 lo = Vector(tuple(min(v[k] for v in cantos) for k in range(3)))
@@ -868,7 +864,7 @@ def _malha_da_ferragem(malha, item):
                 bmesh.ops.translate(bm, vec=((lo + hi) / 2.0 - origem) / 1000.0,
                                     verts=novos)
         elif item['forma'] == 'PARAFUSO':
-            # cabeca para fora da placa (`sentido` em Z), haste na madeira
+            # Head outside the plate (`sentido` on Z), shank in wood.
             modelo = malha_parafuso()
             if modelo is not None:
                 bm.from_mesh(modelo)
@@ -904,7 +900,7 @@ def _ferragens_portas(grupo):
 
 
 def _vivo(idb):
-    """False se o objeto ja' foi apagado (a referencia Python sobra)."""
+    """False if the object was deleted but its Python reference survives."""
     try:
         idb.name
         return True
@@ -916,30 +912,38 @@ DADOS_POR_TIPO = {'MESH': 'meshes', 'CURVE': 'curves', 'ARMATURE': 'armatures'}
 
 
 def _remover_ferragem(obj):
-    """Apaga a ferragem e o que pende dela (o rig da dobradica inteiro);
-    a malha so' sai se ninguem mais a usa (as copias do rig dividem)."""
+    """Remove hardware and descendants, including the entire hinge rig.
+    Remove its mesh only when unused; rig copies share meshes."""
     if not _vivo(obj):
         return
     partes = [*obj.children_recursive, obj]
     dados = {o.data for o in partes if o.data is not None and o.type in DADOS_POR_TIPO}
-    # Uma remocao nativa evita refazer as referencias da cena por parafuso.
+    # A single native removal avoids rebuilding scene references per screw.
     bpy.data.batch_remove(ids=partes)
     sem_usuarios = [d for d in dados if d.users == 0]
     if sem_usuarios:
         bpy.data.batch_remove(ids=sem_usuarios)
 
 
-# Nomes das pecas que o add-on cria: portugues, sem sublinhado (pedido do
-# usuario). Nome nao e' chave de nada (tipo e id ficam nas props).
-NOMES_FERRAGEM = {'DOBRADICA': 'Dobradica Corpo', 'CANECO': 'Dobradica Copo',
-                  'PISTAO_CORPO': 'Pistao Corpo', 'PISTAO_HASTE': 'Pistao Haste',
-                  'PISTAO_PONTO': 'Pistao Ponta',
-                  'PISTAO_SUPORTE': 'Pistao Suporte', 'TRILHO': 'Trilho'}
+# Generated names are display text; properties retain the stable type and ID.
+NOMES_FERRAGEM = {'DOBRADICA': 'Hinge Body', 'CANECO': 'Hinge Cup',
+                  'PISTAO_CORPO': "Gas Stay Body", 'PISTAO_HASTE': "Gas Stay Rod",
+                  'PISTAO_PONTO': "Gas Stay End",
+                  'PISTAO_SUPORTE': "Gas Stay Bracket", 'TRILHO': "Track"}
+
+
+def _nome_visivel_ferragem(nome):
+    # Asset names may also identify rig parts; translate presentation only.
+    labels = {'Dobradica':'Hinge', 'Armacao':'Armature', 'Braco':'Arm',
+              'Pino':'Pin', 'Copo':'Cup', 'Furo':'Bore', 'do':'of',
+              'Parafuso':'Screw', 'Controle':'Controller', 'Suporte':'Support',
+              'Mola':'Spring', 'Apoio':'Support', 'Folha':'Leaf', 'Placa':'Plate'}
+    return ' '.join(labels.get(word, word) for word in nome.split())
 
 
 def _padronizar_nome(obj, nome):
-    """Objeto (e a malha so' dele) com `nome`, se ainda nao tem: arquivo
-    antigo trazia 'Pistao_Corpo', 'Folha_01'... O .001 do Blender fica."""
+    """Give object and exclusive mesh `nome` if needed: old files used
+    'Pistao_Corpo', 'Folha_01', etc. Retain Blender's .001 suffix."""
     if _portas._sem_sufixo(obj.name) != nome:
         obj.name = nome
     dados = obj.data
@@ -948,20 +952,20 @@ def _padronizar_nome(obj, nome):
         dados.name = nome
 
 
-# ---- copias do rig da dobradica reta
+# ---- Straight-hinge rig copies
 COLECOES_DO_RIG = ('meshes', 'curves', 'armatures', 'materials',
                    'node_groups', 'images')
 TIPO_DA_PECA_RIG = {'raiz': 'DOBRADICA_RIG', 'base': 'DOBRADICA',
                     'cabeca': 'CANECO', 'furo': 'DOBRADICA_FURO'}
-# o que so' faz o rig funcionar nao aparece (o Blender ainda os avalia)
+# Hide rig-only helpers; Blender still evaluates them.
 PECAS_OCULTAS_RIG = ('furo', 'controle', 'armacao', 'armacao_ik')
 
 
 def preparar_malhas_para_editar(context, malhas):
-    """O espelho precisa virar vertices antes de mover a dobradica no Tab.
+    """Materialize mirrors into vertices before moving hinges in Tab.
 
-    Copias unicas conservam a geometria avaliada e o rig. Materializar
-    na ordem da pilha preserva tambem espelhos posteriores a subdivisao.
+    Unique copies retain evaluated geometry and rig. Apply in stack order
+    to preserve mirrors after subdivision too.
     """
     for obj in malhas:
         if CHAVE_FERRAGEM not in obj or obj.get('cabinet_peca') in PECAS_OCULTAS_RIG:
@@ -980,7 +984,7 @@ def preparar_malhas_para_editar(context, malhas):
 
 
 def iniciar_edicao_rigs(malhas, recuperar=False):
-    """So' nomes e numeros: o undo pode liberar os objetos desta edicao."""
+    """Names/numbers only: undo may free objects from this edit."""
     registros = {}
     for obj in malhas:
         raiz = obj
@@ -995,8 +999,8 @@ def iniciar_edicao_rigs(malhas, recuperar=False):
             else:
                 pontos = [c for v in obj.data.vertices for c in v.co]
                 matriz = [c for linha in raiz.matrix_basis for c in linha]
-                # A referencia entra no undo nativo da Mesh. So' o estado
-                # Python se perde ao desfazer a saida do Edit Mode.
+                # The reference participates in native Mesh undo; only Python state
+                # is lost when undoing the exit from Edit Mode.
                 obj.data['cabinet_rig_edicao'] = pontos
                 obj.data['cabinet_rig_edicao_matriz'] = matriz
             registro = registros.setdefault(raiz.name, dict(matriz=matriz, pecas={}))
@@ -1006,10 +1010,10 @@ def iniciar_edicao_rigs(malhas, recuperar=False):
 
 
 def concluir_edicao_rigs(registros):
-    """Translacao rigida das pecas move a montagem inteira, inclusive o furo.
+    """Rigid part translation moves the entire assembly, including its bore.
 
-    Modelar vertices de uma peca continua nativo. Deslocar uma ou varias
-    pecas inteiras leva a dobradica, sem deformar bracos, IK ou parafusos.
+    Per-vertex modeling stays native. Moving one or more entire parts
+    moves the hinge without deforming arms, IK or screws.
     """
     if bpy.context.mode != 'OBJECT' or _eventos._desfazendo[0]:
         return
@@ -1042,23 +1046,23 @@ def concluir_edicao_rigs(registros):
             grupo = _grupo_da_ferragem(raiz)
             if grupo is None:
                 continue
-            # Devolver a translacao da madeira da ferragem para a raiz
-            # preserva a mesma Mesh e faz auxiliares/curvas acompanharem.
+            # Transfer hardware geometry translation back to its root to retain
+            # the same Mesh and make helpers/curves follow.
             for obj, delta in movidas:
                 obj.data.transform(Matrix.Translation(-delta))
                 obj.data.update()
             matriz = registro['matriz']
             matriz = Matrix([matriz[i:i + 4] for i in range(0, 16, 4)])
             matriz.translation += grupo.matrix_world.inverted_safe().to_3x3() @ deslocamento
-            # Undo de Edit Mode pode conservar a raiz ja' deslocada pela
-            # saida anterior. A pose inicial impede aplicar o delta duas vezes.
+            # Edit Mode undo may retain a root moved by the previous exit.
+            # The initial pose prevents applying the delta twice.
             aplicado = matriz.translation - raiz.matrix_basis.translation
             raiz.matrix_basis = matriz
             anterior = Vector(raiz.get('porta_ferragem_deslocamento_mm', (0, 0, 0)))
             raiz['porta_ferragem_deslocamento_mm'] = anterior + aplicado * 1000
             mudou = True
-    # Os rigs sao independentes; avaliar a cena por dobradica repetia
-    # todos os booleanos/IK antes de o puxador acompanhar a edicao.
+    # Rigs are independent: evaluating the scene per hinge repeated all
+    # Booleans/IK before handles could follow the edit.
     if mudou:
         bpy.context.view_layer.update()
     for registro in registros.values():
@@ -1070,12 +1074,11 @@ def concluir_edicao_rigs(registros):
 
 
 def ocultar_pecas_do_rig(objetos=None):
-    """Esconde de novo o que so' faz o rig funcionar (controlador, furo do
-    copo, armacoes). Relato do usuario: o arco do controlador aparecia na
-    porta -- e ela e' aberta pelo SLIDER do add-on, nunca por ele. O
-    `hide_set` e' da camada de visualizacao, nao do objeto: preset
-    inserido, objeto anexado ou camada nova o traziam de volta. Devolve
-    quantas reapareceram."""
+    """Rehide rig-only helpers: controller, cup cutter and armatures.
+    The controller arc used to appear on the door, whose opening uses
+    the add-on SLIDER. `hide_set` is View Layer state, not object state:
+    inserted presets, appended objects and new layers restored visibility.
+    Return the number of helpers found visible again."""
     camada = bpy.context.view_layer
     escondidas = 0
     for o in objetos if objetos is not None else bpy.data.objects:
@@ -1094,11 +1097,11 @@ def ocultar_pecas_do_rig(objetos=None):
 
 
 def _anexar_sem_repetir(caminho, tipo, nomes=None):
-    """Anexa os `tipo` ('objects', 'meshes'...) de um asset do add-on e
-    devolve os novos. Malhas, materiais, imagens e node groups que ja'
-    vieram antes (mesmo `cabinet_origem` e `cabinet_versao`) voltam aos de
-    antes: o arquivo nao incha a cada porta. A versao separa o asset
-    refeito com o mesmo nome (o parafuso) da copia velha da cena."""
+    """Append asset `tipo` data ('objects', 'meshes', etc.) and return new
+    items. Reuse previously loaded meshes, materials, images and node
+    groups sharing `cabinet_origem` and `cabinet_versao`, avoiding growth
+    per door. Version distinguishes rebuilt same-name assets, such as
+    screws, from old scene copies."""
     antes = {nome: set(getattr(bpy.data, nome)) for nome in COLECOES_DO_RIG}
     with bpy.data.libraries.load(caminho, link=False) as (origem, destino):
         setattr(destino, tipo, sorted(n for n in getattr(origem, tipo)
@@ -1115,8 +1118,8 @@ def _anexar_sem_repetir(caminho, tipo, nomes=None):
             chave = chave_de(novo)
             atributos = ({a.name: (a.domain, a.data_type) for a in novo.attributes}
                          if nome == 'meshes' else None)
-            # Tab conserva a marca do asset; so' o comparador nativo distingue
-            # a malha original de uma copia modelada ou com Mirror aplicado.
+            # Tab preserves asset markers; only native comparison distinguishes
+            # the original mesh from a modeled copy or applied Mirror.
             igual = next((d for d in velhos.get(chave, ()) if nome != 'meshes'
                 or (len(d.vertices) == len(novo.vertices)
                     and {a.name: (a.domain, a.data_type) for a in d.attributes} == atributos
@@ -1130,15 +1133,15 @@ def _anexar_sem_repetir(caminho, tipo, nomes=None):
 
 
 def parafuso_atual(malha):
-    """A malha e' o parafuso padrao DESTA versao?"""
+    """Is this the standard screw mesh for THIS version?"""
     return (malha.get('cabinet_origem') == NOME_PARAFUSO
             and malha.get('cabinet_versao') == VERSAO_PARAFUSO)
 
 
 def malha_parafuso():
-    """A malha do parafuso padrao (carregada uma vez; deduplicada pelo
-    `cabinet_origem`), ou None sem o asset. A da cena vale no lugar da do
-    asset: o arame dela e' acertado aqui (`marcar_arame_parafuso`)."""
+    """Standard screw mesh, loaded once and deduplicated by `cabinet_origem`,
+    or None without the asset. Scene meshes may replace the asset mesh;
+    refresh their wireframe here (`marcar_arame_parafuso`)."""
     malha = next((m for m in bpy.data.meshes if parafuso_atual(m) and not m.library), None)
     if malha is None and os.path.exists(ARQUIVO_PARAFUSO):
         novas = _anexar_sem_repetir(ARQUIVO_PARAFUSO, 'meshes', {NOME_PARAFUSO})
@@ -1149,13 +1152,13 @@ def malha_parafuso():
 
 
 def _copiar_rig(modelo):
-    """Copia Objects nativos; pais, IK e drivers ficam dentro da nova dobradica."""
+    """Copy native Objects, keeping parents, IK and drivers inside the new hinge."""
     partes = [modelo, *modelo.children_recursive]
     copias = {o: o.copy() for o in partes}
     for original, copia in copias.items():
         if original.parent in copias:
             copia.parent = copias[original.parent]
-        # Trocar o pai reinicializa a inversa; conservar o referencial do asset.
+        # Changing parent resets the inverse; retain the asset frame.
         copia.matrix_parent_inverse = original.matrix_parent_inverse.copy()
         componentes = [*copia.constraints, *copia.modifiers]
         if copia.pose is not None:
@@ -1177,7 +1180,7 @@ def _copiar_rig(modelo):
 
 
 def _instanciar_rig(colecao, raiz_id, modelo=None):
-    """Carrega o asset uma vez na montagem; demais rigs copiam a instancia nova."""
+    """Load the asset once per assembly; other rigs copy that new instance."""
     objetos = (_copiar_rig(modelo) if modelo is not None else
                _anexar_sem_repetir(ARQUIVO_DOBRADICA_RETA, 'objects'))
     id_modelo = modelo.get(CHAVE_ID_FERRAGEM) if modelo is not None else None
@@ -1198,14 +1201,14 @@ def _instanciar_rig(colecao, raiz_id, modelo=None):
 
 
 def _solver_rapido():
-    """O Boolean rapido: 'FAST' no 4.x, 'FLOAT' no 5.x."""
+    """Fast Boolean solver: 'FAST' on 4.x, 'FLOAT' on 5.x."""
     itens = bpy.types.BooleanModifier.bl_rna.properties['solver'].enum_items
     return 'FAST' if 'FAST' in itens.keys() else 'FLOAT'
 
 
 def _furar_folhas(folhas, cortadores):
-    """Boolean do copo em cada folha: um por cortador das dobradicas dela
-    (`cortadores` = {indice: [objetos]}); os que sobram saem."""
+    """One leaf cup Boolean per hinge cutter in `cortadores` = {index: [objects]};
+    remove surplus modifiers."""
     for i, folha in enumerate(folhas):
         quer = {c.name: c for c in cortadores.get(i, ())}
         for m in [m for m in folha.modifiers if m.name.startswith(PREFIXO_FURO)]:
@@ -1221,8 +1224,8 @@ def _furar_folhas(folhas, cortadores):
 
 
 def _girar_rigs(grupo, folha=None):
-    """Controlador de cada dobradica reta no angulo da folha dela (o
-    driver e o IK do asset fazem o resto)."""
+    """Set each straight-hinge controller to its leaf angle; the asset driver
+    and IK do the rest."""
     folhas = {int(f.get('porta_indice', i)): f
               for i, f in enumerate(_portas._folhas_portas(grupo))}
     for o in _ferragens_portas(grupo):
@@ -1236,23 +1239,23 @@ def _girar_rigs(grupo, folha=None):
 
 
 def _ajustar_espaco_miras(grupo):
-    """O braco angular acompanha o espelho pelo referencial comum da porta."""
+    """The angular arm follows Mirror through the shared door frame."""
     for obj in _ferragens_portas(grupo):
         for r in obj.constraints:
             if r.type == 'STRETCH_TO' and r.name == NOME_MIRA_PISTAO:
-                # Em WORLD o solver inverte a espessura do braco no Mirror.
+                # In WORLD space the solver flips arm thickness under Mirror.
                 if r.owner_space != 'CUSTOM' or r.target_space != 'CUSTOM' or r.space_object != grupo:
                     r.owner_space = r.target_space = 'CUSTOM'
                     r.space_object = grupo
 
 
 def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
-    """Cria/atualiza/remove as ferragens da porta (chamado com
-    `_ocupado`, depois que as folhas existem). Reaproveita pelo id."""
+    """Create/update/remove door hardware by ID; called under `_ocupado`
+    after leaves exist."""
     existentes = {}
     for o in _ferragens_portas(grupo):
         if not _vivo(o):
-            continue            # saiu junto com a raiz (rig duplicado)
+            continue            # Removed with its root, from a duplicate rig.
         if o.get(CHAVE_ID_FERRAGEM) in existentes:
             _remover_ferragem(o)
         else:
@@ -1273,14 +1276,14 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         if obj is not None and not _vivo(obj):
             obj = None
         if obj is not None and obj.get(CHAVE_FERRAGEM) != item['tipo']:
-            # outro tipo com o mesmo id: nunca reaproveitar (a malha do
-            # rig e' dividida entre as copias)
+            # Different type with the same ID: never reuse, because rig
+            # copies share their meshes.
             _remover_ferragem(obj)
             obj = None
         if item['forma'] == 'RIG':
             if (obj is not None and int(obj.get('cabinet_versao', 1))
                     != int(_dados_dobradica_reta().get('versao', 1))):
-                # copia de asset antigo (nomes em ingles, furo velho): troca
+                # Old asset copy (English names, old bore): replace.
                 _remover_ferragem(obj)
                 obj = None
             if obj is None:
@@ -1300,7 +1303,7 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
                 peca = parte.get('cabinet_peca')
                 if peca not in item.get('calco', {}):
                     continue
-                # a pose do asset, guardada na 1a vez: o calco nao acumula
+                # Save the asset pose on first use so mounting offsets do not accumulate.
                 if 'cabinet_pose_asset' not in parte:
                     parte['cabinet_pose_asset'] = [
                         v for linha in parte.matrix_basis for v in linha]
@@ -1311,6 +1314,7 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
                                       @ _matriz_calco(item['calco'][peca])
                                       @ inversa @ pose)
             for parte in [obj, *obj.children_recursive]:
+                _padronizar_nome(parte, _nome_visivel_ferragem(_portas._sem_sufixo(parte.name)))
                 parte.hide_select = False
                 existentes.pop(parte.get(CHAVE_ID_FERRAGEM), None)
                 dono = item['indice_folha']
@@ -1333,8 +1337,8 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
             if ponto:
                 _chapas._ocultar_empty(obj)
         _padronizar_nome(obj, nome)
-        # selecionavel (duplo clique / Outliner) e editavel; arquivo
-        # antigo trazia hide_select
+        # Selectable through double-click/Outliner and editable; old files
+        # had hide_select enabled.
         obj.hide_select = False
         if item.get('apoio') is not None:
             obj['porta_ferragem_apoio'] = item['apoio']
@@ -1361,9 +1365,9 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
         obj.matrix_basis = Matrix.Translation(origem / 1000.0)
         if (pai.get('porta_curva_modelada') and item['tipo']=='CANECO'
                 and item['forma']=='CILINDRO'):
-            # A flecha ocupa parte da espessura util sob o copo. Sentar
-            # o volume na superficie REAL, sem atravessar a face visivel.
-            # BVH nativo so' ao montar; abrir/hover nao faz estas consultas.
+            # Sag occupies some usable thickness under the cup. Seat its volume
+            # on the ACTUAL surface without crossing the visible face.
+            # Native BVH only during assembly; no such queries on opening/hover.
             zmax=max(v.co.z for v in pai.data.vertices)+.1
             fronts=[]
             for j in range(16):
@@ -1412,16 +1416,16 @@ def _montar_ferragens(grupo, parametros, largura, altura, calculadas):
     grupo['porta_ferragens_encaixe'] = 1
 
 
-_contagem_objetos = [None]  # (IDs, contagens por cena); Delete pode conservar o ID
+_contagem_objetos = [None]  # (IDs, per-scene counts); Delete may retain the ID.
 
 
 def _conferir_ferragens():
-    """Timer: ferragem nao acende com a porta, entao apagar ou duplicar a
-    porta nao a leva. Ferragem sem porta sai; porta sem
-    nenhuma (duplicada, ou de antes da Fase 3) ganha as dela. De quebra,
-    Empty de amarracao de arquivo/preset antigo fica invisivel."""
-    # O timer agendado pelo depsgraph pode sobreviver ao inicio de Tab,
-    # undo ou de outro operador: adiar, sem perder a limpeza pendente.
+    """Timer: hardware is not selected with the door, so door Delete/duplicate
+    does not carry it along. Remove hardware without a door; add hardware
+    to doors with none, including duplicates/pre-Phase-3 doors. Also hide
+    legacy file/preset attachment Empties."""
+    # A depsgraph-scheduled timer may outlive the start of Tab, undo
+    # or another operator: defer without losing pending cleanup.
     if (_eventos._desfazendo[0] or _chapas._ocupado[0]
             or bpy.context.mode != 'OBJECT' or _eventos._ha_modal_ativo()):
         return _eventos.INTERVALO_TIMER
@@ -1437,8 +1441,8 @@ def _conferir_ferragens():
             if _chapas.MARCA_PORTAS not in g:
                 continue
             em_cena = bool(g.users_scene)
-            # Delete pode conservar a folha como ID referenciado, mas fora
-            # de todas as cenas. Excluir uma colecao da View Layer nao e' Delete.
+            # Delete may retain a referenced leaf ID outside all scenes.
+            # Excluding a Collection from a View Layer is not Delete.
             indices = {int(f.get('porta_indice', i))
                        for i, f in enumerate(_portas._folhas_portas(g))
                        if not em_cena or f.users_scene}
@@ -1454,8 +1458,8 @@ def _conferir_ferragens():
                     or ('porta_ferragem_folha' in o
                         and int(o['porta_ferragem_folha']) not in portas_vivas[dono.name])):
                 residuos.add(o)
-        # Nunca levar junto um filho comum do usuario. Conserva tambem
-        # seus pais, para nao alterar a transformacao de quem fica.
+        # Never remove ordinary user children. Preserve their parents too,
+        # so surviving objects retain their transforms.
         protegidos = {o for o in residuos if any(c not in residuos for c in o.children)}
         for o in list(protegidos):
             pai = o.parent
@@ -1485,16 +1489,15 @@ def _conferir_ferragens():
         _modulos.limpar_organizacao_vazia()
         _orcamento._limpar_comodos_vazios()
     except Exception as e:
-        print("[Archy Builder] ferragens:", e)
+        print("[Archy Builder] hardware:", e)
     return None
 
 
 def _ferragens_antigas(grupo):
-    """Rig da Reta de outra versao do asset ou parafuso que nao e' o padrao
-    atual. Relato do usuario: os presets da biblioteca e as cenas guardam a
-    Reta original, com o parafuso de REGULAGEM do braco nas placas de
-    fixacao, e so' refazendo a porta ela vinha nova. O timer troca UMA vez
-    (refeita, a versao bate)."""
+    """Straight rig from another asset version, or a noncurrent standard screw.
+    Library presets/scenes retained the original straight hinge with an
+    arm ADJUSTMENT screw on mounting plates, updating only on door rebuild.
+    The timer replaces it ONCE; afterwards the versions match."""
     dados = _dados_dobradica_reta()
     versao = int(dados.get('versao', 1)) if dados else None
     for o in _ferragens_portas(grupo):
@@ -1509,8 +1512,8 @@ def _ferragens_antigas(grupo):
 
 
 def atualizar_encaixe_antigo(grupo):
-    """Preset/cena anterior: atualizar so' os volumes com apoio obliquo.
-    As pecas editadas de outros modelos, o rig e a abertura sobrevivem.
+    """Older presets/scenes: refresh only oblique-support volumes.
+    Keep edited parts of other models, rig and opening.
     """
     folhas = _portas._folhas_portas(grupo)
     if not folhas or any(o.mode != 'OBJECT' for o in grupo.children_recursive):
@@ -1526,7 +1529,7 @@ def atualizar_encaixe_antigo(grupo):
 
 
 def _refazer_ferragens(grupo):
-    """Ferragens de novo pelo que a porta guarda (desfazer arraste)."""
+    """Rebuild hardware from saved door data to undo a drag."""
     p = grupo.get('porta_parametros')
     if not p:
         return
@@ -1543,8 +1546,8 @@ def _refazer_ferragens(grupo):
 
 
 def _dados_ferragens_selecionadas(context):
-    """{tipo: {'qtd', 'mm', 'info'}} das ferragens selecionadas, pelos
-    parametros da 1a porta (editar vale para todas), ou None."""
+    """Return {type: {'qtd', 'mm', 'info'}} for selected hardware, using the
+    first door's parameters (editing applies to all), or None."""
     edicao = _ferragens_em_edicao(context)
     if not edicao:
         return None
@@ -1560,11 +1563,11 @@ def _dados_ferragens_selecionadas(context):
             aresta, distancias, _i = dobradicas[0]
             dados['DOBRADICA'] = {
                 'qtd': len(distancias),
-                # a margem que VALE (a gravada antes do limite pode passar)
+                # Effective margin: a value saved before clamping may exceed the limit.
                 'mm': distancias[0] if len(distancias) > 1 else float(
                     p.get('dobradicas_margem_mm', _portas.MARGEM_DOBRADICAS_PADRAO)),
-                'info': ('Articulada' if p.get('dobradica_articulada') else
-                         'Reta' if _usa_rig(p) else
+                'info': ("Articulated" if p.get('dobradica_articulada') else
+                         "Full Overlay" if _usa_rig(p) else
                          _portas.NOME_DOBRADICA.get(p.get('dobradica'), '')),
                 'modelo': p.get('dobradica')}
     if 'PISTAO' in tipos and p.get('abertura') == 'BASCULANTE' and folhas:
@@ -1577,9 +1580,9 @@ def _dados_ferragens_selecionadas(context):
 
 
 def _valor_ferragem(grupo, nome, valor):
-    """O valor que se grava: o offset do pistao trava no curso (e volta
-    a 0, o automatico, quando cai nele); quantidade e margem das
-    dobradicas, so' o que cabe na borda (`_portas._ajustar_dobradicas`)."""
+    """Value to store: clamp piston offset to travel and restore 0/automatic
+    when it reaches that position. Hinge count/margin must fit the edge
+    (`_portas._ajustar_dobradicas`)."""
     medidas = _porta_calculada(grupo)
     if nome in {'dobradicas_margem_mm', 'dobradicas_qtd'}:
         dobradicas = (_dobradicas_da_porta(*medidas) if medidas is not None
@@ -1606,9 +1609,9 @@ def _valor_ferragem(grupo, nome, valor):
 
 
 def _editar_ferragens_selecionadas(context, nome, valor):
-    """Quantidade/afastamento editados na gaveta com as ferragens
-    selecionadas: todas as portas do modulo delas. Refazer a porta mexe
-    na selecao: as ferragens continuam selecionadas depois."""
+    """Sidebar count/offset edits with hardware selected affect every door
+    in their cabinet. Door rebuild changes selection; keep the hardware
+    selected afterwards."""
     estado = _ferragens_selecionadas[0]
     erro = ''
     for grupo, _tipos in _ferragens_em_edicao(context):
@@ -1619,26 +1622,26 @@ def _editar_ferragens_selecionadas(context, nome, valor):
     return erro
 
 
-# ------------------------------------- ferragens selecionadas (edicao)
-# Pedido do usuario: dobradicas e pistoes so' aparecem (realce laranja,
-# volume como no wizard) CRIANDO a porta ou SELECIONADOS. Clique numa
-# dobradica (corpo ou caneco) = todas as dobradicas do MODULO; num pistao
-# (qualquer parte) = todos os pistoes; Shift soma (ou tira) o outro tipo.
-# A selecao nativa contem apenas as ferragens: Delete e G continuam
-# disponiveis. Com Alt, um controlador por porta e tipo: o da dobradica
-# corre na borda (margem, espelhada nas duas pontas), o do pistao na
-# lateral (distancia do topo, travada no curso dele). Duplo clique = UMA
-# peca. O contexto do tipo mora aqui, por NOME, sem guardar objetos.
+# ------------------------------------- selected hardware editing
+# Hinges/pistons appear as orange wireframes only during door CREATION
+# or when SELECTED. Clicking a hinge body/cup selects all hinges in the
+# CABINET; clicking any piston part selects all pistons. Shift adds/removes
+# the other type. Native selection includes hardware only,
+# keeping Delete and G available. Alt shows one controller per door/type:
+# hinge controllers run along the edge with mirrored end margins;
+# piston controllers run along the side by top distance, limited by travel.
+# Double-click selects ONE part. Store type context here by NAME,
+# without retaining objects.
 TIPOS_SELECAO_FERRAGEM = {
     'DOBRADICA': 'DOBRADICA', 'CANECO': 'DOBRADICA',
     'DOBRADICA_RIG': 'DOBRADICA',
-    'DOBRADICA_PECA': 'DOBRADICA',      # braco, pino, parafuso do rig
+    'DOBRADICA_PECA': 'DOBRADICA',      # Rig arm, pin, screw.
     'PISTAO_CORPO': 'PISTAO', 'PISTAO_HASTE': 'PISTAO',
     'PISTAO_SUPORTE': 'PISTAO',
-    'TRILHO': 'TRILHO'}             # do correr: so' o arame, nada a editar
-_ferragens_selecionadas = [None]   # {'portas': [nomes], 'tipos': [..]}
-_arraste_ferragem = [None]         # (grupo, tipo) do controlador arrastado
-ORDEM_BOUND_BOX = (0, 1, 3, 2, 4, 5, 7, 6)   # = a ordem de ARESTAS_CAIXA
+    'TRILHO': 'TRILHO'}             # Sliding hardware: wireframe only, nothing editable.
+_ferragens_selecionadas = [None]   # {'portas': [names], 'tipos': [..]}.
+_arraste_ferragem = [None]         # (group, type) of the dragged controller.
+ORDEM_BOUND_BOX = (0, 1, 3, 2, 4, 5, 7, 6)   # ARESTAS_CAIXA order.
 
 
 def _grupo_da_ferragem(obj):
@@ -1648,7 +1651,7 @@ def _grupo_da_ferragem(obj):
 
 
 def _portas_do_modulo_da(grupo):
-    """As portas que acendem junto: as do modulo da porta (ou so' ela)."""
+    """Doors highlighted together: the door's cabinet doors, or just itself."""
     modulo = bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
     if modulo is not None and _chapas.MARCA_CONJUNTO in modulo:
         portas = [g for g in _portas._portas_do_conjunto(modulo)
@@ -1659,8 +1662,8 @@ def _portas_do_modulo_da(grupo):
 
 
 def _selecionar_ferragem(context, obj, somar=False):
-    """Clique numa ferragem: as do mesmo TIPO do modulo inteiro. Shift
-    soma o outro tipo (ou tira o mesmo, como o Shift nativo)."""
+    """Hardware click selects the same TYPE throughout the cabinet. Shift
+    adds the other type, or removes the same type as native Shift does."""
     tipo = TIPOS_SELECAO_FERRAGEM.get(obj.get(CHAVE_FERRAGEM))
     grupo = _grupo_da_ferragem(obj)
     if tipo is None or grupo is None:
@@ -1674,8 +1677,8 @@ def _selecionar_ferragem(context, obj, somar=False):
         {'portas': portas, 'tipos': sorted(tipos)} if tipos else None,
         ativo=obj.name)
     if tipos and context.scene.cabinet_aba != 'PORTAS':
-        # a gaveta vai a' aba do item clicado (quantidade e afastamento
-        # das ferragens moram na aba Portas)
+        # Switch the sidebar to the clicked item's tab; hardware count/offset
+        # live in Doors.
         context.scene.cabinet_aba = 'PORTAS'
         tela = getattr(context, 'screen', None)
         if tela is not None:
@@ -1686,7 +1689,7 @@ def _selecionar_ferragem(context, obj, somar=False):
 
 
 def _alvos_selecao_ferragens(context, estado):
-    """So' pecas visiveis na camada atual; isolamento/ocultacao nao mudam."""
+    """Only parts visible in the current layer; preserve isolation/hiding."""
     camada = context.view_layer
     return [o for nome in estado['portas']
             if (grupo := bpy.data.objects.get(nome)) is not None
@@ -1708,9 +1711,9 @@ def _aplicar_selecao_ferragens(context, estado, ativo=None):
 
 
 def _selecionar_peca(context, obj, somar=False):
-    """Duplo clique numa ferragem: SO' aquela peca, selecao do Blender
-    (pedido do usuario: nada fica fora da edicao nativa). Malha de peca
-    do rig e' dividida entre as copias: editar uma edita todas."""
+    """Hardware double-click selects ONLY that part using native Blender
+    selection, leaving all parts editable. Rig-part meshes are shared
+    across copies, so editing one affects all."""
     if not somar:
         for o in context.selected_objects:
             o.select_set(False)
@@ -1721,8 +1724,8 @@ def _selecionar_peca(context, obj, somar=False):
 
 
 def _ferragens_em_edicao(context):
-    """[(grupo, tipos)] das ferragens selecionadas. Vale enquanto nada
-    alem das proprias ferragens estiver selecionado no Blender."""
+    """Selected hardware [(group, types)], valid only while Blender selects
+    nothing beyond the hardware itself."""
     estado = _ferragens_selecionadas[0]
     if estado is None:
         return []
@@ -1739,13 +1742,13 @@ def _ferragens_em_edicao(context):
 
 
 def _caixas_ferragens(grupo, tipos):
-    """Volume (8 cantos em MUNDO) das malhas de verdade dos `tipos`: o
-    caneco gira com a folha e o pistao estica pela mira. Nao e' desenhado
-    (o realce e' o arame, `_arame_ferragens`): mede onde cada uma esta'."""
+    """Actual mesh volume for `tipos`, eight WORLD corners: cups rotate with
+    leaves and pistons extend through tracking. Not drawn (highlight uses
+    `_arame_ferragens` wireframes); measures each part's current position."""
     ordem = ('DOBRADICA', 'CANECO', 'PISTAO_CORPO', 'PISTAO_HASTE',
              'PISTAO_SUPORTE', 'DOBRADICA_PECA', 'TRILHO')
-    # do rig da reta, so' o volume das pecas grandes (base, suporte e
-    # cabeca): parafuso e pino viravam um enxame de caixinhas
+    # For straight rigs, use only major-part volumes (base, support, head):
+    # screws and pins created a swarm of tiny boxes.
     ferragens = sorted(
         (o for o in _ferragens_portas(grupo)
          if TIPOS_SELECAO_FERRAGEM.get(o.get(CHAVE_FERRAGEM)) in tipos
@@ -1758,7 +1761,7 @@ def _caixas_ferragens(grupo, tipos):
 
 
 def _porta_calculada(grupo):
-    """(parametros, largura, altura, folhas FECHADAS) da porta, ou None."""
+    """Door (parameters, width, height, CLOSED leaves), or None."""
     p = dict(grupo.get('porta_parametros') or {})
     try:
         L = float(grupo['porta_vao_largura_mm'])
@@ -1769,10 +1772,9 @@ def _porta_calculada(grupo):
 
 
 def _controles_ferragens(grupo, tipos):
-    """[(tipo, ponto, a, b)] em MUNDO: o controlador de cada tipo e o
-    trilho em que ele corre (de a ate' b). Dobradica: a 1a da 1a borda,
-    correndo na borda. Pistao: a fixacao da lateral do 1o, do topo do
-    vao (a) ate' a base (b)."""
+    """Return [(type, point, a, b)] in WORLD space: each controller and its
+    track a..b. Hinge: first on the first edge, traveling along that edge.
+    Piston: first side mount, from opening top (a) to base (b)."""
     medidas = _porta_calculada(grupo)
     if medidas is None:
         return []
@@ -1785,7 +1787,7 @@ def _controles_ferragens(grupo, tipos):
         aresta, distancias, i = dobradicas[0]
         _l, _a, e, centro = folhas[i]
         if _usa_rig(p):
-            # na raiz do rig da reta (pela borda da folha, como la')
+            # At the straight-rig root, positioned by leaf edge as there.
             dados = _dados_dobradica_reta()
             z = centro[2] - e / 2.0 - dados['costas_mm']
             meio = aresta['dentro'] * (dados['borda_porta_mm']
@@ -1809,10 +1811,9 @@ def _controles_ferragens(grupo, tipos):
 
 
 def _valor_do_controle(grupo, tipo, fracao):
-    """(parametro, valor) com o controlador a `fracao` (0..1) do trilho.
-    Dobradica: margem espelhada (passar do meio conta da outra ponta).
-    Pistao: distancia do topo, travada no curso (no automatico grava 0,
-    que acompanha o modulo)."""
+    """(parameter, value) at controller track `fracao` (0..1). Hinge: mirrored
+    margin, measured from the other end after midpoint. Piston: distance
+    from top, travel-limited; automatic stores 0 to follow cabinet resize."""
     medidas = _porta_calculada(grupo)
     if medidas is None:
         return None
@@ -1835,7 +1836,7 @@ def _valor_do_controle(grupo, tipo, fracao):
 
 
 def _controle_ferragem_sob_mouse(context, posicao):
-    """(grupo, tipo) do controlador sob o mouse (so' com Alt)."""
+    """(group, type) of the controller under the mouse, only with Alt."""
     if not _solda._correntes_visiveis():
         return None, None
     raio = _solda.RAIO_BOLINHA_PX * max(1.0, context.preferences.system.ui_scale)
@@ -1853,9 +1854,9 @@ def _controle_ferragem_sob_mouse(context, posicao):
 
 
 def _desenhar_ferragens_selecionadas(context):
-    """Com Alt (ou arrastando), o controlador de cada tipo das ferragens
-    selecionadas (bolinha branca; arrastando, o trilho). O realce delas e'
-    o arame, desenhado em 3D (`_desenhar_aramados`)."""
+    """With Alt or during drag, show each selected hardware type's controller
+    as a white dot, plus its track while dragging. Hardware highlight
+    uses 3D wireframes (`_desenhar_aramados`)."""
     edicao = _ferragens_em_edicao(context)
     if not edicao:
         return
@@ -1886,9 +1887,9 @@ def _desenhar_ferragens_selecionadas(context):
 
 
 class OBJECT_OT_arrastar_ferragem(Operator):
-    """Arraste o controlador (Alt): a dobradica corre na borda, o pistao na lateral"""
+    """Alt-drag the controller: hinges follow the edge, pistons follow the side."""
     bl_idname = 'object.cabinet_arrastar_ferragem'
-    bl_label = 'Mover Ferragem'
+    bl_label = "Move Hardware"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
     grupo: StringProperty(options={'SKIP_SAVE'})
@@ -1904,12 +1905,12 @@ class OBJECT_OT_arrastar_ferragem(Operator):
                          if c[0] == self.tipo), None)
         if controle is None:
             return {'CANCELLED'}
-        # o trilho e' lido UMA vez: refazer a porta nao o mexe
+        # Read the track ONCE; rebuilding the door does not move it.
         self._trilho = (controle[2].copy(), controle[3].copy())
         self._nome = ('dobradicas_margem_mm' if self.tipo == 'DOBRADICA'
                       else 'pistoes_offset_mm')
-        # Os parametros INTEIROS: arrastar apaga `dobradicas_referencia`
-        # (arranjo medido do DXF), que so' a margem nao traz de volta.
+        # Save ALL parameters: dragging deletes `dobradicas_referencia`,
+        # the measured DXF arrangement, which margin alone cannot restore.
         self._antes = _portas._copiar_parametros(grupo['porta_parametros'])
         self._estado = _ferragens_selecionadas[0]
         _arraste_ferragem[0] = (self.grupo, self.tipo)
@@ -1936,8 +1937,8 @@ class OBJECT_OT_arrastar_ferragem(Operator):
 
     def _refazer(self, context, erro):
         if erro:
-            print("[Archy Builder] ferragem:", erro)
-        # refazer a porta mexe na selecao: as ferragens continuam a dela
+            print("[Archy Builder] hardware item:", erro)
+        # Door rebuild changes selection; keep its hardware selected.
         _aplicar_selecao_ferragens(context, self._estado)
 
     def _encerrar(self):
@@ -1958,7 +1959,7 @@ class OBJECT_OT_arrastar_ferragem(Operator):
             return {'PASS_THROUGH'}
         if event.type == 'MOUSEMOVE':
             mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-            # o trilho (MUNDO) na tela; a mesma conta do puxador
+            # Project the WORLD track to screen; use the handle's calculation.
             ta, tb = (_hud._projetar_hud(context, v) for v in self._trilho)
             grupo = bpy.data.objects.get(self.grupo)
             if ta is not None and tb is not None and grupo is not None:

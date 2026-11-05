@@ -1,7 +1,7 @@
 """Rebuild preset doors from reference DXF exports with verified staging and backups.
 
-Supply --fontes DIRECTORY explicitly for preparation.
---aplicar uses the source paths recorded in the existing manifest.
+Supply --sources DIRECTORY explicitly for preparation.
+--apply uses the source paths recorded in the existing manifest.
 """
 from pathlib import Path
 import argparse
@@ -36,8 +36,8 @@ def capturar(caminho):
             pecas={p['origem']: {k: v for k, v in p.items() if k not in ('obj', 'pontos')}
                    for p in pecas if 'origem' in p},
             remover=[p['origem'] for p in plano['remover']]))
-        # O importador faz a mesma separacao por contato, sem criar rigs
-        # ou modificar fundos. Aqui queremos apenas referencias numericas.
+        # The importer uses the same contact-based separation without creating rigs
+        # or modifying backs. Only numeric references are needed here.
         return dict(portas=[], gavetas=[], correr=[], remover=[], fundo=None, travessas=[])
     aplicar = addon.promob.aplicar
     marcar = addon.promob.marcar_dependentes
@@ -73,10 +73,10 @@ def deslocamento(conj, plano):
         candidatos.append(Vector(tuple((p['lo'][k] + p['hi'][k] - lo[k] - hi[k]) / 2
                                        for k in range(3))))
     if not candidatos:
-        raise ValueError('Sem lateral original para identificar o deslocamento de ' + conj.name)
+        raise ValueError("No original side to identify the offset of " + conj.name)
     offset = Vector(tuple(statistics.median(v[k] for v in candidatos) for k in range(3)))
     if not any((v - offset).length < .1 for v in candidatos):
-        raise ValueError('A geometria do DXF nao corresponde ao preset ' + conj.name)
+        raise ValueError("DXF geometry does not match preset " + conj.name)
     return offset
 
 
@@ -99,8 +99,8 @@ def corrigir(conj, plano, geometria):
             fechada = addon.ferragens._matriz_fechada(folha)
             centro = fechada.translation * 1000 + offset
             ns = fechada.to_3x3().col[2].normalized()
-            # Associar a folha antiga a' chapa fonte; uma falsa porta
-            # volta a ser chapa. Caixas de gaveta continuam nativas.
+            # Associate the old leaf with the source panel; a false door becomes
+            # a panel again. Drawer boxes remain native.
             candidatas = []
             for nome, p in plano['pecas'].items():
                 if abs(Vector(p.get('normal', (0, 0, 1))).dot(ns)) > .995:
@@ -118,7 +118,7 @@ def corrigir(conj, plano, geometria):
                 o.parent = None
                 o.matrix_world = mundo
                 puxadores.append(o)
-        # Copiar nomes antes: remover uma raiz do rig libera descendentes.
+        # Copy names first: removing a rig root frees descendants.
         nomes = [o.name for o in grupo.children_recursive] + [grupo.name]
         for nome in reversed(nomes):
             obj = bpy.data.objects.get(nome)
@@ -207,7 +207,7 @@ def preparar(biblioteca, fontes, destino):
         for it in itens:
             numero = re.search(r' (\d+) \d+x\d+x\d+$', it['nome'])
             if not numero or int(numero[1]) > len(planos):
-                raise ValueError('Sem correspondencia de modulo: ' + it['nome'])
+                raise ValueError("No matching cabinet: " + it['nome'])
             plano = planos[int(numero[1]) - 1]
             manifesto['verificados'] += 1
             nomes = [it['arquivo'], os.path.splitext(it['arquivo'])[0] + '.png']
@@ -219,8 +219,8 @@ def preparar(biblioteca, fontes, destino):
             ajuste = corrigir(conj, plano, geometria)
             if ajuste is None:
                 continue
-            # Toda peca que permaneceu estrutural conserva geometria, UID
-            # e os encaixes corrigidos na v230. So' portas sao reconstruidas.
+            # Every component remaining structural preserves its geometry, UID,
+            # and fits corrected in v230. Rebuild only doors.
             depois = estado(list(bpy.data.collections), list(bpy.data.objects))
             for obj in addon.modulos._chapas_do_conjunto(conj):
                 if obj.name in antes['objetos']:
@@ -229,7 +229,7 @@ def preparar(biblioteca, fontes, destino):
                         d['props'] = {k: v for k, v in d['props'].items() if k != 'chapa_vizinhos'}
                     conferir(a, b, obj.name)
             if assets != depois['assets']:
-                raise AssertionError('Catalogos mudaram: ' + it['arquivo'])
+                raise AssertionError("Catalogs changed: " + it['arquivo'])
             for nome in nomes:
                 shutil.copy2(caminho_da_peca(biblioteca, nome), os.path.join(originais, nome))
             blend = os.path.join(novos, nomes[0])
@@ -248,13 +248,13 @@ def preparar(biblioteca, fontes, destino):
             conferir(esperado, estado(cols, objs))
             for nome in nomes:
                 if digital(caminho_da_peca(biblioteca, nome)) != hashes[nome]:
-                    raise RuntimeError('Preset editado durante o preparo: ' + nome)
+                    raise RuntimeError("Preset edited during preparation: " + nome)
                 manifesto['arquivos'].append(dict(nome=nome, original=hashes[nome],
                                                      novo=digital(os.path.join(novos, nome))))
             manifesto['modulos'].append(dict(arquivo=it['arquivo'], fonte=caminho, ajuste=ajuste))
-            print('[portas] %d: %s %s' % (len(manifesto['modulos']), it['arquivo'], ajuste), flush=True)
+            print("[doors] %d: %s %s" % (len(manifesto['modulos']), it['arquivo'], ajuste), flush=True)
         if digital(caminho) != hash_fonte:
-            raise RuntimeError('DXF editado durante o preparo: ' + caminho)
+            raise RuntimeError("DXF edited during preparation: " + caminho)
     manifesto['sem_fonte'] = [it['arquivo'] for it in indice if it.get('tipo') == 'modulo'
         and len(addon.biblioteca.caminho_de(it)) >= 4
         and tuple(addon.biblioteca.caminho_de(it)[1:]) not in fontes_por_categoria]
@@ -266,19 +266,19 @@ def preparar(biblioteca, fontes, destino):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--destino', required=True)
-    parser.add_argument('--fontes', help='Source DXF directory; required for preparation')
-    parser.add_argument('--biblioteca', default=os.path.join(str(Path(__file__).resolve().parents[2]), 'archy_builder', 'biblioteca'))
-    parser.add_argument('--aplicar', action='store_true')
+    parser.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    parser.add_argument('--sources', help='Source DXF directory; required for preparation', dest='fontes', metavar='SOURCES')
+    parser.add_argument('--library', default=os.path.join(str(Path(__file__).resolve().parents[2]), 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    parser.add_argument('--apply', action='store_true', dest='aplicar')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     if not args.aplicar and not args.fontes:
-        parser.error('--fontes is required for preparation; provide the source DXF directory')
+        parser.error('--sources is required for preparation; provide the source DXF directory')
     validar_destino(args.biblioteca, args.destino)
     if args.aplicar:
         manifesto = json.load(open(os.path.join(args.destino, 'manifesto.json'), encoding='utf-8'))
         for fonte, esperado in manifesto.get('fontes', {}).items():
             if digital(fonte) != esperado:
-                raise RuntimeError('DXF mudou desde o preparo: ' + fonte)
+                raise RuntimeError("DXF changed since preparation: " + fonte)
         publicar(args.destino)
     else:
         preparar(args.biblioteca, args.fontes, args.destino)

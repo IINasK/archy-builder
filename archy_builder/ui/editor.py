@@ -1,4 +1,4 @@
-"""Editores nativos da interface: identidade persistente e comandos na cena."""
+"""Native interface editors: persistent identity and scene commands."""
 from contextlib import contextmanager
 import bpy
 from bpy.types import NodeTree, GizmoGroup
@@ -19,7 +19,7 @@ class CABINET_NT_menu(NodeTree):
 
 class CABINET_NT_biblioteca(NodeTree):
     bl_idname = TIPO_BIBLIOTECA
-    bl_label = 'Biblioteca Archy Builder'
+    bl_label = "Archy Builder Library"
     bl_icon = 'ASSET_MANAGER'
 
 
@@ -32,12 +32,12 @@ def configurar(area, tipo=TIPO_MENU):
     area.type = 'NODE_EDITOR'
     area.ui_type = tipo
     espaco = area.spaces.active
-    # No 4.2 o mapa de gizmos so' desenha com uma arvore aberta. Este ID
-    # vazio pertence a' interface, nunca aos materiais ou Geometry Nodes.
+    # In 4.2, the gizmo map only draws with an open tree. This empty ID belongs to the
+    # interface, never to materials or Geometry Nodes.
     arvore = next((a for a in bpy.data.node_groups
                    if a.bl_idname == tipo and a.get(MARCA_INTERFACE)), None)
     if arvore is None:
-        arvore = bpy.data.node_groups.new('Interface ' + ('Archy Builder' if tipo == TIPO_MENU else 'Biblioteca Archy Builder'), tipo)
+        arvore = bpy.data.node_groups.new('Interface ' + ('Archy Builder' if tipo == TIPO_MENU else "Archy Builder Library"), tipo)
         arvore[MARCA_INTERFACE] = True
         arvore.use_fake_user = True
     espaco.node_tree = arvore
@@ -60,8 +60,8 @@ def reparar(screen):
             if area.spaces.active.node_tree is None:
                 configurar(area, area.spaces.active.tree_type)
             chave = _gaveta._CHAVE_GAVETA if eh_editor(area, TIPO_MENU) else _biblioteca_faixa.CHAVE_AREA
-            # Consumir a marca antiga evita reconverter uma viewport que
-            # o usuario escolheu depois no seletor de editores.
+            # Consume the old marker to avoid reconverting a viewport the user later
+            # chose in the editor selector.
             screen[chave] = 0
 
 
@@ -78,7 +78,7 @@ def contexto_do_comando(context, identificador):
     area = _biblioteca_faixa.viewport(context.screen)
     regiao = next((r for r in area.regions if r.type == 'WINDOW'), None) if area else None
     if regiao is None:
-        raise RuntimeError('Abra uma viewport 3D para usar este comando')
+        raise RuntimeError("Open a 3D viewport to use this command")
     with context.temp_override(area=area, region=regiao):
         yield
 
@@ -135,8 +135,8 @@ def desregistrar():
     for km, kmi in _keymaps[0]:
         km.keymap_items.remove(kmi)
     _keymaps[0].clear()
-    # O editor pode ter sido escolhido numa area existente do usuario;
-    # desativar o add-on nao deve juntar/destruir essa area.
+    # The user may have selected this editor in an existing area; disabling the add-on
+    # must not merge or destroy that area.
     for screen in bpy.data.screens:
         for area in screen.areas:
             if eh_editor(area):

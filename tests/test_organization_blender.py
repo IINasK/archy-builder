@@ -1,4 +1,4 @@
-"""Contratos de importacao e recarga dos setores, sem tocar na biblioteca."""
+"""Sector import and reload contracts without touching the library."""
 import importlib
 import ast
 import os
@@ -145,7 +145,7 @@ class TestOrganizacao(unittest.TestCase):
                     no.func.id if isinstance(no.func, ast.Name) else '')
                 if nome == 'atualizar_portas_do_conjunto':
                     antigos.append((str(arquivo.relative_to(raiz)), no.lineno))
-        self.assertEqual(antigos, [], 'Chamador interno ainda depende da fachada legada')
+        self.assertEqual(antigos, [], "Internal caller still depends on the legacy facade")
 
     def test_undo_redo_do_resize_coordenado_restaura_corpo_e_internos(self):
         addon.eventos._fim_do_desfazer()
@@ -198,10 +198,10 @@ class TestOrganizacao(unittest.TestCase):
         raiz = Path(addon.__file__).resolve().parent
         # Moving a source file must not create another library or preference key.
         self.assertEqual(addon.opcoes.ArchyBuilderPreferences.bl_idname, addon.__name__)
-        self.assertEqual(Path(addon.ferragens.PASTA_FERRAGENS).resolve(), raiz/'ferragens')
-        self.assertEqual(Path(addon.biblioteca.PASTA_FOTOS_PADRAO).resolve(), raiz/'fotos')
+        self.assertEqual(Path(addon.ferragens.PASTA_FERRAGENS).resolve(), raiz/"assets/hardware")
+        self.assertEqual(Path(addon.biblioteca.PASTA_FOTOS_PADRAO).resolve(), raiz/"assets/previews")
         # Capture before the fixture redirects the default to a temporary library.
-        self.assertEqual(Path(PASTA_ADDON_ORIGINAL()).resolve(), raiz/'biblioteca')
+        self.assertEqual(Path(PASTA_ADDON_ORIGINAL()).resolve(), raiz/"assets/library")
 
     def test_recarga_religa_setores_e_preserva_objetos_da_cena(self):
         global addon
@@ -213,10 +213,10 @@ class TestOrganizacao(unittest.TestCase):
         pasta_teste = addon.biblioteca.pasta_biblioteca()
         addon.unregister()
         addon = importlib.reload(addon)
-        # Reload tambem recarrega biblioteca/opcoes e remove os mocks;
-        # reaplica o isolamento ANTES de registrar qualquer timer.
-        # start() sem stop: no fim do teste o patch devolveria a funcao REAL
-        # (a do reload) aos testes seguintes; o patch de fora restaura no fim.
+        # Reload also reloads library/options and removes mocks;
+        # reapply isolation before registering any timer.
+        # start() without stop: stopping this patch would restore the real reloaded
+        # function to subsequent tests; the outer patch restores it at completion.
         patch.object(addon.biblioteca, 'pasta_biblioteca', return_value=pasta_teste).start()
         patch.object(addon.opcoes, '_pasta_addon', return_value=pasta_teste).start()
         addon.register()
@@ -259,4 +259,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_organizacao_') as pasta:
         finally:
             addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos contratos dos setores')
+    raise RuntimeError("Sector contracts failed")

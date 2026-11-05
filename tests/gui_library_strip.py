@@ -1,4 +1,4 @@
-"""Biblioteca no topo: areas nativas, eventos reais e restauracao."""
+"""Top library strip: native areas, real events and restoration."""
 import os
 import sys
 import tempfile
@@ -132,11 +132,11 @@ def test_miniaturas_rolam_na_faixa_e_preset_chega_na_cena(janela, m):
     fotos = [v for v in widgets if v[5] and v[5][0] == 'preset']
     assert fotos, CAMINHO
     assert len(set(v[1] for v in fotos)) == 1
-    assert not any(v[5] and v[5][0] == 'rolar_nivel' for v in widgets), 'seta numa fila que cabe inteira'
-    assert addon.gaveta._fotos_gaveta, 'as fotos nao foram carregadas'
+    assert not any(v[5] and v[5][0] == 'rolar_nivel' for v in widgets), 'scroll arrow shown for a row that fits entirely'
+    assert addon.gaveta._fotos_gaveta, 'photos were not loaded'
     with contexto(janela, topo):
         bpy.ops.screen.screenshot(filepath=os.path.join(PASTA, 'faixa-228.png'))
-    print('FOTO_FAIXA', os.path.join(PASTA, 'faixa-228.png'))
+    print('STRIP PHOTO', os.path.join(PASTA, 'faixa-228.png'))
     if bpy.app.version >= (5,):
         regiao = next(r for r in topo.regions if r.type == 'WINDOW')
         v = fotos[0]
@@ -169,11 +169,11 @@ def test_material_clique_simples_nao_pinta_duplo_pinta(janela, m):
     F.invalidar()
     yield
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'material')
-    assert not obj.data.materials, 'um clique pintou'
+    assert not obj.data.materials, 'a single click painted the object'
     yield esperar(0.4)
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'material')
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'material')
-    assert obj.data.materials, 'duplo clique nao pintou'
+    assert obj.data.materials, 'double click did not paint the object'
     with contexto(janela, F.viewport(janela.screen)):
         bpy.ops.object.cabinet_alternar_gaveta()
     yield
@@ -223,15 +223,15 @@ def test_direito_na_foto_e_no_nome_abre_menu_so_ao_soltar(janela, m):
             n = len(chamadas)
             m.apertar('RIGHTMOUSE')
             yield
-            assert len(chamadas) == n, 'menu abriu no PRESS'
+            assert len(chamadas) == n, 'the menu opened on PRESS'
             m.soltar('RIGHTMOUSE')
             yield
             assert len(chamadas) == n + 1, chamadas
-            assert set(o.name for o in bpy.context.scene.objects) == antes, 'menu inseriu ao abrir'
+            assert set(o.name for o in bpy.context.scene.objects) == antes, 'opening the menu inserted an object'
             if len(chamadas) == 1:
                 with contexto(janela, topo):
                     bpy.ops.screen.screenshot(filepath=os.path.join(PASTA, 'menu-227.png'))
-                print('FOTO_MENU', os.path.join(PASTA, 'menu-227.png'))
+                print('MENU PHOTO', os.path.join(PASTA, 'menu-227.png'))
             if len(chamadas) == 2:
                 m.tecla('DOWN_ARROW')
                 yield
@@ -241,11 +241,11 @@ def test_direito_na_foto_e_no_nome_abre_menu_so_ao_soltar(janela, m):
             else:
                 m.tecla('ESC')
             yield
-        # A UI nativa executa o operador depois de encerrar o popup.
+        # Native UI executes the operator after closing the popup.
         yield esperar(0.2)
         assert addon.biblioteca.item_bloqueado(addon.biblioteca._achar_item(
-            it['pasta'], it['arquivo'])) != bloqueado_antes, 'menu nao acionou cadeado'
-        # Restaurar a fixture usando a mesma acao do menu.
+            it['pasta'], it['arquivo'])) != bloqueado_antes, 'the menu did not toggle the lock'
+        # Restore the fixture through the same menu action.
         with contexto(janela, topo):
             assert bpy.ops.object.cabinet_acao_item_biblioteca(
                 pasta=it['pasta'], arquivo=it['arquivo'], indice=2) == {'FINISHED'}
@@ -282,15 +282,15 @@ def test_arrastar_borda_para_cima_alinha_subcategorias(janela, m):
         grupos = [v for v in widgets if v[5] and v[5][0] == 'navegar' and v[5][1] > 1]
         assert {v[5][1] for v in grupos} == set(range(2, len(CAMINHO) + 1))
         assert len({v[1] for v in grupos}) == 1
-        assert any(v[5] and v[5][0] == 'preset' for v in widgets), 'fotos fora da faixa'
+        assert any(v[5] and v[5][0] == 'preset' for v in widgets), 'photos outside the strip'
         assert sum(v[5] == ('separador', 'biblioteca') for v in widgets) == len(CAMINHO)
         bpy.ops.screen.screenshot(filepath=os.path.join(PASTA, 'faixa-baixa-229.png'))
-    print('FOTO_FAIXA_BAIXA', os.path.join(PASTA, 'faixa-baixa-229.png'))
+    print('COMPACT STRIP PHOTO', os.path.join(PASTA, 'faixa-baixa-229.png'))
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'navegar' and v[5][1] == len(CAMINHO))
     assert tuple(addon.biblioteca.trilha_da_cena(bpy.context.scene)) == tuple(CAMINHO[:-1])
     yield from clicar_widget(janela, m, lambda v: v[5][0] == 'navegar' and v[5][1] == len(CAMINHO))
     assert tuple(addon.biblioteca.trilha_da_cena(bpy.context.scene)) == tuple(CAMINHO)
-    # Regressao: tooltip pendente ao trocar a quantidade de alvos e fechar.
+    # Regression: a pending tooltip when the target count changes and the strip closes.
     yield esperar(0.2)
     with contexto(janela, F.viewport(janela.screen)):
         bpy.ops.object.cabinet_alternar_gaveta()

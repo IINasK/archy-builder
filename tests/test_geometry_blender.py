@@ -1,8 +1,6 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_geometry_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_geometry_blender.py
 
-A AREA da chapa para o orcamento (`geometria`). O detector de angulos saiu
-na v309 (o snap e' o nativo do Blender); o snap da peca curva segue aqui.
-"""
+Panel area for estimates (geometria). The angle detector was removed in v309 because snapping is native to Blender; curved-part snapping remains covered here."""
 import math
 import os
 import sys
@@ -18,7 +16,7 @@ GE = addon.geometria
 
 
 def prisma(nome, contorno, espessura=0.018, chapa=True):
-    """Peca extrudada em Z a partir de um contorno (m), como a do Promob."""
+    """Create a part extruded along Z from an outline in meters, like a Promob part."""
     bm = bmesh.new()
     baixo = [bm.verts.new((x, y, 0.0)) for x, y in contorno]
     cima = [bm.verts.new((x, y, espessura)) for x, y in contorno]
@@ -44,7 +42,7 @@ def prisma(nome, contorno, espessura=0.018, chapa=True):
 
 
 def retangulo_arredondado(L, C, r, passos=8):
-    """Contorno (m) de um retangulo com as 4 quinas arredondadas de raio r."""
+    """Return the outline in meters of a rectangle with all four corners rounded to radius r."""
     pontos = []
     for cx, cy, inicio in ((L - r, r, -90), (L - r, C - r, 0), (r, C - r, 90), (r, r, 180)):
         for k in range(passos + 1):
@@ -73,16 +71,16 @@ class TestGeometria(unittest.TestCase):
         ch = addon.chapas.nova_chapa('Arco', 400, 160, 15, (0, 0, 0), (0, 0, 0), bpy.context)
         ch['chapa_arco_mm'] = 65.0
         addon.chapas.gerar_malha_chapa(ch)
-        # area = o arco do MEIO da espessura x o comprimento
+        # Area = arc at the thickness midpoint x length.
         raio = (200.0 ** 2 + 65.0 ** 2) / (2 * 65.0)
         arco = 2 * math.asin(200.0 / raio) * (raio - 7.5)
         area, _b = GE.medidas_da_chapa(ch)
         self.assertAlmostEqual(area, arco * 160.0 / 1e6, delta=0.0005)
 
     def test_snap_do_modulo_pega_a_ponta_da_curva_de_outro(self):
-        # Mover o modulo pela quina: o snap NATIVO enxerga a peca curva/
-        # modelada do outro (as pontas da curva sao vertices dela) e nao as
-        # pecas do proprio modulo.
+        # Moving a cabinet by its corner: native snapping sees another cabinet's curved
+        # or modeled part, including vertices at curve endpoints, but excludes parts
+        # belonging to the cabinet being moved.
         from types import SimpleNamespace
         a = addon.modulos.criar_armario(bpy.context, 'A', 400, 700, 500, fundo=False)
         b = addon.modulos.criar_armario(bpy.context, 'B', 400, 700, 500, fundo=False)
@@ -103,7 +101,7 @@ class TestGeometria(unittest.TestCase):
         self.assertTrue(all(o.hide_select for o in addon.modulos._chapas_do_conjunto(a)))
 
     def test_area_do_modulo_e_operador(self):
-        conj = addon.modulos.criar_armario(bpy.context, 'Balcao', 800, 700, 560, fundo=True)
+        conj = addon.modulos.criar_armario(bpy.context, "Base Cabinet", 800, 700, 560, fundo=True)
         r = GE.areas([conj])
         nomes = {p[0] for p in r['pecas']}
         self.assertEqual(len(nomes), len(addon.modulos._chapas_do_conjunto(conj)))
@@ -123,4 +121,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestGeometria)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de geometria')
+    raise RuntimeError("Geometry tests failed")

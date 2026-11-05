@@ -1,27 +1,26 @@
-# Ajuda e sugestoes
+# Help and suggestions
 
-Voce pode ajudar a melhorar o Archy Builder relatando problemas e sugerindo
-melhorias na secao [Issues](https://github.com/IINasK/archy-builder/issues).
+You can help improve Archy Builder by reporting problems and suggesting
+improvements in [Issues](https://github.com/IINasK/archy-builder/issues).
 
-Para modificar o programa e enviar codigo, consulte o
-[guia de desenvolvimento](docs/DEVELOPMENT.md).
+To modify the program and contribute code, see the
+[developer guide](docs/DEVELOPMENT.md).
 
-## Relatar um problema
+## Report a problem
 
-Informe:
+Include:
 
-- Versao do Blender, versao do Archy Builder e sistema operacional.
-- Passos para reproduzir o problema.
-- Resultado esperado e o que aconteceu.
-- Imagem ou arquivo pequeno de exemplo, sem dados privados de clientes.
+- Your Blender version, Archy Builder version and operating system.
+- Steps to reproduce the problem.
+- The expected result and what happened.
+- An image or small example file without private client data.
 
-## Sugerir uma melhoria
+## Suggest an improvement
 
-Descreva o que voce precisa fazer, como trabalha hoje e qual comportamento
-facilitaria seu trabalho. Imagens de referencia ajudam a explicar a ideia.
+Describe what you need to do, how you work today, and what behavior would
+make your work easier. Reference images help explain the idea.
 
-## Acompanhar um relato
+## Follow up on a report
 
-Se ja' houver um relato do mesmo problema, acrescente suas informacoes nele.
-Quando for solicitado um novo teste, use uma copia do projeto para preservar
-seus arquivos de trabalho.
+If someone has already reported the same problem, add your information there.
+When asked to test again, use a copy of the project to protect your working files.

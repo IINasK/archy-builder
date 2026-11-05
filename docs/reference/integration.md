@@ -1,118 +1,63 @@
-> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below are retained only where historically relevant.
+> Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below remain where historically relevant.
 
-# Integracao -- guia transversal
+# Integration - cross-sector reference
 
-Leitura EXPLICITA pela rota do indice/guia raiz para tarefas de integracao.
-Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
-em outra pasta. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
-Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
+Read explicitly for integration work. This archived guide does not automatically
+apply to source files in other directories; historical AGENTS/CLAUDE mirroring
+and 120-line rules described its former role. Paths below are repository-relative.
+Scope: `archy_builder/integrations/native_conversion.py`, `importacao.py`,
+`paredes.py`, `biblioteca.py` and historical import/integrate/adjust/audit/refine
+scripts. Resource `biblioteca/` is not a Python package. Its former owner used
+`__file__` for photos; preserve resource resolution, imports and reload.
+Read the [asset guide](../../archy_builder/assets/library/CLAUDE.md) for formats/index/
+catalogs/history, [front geometry](../../FRONT_GEOMETRY.md) for fronts, and
+[design](../../DESIGN.md)/[interface](interface.md) for visible changes.
 
-Escopo: `archy_builder/integrations/native_conversion.py`, `importacao.py`, `paredes.py`,
-`biblioteca.py` e scripts importar/integrar/ajustar/auditar/refinar da raiz.
-Nesta etapa, esses modulos e recursos continuam nos caminhos atuais.
-`biblioteca.py` usa `__file__` para fotos; `biblioteca/` guarda assets,
-nao e' pacote Python. Preservar imports/recarga.
-Para formatos, indice, catalogos e historico dos assets, ler explicitamente
-`archy_builder/biblioteca/CLAUDE.md`; nao manter outra copia desse contrato.
-Frentes: ler `FRONT_GEOMETRY.md`; mudanca visivel: `DESIGN.md` e
-`docs/reference/interface.md`.
+## Historical task routing
 
-## Rota de trabalho
+Suite means `tests/test_<suite>_blender.py`; standalone scripts are not suites.
 
-Suite = `tests/test_<suite>_blender.py`. Scripts da raiz nao sao suites.
-
-| Tarefa | Arquivo: funcao | Suite |
+| Task | Entry | Suite |
 |---|---|---|
-| DXF/categorias | importacao.py: `ler_dxf_promob`, `destino_categoria_promob`, `importar_dxf_promob` | importacao |
-| Portas avulsas/assets | importacao.py: `importar_portas_avulsas`, `importar_promob_para_biblioteca` | importacao, biblioteca |
-| Sistemas nativos | promob.py: `planejar`, `aplicar`, `marcar_dependentes` | importacao |
-| Encaixes/fundos | promob.py: `ajustar_encaixes`, `reencaixar_verticais`, `ajustar_recuo_fundos` | importacao |
-| Salvar/inserir/foto | biblioteca.py: `salvar_na_biblioteca`, `inserir_preset`, `gravar_modulo_na_biblioteca`, `preparar_abertura_foto` | biblioteca |
-| Face de parede/guias | paredes.py: `associar`, `manter_nas_paredes`, `aplicar_guia` | paredes |
-| Lote/publicacao | tools/library/integrate_dxf_library.py: `preparar`, `publicar`; tools/migrations/adjust_fits.py: `validar_destino`, `publicar` | migracoes |
-| Retirar variantes auditadas com backup e rollback | tools/migrations/consolidate_library_variants.py: `preparar`, `publicar` | migracoes, biblioteca |
-| Corrigir internos dos presets com backup e validacao | tools/migrations/repair_library_internals.py: `preparar`, `publicar` | correcao_internos, migracoes, biblioteca |
-| Auditoria dos vaos/colisoes de internos (so leitura) | tools/audit/audit_library_internals.py: `auditar`, `auditar_modulo` | auditoria_internos, biblioteca |
-| Soldas unicas/menor gap, backup e publicacao | `tools/migrations/refine_library_joints.py`: `preparar`, `publicar` | solda, soldas_biblioteca, migracoes |
-| Auditoria/reparo | tools/migrations/audit_and_repair_integration.py: `capturar`, `verificar_funcoes`, `preparar`; tools/migrations/adjust_doors.py: `preparar` | importacao, migracoes |
+| DXF/categories | importacao.py: `ler_dxf_promob`, `destino_categoria_promob`, `importar_dxf_promob` | importacao |
+| Standalone doors/assets | importacao.py: `importar_portas_avulsas`, `importar_promob_para_biblioteca` | importacao, biblioteca |
+| Native systems | promob.py: `planejar`, `aplicar`, `marcar_dependentes` | importacao |
+| Fits/backs | promob.py: `ajustar_encaixes`, `reencaixar_verticais`, `ajustar_recuo_fundos` | importacao |
+| Save/insert/photo | biblioteca.py: `salvar_na_biblioteca`, `inserir_preset`, `gravar_modulo_na_biblioteca`, `preparar_abertura_foto` | biblioteca |
+| Wall face/guides | paredes.py: `associar`, `manter_nas_paredes`, `aplicar_guia` | paredes |
+| Batch/publication | tools/library/integrate_dxf_library.py: `preparar`, `publicar`; tools/migrations/adjust_fits.py: `validar_destino`, `publicar` | migracoes |
+| Audited variant removal/rollback | tools/migrations/consolidate_library_variants.py: `preparar`, `publicar` | migracoes, biblioteca |
+| Preset internal repair | tools/migrations/repair_library_internals.py: `preparar`, `publicar` | correcao_internos, migracoes, biblioteca |
+| Read-only internal gap/collision audit | tools/audit/audit_library_internals.py: `auditar`, `auditar_modulo` | auditoria_internos, biblioteca |
+| Unique joints/minimum gap | tools/migrations/refine_library_joints.py: `preparar`, `publicar` | solda, soldas_biblioteca, migracoes |
+| Audit/repair | tools/migrations/audit_and_repair_integration.py: `capturar`, `verificar_funcoes`, `preparar`; tools/migrations/adjust_doors.py: `preparar` | importacao, migracoes |
 
-## Presets e publicacao
+## Presets and publication
 
-- Editor 365: arraste nasce no NODE_EDITOR proprio, preservando coordenadas globais e destino VIEW_3D. Outros comandos do menu usam `editor.executar`; nao trocar a origem do modal do preset.
-- Importacao 364: `novos` do append pode conter RNAs removidos apos resize; sincronizar pela hierarquia nativa no finally, incluindo recriados. Nao apenas ignorar ReferenceError: selecao/Local View/rollback precisam da lista atual.
-- Uma SO' biblioteca (`biblioteca.pasta_biblioteca`), fonte unica tambem dos
-  modelos do usuario. Limpar entradas antigas antes de registrar a unica.
-  Regras de UUID, catalogo no .blend, indice legado e bloqueio: guia de assets.
-- Arraste 363: encaixe reduz L/A ate Ajuste maximo (10 mm; zero desliga), sem mudar E/profundidade. Previa numerica; resize so' ao confirmar, sem editar preset. Recusa mostra vermelho/causa; cache so' do modal.
-- Clique no preset = posicionador; Salvar gera PNG; objeto de fora vira
-  chapa pela FORMA. Abertura real ESQUERDA so' se TODAS as placas couberem
-  no apoio; cadeias coplanares invertem ordem sem mover folhas fechadas;
-  canto sem apoio conserva articulacao.
-- Foto SO' depois de salvar, em copia descartavel, TODAS portas fechadas
-  (canto/correr/zigzag tambem), sem mudar lado para fotografar. Quinas com
-  contorno legivel, sem triangulacao; restaurar auxiliares/cores.
-- `tools/library/integrate_dxf_library.py`: preparo retomavel, hashes/backup/rollback.
-  Preparar fora da biblioteca, validar/reabrir .blend/foto/preview e guardar
-  originais ANTES de `--aplicar`; conferir hashes antes da primeira escrita.
-  Validar caminho real, junction/case e nomes de manifesto; conservar nomes,
-  UID, materiais e UUIDs. Atualizar asset nao atualiza exemplares ja' inseridos.
-- Migracoes: `tools/migrations/adjust_fits.py`, `tools/migrations/adjust_doors.py`,
-  `tools/migrations/adjust_hinges.py`, `tools/migrations/adjust_backs_and_doors.py`,
-  `tools/migrations/refine_corners.py`, `tools/migrations/refresh_library_photos.py` e
-  `tools/migrations/adjust_left_opening.py`: mesmo preparo validado/backup/publicacao.
+- Editor 365: drag originates in its NODE_EDITOR, retaining global coordinates and VIEW_3D target. Other commands use `editor.executar`; never change preset modal origin.
+- Import 364: append's `novos` may contain removed RNA after resize. Refresh from the native hierarchy in finally, including rebuilt components. Ignoring ReferenceError is insufficient for selection/Local View/rollback.
+- One library (`biblioteca.pasta_biblioteca`), including user models. Remove old registrations before adding it; asset guide owns UUIDs, embedded catalogs, legacy indices and locks.
+- Drag 363: reduce width/height only up to Maximum Adjustment (10 mm, zero disables), preserving E/depth. Numeric preview; domain resize only on confirm, never edit the preset. Red preview/reason on refusal; cache belongs only to modal.
+- Preset click starts placement; Save generates PNG. External objects become panels by shape. Real left opening requires every mounting plate to fit its support; coplanar chains reverse without moving closed leaves; unsupported corners retain articulation.
+- Photos only after saving, in a disposable copy, with ALL doors closed including corner/sliding/zigzag. Never change hinge side for a photo. Legible crease outlines, no triangulation; restore helpers/colors.
+- `tools/library/integrate_dxf_library.py`: resumable external preparation, hashes/backups/rollback. Validate and reopen blend/photo/preview and keep originals before `--apply`; verify hashes before first write. Resolve real paths including Windows junction/case; validate manifest names. Keep filenames, UIDs, materials/catalog UUIDs. Asset updates do not update already inserted instances.
+- The same preparation/backup/publication contract applies to `tools/migrations/adjust_fits.py`, `adjust_doors.py`, `adjust_hinges.py`, `adjust_backs_and_doors.py`, `refine_corners.py`, `refresh_library_photos.py` and `adjust_left_opening.py`.
 
-## Contratos DXF
+## DXF contracts
 
-- INTEGRACAO, nao copia: `tools/library/import_dxf_library.py` -> importacao -> promob.
-  PASTA = aba, ARQUIVO = categoria; Quartos preserva ramos Armarios/Bancadas/
-  Escritorios/Superiores, prefixo unico por ambiente. Porta avulsa vira grupo
-  de portas (madeira modelada ou quadro/painel medidos), SEM carcaca inventada.
-- Contato = BVH nativa depois da caixa; vao vazio do L NAO une modulos.
-  Internos suspensos inteiramente contidos acompanham corpo. Sistemas ficam
-  DENTRO da montagem do asset, mesmo antiga sem marca; auditar integracao.
-- COR de camada: 7 = chapa; 253/254/8 (ferragem/aluminio/puxador) NUNCA viram
-  peca de madeira. Trilho/dobradica SEMPRE nossos; quadro de aluminio vira
-  CORRER folha Quadro. Fundo fino/travessas do topo = dependentes.
-- Ripas/arremates cor 7: aceitar proporcao 1, tolerancia 0,05 mm; nao perder
-  apoio 40/15 nem 49,9998 mm. Painel fixo NUNCA articula folhas; porta deixa
-  2 mm do arremate E da face de apoio. Dobradica embaixo continua chapa.
-- Placa/braco da dobradica = UMA referencia de face/lado/alturas por folha;
-  nunca supor frente -Y. L/diagonal usa plano real (`porta_vao_orientado`);
-  junta sem apoio vai para lateral externa existente. Editar margem/qtd
-  manualmente substitui referencias. Fundo fino nao sustenta dobradica.
-- Curva com placa vira folha NATIVA com malha original: Z = flecha, nao
-  achatar; alca tangente; R deforma fechada e reancora. Controle explicito
-  do add-on, inclusive na adocao; Tab nativo nao ativa solver parametrico.
-  Ler contorno real para medidas/puxador tambem nao ativa esse sistema.
-- Diagonal: perfil pela maior chapa deitada, nunca travessa; pontas das DUAS
-  faces liberam caixa real em 2 mm por consultas nativas na montagem. Normal
-  de fora vem da madeira (centro da caixa inverte curvas); lado exige apoio.
-- Referencia comum em frentes.py: atributos INT FACE/EDGE semanticos, cache
-  numerico na Mesh, invalidacao por Mesh/undo FORA do desenho.
-  `porta_linha_frente` so' migra legado; indices nao governam contorno/resize.
-  Puxador/Alt/previa usam bordas/normais comuns; PERFIL segue curva; fracao
-  legada migra uma vez. Resize reancora pela tangente SEM refazer vertices/
-  faces editados. Preservar modelagem e regressao de resize da curva controlada.
-- Coberturas/entre-folhas medidos (`respiro_original`), normal da CHAPA
-  (placa tem ruido); apoio diagonal usa dobradica angular. Perfil nosso:
-  superiores BAIXO, inferiores CIMA, torres LADO.
-- Frente com caixa/cesto = gavetas NOSSAS por FACE, inclusive ilhas viradas;
-  nunca converter lateral inteira. Preservar coberturas por lado/alturas;
-  edicao manual substitui referencia. Prateleiras adotam UID/material/recorte
-  e vaos LIVRES. Auditoria: `tools/migrations/audit_and_repair_integration.py`.
-- Base/tampo com recuo <=3,1 mm vai a' quina externa por `ajustar_encaixes`,
-  sem mudar E/forma/sistemas; refazer ancoras. Alongar divisoria que ENCOSTAVA
-  na face real para fechar fresta. Fundo 5 mm, canal a 15, entra 7; DXF
-  exige recuo MINIMO 15. Fundo parcial/ortogonal guarda margens por PLANO,
-  nunca expande pela caixa inteira. Ilha: frente unica (+X/-Y da foto),
-  oposta vira fundo; conservar cantos.
-- ALVENARIA (393): usuario define uma malha no menu; raycast nativo ignora
-  as nao definidas. DIREITO no modulo, solto em face vertical = costas;
-  horizontal para cima = base no piso, em pe. Sem limite de tamanho/vao;
-  folga pelo G, cota Afast. e zero. Teto e' referencia, nao apoio de armario.
-  Guias editaveis; `OBJECT_OT_arrastar_na_parede` conserva esse gesto.
+- Native integration, not a passive copy: `tools/library/import_dxf_library.py` -> importacao -> promob. Folder = tab; file = category. Bedroom branches retain Armarios/Bancadas/Escritorios/Superiores and unique room prefixes. Standalone doors become door groups (modeled wood or measured frame/panel), without an invented carcass.
+- Native BVH contact after broad-phase bounds; empty L-shaped space never joins cabinets. Fully contained suspended internals follow the body. Systems remain INSIDE the asset assembly, including old unmarked assemblies; audit integration.
+- Layer colors: 7 wood panel; 253/254/8 hardware/aluminum/handle never become wood. Native rails/hinges replace imported ones. Aluminum frame becomes a sliding frame leaf; thin backs/top stretchers become dependents.
+- Color-7 strips/trim accept aspect ratio 1 and 0.05 mm tolerance; preserve 40/15 supports and 49.9998 mm pieces. Fixed panels never articulate leaves; maintain 2 mm from trim AND support face. Bottom-hinged fronts remain panels.
+- Hinge plate/arm gives one face/side/height reference per leaf; never assume -Y front. L/diagonal uses actual plane (`porta_vao_orientado`); unsupported joints use existing outer side. Manual margin/count replaces references. Thin backs cannot support hinges.
+- Curved fronts with plates become native leaves with original mesh: Z is sagitta, never flatten. Handle follows tangent; R deforms closed geometry and reanchors. Explicit add-on control also on adoption; native Tab and contour measurement do not activate parametric solving.
+- Diagonal profile derives from largest horizontal panel, never stretcher. Both skins' ends clear actual body by 2 mm using native assembly queries. Wood determines outward normal; box-center inference reverses curves. Chosen side must have support.
+- Shared frentes.py reference uses semantic INT FACE/EDGE, numeric Mesh cache and per-Mesh/undo invalidation outside drawing. `porta_linha_frente` migrates legacy only; indices never govern contour/resize. Handle/Alt/preview share edges/normals; profile follows curves. Migrate old fractions once. Resize reanchors tangentially without replacing edited vertices/faces; retain controlled-curve regression.
+- Measure coverages/interleaf gaps (`respiro_original`) from panel normal, not noisy plate. Diagonal supports use angular hinges. Historical profile rule: upper cabinets bottom, lower cabinets top, towers side.
+- Front backed by box/basket becomes native drawers by FACE, including rotated islands; never convert an entire side. Preserve side coverages/height proportions; manual edits replace references. Shelves retain UID/material/cutouts/free gaps. Audit: `tools/migrations/audit_and_repair_integration.py`.
+- Base/top setback <=3.1 mm moves to outer corner through `ajustar_encaixes`, preserving E/shape/systems and rebuilding anchors. Extend partitions that previously touched the actual face. Back 5 mm, groove at 15, insertion 7; DXF minimum setback 15. Partial/orthogonal backs keep per-PLANE margins, never full-box expansion. Island has one front (+X/-Y in photo), opposite becomes back, corners preserved.
+- Masonry 393: explicitly define mesh; native raycast skips undefined objects. Right-release onto vertical face uses cabinet back; upward horizontal uses base/upright placement. No size/gap limit; native G, offset dimension and zero control clearance. Ceiling is a reference, not cabinet support. Guides stay editable; `OBJECT_OT_arrastar_na_parede` retains the gesture.
 
-Validacao: ler `tests/CLAUDE.md`; testes NUNCA escrevem na biblioteca real.
-Redirecionar `pasta_biblioteca`/`opcoes._pasta_addon` antes de register e usar
-fixtures/temporarios; integridade real so' leitura. Preset 5.x nao abre em
-4.2: pular teste incompativel. GUI so' com autorizacao de PC livre AGORA.
+Validation: read [tests](../../tests/CLAUDE.md). Redirect `pasta_biblioteca` and
+`opcoes._pasta_addon` before register; temporary fixtures only, real integrity
+read-only. Skip 5.x presets unreadable by 4.2. GUI requires current PC authorization.

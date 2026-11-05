@@ -1,4 +1,4 @@
-"""Auditoria geometrica: contatos, penetracao, rotacao e recortes reais."""
+"""Geometry audit: contact, penetration, rotation and real cutouts."""
 from pathlib import Path
 import sys
 import tempfile
@@ -66,7 +66,7 @@ class TestAuditoriaInternos(unittest.TestCase):
 
     def test_destino_dentro_da_biblioteca_e_recusado_antes_de_ler(self):
         with tempfile.TemporaryDirectory() as pasta:
-            biblioteca = Path(pasta) / 'biblioteca'
+            biblioteca = Path(pasta) / "library"
             biblioteca.mkdir()
             with self.assertRaises(ValueError):
                 auditoria.auditar(biblioteca, biblioteca / 'relatorio')
@@ -83,4 +83,4 @@ class TestAuditoriaInternos(unittest.TestCase):
 resultado = unittest.TextTestRunner(verbosity=2).run(
     unittest.defaultTestLoader.loadTestsFromTestCase(TestAuditoriaInternos))
 if not resultado.wasSuccessful():
-    raise RuntimeError('Auditoria de internos reprovada')
+    raise RuntimeError("Internal-component audit failed")

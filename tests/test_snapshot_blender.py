@@ -1,16 +1,10 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_snapshot_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_snapshot_blender.py
 
-Testes de CARACTERIZACAO (golden master, M. Feathers): gravam o que o
-add-on FAZ hoje -- layout da gaveta, malhas, calculo das portas,
-redimensionamento do modulo, geometria da HUD, puxadores -- e acusam
-qualquer diferenca. Nao dizem se o comportamento e' certo; dizem que
-ele MUDOU. Quebra oculta vira diff com o caminho exato do valor.
+Characterization tests (golden master, M. Feathers) record what the add-on currently does: sidebar layout, meshes, door calculations, cabinet resizing, HUD geometry and handles. They flag any difference without judging correctness; they show that behavior changed. Hidden breakage becomes a diff with the exact value path.
 
-Mudanca INTENCIONAL: regrave e revise o diff no git antes do commit:
-
-    blender ... --python tests/run_tests.py -- --atualizar
-    (ou CABINET_ATUALIZAR_SNAPSHOTS=1 ao rodar so' esta suite)
-"""
+For an intentional change, regenerate and review the Git diff before committing:
+    blender ... --python tests/run_tests.py -- --update
+Or set CABINET_ATUALIZAR_SNAPSHOTS=1 when running only this suite."""
 import json
 import math
 import os
@@ -29,7 +23,7 @@ LARGURAS = (190, 320, 482, 564)
 
 
 def _r(valor, casas=3):
-    """Arredonda o que e' numero, recursivamente (ruido de float fora)."""
+    """Recursively round numeric values to remove floating-point noise."""
     if isinstance(valor, float):
         r = round(valor, casas)
         return 0.0 if r == 0 else r
@@ -48,7 +42,7 @@ def _primeira_diferenca(a, b, caminho='$'):
     if isinstance(a, dict):
         for k in sorted(set(a) | set(b)):
             if k not in a or k not in b:
-                return '%s.%s' % (caminho, k), a.get(k, '<falta>'), b.get(k, '<falta>')
+                return '%s.%s' % (caminho, k), a.get(k, '<missing>'), b.get(k, '<missing>')
             d = _primeira_diferenca(a[k], b[k], '%s.%s' % (caminho, k))
             if d:
                 return d
@@ -59,13 +53,13 @@ def _primeira_diferenca(a, b, caminho='$'):
             if d:
                 return d
         if len(a) != len(b):
-            return '%s(tamanho)' % caminho, len(a), len(b)
+            return '%s(length)' % caminho, len(a), len(b)
         return None
     return None if a == b else (caminho, a, b)
 
 
 def _nome(obj):
-    """Nome sem o sufixo .001 do Blender: estavel entre execucoes."""
+    """Remove Blender's .001 suffix for a name stable across runs."""
     return obj.name.split('.')[0]
 
 
@@ -101,11 +95,9 @@ class TestCaracterizacao(unittest.TestCase):
         diferenca = _primeira_diferenca(esperado, dados)
         if diferenca:
             onde, antes, agora = diferenca
-            self.fail('%s mudou em %s\n  gravado: %r\n  agora:   %r\n'
-                      'Se foi de proposito, regrave (--atualizar) e revise '
-                      'o diff.' % (nome, onde, antes, agora))
+            self.fail("%s changed at %s\n  recorded: %r\n  current:  %r\nIf intentional, regenerate (--update) and review the diff." % (nome, onde, antes, agora))
 
-    # ------------------------------------------------------- cenas
+    # ------------------------------------------------------- Scenes
     def modulo(self):
         bpy.ops.object.cabinet_criar_nicho()
         bpy.ops.object.select_all(action='SELECT')
@@ -141,8 +133,7 @@ class TestCaracterizacao(unittest.TestCase):
 
     @staticmethod
     def widgets(largura, altura=900):
-        """Painel da aba + divisoria + pe' fixo (a biblioteca fica de fora:
-        o conteudo dela muda com os presets do usuario, nao com o codigo)."""
+        """Tab panel, divider and fixed footer. Exclude the library because its contents depend on user presets rather than code."""
         cab, conteudo, rodape = addon.gaveta._partes_gaveta(
             addon.gaveta._widgets_gaveta(bpy.context, largura, altura))
         cima, divisa, _baixo = addon.gaveta._paineis_gaveta(conteudo)
@@ -154,7 +145,7 @@ class TestCaracterizacao(unittest.TestCase):
             saida.append([x, y, w, h, rotulo, verbo, extra])
         return saida
 
-    # ------------------------------------------------------ casos
+    # ------------------------------------------------------ Cases
     def test_layout_da_gaveta(self):
         conj = self.modulo()
         chapa = addon.modulos._chapas_do_conjunto(conj)[0]
@@ -174,7 +165,7 @@ class TestCaracterizacao(unittest.TestCase):
                 for largura in LARGURAS:
                     dados['%s/%s/%d' % (nome, aba, largura)] = \
                         self.widgets(largura)
-        self.conferir('gaveta_layout', dados)
+        self.conferir('sidebar_layout', dados)
 
     def test_malha_da_chapa(self):
         dados = {}
@@ -190,7 +181,7 @@ class TestCaracterizacao(unittest.TestCase):
                 'faces': len(obj.data.polygons),
                 'mundo': sorted(_r(tuple(p), 5) for p in addon.chapas._cantos(obj)),
             }
-        self.conferir('chapa_malha', dados)
+        self.conferir('panel_mesh', dados)
 
     def test_calculo_das_portas(self):
         dados = {}
@@ -208,8 +199,8 @@ class TestCaracterizacao(unittest.TestCase):
                         dados[chave] = _r(addon.portas._calcular_folhas_portas(
                             764.0, 664.0, p))
                     except ValueError as erro:
-                        dados[chave] = 'ERRO: %s' % erro
-        self.conferir('portas_calculo', dados)
+                        dados[chave] = 'ERROR: %s' % erro
+        self.conferir('door_calculations', dados)
 
     def test_modulo_redimensionado(self):
         conj = self.modulo()
@@ -225,7 +216,7 @@ class TestCaracterizacao(unittest.TestCase):
         dados['conj'] = [conj.conj_largura_mm, conj.conj_altura_mm,
                          conj.conj_profundidade_mm, conj.conj_espessura_mm,
                          _r(conj.matrix_world.translation, 5)]
-        self.conferir('modulo_redimensionado', dados)
+        self.conferir('resized_cabinet', dados)
 
     def test_porta_no_modulo_acompanha_o_redimensionamento(self):
         conj = self.modulo()
@@ -236,7 +227,7 @@ class TestCaracterizacao(unittest.TestCase):
         conj.conj_altura_mm += 100
         bpy.context.view_layer.update()
         dados['redimensionado'] = self.chapas(addon.portas._folhas_portas(grupo))
-        self.conferir('porta_no_modulo', dados)
+        self.conferir('cabinet_door', dados)
 
     def test_geometria_da_hud(self):
         conj = self.modulo()
@@ -254,7 +245,7 @@ class TestCaracterizacao(unittest.TestCase):
                                   list(l.get('cantos', ()))]
                                  for l in g['linhas']),
             }
-        self.conferir('hud_geometria', dados)
+        self.conferir('hud_geometry', dados)
 
     def test_puxadores_parametricos(self):
         dados = {}
@@ -271,7 +262,7 @@ class TestCaracterizacao(unittest.TestCase):
                     'dims': _r(pux.dimensions, 5),
                     'chapa': _r(chapa.dimensions, 5),
                 }
-        self.conferir('puxadores', dados)
+        self.conferir('handles', dados)
 
 
 addon.register()
@@ -279,4 +270,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestCaracterizacao)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de caracterizacao')
+    raise RuntimeError("Characterization tests failed")

@@ -1,22 +1,22 @@
 bl_info = {
     "name": "Archy Builder",
     "author": "Douglas",
-    "version": (409, 0, 0),
+    "version": (410, 0, 0),
     "blender": (4, 0, 0),
-    "location": "Editor Archy Builder / View3D > gaveta esquerda",
+    "location": "Archy Builder editor / View3D > left sidebar",
     "doc_url": "https://github.com/IINasK/archy-builder",
-    "description": "Moveis planejados, marcenaria, arquitetura e interiores no Blender",
+    "description": "Fitted furniture, woodworking, architecture and interiors in Blender",
     "category": "Object",
 }
 
-"""Archy Builder: moveis planejados, arquitetura e interiores no Blender.
+"""Archy Builder: fitted furniture, architecture and interiors in Blender.
 
-O add-on e' um PACOTE: cada area mora no seu modulo (mapa em ARCHITECTURE.md).
-Aqui ficam so' o bl_info, a ordem de carga, a ligacao entre os modulos e o
-registro. Um modulo chama outro pelo apelido `_nome` (ex.: `_portas.x`).
+Each responsibility has its own module; see ARCHITECTURE.md. This entry point
+owns metadata, explicit loading, cross-module references and registration.
+Modules call their owners through module references such as `_portas.x`.
 """
-# F3 > Reload Scripts / desligar e ligar o add-on: recarrega os modulos na
-# mesma ordem (sem isto o Blender so' recarregaria este arquivo)
+# F3 > Reload Scripts / disable and re-enable the add-on: reload modules in the same
+# order (otherwise Blender would only reload this file).
 if "_MODULOS" in locals():
     import importlib
     for _modulo in _MODULOS:
@@ -29,7 +29,7 @@ from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
                        StringProperty, IntProperty)
 from bpy.types import Operator
 
-# Na ordem de CARGA: cada um so' usa, ao carregar, os que vem antes dele.
+# LOAD order: at import time, each module only uses modules loaded before it.
 from .cabinetry import panels as _chapas
 chapas = _chapas
 sys.modules[__name__ + ".chapas"] = _chapas
@@ -327,8 +327,8 @@ CLASSES = (
     _chapas.OBJECT_OT_normalizar,
     _gaveta_eventos.VIEW3D_GT_alca_gaveta,
     _gaveta_desenho.VIEW3D_GT_campo_gaveta,
-    # o slider antes da HUD: a bolinha ganha o clique (gizmo e' avaliado
-    # na ordem do registro)
+    # Register the slider before the HUD so its dot wins the click; gizmos are evaluated
+    # in registration order.
     _portas_viewport.VIEW3D_GT_slider_porta,
     _portas_viewport.VIEW3D_GGT_slider_porta,
     _gavetas.VIEW3D_GT_slider_gaveta,
@@ -348,7 +348,7 @@ CLASSES = (
     _hud.VIEW3D_GT_hud_cabinet,
     _hud.VIEW3D_GGT_hud_cabinet,
     _hud.VIEW3D_GGT_correntes_cabinet,
-    # guias da parede: o numero e' gizmo para ganhar da selecao (keymap)
+    # Wall guides: the number is a gizmo so it takes precedence over selection (keymap).
     _paredes.VIEW3D_GT_guia_parede,
     _paredes.VIEW3D_GGT_guias_parede,
     _paredes.OBJECT_OT_definir_alvenaria,
@@ -396,13 +396,12 @@ CLASSES = (
 )
 
 
-# ------------------------------------------ operador terminado larga a cena
-# Crash do usuario (repetivel): Ctrl+Z ENQUANTO a porta nascia. O Blender
-# guarda o operador (REGISTER) depois que ele termina, e o wizard levava
-# em `self` a lista de todos os objetos do ima: no undo seguinte esses
-# objetos eram liberados/trocados com o Python ainda segurando-os, e a
-# memoria do Python corrompia (crash depois, em lugar aleatorio). Todo
-# operador MODAL, ao terminar ou cancelar, solta o que for dado da cena.
+# ------------------------------------------ finished operators release the scene
+# Reproducible user crash: Ctrl+Z WHILE a door was being created. Blender retains
+# REGISTER operators after completion, and the wizard kept the list of all snap objects
+# in `self`. On the next undo, those objects were freed/replaced while Python still held
+# them, corrupting Python memory and causing a later crash at an arbitrary location.
+# Every MODAL operator releases all scene data on completion or cancellation.
 def _segura_dado(valor, fundo=0):
     if isinstance(valor, bpy.types.ID):
         return True
@@ -411,7 +410,8 @@ def _segura_dado(valor, fundo=0):
     if isinstance(valor, (list, tuple, set, frozenset)):
         return any(_segura_dado(v, fundo + 1) for v in valor)
     if isinstance(valor, dict):
-        # objeto como CHAVE tambem segura (ex.: {objeto: posicao})
+        # Objects held as dictionary KEYS also retain references (e.g. {object:
+        # position}).
         return any(_segura_dado(v, fundo + 1)
                    for par in valor.items() for v in par)
     return False
@@ -429,8 +429,8 @@ def _terminou(op, resultado):
     return resultado
 
 
-# Assinaturas EXPLICITAS: o Blender confere o numero de argumentos dos
-# metodos do operador ao registrar (*args seria recusado).
+# EXPLICIT signatures: Blender checks operator method argument counts during
+# registration (*args would be rejected).
 def _envolver_evento(metodo):
     def envolvido(self, context, event):
         return _terminou(self, metodo(self, context, event))
@@ -476,7 +476,7 @@ _PROPS_MEDIDA_UI_CENA = (
 
 
 def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
-    """Expoe em metros para o parser nativo, mantendo o dado real em mm."""
+    """Expose meters to the native parser while keeping the actual data in mm."""
     def obter(self):
         return float(getattr(self, nome_mm)) / 1000.0
 
@@ -485,7 +485,7 @@ def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
 
     setattr(dono, nome_ui, FloatProperty(
         name=nome,
-        description="Sem sufixo usa a unidade da cena; aceita mm, cm e m",
+        description="Without a suffix, uses the scene unit; accepts mm, cm and m",
         subtype='DISTANCE',
         unit='LENGTH',
         min=minimo_mm / 1000.0,
@@ -496,9 +496,9 @@ def _registrar_medida_ui(dono, nome_ui, nome_mm, nome, minimo_mm):
 
 
 def _garantir_unidade_padrao_mm():
-    """Campos do addon usam milimetros como unidade implicita da cena."""
-    # Durante addon_enable o Blender protege bpy.data com _RestrictData.
-    # Adiar evita falha de ativacao e mantem esta configuracao fora do register.
+    """Add-on fields use millimeters as the scene's implicit unit."""
+    # During addon_enable, Blender protects bpy.data with _RestrictData. Deferring
+    # avoids activation failure and keeps this setup outside register.
     if not hasattr(bpy.data, "scenes"):
         if not bpy.app.timers.is_registered(_garantir_unidade_padrao_mm):
             bpy.app.timers.register(
@@ -527,7 +527,7 @@ def register():
     _paredes_edicao.registrar_macro_area()
     _gaveta._handler_gaveta[0] = bpy.types.SpaceView3D.draw_handler_add(
         _gaveta_desenho._desenhar_gaveta, (), 'WINDOW', 'POST_PIXEL')
-    # POST_VIEW: a caixa vive em coordenada de MUNDO, junto da cena
+    # POST_VIEW: the box uses WORLD coordinates, alongside the scene.
     _hud._handler_grid[0] = bpy.types.SpaceView3D.draw_handler_add(
         _hud._desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW')
     _hud._handler_hud_texto[0] = bpy.types.SpaceView3D.draw_handler_add(
@@ -538,31 +538,29 @@ def register():
     _selecao.registrar_keymaps()
     _editor.registrar()
     S = bpy.types.Scene
-    # Os parametros das portas moram na Scene para a gaveta edita-los
-    # sem popup (ver `_portas.ESCOLHAS_PORTAS`). Frente e espessuras nao estao
-    # aqui de proposito: saem da diagonal e do modulo.
-    # A corrente Modulos|Portas sem porta ativa: como nasce a proxima
+    # Door parameters live on Scene so the sidebar can edit them without a popup (see
+    # `_portas.ESCOLHAS_PORTAS`). Front dimensions and thicknesses are deliberately
+    # absent: they come from the diagonal and cabinet. The Cabinets|Doors chain with no
+    # active door controls how the next door is created.
     S.porta_associar = BoolProperty(
-        name="Porta presa ao modulo", default=True,
-        description="Ligada: a porta nova segue o modulo e usa os eixos "
-                    "dele. Partida: porta solta, nos eixos do mundo")
-    S.porta_abertura = EnumProperty(name="Abertura", items=_portas.ITENS_ABERTURA,
+        name="Door attached to cabinet", default=True,
+        description="Linked: the new door follows the cabinet and uses its axes. Unlinked: freestanding door, using world axes")
+    S.porta_abertura = EnumProperty(name="Opening", items=_portas.ITENS_ABERTURA,
                                     default='GIRO',
                                     update=_portas._limitar_folhas_cena)
-    # Reta e' o padrao: nenhuma fila de segmentos pode ficar sem
-    # nenhuma opcao acesa, e obrigar a escolha so' fazia o botao de
-    # criar nascer bloqueado.
-    S.porta_dobradica = EnumProperty(name="Dobradica",
+    # Straight is the default: every segmented row must have an active option. Requiring
+    # an explicit choice merely left the creation button disabled initially.
+    S.porta_dobradica = EnumProperty(name="Hinge",
                                      items=_portas.ITENS_DOBRADICA,
                                      default='RETA')
-    # trilho da porta de correr com moldura (perguntado ao criar)
-    S.porta_trilho = EnumProperty(name="Trilho", items=_portas.ITENS_TRILHO,
+    # Framed sliding-door track (requested during creation).
+    S.porta_trilho = EnumProperty(name="Track", items=_portas.ITENS_TRILHO,
                                   default='PESADO')
-    # folha da porta de correr: chapa ou quadro de aluminio
-    S.porta_folha = EnumProperty(name="Folha", items=_portas.ITENS_FOLHA_CORRER,
+    # Sliding-door leaf: panel or aluminum frame.
+    S.porta_folha = EnumProperty(name="Leaf", items=_portas.ITENS_FOLHA_CORRER,
                                  default='CHAPA')
-    # Dupla e' o padrao de armario; uma folha so' e' a excecao.
-    S.porta_folhas = IntProperty(name="Folhas", default=2, min=1, max=8)
+    # Double doors are the cabinet default; a single leaf is the exception.
+    S.porta_folhas = IntProperty(name="Leaves", default=2, min=1, max=8)
     for prop_ui, prop_mm, rotulo, minimo in _portas.MEDIDAS_PORTAS:
         padrao = _portas.PADRAO_MEDIDAS_PORTAS.get(prop_mm, 0.0)
         setattr(S, prop_mm, FloatProperty(name=rotulo, default=padrao,
@@ -570,101 +568,100 @@ def register():
         _registrar_medida_ui(S, prop_ui, prop_mm, rotulo, minimo)
     O = bpy.types.Object
     O.chapa_largura_mm = FloatProperty(
-        name="Largura (mm)", default=600.0, min=1.0, update=_chapas._upd_chapa)
+        name="Width (mm)", default=600.0, min=1.0, update=_chapas._upd_chapa)
     O.chapa_comprimento_mm = FloatProperty(
-        name="Comprimento (mm)", default=400.0, min=1.0, update=_chapas._upd_chapa)
+        name="Length (mm)", default=400.0, min=1.0, update=_chapas._upd_chapa)
     O.chapa_espessura_mm = FloatProperty(
-        name="Espessura (mm)", default=18.0, min=1.0,
-        description="Qualquer espessura; acima de 60 mm o campo fica vermelho",
+        name="Thickness (mm)", default=18.0, min=1.0,
+        description="Any thickness; the field turns red above 60 mm",
         update=_chapas._upd_espessura)
     O.chapa_auto = BoolProperty(
-        name="Auto-regenerar", default=True,
-        description="Obsoleto: a chapa sempre preserva a malha modelada")
+        name="Auto-regenerate", default=True,
+        description="Obsolete: the panel always preserves its modeled mesh")
     O.conj_largura_mm = FloatProperty(
-        name="Largura (mm)", default=600.0, min=20.0, update=_modulos._upd_conj_dim)
+        name="Width (mm)", default=600.0, min=20.0, update=_modulos._upd_conj_dim)
     O.conj_altura_mm = FloatProperty(
-        name="Altura (mm)", default=400.0, min=20.0, update=_modulos._upd_conj_dim)
+        name="Height (mm)", default=400.0, min=20.0, update=_modulos._upd_conj_dim)
     O.conj_profundidade_mm = FloatProperty(
-        name="Profundidade (mm)", default=300.0, min=20.0, update=_modulos._upd_conj_dim)
+        name="Depth (mm)", default=300.0, min=20.0, update=_modulos._upd_conj_dim)
     O.conj_espessura_mm = FloatProperty(
-        name="Espessura (mm)", default=18.0, min=1.0,
-        description="Espessura de todas as chapas do modulo",
+        name="Thickness (mm)", default=18.0, min=1.0,
+        description="Thickness of all panels in the cabinet",
         update=_modulos._upd_conj_espessura)
     O.chapa_modo = EnumProperty(
-        name="Modo", default='INDIVIDUAL',
-        items=[('INDIVIDUAL', "Individual", "Medidas desta chapa"),
-               ('GRUPO', "Grupo", "Medidas do modulo inteiro")])
+        name="Mode", default='INDIVIDUAL',
+        items=[('INDIVIDUAL', "Individual", "Dimensions of this panel"),
+               ('GRUPO', "Group", "Dimensions of the entire cabinet")])
     _registrar_medida_ui(
-        O, "ui_chapa_largura", "chapa_largura_mm", "Largura", 1.0)
+        O, "ui_chapa_largura", "chapa_largura_mm", "Width", 1.0)
     _registrar_medida_ui(
-        O, "ui_chapa_comprimento", "chapa_comprimento_mm", "Comprimento", 1.0)
+        O, "ui_chapa_comprimento", "chapa_comprimento_mm", "Length", 1.0)
     _registrar_medida_ui(
-        O, "ui_chapa_espessura", "chapa_espessura_mm", "Espessura", 1.0)
+        O, "ui_chapa_espessura", "chapa_espessura_mm", "Thickness", 1.0)
     _registrar_medida_ui(
-        O, "ui_conj_largura", "conj_largura_mm", "Largura", 20.0)
+        O, "ui_conj_largura", "conj_largura_mm", "Width", 20.0)
     _registrar_medida_ui(
-        O, "ui_conj_altura", "conj_altura_mm", "Altura", 20.0)
+        O, "ui_conj_altura", "conj_altura_mm", "Height", 20.0)
     _registrar_medida_ui(
-        O, "ui_conj_profundidade", "conj_profundidade_mm", "Profundidade", 20.0)
+        O, "ui_conj_profundidade", "conj_profundidade_mm", "Depth", 20.0)
     _registrar_medida_ui(
-        O, "ui_conj_espessura", "conj_espessura_mm", "Espessura", 1.0)
+        O, "ui_conj_espessura", "conj_espessura_mm", "Thickness", 1.0)
 
     S = bpy.types.Scene
     S.cabinet_aba = EnumProperty(
-        name="Aba", default='MODULOS',
-        items=[('MODULOS', "Modulos", "Medidas, montagem e biblioteca"),
-               ('PORTAS', "Portas", "Criacao e configuracao de portas"),
-               ('FUNDOS', "Fundos", "Chapas de fundo e vinculos dos internos"),
-               ('GAVETAS', "Gavetas", "Criacao e configuracao de gavetas"),
-               ('PRATELEIRAS', "Prateleiras", "Prateleiras internas: quantidade, espessura e vaos"),
-               ('DIVISORIAS', "Divisorias", "Divisorias verticais que segmentam os sistemas internos"),
-               ('PUXADORES', "Puxadores", "Puxadores ligados as portas"),
-               ('ALVENARIA', "Alvenaria", "Paredes, piso, teto e instalacoes")])
-    # modelo que a ferramenta de posicionar vai criar
-    # padrao = PERFIL (pedido do usuario)
+        name="Tab", default='MODULOS',
+        items=[('MODULOS', "Modules", "Dimensions, assembly and library"),
+               ('PORTAS', "Doors", "Door creation and configuration"),
+               ('FUNDOS', "Back Panels", "Back panels and links to internal components"),
+               ('GAVETAS', "Drawers", "Drawer creation and configuration"),
+               ('PRATELEIRAS', "Shelves", "Internal shelves: quantity, thickness and gaps"),
+               ('DIVISORIAS', "Partitions", "Vertical partitions that divide internal systems into sections"),
+               ('PUXADORES', "Handles", "Handles attached to doors"),
+               ('ALVENARIA', "Masonry", "Walls, floor, ceiling and installations")])
+    # Model created by the placement tool; default = PERFIL (user request).
     S.cabinet_puxador_modelo = EnumProperty(
-        name="Modelo", default='PERFIL',
+        name="Model", default='PERFIL',
         items=[(k, v[0], "") for k, v in _puxadores.MODELOS_PUXADOR.items()])
-    # o .blend do modelo do usuario quando o Modelo e' 'MODELO'
+    # The user's model .blend when the model choice is 'MODELO'.
     S.cabinet_puxador_arquivo = StringProperty(default="")
-    S.chapa_bib_aberta = BoolProperty(name="Biblioteca", default=False)
+    S.chapa_bib_aberta = BoolProperty(name="Library", default=False)
     S.chapa_n1 = StringProperty(default="")
     S.chapa_n2 = StringProperty(default="")
     S.chapa_n3 = StringProperty(default="")
-    # niveis da cascata ALEM do 3o (a biblioteca nao tem limite), com /
+    # Cascade levels BEYOND the third (the library has no depth limit), separated by /.
     S.chapa_n_mais = StringProperty(default="")
-    # a biblioteca mostra os presets (Modulos) ou os Materiais, cada um
-    # com a sua cascata (os botoes ao lado do titulo)
+    # The library shows presets (Cabinets) or Materials, each with its own cascade
+    # (buttons beside the title).
     S.cabinet_bib_modo = EnumProperty(
-        name="Biblioteca", default='MODULOS',
-        items=[('MODULOS', "Modulos", "Presets de modulos e pecas"),
-               ('MATERIAIS', "Materiais", "Cores de MDF e MDP")])
+        name="Library", default='MODULOS',
+        items=[('MODULOS', "Modules", "Cabinet and part presets"),
+               ('MATERIAIS', "Materials", "MDF and MDP colors")])
     S.cabinet_mat_n1 = StringProperty(default="")
     S.cabinet_mat_n2 = StringProperty(default="")
     S.cabinet_mat_n3 = StringProperty(default="")
-    # barra continua (estilo volume) no lugar dos tres degraus P/M/G
-    # 7 degraus: com 11 a barra ocupava 70% da sidebar e nao cabia no
-    # canto. A miniatura maior continua grande o bastante.
+    # Continuous volume-style bar instead of the three S/M/L steps. Seven steps: eleven
+    # used 70% of the sidebar and did not fit in the corner. The largest thumbnail
+    # remains large enough.
     S.chapa_tam_bloco = IntProperty(
-        name="Tamanho", default=5, min=2, max=8,
-        description="Tamanho das miniaturas na grade")
-    # Lado (px) de TODO retrato da gaveta -- puxador, abertura, dobradica
-    # --, o mesmo quadrado em todos; o slider ao lado do titulo muda
+        name="Size", default=5, min=2, max=8,
+        description="Thumbnail size in the grid")
+    # Side length (px) of EVERY sidebar image: handle, opening, hinge. All use the same
+    # square; the slider beside the title changes it.
     S.cabinet_tam_retrato = IntProperty(
-        name="Tamanho dos retratos", default=64,
+        name="Preview size", default=64,
         min=_gaveta.LARGURA_RETRATO_MIN, max=_gaveta.LARGURA_RETRATO_MAX)
-    S.grupo_largura_mm = FloatProperty(name="Largura (mm)", default=600.0, min=20.0, update=_modulos._upd_grupo_dim)
-    S.grupo_altura_mm = FloatProperty(name="Altura (mm)", default=400.0, min=20.0, update=_modulos._upd_grupo_dim)
-    S.grupo_profundidade_mm = FloatProperty(name="Profundidade (mm)", default=300.0, min=20.0, update=_modulos._upd_grupo_dim)
-    S.grupo_espessura_mm = FloatProperty(name="Espessura (mm)", default=18.0, min=1.0, update=_modulos._upd_grupo_espessura)
+    S.grupo_largura_mm = FloatProperty(name="Width (mm)", default=600.0, min=20.0, update=_modulos._upd_grupo_dim)
+    S.grupo_altura_mm = FloatProperty(name="Height (mm)", default=400.0, min=20.0, update=_modulos._upd_grupo_dim)
+    S.grupo_profundidade_mm = FloatProperty(name="Depth (mm)", default=300.0, min=20.0, update=_modulos._upd_grupo_dim)
+    S.grupo_espessura_mm = FloatProperty(name="Thickness (mm)", default=18.0, min=1.0, update=_modulos._upd_grupo_espessura)
     _registrar_medida_ui(
-        S, "ui_grupo_largura", "grupo_largura_mm", "Largura", 20.0)
+        S, "ui_grupo_largura", "grupo_largura_mm", "Width", 20.0)
     _registrar_medida_ui(
-        S, "ui_grupo_altura", "grupo_altura_mm", "Altura", 20.0)
+        S, "ui_grupo_altura", "grupo_altura_mm", "Height", 20.0)
     _registrar_medida_ui(
-        S, "ui_grupo_profundidade", "grupo_profundidade_mm", "Profundidade", 20.0)
+        S, "ui_grupo_profundidade", "grupo_profundidade_mm", "Depth", 20.0)
     _registrar_medida_ui(
-        S, "ui_grupo_espessura", "grupo_espessura_mm", "Espessura", 1.0)
+        S, "ui_grupo_espessura", "grupo_espessura_mm", "Thickness", 1.0)
 
     _garantir_unidade_padrao_mm()
     bpy.types.VIEW3D_MT_object_context_menu.append(_portas.menu_contexto_porta)
@@ -684,7 +681,7 @@ def register():
     _solda._normalizar_pendente[0] = True
     if not bpy.app.timers.is_registered(_eventos.verificar_periodicamente):
         bpy.app.timers.register(_eventos.verificar_periodicamente, persistent=True)
-    # bpy.ops nao pode rodar dentro de register(): adia por um tique
+    # bpy.ops cannot run inside register(): defer by one tick.
     bpy.app.timers.register(_registrar_bibliotecas_adiado, first_interval=0.5)
     bpy.app.timers.register(_preparar_frentes_adiado, first_interval=0.0)
 
@@ -695,7 +692,7 @@ def _preparar_frentes_adiado():
 
 
 def _registrar_bibliotecas_adiado():
-    # funcao com NOME (nao lambda): o unregister precisa poder remove-la
+    # Use a NAMED function rather than a lambda so unregister can remove it.
     _biblioteca.registrar_bibliotecas()
     return None
 
@@ -730,8 +727,8 @@ def unregister():
     _solda._pergunta_reset[0] = ''
     _perguntas._pergunta_atual[0] = None
     _perguntas._na_gaveta[0] = False
-    _solda._terminar_ancora_solda()     # cursor, hide_select, desenho e timer
-    # devolve cursor/hide_select e tira o timer de um arraste em curso
+    _solda._terminar_ancora_solda()     # Cursor, hide_select, drawing and timer.
+    # Restore cursor/hide_select and remove the timer for an active drag.
     _portas_viewport._terminar_canto_nativo()
     _ferragens._arraste_ferragem[0] = None
     _ferragens._ferragens_selecionadas[0] = None
@@ -764,7 +761,7 @@ def unregister():
     _hud_volume.terminar(bpy.context, cancelar=True)
     _hud_volume._remover_observador()
     _hud._edicao_hud[0] = None
-    _hud._terminar_quina_nativa()      # arraste pela quina em curso
+    _hud._terminar_quina_nativa()      # Active native corner drag.
     _hud._hover_hud.clear()
     _hud._clique_chapa_hud.clear()
     _hud._clique_pendente.clear()
@@ -846,8 +843,8 @@ def unregister():
         lista = getattr(bpy.app.handlers, evento)
         if funcao in lista:
             lista.remove(funcao)
-    # desligar o add-on no meio da edicao nao pode deixar a viewport sem
-    # contorno para sempre
+    # Disabling the add-on during editing must not leave the viewport permanently
+    # without outlines.
     _eventos.sincronizar_contornos(devolver=True)
     _eventos._contornos_desligados.clear()
     _eventos._contornos_do_usuario.clear()

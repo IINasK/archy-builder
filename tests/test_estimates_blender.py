@@ -1,9 +1,6 @@
-"""Execute: blender --background --factory-startup --python-exit-code 1 --python tests/test_estimates_blender.py
+"""Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_estimates_blender.py
 
-Orcamento para o ERP do usuario: o documento segue AO PE' DA LETRA o
-padrao do prompt de ditado dele (bloco ```markdown + Pendencias), so'
-com a marcenaria preenchida.
-"""
+Estimate for the user's ERP: follow the dictated-prompt format exactly (markdown fenced block plus pending items), filling only the cabinetry content."""
 import os
 import shutil
 import sys
@@ -16,7 +13,7 @@ from mathutils import Vector
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import archy_builder as addon
 
-INFERIOR = 'Arm\u00e1rio inferior'
+INFERIOR = 'Base Cabinet'
 
 
 class TestOrcamento(unittest.TestCase):
@@ -30,7 +27,7 @@ class TestOrcamento(unittest.TestCase):
             bpy.data.collections.remove(col)
 
     def nicho(self, nome='', extras=(), x=0.0):
-        """Nicho 600x400x300 (+ chapas extras) agrupado com `nome`."""
+        """Create a grouped 600x400x300 niche with extra panels and nome as its name."""
         bpy.ops.object.select_all(action='DESELECT')
         bpy.ops.object.cabinet_criar_nicho()
         pecas = list(bpy.context.selected_objects)
@@ -48,8 +45,8 @@ class TestOrcamento(unittest.TestCase):
         return conj
 
     def material(self):
-        mat = bpy.data.materials.get('MDF Branco TX') or bpy.data.materials.new('MDF Branco TX')
-        mat[addon.materiais.CHAVE_MATERIAL] = 'MDF/Unicolores//Branco TX'
+        mat = bpy.data.materials.get('MDF White TX') or bpy.data.materials.new('MDF White TX')
+        mat[addon.materiais.CHAVE_MATERIAL] = "MDF/Solid Colors//White TX"
         return mat
 
     def porta(self, conj, **kwargs):
@@ -78,91 +75,91 @@ class TestOrcamento(unittest.TestCase):
         return texto.split('```markdown\n', 1)[1].split('\n```', 1)[0]
 
     def test_documento_completo_no_padrao_do_erp(self):
-        # Prateleira no vao da esquerda, divisoria no meio, 2 folhas com
-        # perfil: tudo sai do 3D, um detalhe por linha no 3o andar.
+        # Shelf in the left opening, center partition, two leaves with profile handles:
+        # derive everything from 3D, one detail per line at the third level.
         conj = self.nicho(INFERIOR, extras=(
-            ('Prateleira', 273.0, 280.0, 18.0, (-145.5, 0.0, 200.0),
+            ('Shelf', 273.0, 280.0, 18.0, (-145.5, 0.0, 200.0),
              (0.0, 0.0, 0.0)),
-            ('Divisoria', 364.0, 300.0, 18.0, (0.0, 0.0, 200.0),
+            ("Partition", 364.0, 300.0, 18.0, (0.0, 0.0, 200.0),
              (0.0, 90.0, 0.0))))
         grupo = self.porta(conj)
         for folha in addon.portas._folhas_portas(grupo):
             addon.puxadores.criar_puxador(bpy.context, folha, 'PERFIL', 'Y-', 1)
-        self.comodo(conj, 'Cozinha')
+        self.comodo(conj, "Kitchen")
         texto, exportados, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
         self.assertEqual((exportados, pendencias), (1, []))
         self.assertEqual(texto, '\n'.join((
             '```markdown',
-            '# Or\u00e7amento',
-            'cliente:',
-            'endereco:',
-            'perfil: investidor',
+            "# Estimate",
+            "client:",
+            "address:",
+            "profile: investor",
             '',
-            '## M\u00f3veis',
+            "## Furniture",
             '',
-            '### Cozinha',
+            '### Kitchen',
             '- ' + INFERIOR,
-            '  - Medidas gerais (largura x altura x profundidade): 600 x 400 x 300 mm',
-            '  - 2 portas',
-            '  - Dobradicas: reta',
-            '  - Sem gavetas internas',
-            '  - 1 prateleira interna',
-            '  - 1 divis\u00f3ria interna',
-            '  - 2 puxadores perfil',
-            '  - Materiais: MDF Branco TX',
+            '  - Overall dimensions (width x height x depth): 600 x 400 x 300 mm',
+            '  - 2 hinged doors',
+            '  - Hinges: full overlay',
+            '  - No internal drawers',
+            '  - 1 internal shelf',
+            '  - 1 internal partition',
+            '  - 2 profile handles',
+            '  - Materials: MDF White TX',
             '',
-            '## Outros',
+            "## Other",
             '',
-            '### Geral',
-            '- Limpeza geral.',
+            "### General",
+            "- General cleaning.",
             '',
-            '## Valores',
-            '- moveis:',
-            '- obras:',
-            '- eletros:',
-            '- outros:',
+            "## Costs",
+            "- furniture:",
+            "- construction:",
+            "- appliances:",
+            "- other:",
             '',
-            '## Pagamento',
-            '- modalidade: entrada+parcelas',
-            '- entrada:',
-            '- parcelas:',
+            "## Payment",
+            "- method: down payment+installments",
+            "- down payment:",
+            "- installments:",
             '```',
             '',
-            'Sem pend\u00eancias.',
+            'No pending items.',
             '')))
 
     def test_modelos_de_porta_e_nicho_sem_nada(self):
-        # Correr, basculante e embutida pelo nome do modelo; nicho sem
-        # porta so' diz que nao tem prateleira (nada inventado).
+        # Infer sliding, lift-up and inset from the model name; a doorless niche
+        # only states that it has no shelf, without inventing details.
         casos = (
             (dict(abertura='CORRER', folhas=2, dobradica='RETA'),
-             '2 portas de correr'),
-            (dict(abertura='BASCULANTE', folhas=1), '1 porta basculante'),
-            (dict(dobradica='SUPER_CURVA', folhas=1), '1 porta embutida'),
+             '2 sliding doors'),
+            (dict(abertura='BASCULANTE', folhas=1), '1 lift-up door'),
+            (dict(dobradica='SUPER_CURVA', folhas=1), '1 inset door'),
         )
         for i, (opcoes, esperado) in enumerate(casos):
             with self.subTest(esperado=esperado):
                 self.setUp()
-                conj = self.nicho('Superior %d' % i)
+                conj = self.nicho('Wall Cabinet %d' % i)
                 self.porta(conj, **opcoes)
-                self.comodo(conj, 'Sala')
+                self.comodo(conj, "Living Room")
                 bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
-                self.assertIn('### Sala\n- Superior %d\n' % i, bloco)
+                self.assertIn('### Living Room\n- Wall Cabinet %d\n' % i, bloco)
                 self.assertIn('  - %s\n' % esperado, bloco)
-                self.assertIn('  - Sem prateleiras internas\n', bloco)
+                self.assertIn('  - No internal shelves\n', bloco)
         self.setUp()
-        conj = self.nicho('Nicho')
-        self.comodo(conj, '\u00c1rea de servi\u00e7o')
+        conj = self.nicho('Niche')
+        self.comodo(conj, "Utility Area")
         bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
-        self.assertIn('### \u00c1rea de servi\u00e7o\n- Nicho\n', bloco)
-        self.assertIn('  - Sem portas\n  - Sem dobradicas\n', bloco)
-        self.assertIn('  - Sem prateleiras internas\n', bloco)
+        self.assertIn('### Utility Area\n- Niche\n', bloco)
+        self.assertIn('  - No doors\n  - No hinges\n', bloco)
+        self.assertIn('  - No internal shelves\n', bloco)
 
-    # Regressao (era BUG, corrigido na 302): o modulo da porta saia do nome
-    # gravado, que nao ganha .001 quando o mesmo preset entra duas vezes.
+    # Regression, fixed in v302: the door's cabinet came from a saved name,
+    # which does not gain .001 when the same preset is inserted twice.
     def test_porta_pertence_ao_modulo_pai_mesmo_com_nome_antigo(self):
-        a = self.nicho('Armario')
-        b = self.nicho('Armario copia', x=1.0)
+        a = self.nicho("Cabinet")
+        b = self.nicho('Cabinet Copy', x=1.0)
         self.porta(a)
         grupo = self.porta(b)
         grupo[addon.portas.CHAVE_MODULO_PORTA] = a.name
@@ -171,24 +168,24 @@ class TestOrcamento(unittest.TestCase):
         self.assertIs(addon.orcamento._modulo_do_objeto(grupo), b)
 
     def test_comodos_na_ordem_e_modulo_girado(self):
-        # Cozinha antes da Sala (ordem fixa), e o modulo girado 90 graus
-        # ainda acha a prateleira pelo referencial DELE.
+        # Kitchen before living room in fixed order; a cabinet rotated 90 degrees
+        # still finds its shelf in its own reference frame.
         sala = self.nicho('Rack', x=2.0)
-        self.comodo(sala, 'Sala')
-        cozinha = self.nicho('Torre', extras=(
-            ('Prateleira', 564.0, 300.0, 18.0, (0.0, 0.0, 200.0),
+        self.comodo(sala, "Living Room")
+        cozinha = self.nicho("Tall Cabinet", extras=(
+            ('Shelf', 564.0, 300.0, 18.0, (0.0, 0.0, 200.0),
              (0.0, 0.0, 0.0)),))
-        self.comodo(cozinha, 'Cozinha')
+        self.comodo(cozinha, "Kitchen")
         cozinha.rotation_euler.z = 1.5707963
         bpy.context.view_layer.update()
         self.assertEqual(addon.orcamento._pecas_internas(cozinha), (1, 0))
         bloco = self.bloco(addon.orcamento.orcamento_da_cena(bpy.context.scene)[0])
-        self.assertLess(bloco.index('### Cozinha'), bloco.index('### Sala'))
-        self.assertIn('- Torre\n', bloco)
-        self.assertIn('  - 1 prateleira interna\n', bloco)
+        self.assertLess(bloco.index('### Kitchen'), bloco.index('### Living Room'))
+        self.assertIn('- Tall Cabinet\n', bloco)
+        self.assertIn('  - 1 internal shelf\n', bloco)
 
     def test_cadastro_mede_geometria_girada_sem_mudar_cena(self):
-        conj = self.nicho('Gabinete')
+        conj = self.nicho("Vanity Cabinet")
         porta = self.porta(conj)
         folha = addon.portas._folhas_portas(porta)[0]
         addon.ferragens._definir_abertura(bpy.context, folha, 0.7)
@@ -207,7 +204,7 @@ class TestOrcamento(unittest.TestCase):
         self.assertEqual(antes, depois)
 
     def test_cadastro_mede_edicao_real_sem_confiar_no_campo_antigo(self):
-        conj = self.nicho('Editado')
+        conj = self.nicho('Edited')
         direita = max(addon.modulos._chapas_do_conjunto(conj),
                       key=lambda o: o.matrix_world.translation.x)
         direita.location.x += .1234
@@ -218,7 +215,7 @@ class TestOrcamento(unittest.TestCase):
         self.assertAlmostEqual(conj.conj_largura_mm, antigo)
 
     def test_contagens_atuais_ignoram_parametros_e_pecas_excluidas(self):
-        conj = addon.modulos.criar_armario(bpy.context, 'Gaveteiro', 800, 700, 560, 18)
+        conj = addon.modulos.criar_armario(bpy.context, "Drawer Unit", 800, 700, 560, 18)
         grupo = addon.gavetas.criar_gavetas(bpy.context, conj, (18,18,18,18,0),
                                            dict(quantidade=3, profundidade_mm=400))
         portas = self.porta(conj)
@@ -235,87 +232,84 @@ class TestOrcamento(unittest.TestCase):
         self.assertEqual(ficha['portas'], {'GIRO': 1})
         self.assertEqual(grupo[addon.gavetas.CHAVE_PARAMETROS]['quantidade'], 3)
         detalhes = addon.orcamento._detalhes_do_modulo(conj, {}, ficha)
-        self.assertIn('2 gavetas internas', detalhes)
+        self.assertIn('2 internal drawers', detalhes)
 
     def test_tipos_de_dobradica_e_correr_sem_dobradica(self):
         for tipo in ('RETA', 'CURVA', 'SUPER_CURVA'):
             with self.subTest(tipo=tipo):
                 self.setUp()
-                conj = self.nicho('Portas')
+                conj = self.nicho("Doors")
                 self.porta(conj, dobradica=tipo)
                 self.assertEqual(addon.orcamento.cadastro_do_modulo(conj)['dobradicas'], [tipo])
         self.setUp()
-        conj = self.nicho('Correr')
+        conj = self.nicho("Sliding")
         self.porta(conj, abertura='CORRER')
         ficha = addon.orcamento.cadastro_do_modulo(conj)
         self.assertEqual(ficha['dobradicas'], [])
         self.assertFalse(ficha['dobradicas_pendentes'])
 
     def test_materiais_usados_incluem_portas_e_ignoram_slots_sem_faces(self):
-        conj = self.nicho('Colorido')
+        conj = self.nicho('Multicolor')
         grupo = self.porta(conj)
-        mat = bpy.data.materials.new('Apelido .001')
-        mat[addon.materiais.CHAVE_MATERIAL] = 'MDP/Madeirados//Freijo'
+        mat = bpy.data.materials.new('Alias .001')
+        mat[addon.materiais.CHAVE_MATERIAL] = "MDP/Woodgrains//Freijo"
         folhas = addon.portas._folhas_portas(grupo)
         addon.materiais.aplicar([folhas[0]], mat)
-        folhas[0].data.materials.append(bpy.data.materials.new('Slot nao utilizado'))
-        nativo = bpy.data.materials.new('Laca especial')
+        folhas[0].data.materials.append(bpy.data.materials.new('Unused Slot'))
+        nativo = bpy.data.materials.new('Custom Lacquer')
         addon.materiais.aplicar([folhas[1]], nativo)
         ficha = addon.orcamento.cadastro_do_modulo(conj)
-        self.assertEqual(ficha['materiais'], ['Laca especial', 'MDF Branco TX', 'MDP Freijo'])
+        self.assertEqual(ficha['materiais'], ['Custom Lacquer', 'MDF White TX', 'MDP Freijo'])
         self.assertEqual(ficha['pecas_sem_material'], 0)
 
     def test_material_e_dobradica_ausentes_viram_pendencia(self):
-        conj = self.nicho('Incompleto')
+        conj = self.nicho('Incomplete')
         grupo = self.porta(conj)
         p = dict(grupo['porta_parametros'])
         p.pop('dobradica')
         grupo['porta_parametros'] = p
         peca = addon.modulos._chapas_do_conjunto(conj)[0]
         peca.data.materials.clear()
-        self.comodo(conj, 'Cozinha')
+        self.comodo(conj, "Kitchen")
         texto, n, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
         self.assertEqual(n, 1)
-        self.assertIn('  - 1 peca sem material\n', texto)
-        self.assertIn('  - Dobradicas: nao identificada\n', texto)
+        self.assertIn('  - 1 part without material\n', texto)
+        self.assertIn('  - Hinges: not identified\n', texto)
         self.assertEqual(pendencias, [
-            '- Cozinha, Incompleto: material nao identificado em 1 peca.',
-            '- Cozinha, Incompleto: tipo de dobradica nao identificado.'])
+            '- Kitchen, Incomplete: material not identified on 1 part.',
+            '- Kitchen, Incomplete: hinge type not identified.'])
 
     def test_pendencias_do_que_ficou_pela_metade(self):
-        # Sem comodo o modulo fica fora (todo item mora num comodo); nome
-        # automatico e chapa solta viram pendencia; sem marcenaria, o
-        # bloco Moveis some (bloco vazio nao tem cabecalho).
+        # Cabinets without a room are excluded because every item belongs in a room.
+        # Automatic names and loose panels become pending items; without cabinetry,
+        # omit the furniture block because empty blocks have no heading.
         conj = self.nicho()
         self.assertTrue(addon.orcamento.NOME_AUTOMATICO_MODULO.match(conj.name))
         bpy.ops.object.select_all(action='DESELECT')
-        addon.chapas.nova_chapa('Solta', 600.0, 400.0, 18.0, (3000.0, 0.0, 0.0),
+        addon.chapas.nova_chapa('Loose Panel', 600.0, 400.0, 18.0, (3000.0, 0.0, 0.0),
                          (0.0, 0.0, 0.0), bpy.context)
         texto, exportados, pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)
         self.assertEqual(exportados, 0)
-        self.assertNotIn('## M\u00f3veis', texto)
-        self.assertIn('## Outros\n\n### Geral\n- Limpeza geral.\n', texto)
+        self.assertNotIn("## Furniture", texto)
+        self.assertIn('## Other\n\n### General\n- General cleaning.\n', texto)
         self.assertEqual(len(pendencias), 3)
-        self.assertIn('- %s: n\u00e3o foi dito o c\u00f4modo; o m\u00f3dulo '
-                      'ficou fora do or\u00e7amento.' % conj.name, pendencias)
-        self.assertIn('- 1 chapa solta, fora de um arm\u00e1rio: n\u00e3o foi '
-                      'dito a qual m\u00f3dulo pertence; ficou fora do '
-                      'or\u00e7amento.', pendencias)
+        self.assertIn("- %s: the room was not specified; the cabinet was excluded from the estimate." % conj.name, pendencias)
+        self.assertIn('- 1 loose panel, outside a cabinet: the cabinet was not specified; '
+                      'excluded from the estimate.', pendencias)
         self.assertTrue(texto.endswith(
-            '\n```\n\nPend\u00eancias\n' + '\n'.join(pendencias)
-            + '\n\nQuer atualizar algum destes antes de eu refazer o '
-            'or\u00e7amento?\n'))
-        # com o comodo, o nome automatico continua cobrado, pelo comodo
-        self.comodo(conj, 'Quarto')
+            '\n```\n\nPending items\n' + '\n'.join(pendencias)
+            + "\n\nWould you like to update any of these before I rebuild the estimate?\n"))
+        # Even with a room assigned, an automatic name remains pending under that room.
+        self.comodo(conj, "Bedroom")
         pendencias = addon.orcamento.orcamento_da_cena(bpy.context.scene)[2]
-        self.assertIn('- Quarto, %s: n\u00e3o foi dito que m\u00f3dulo \u00e9 '
-                      '(o nome do grupo ainda \u00e9 o autom\u00e1tico).'
+        self.assertIn('- Bedroom, %s: the cabinet type was not specified '
+                      '(the group still has its automatic name).'
                       % conj.name, pendencias)
 
     def test_comodo_na_aba_modulos_e_uma_linha_que_expande(self):
-        # Pedido do usuario: a grade fixa ocupava a aba. Fechada, UMA
-        # linha; aberta, os comodos, os ja' digitados, "Sem comodo" (se ha'
-        # um) e "Outro nome...". Vale para todos os modulos selecionados.
+        # User request: the fixed grid occupied the tab. Collapsed, use one row;
+        # expanded, list rooms, previously entered names, an unassigned entry if needed,
+        # and a custom-name option. Apply to all selected cabinets.
         a = self.nicho('A')
         b = self.nicho('B', x=2.0)
         tela = bpy.context.screen
@@ -335,8 +329,8 @@ class TestOrcamento(unittest.TestCase):
                 'suspenso', addon.orcamento.SUSPENSO_COMODO)]
         bpy.ops.object.select_all(action='DESELECT')
         bpy.context.view_layer.objects.active = None
-        self.assertEqual(campo(), [])               # sem modulo, sem comodo
-        # chapa de A + folha da porta de B: os dois modulos
+        self.assertEqual(campo(), [])               # No cabinet means no room.
+        # Panel from A plus door leaf from B: both cabinets.
         chapa = addon.modulos._chapas_do_conjunto(a)[0]
         folha = addon.portas._folhas_portas(self.porta(b))[0]
         bpy.ops.object.select_all(action='DESELECT')
@@ -344,42 +338,43 @@ class TestOrcamento(unittest.TestCase):
         folha.select_set(True)
         bpy.context.view_layer.objects.active = chapa
         (fechado,) = campo()
-        self.assertEqual(fechado[4], 'Comodo: (nenhum)')
-        self.assertEqual(lista(), [])               # fechada: uma linha so'
+        self.assertEqual(fechado[4], 'Room: (none)')
+        self.assertEqual(lista(), [])               # Collapsed: a single row.
         tela[addon.gaveta._CHAVE_SUSPENSO] = addon.orcamento.SUSPENSO_COMODO
         self.assertEqual([e[2] for e in lista()],
                          [*addon.orcamento.COMODOS, addon.orcamento.COMODO_OUTRO])
-        self.assertEqual(bpy.ops.object.cabinet_definir_comodo(nome='Sacada'),
+        self.assertEqual(bpy.ops.object.cabinet_definir_comodo(nome="Balcony"),
                          {'FINISHED'})
         for conj in (a, b):
             self.assertEqual(addon.orcamento._nome_comodo(addon.orcamento._comodo_do_modulo(conj)),
-                             'Sacada')
-        self.assertEqual(campo()[0][4], 'Comodo: Sacada')
-        self.assertEqual([e[2] for e in lista() if e[3]], ['Sacada'])
+                             "Balcony")
+        self.assertEqual(campo()[0][4], 'Room: Balcony')
+        self.assertEqual([e[2] for e in lista() if e[3]], ["Balcony"])
         self.assertIn(addon.orcamento.COMODO_NENHUM, [e[2] for e in lista()])
-        # "Outro nome...": o campo da caixa preta, logo abaixo da linha
+        # The custom-name choice opens a black-box field immediately below the row.
         addon.orcamento._abrir_caixa_comodo(bpy.context)
         self.addCleanup(addon.perguntas._pergunta_atual.__setitem__, 0, None)
         self.addCleanup(addon.solda._nome_grupo_gaveta.__setitem__, 0, None)
         caixa = [v for v in widgets() if v[5][0] == 'pergunta']
         self.assertEqual(len(caixa), 1)
-        self.assertTrue(caixa[0][4].startswith('Nome do comodo: '))
+        self.assertTrue(caixa[0][4].startswith('Room name: '))
         self.assertLess(caixa[0][1], campo()[0][1])
+        # Keep the legacy synonym as input to preserve normalization coverage.
         addon.solda._nome_grupo_gaveta[0]['texto'] = 'Varanda'
         self.assertEqual(bpy.ops.object.cabinet_definir_comodo(digitado=True),
                          {'FINISHED'})
         self.assertIsNone(addon.perguntas._pergunta_atual[0])
-        # Varanda e' Sacada (regra do prompt): a mesma pasta
+        # The legacy synonym resolves to the same Balcony folder.
         self.assertEqual([c.name for c in bpy.data.collections
-                          if c.get(addon.orcamento.MARCA_COLECAO_COMODO)], ['Sacada'])
+                          if c.get(addon.orcamento.MARCA_COLECAO_COMODO)], ["Balcony"])
         addon.orcamento._abrir_caixa_comodo(bpy.context)
-        addon.solda._nome_grupo_gaveta[0]['texto'] = 'Quarto do Joao'
+        addon.solda._nome_grupo_gaveta[0]['texto'] = "John's Bedroom"
         self.assertTrue(addon.orcamento._confirmar_campo_gaveta(
             addon.solda._nome_grupo_gaveta[0]))
         self.assertEqual([e[2] for e in lista()][-3:],
-                         ['Quarto do Joao', addon.orcamento.COMODO_NENHUM,
+                         ["John's Bedroom", addon.orcamento.COMODO_NENHUM,
                           addon.orcamento.COMODO_OUTRO])
-        # Sem comodo: a Collection volta a' raiz e as pastas vazias somem
+        # Unassigned room: return the Collection to the root and remove empty folders.
         bpy.ops.object.cabinet_definir_comodo(nome=addon.orcamento.COMODO_NENHUM)
         cena = bpy.context.scene
         for conj in (a, b):
@@ -389,13 +384,13 @@ class TestOrcamento(unittest.TestCase):
                           if c.get(addon.orcamento.MARCA_COLECAO_COMODO)])
 
     def test_comodo_e_pasta_no_outliner(self):
-        # Outliner: Cozinha > Armario > chapas e porta. A pasta e' a fonte:
-        # arrastar o armario para outra pasta muda o orcamento.
+        # Outliner: Kitchen > Cabinet > panels and door. The folder is authoritative:
+        # dragging the cabinet to another folder changes its estimate assignment.
         conj = self.nicho(INFERIOR)
         self.porta(conj)
-        self.comodo(conj, 'Cozinha')
+        self.comodo(conj, "Kitchen")
         cena = bpy.context.scene
-        pasta = cena.collection.children['Cozinha']
+        pasta = cena.collection.children["Kitchen"]
         self.assertTrue(pasta.get(addon.orcamento.MARCA_COLECAO_COMODO))
         colecao = addon.modulos._colecao_do_modulo(conj)
         self.assertEqual(list(pasta.children), [colecao])
@@ -403,41 +398,41 @@ class TestOrcamento(unittest.TestCase):
         self.assertEqual(set(pasta.all_objects), set(colecao.all_objects))
         self.assertIn(addon.portas._portas_do_conjunto(conj)[0].name,
                       colecao.all_objects)
-        # o usuario arrasta para uma pasta "Sala" do Outliner
-        sala = bpy.data.collections.new('Sala')
+        # The user drags it into a living-room Outliner folder.
+        sala = bpy.data.collections.new("Living Room")
         sala[addon.orcamento.MARCA_COLECAO_COMODO] = 1
         cena.collection.children.link(sala)
         sala.children.link(colecao)
         pasta.children.unlink(colecao)
         bloco = self.bloco(addon.orcamento.orcamento_da_cena(cena)[0])
-        self.assertIn('### Sala\n- ' + INFERIOR, bloco)
-        self.assertNotIn('### Cozinha', bloco)
+        self.assertIn('### Living Room\n- ' + INFERIOR, bloco)
+        self.assertNotIn('### Kitchen', bloco)
 
     def test_armario_antigo_sem_collection_ganha_a_dele(self):
-        # Antes do v168 o modulo nao tinha Collection: so' ela entra na
-        # pasta, entao ela nasce aqui (com o mesmo nome do Empty).
-        conj = self.nicho('Antigo')
+        # Before v168, cabinets had no Collection. Since only Collections can enter
+        # the folder, create one here with the Empty's name.
+        conj = self.nicho('Legacy')
         colecao = addon.modulos._colecao_do_modulo(conj)
         for o in [conj, *conj.children_recursive]:
             bpy.context.scene.collection.objects.link(o)
             colecao.objects.unlink(o)
         bpy.data.collections.remove(colecao)
         self.assertIsNone(addon.modulos._colecao_do_modulo(conj))
-        self.comodo(conj, 'Copa')
+        self.comodo(conj, "Dining Room")
         colecao = addon.modulos._colecao_do_modulo(conj)
         self.assertEqual(colecao.name, conj.name)
         self.assertIn(colecao.name,
-                      bpy.context.scene.collection.children['Copa'].children)
+                      bpy.context.scene.collection.children["Dining Room"].children)
 
-    def arquivo(self, nome='Orcamento.txt'):
+    def arquivo(self, nome='Estimate.txt'):
         pasta = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, pasta, True)
         return os.path.join(pasta, nome)
 
     def test_gerar_mostra_o_resultado_nas_opcoes(self):
-        # "Copiar e nada acontece": o relatorio so' ia para a barra de
-        # status. O botao (no fim das Opcoes) acende e diz o que fez; as
-        # pendencias ficam a' vista numa caixa preta logo abaixo.
+        # User report: copying appeared to do nothing because feedback only reached
+        # the status bar. The button at the bottom of Options now highlights and reports
+        # its result; pending items remain visible in a black box immediately below.
         self.nicho()
         tela = bpy.context.screen
         bpy.ops.object.cabinet_opcoes_gaveta()
@@ -451,12 +446,12 @@ class TestOrcamento(unittest.TestCase):
         (botao,) = [v for v in rodape
                     if v[5][:2] == ('operador', addon.orcamento.OP_EXPORTAR_ORCAMENTO)]
         self.assertTrue(botao[5][2])
-        self.assertTrue(botao[4].startswith('Salvo: 0 modulo(s)'))
+        self.assertTrue(botao[4].startswith('Saved: 0 cabinet(s)'))
         caixa = [v for v in rodape if v[5][0] == 'pergunta']
         self.assertEqual(len(caixa), 1)
-        self.assertTrue(caixa[0][4].startswith('Pendencias:\n'))
+        self.assertTrue(caixa[0][4].startswith('Pending items:\n'))
         self.assertLess(caixa[0][1], botao[1])
-        # tudo dentro do painel, que sobe a partir da engrenagem
+        # Keep everything inside the panel, expanding upward from the gear icon.
         painel = addon.gaveta._retangulo_painel_opcoes(rodape)
         self.assertGreaterEqual(caixa[0][1], painel[1])
         self.assertTrue(bpy.app.timers.is_registered(
@@ -465,26 +460,26 @@ class TestOrcamento(unittest.TestCase):
         self.assertIsNone(addon.orcamento._orcamento_gerado[0])
 
     def test_operador_salva_o_txt(self):
-        # Pedido do usuario: "Salvar como" e um .txt que o Bloco de Notas
-        # abre, com o mesmo texto do padrao da empresa (acentos em UTF-8)
-        conj = self.nicho('Gabinete')
-        self.comodo(conj, 'Banheiro')
+        # User request: Save As produces a .txt readable in Notepad, using the company's
+        # exact text format with UTF-8 accents.
+        conj = self.nicho("Vanity Cabinet")
+        self.comodo(conj, "Bathroom")
         self.addCleanup(addon.orcamento._orcamento_gerado.__setitem__, 0, None)
-        caminho = self.arquivo('Obra da Ana')       # sem extensao: ganha .txt
+        caminho = self.arquivo('Renovation - Zo\u00eb')  # Preserve UTF-8 filename coverage.
         self.assertEqual(bpy.ops.object.cabinet_exportar_orcamento(
             filepath=caminho), {'FINISHED'})
         with open(caminho + '.txt', encoding='utf-8') as f:
             salvo = f.read()
         self.assertEqual(salvo, addon.orcamento.orcamento_da_cena(
             bpy.context.scene)[0])
-        self.assertIn('### Banheiro\n- Gabinete\n', salvo)
+        self.assertIn('### Bathroom\n- Vanity Cabinet\n', salvo)
         self.assertEqual(addon.orcamento._orcamento_gerado[0]['arquivo'],
-                         'Obra da Ana.txt')
-        # pasta que nao existe: avisa e nao finge que salvou
+                         'Renovation - Zo\u00eb.txt')
+        # For a nonexistent directory, warn rather than claiming success.
         addon.orcamento._orcamento_gerado[0] = None
         with self.assertRaises(RuntimeError):
             bpy.ops.object.cabinet_exportar_orcamento(
-                filepath=os.path.join(caminho, 'nao', 'existe.txt'))
+                filepath=os.path.join(caminho, 'not', 'found.txt'))
         self.assertIsNone(addon.orcamento._orcamento_gerado[0])
 
     def test_nome_sugerido_fica_ao_lado_do_blend(self):
@@ -500,4 +495,4 @@ suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestOrcamento)
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de orcamento')
+    raise RuntimeError("Estimate tests failed")

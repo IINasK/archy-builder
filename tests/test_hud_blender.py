@@ -1,4 +1,4 @@
-"""Execute no Blender: --background --factory-startup --python-exit-code 1 --python tests/test_hud_blender.py."""
+"""Run Blender with --background --factory-startup --python-exit-code 1 --python tests/test_hud_blender.py."""
 import inspect
 import json
 import os
@@ -18,7 +18,7 @@ import archy_builder as addon
 
 
 class _ContextoRegiao:
-    """bpy.context com uma regiao fixa (o clique guarda estado por ela)."""
+    """Provide bpy.context with a fixed region; click state is stored per region."""
     region = SimpleNamespace(as_pointer=lambda: 4242)
 
     def __getattr__(self, nome):
@@ -162,7 +162,7 @@ class TestHUD(unittest.TestCase):
 
     def test_qualidade_ancoras_piloto_prioriza_zero_rejeita_vertices_e_quinas_repetidas(self):
         def par(origem,alvo,p,q):
-            return dict(origem='Lateral',destino='Corpo',assinatura=origem,alvo=alvo,
+            return dict(origem='Lateral',destino="Body",assinatura=origem,alvo=alvo,
                 ponto=p,final=q,distancia=(Vector(p)-Vector(q)).length,raio=.01805)
         bons=[par(str(k),str(k),p,p) for k,p in enumerate(((0,0,0),(0,0,1),(0,1,0),(0,1,1)))]
         ruins=[par('0','extra',(0,0,0),(.1,0,0)),par('perto','perto',(0,0,.018),(0,0,.018))]
@@ -172,7 +172,7 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(all(c['distancia']==0 for c in r['aceitas']))
         inversos=[dict(c,origem=c['destino'],destino=c['origem'],assinatura=c['alvo'],alvo=c['assinatura'],ponto=c['final'],final=c['ponto']) for c in bons]
         self.assertEqual(len(addon.solda._refinar_candidatos_ancoras(bons+inversos)['aceitas']),1)
-        # O limite e' por par de objetos; a mesma quina pode atender outro destino.
+        # The limit is per object pair; the same corner can serve another destination.
         outro=dict(bons[0],destino='Outra peca')
         self.assertEqual(len(addon.solda._refinar_candidatos_ancoras([bons[0],outro])['aceitas']),2)
 
@@ -355,7 +355,7 @@ class TestHUD(unittest.TestCase):
             _regiao=SimpleNamespace(x=0,y=0),_w=w,_na_viewport=lambda e:True)
         evento=SimpleNamespace(type='LEFTMOUSE',value='PRESS',ctrl=False,alt=True,mouse_x=10,mouse_y=10)
         with patch.object(s,'_bolinha_sob_mouse',return_value=({'indice':0},'b')):
-            # O override usa a VIEW_3D real; nao abre janela nem simula gestos.
+            # The override uses the real VIEW_3D without opening a window or simulating gestures.
             op._area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
             op._regiao=next(r for r in op._area.regions if r.type=='WINDOW')
             with patch.object(addon.gavetas.AssistenteDoVao,'_iniciar_snap_nativo') as nativo:
@@ -435,8 +435,8 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(alvo[:2],(o,'v0'))
 
     def test_raio_da_vista_local_ignora_objeto_oculto_diante_do_modulo(self):
-        # Regressao v343: o raio via a parede externa e o clique nativo
-        # acabava isolando a chapa que aparecia na vista local do usuario.
+        # Regression v343: the ray saw the outer wall and native clicking isolated
+        # the panel visible in the user's local view.
         modulo = self.modulo()
         topo = max(addon.modulos._chapas_do_conjunto(modulo),
                    key=lambda o: o.matrix_world.translation.z)
@@ -487,12 +487,12 @@ class TestHUD(unittest.TestCase):
         q=addon.solda._vertice_da_assinatura(n,'v1')
         addon.solda._conexao_pendente[0]=dict(origem=c.name,alvos=[('v0',tuple(q))],
             pecas=[n.name],pares=[('v0',n.name,'v1')])
-        addon.perguntas._pergunta_atual[0]=dict(texto='Juntar ao modulo?',na_gaveta=True,
-            opcoes=[('Sim','CHECKMARK','object.cabinet_juntar_modulo',dict(juntar=True))])
+        addon.perguntas._pergunta_atual[0]=dict(texto="Join the cabinet?",na_gaveta=True,
+            opcoes=[("Yes",'CHECKMARK','object.cabinet_juntar_modulo',dict(juntar=True))])
         self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=0),{'FINISHED'})
 
     def test_soldar_novamente_reconhece_colecao_importada_sem_marca(self):
-        # Regressao v271: o preset tem Collection, mas sem eh_colecao_modulo.
+        # Regression v271: the preset has a Collection but no eh_colecao_modulo.
         modulo,colecao,c,n=self._nova_solda_legada()
         nome=modulo.name;antes=[c.matrix_world@v.co for v in c.data.vertices]
         locais=[tuple(v.co) for v in c.data.vertices];me=c.data
@@ -507,7 +507,7 @@ class TestHUD(unittest.TestCase):
         self.assertIs(addon.modulos._colecao_do_modulo(modulo),colecao)
 
     def test_nova_solda_recupera_parentesco_parcial_de_tentativa_que_falhou(self):
-        # Regressao v271: o erro ja' tinha religado o pai, deixando a peca na raiz.
+        # Regression v271: the error had already restored the parent, leaving the part at the root.
         modulo,colecao,c,n=self._nova_solda_legada(parcial=True)
         mundo=c.matrix_world.copy();self._confirmar_nova_solda(c,n)
         self.assertIs(addon.modulos._colecao_do_modulo(modulo),colecao)
@@ -515,7 +515,7 @@ class TestHUD(unittest.TestCase):
         for a,b in zip(mundo,c.matrix_world):self.assertLess((a-b).length,1e-6)
 
     def test_solda_sem_colecao_propria_cria_montagem_sem_tomar_itens_alheios(self):
-        # Regressao v271: Empty antigo pode estar numa pasta compartilhada.
+        # Regression v271: an old Empty can belong to a shared folder.
         modulo,compartilhada,c,n=self._nova_solda_legada()
         extra=bpy.data.objects.new('Item alheio',None);compartilhada.objects.link(extra)
         nome_antigo=compartilhada.name
@@ -557,7 +557,7 @@ class TestHUD(unittest.TestCase):
             c=None;colecao=None
 
     def test_alt_corrente_desvincula_lateral_ativa_e_nao_a_base(self):
-        # Regressao v270: a base guardava a solda, mas a selecionada era a lateral.
+        # Regression v270: the base stored the weld, but the side panel was selected.
         from unittest.mock import patch
         modulo=self.modulo();chapas=addon.modulos._chapas_do_conjunto(modulo)
         lateral=max(chapas,key=lambda o:o.matrix_world.translation.x)
@@ -580,7 +580,7 @@ class TestHUD(unittest.TestCase):
         self.assertLess(addon.modulos.medir_conjunto(modulo)[0],601)
 
     def test_gizmo_corrente_desvincula_o_mesmo_alvo_que_a_regua(self):
-        # Regressao v270: o gizmo usava o dono do registro em vez da peca ativa.
+        # Regression v270: the gizmo used the record owner instead of the active part.
         from unittest.mock import patch
         modulo,base,tampo,lateral=self.caixote_aberto()
         addon.hud._selecionar_chapa_hud(bpy.context,lateral,individual=True)
@@ -596,8 +596,8 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(all(op.chapa==lateral.name for op in operadores))
 
     def test_gizmo_da_solda_reutiliza_operadores_ao_redesenhar_e_trocar_chapa(self):
-        # Regressao (era BUG, corrigido na 348): redraw religava o operador
-        # sob o mouse e invalidava os dados do tooltip do gizmo nativo.
+        # Regression, fixed in v348: redraw rebound the operator under the mouse,
+        # invalidating the native gizmo's tooltip data.
         modulo, base, tampo, lateral = self.caixote_aberto()
         corrente = dict(a=base, b=lateral, movel=lateral, meio=Vector((100,100)))
         ligados = []
@@ -643,7 +643,7 @@ class TestHUD(unittest.TestCase):
         modulo=self.modulo()
         prateleiras=addon.prateleiras.criar_prateleiras(bpy.context,modulo,(18,18,18,18,0),
             dict(quantidade=2,espessura_mm=18,profundidade_mm=280))
-        # Exercita tambem uma referencia de resize criada ANTES da separacao.
+        # Also exercise a resize reference created before detachment.
         modulo.conj_largura_mm=650;bpy.context.view_layer.update()
         chapas=addon.modulos._chapas_do_conjunto(modulo)
         lateral=max(chapas,key=lambda o:o.matrix_world.translation.x)
@@ -668,7 +668,7 @@ class TestHUD(unittest.TestCase):
 
     def test_hud_e_menu_redimensionam_so_o_modulo_apos_desvincular(self):
         modulo,lateral,prateleiras=self._modulo_com_lateral_desvinculada()
-        # Escolha original do nicho 600x400, antes de ampliar/desvincular.
+        # Original 600x400 niche choice, before enlarging and unlinking.
         limite_internos=(564.,364.)
         mundo=lateral.matrix_world.copy();me=lateral.data;vertices=[tuple(v.co) for v in me.vertices]
         for caminho in ('hud','menu'):
@@ -691,10 +691,10 @@ class TestHUD(unittest.TestCase):
                         for a,b in zip(mundo,lateral.matrix_world):self.assertLess((a-b).length,1e-6)
                         largura,altura,_matriz=addon.prateleiras.vao(prateleiras)
                         esperado=addon.modulos.medir_conjunto(modulo)
-                        # v288: o vao conserva a escolha, nao cresce com a caixa.
+                        # v288: the opening retains its chosen extent rather than growing with the box.
                         self.assertLessEqual(largura,min(limite_internos[0],esperado[0])+.05)
                         self.assertLessEqual(altura,min(limite_internos[1],esperado[1])+.05)
-        # Mover a peca ja' solta de novo nao muda nem o vao nem a HUD do grupo.
+        # Moving an already detached part again changes neither the opening nor group HUD.
         antes=addon.modulos.medir_conjunto(modulo)
         lateral.location.x+=2;bpy.context.view_layer.update()
         for a,b in zip(antes,addon.modulos.medir_conjunto(modulo)):self.assertAlmostEqual(a,b,places=3)
@@ -723,7 +723,7 @@ class TestHUD(unittest.TestCase):
         o=self._chapa_com_deslocamento();n=self._chapa_com_deslocamento()
         n.location+=Vector((.43,.17,.08));bpy.context.view_layer.update()
         ancoras=[('v0','v3'),('v2','v5')] if varios else [('v0','v3')]
-        # O legado precisa continuar legivel, embora o cadastro novo aceite um so par.
+        # Legacy data must remain readable, although new registrations accept only one pair.
         s=addon.solda
         addon.chapas._gravar_ligacao(o,'x','pos',n,0.,0)
         o['adj_x_pos_folga']=s._folga_com_sinal(o,'x_pos',n)[0]
@@ -939,7 +939,7 @@ class TestHUD(unittest.TestCase):
         a='v0';b=addon.solda._parceiro_espessura(o,a)
         alvos=[(a,addon.solda._vertice_da_assinatura(o,a)+Vector((.1,0,0))),
                (b,addon.solda._vertice_da_assinatura(o,b)+Vector((.2,0,0)))]
-        with self.assertRaisesRegex(ValueError,'espessura'):addon.solda._puxar_por_pares(o,alvos)
+        with self.assertRaisesRegex(ValueError,'thickness'):addon.solda._puxar_por_pares(o,alvos)
         self.assertEqual(antes,[tuple(v.co) for v in o.data.vertices])
 
     def test_parceiro_de_espessura_nao_depende_do_sinal_do_Z(self):
@@ -1024,13 +1024,13 @@ class TestHUD(unittest.TestCase):
         for linha in [l for l in geo['linhas'] if not l.get('angulo') and l['tipo']!='deslocamento']:
             a,b=linha['pontos']
             erro=min(min((a-p).length+(b-q).length,(a-q).length+(b-p).length) for p,q in segmentos)
-            self.assertLess(erro,1e-6,'Contorno fora da madeira: '+str(linha))
+            self.assertLess(erro,1e-6,"Outline outside the wood: "+str(linha))
         for linha in bordas:
             self.assertAlmostEqual(addon.hud._valor_hud(linha),(linha['pontos'][1]-linha['pontos'][0]).length*1000,places=3)
         return geo
 
     def test_chapa_quadrada_torcida_nao_usa_caixa_plana(self):
-        # Regressao v267: a HUD flutuava fora da lateral real de oito vertices.
+        # Regression v267: the HUD floated outside the actual eight-vertex side panel.
         o=addon.chapas.nova_chapa('Lateral torcida',550,720,15,(0,0,0),(90,0,90),bpy.context)
         for v in o.data.vertices:
             if v.co.x<0 and v.co.y<0:v.co.z-=.194569
@@ -1069,17 +1069,17 @@ class TestHUD(unittest.TestCase):
             if linha.get('angulo') or linha['tipo']=='deslocamento':continue
             a,b=linha['pontos']
             erro=min(min((a-p).length+(b-q).length,(a-q).length+(b-p).length) for p,q in arestas)
-            self.assertLess(erro,1e-6,'Cota fora da chapa apos Tab: '+str(linha))
+            self.assertLess(erro,1e-6,"Dimension outside the panel after Tab: "+str(linha))
             if linha['tipo']=='aresta':
                 self.assertAlmostEqual(addon.hud._valor_hud(linha),(b-a).length*1000,places=3)
         return geo
 
-    # Regressao (era BUG, corrigido na 380): Tab de uma pele projetava a outra.
+    # Regression, fixed in v380: Tab on one skin projected the other.
     def test_tab_em_canto_da_chapa_plana_mantem_cotas_nas_arestas_reais(self):
         self._conferir_cotas_na_malha(self._chapa_com_pele_editada_por_tab())
 
     def _moldura_afinada_para_fechamento(self,registrar_tab=True,fator=.1,guardar_undo=False):
-        grupo=bpy.data.objects.new('Porta com moldura',None)
+        grupo=bpy.data.objects.new("Framed Door",None)
         bpy.context.scene.collection.objects.link(grupo)
         grupo[addon.chapas.MARCA_PORTAS]=1
         grupo['porta_parametros']=dict(moldura_mm=15.,largura_mm=649.,altura_mm=2531.)
@@ -1100,7 +1100,7 @@ class TestHUD(unittest.TestCase):
         bpy.context.view_layer.update()
         return o,grupo
 
-    # Regressao (era BUG, corrigido na 381): moldura conservava caixa de 649 mm.
+    # Regression, fixed in v381: the frame retained its 649 mm box.
     def test_tab_afina_moldura_gira_vertical_e_hud_acompanha_malha(self):
         o,grupo=self._moldura_afinada_para_fechamento()
         malha=o.data;mundo=[o.matrix_world@v.co for v in malha.vertices]
@@ -1114,7 +1114,7 @@ class TestHUD(unittest.TestCase):
         self.assertIs(o.data,malha)
         for p,v in zip(mundo,malha.vertices):self.assertLess((p-o.matrix_world@v.co).length,1e-6)
 
-    # Regressao (era BUG, corrigido na 381): cena antiga nao tinha transicao Tab.
+    # Regression, fixed in v381: an old scene had no Tab transition.
     def test_moldura_ja_editada_corrige_limites_no_timer_sem_novo_tab(self):
         o,grupo=self._moldura_afinada_para_fechamento(registrar_tab=False)
         addon.chapas._chapas_em_edicao.clear()
@@ -1490,10 +1490,10 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(len(itens),3)
 
     def test_otimizacao_de_adjacencia_tira_quinas_falsas_e_preserva_ancoras_manuais(self):
-        c=addon.modulos.criar_armario(bpy.context,'Conexoes',600,700,550,fundo=False)
+        c=addon.modulos.criar_armario(bpy.context,"Connectors",600,700,550,fundo=False)
         cs=addon.modulos._chapas_do_conjunto(c)
         base=next(o for o in cs if o.name.startswith('Base'))
-        lateral=min((o for o in cs if o.name.startswith('Lateral')),key=lambda o:o.matrix_world.translation.x)
+        lateral=min((o for o in cs if o.name.startswith(('Left Side', 'Right Side'))),key=lambda o:o.matrix_world.translation.x)
         addon.chapas._gravar_ligacao(base,'y','neg',lateral,0,0)
         self.assertIsNone(addon.chapas._melhor_vizinho(base,'y','neg',[lateral]))
         addon.solda._gravar_ancoras(base,'x_neg',[('---','+++')])
@@ -1522,7 +1522,7 @@ class TestHUD(unittest.TestCase):
         return modulo
 
     def test_delete_com_referencia_id_nao_poem_orfao_na_selecao_ou_tab(self):
-        # Regressao (era BUG, corrigido na 369): children_recursive inclui ID sem cena.
+        # Regression, fixed in v369: children_recursive includes IDs outside the scene.
         modulo = self.modulo()
         peca, outra = addon.modulos._chapas_do_conjunto(modulo)[:2]
         nome = peca.name
@@ -1606,7 +1606,7 @@ class TestHUD(unittest.TestCase):
             esperado = sum((p for i, p in enumerate(geo['cantos'])
                            if bool(i & (1 << eixo)) == bool(face)), Vector()) / 4
             self.assertLess((controle['pontos'][1] - esperado).length, 1e-7)
-        # Projecao obliqua separa os seis centros, incluindo frente/costas.
+        # Oblique projection separates all six centers, including front and back.
         projetar = lambda p: Vector((p.x * 500 + p.y * 180, p.z * 500 + p.y * 90))
         for c in controles:
             alvo = addon.hud._acertar_linhas_hud(geo, projetar(c['pontos'][1]), projetar)
@@ -1645,7 +1645,7 @@ class TestHUD(unittest.TestCase):
 
     def test_menu_tem_controles_ligado_desligado_para_bolinhas_e_guias(self):
         for nome in ('hud_pontos_apoio','hud_setas_quinas'):
-            self.assertEqual(addon.gaveta.SUSPENSOS_OPCOES[nome],((True,'Ligado'),(False,'Desligado')))
+            self.assertEqual(addon.gaveta.SUSPENSOS_OPCOES[nome],((True,"On"),(False,"Off")))
             self.assertIn(nome,[linha[2] for linha in addon.gaveta.LINHAS_OPCOES])
             self.assertTrue(addon.opcoes.ArchyBuilderPreferences.bl_rna.properties[nome].default)
 
@@ -1684,8 +1684,8 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(chapa.select_get())
 
     def test_volume_base_snap_apos_arraste_preserva_geometria_atual_em_todos_os_eixos(self):
-        # Regressao v290: a base pertence a' posicao em que B foi apertado.
-        # O cursor nativo volta ao inicio, mas a madeira nao pode voltar.
+        # Regression v290: the base belongs to the position where B was pressed.
+        # The native cursor returns to its start, but the panel must not return.
         modulo=self.modulo()
         originais={o.name:[o.matrix_world@v.co for v in o.data.vertices]
                    for o in modulo.children_recursive if o.type=='MESH'}
@@ -1709,9 +1709,9 @@ class TestHUD(unittest.TestCase):
                             obj=bpy.data.objects[nome]
                             for v,p in zip(obj.data.vertices,pontos):
                                 self.assertLess((obj.matrix_world@v.co-p).length,1e-6)
-                        # O Blender restaura o cursor e aplica destino-base.
-                        # Aqui o deslocamento e' conhecido; o translate real
-                        # verifica a referencia sem simular picking por Python.
+                        # Blender restores the cursor and applies destination minus base.
+                        # Here displacement is known; real translation checks the reference
+                        # without simulating picking in Python.
                         bpy.context.scene.cursor.location=inicio
                         addon.hud_volume.atualizar(ctx)
                         self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+40,delta=.01)
@@ -1748,7 +1748,7 @@ class TestHUD(unittest.TestCase):
             with patch.object(addon.hud_volume,'_remover_observador') as limpar:
                 self.assertEqual(obs.modal(operador,ctx,evento),{'FINISHED','PASS_THROUGH'})
                 limpar.assert_called_once()
-            # Usa o matcher NATIVO, inclusive com o atalho remapeado.
+            # Use the native matcher, including when its shortcut is remapped.
             matcher=Mock(return_value=object())
             mapa=SimpleNamespace(keymap_items=SimpleNamespace(match_event=matcher))
             with patch.object(addon.hud_volume,'_mapa_eventos_snap',return_value=mapa):
@@ -1786,7 +1786,7 @@ class TestHUD(unittest.TestCase):
                 self.assertEqual(classe.invoke(op,contexto,None),{'RUNNING_MODAL'})
             self.assertIs(addon.hud_volume._timer_observador[0],timer)
             wm.modal_handler_add.assert_called_once_with(op)
-            # O operador guarda so' o identificador da sessao, nunca IDs.
+            # The operator stores only the session identifier, never IDs.
             self.assertFalse(addon._segura_dado(op.__dict__))
             remover=Mock()
             api=SimpleNamespace(context=SimpleNamespace(window_manager=SimpleNamespace(
@@ -1806,8 +1806,8 @@ class TestHUD(unittest.TestCase):
             'EDIT_SNAP_SOURCE_ON','EDIT_SNAP_SOURCE_OFF'}]
         criados=[]
         if not itens:
-            # --background cria o mapa modal nativo, mas nao carrega o
-            # preset Python dos atalhos. Completar somente esta fixture.
+            # Background mode creates the native modal map but does not load the Python
+            # shortcut preset. Complete only this fixture.
             criados=[origem.keymap_items.new_modal(p,'B','PRESS') for p in
                      ('EDIT_SNAP_SOURCE_ON','EDIT_SNAP_SOURCE_OFF')]
             itens=criados
@@ -1823,8 +1823,8 @@ class TestHUD(unittest.TestCase):
             self.assertEqual([tuple(getattr(i,p,None) for p in v._CAMPOS_EVENTO)
                               for i in mapa.keymap_items],antes)
             self.assertFalse(addon._segura_dado(v._assinatura_mapa_snap[0]))
-            # Remapeamento durante a sessao atualiza o espelho sem editar
-            # o mapa original. A fixture e' o factory-startup do harness.
+            # Remapping during the session updates the mirror without editing the original
+            # map. The fixture uses the harness's factory-startup state.
             itens[0].type='V' if tipo!='V' else 'B'
             atualizado=v._mapa_eventos_snap(bpy.context)
             self.assertEqual(atualizado.keymap_items[0].type,itens[0].type)
@@ -1874,14 +1874,14 @@ class TestHUD(unittest.TestCase):
                for o in modulo.children_recursive if o.type=='MESH'}
         try:
             for delta,total in ((.04,40),(.02,60),(-.01,50)):
-                # B deve absorver o cursor mesmo antes do tique de previa.
+                # B must absorb the cursor even before the preview tick.
                 bpy.context.scene.cursor.location=inicio+eixo*delta
                 addon.hud_volume.preparar_base_snap(ctx)
                 self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
                 bpy.context.scene.cursor.location=inicio
                 addon.hud_volume.atualizar(ctx)
                 self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
-                # O segundo B confirma a mesma base, sem duplicar o gap.
+                # The second B confirms the same base without duplicating the gap.
                 addon.hud_volume.preparar_base_snap(ctx)
                 addon.hud_volume.atualizar(ctx)
                 self.assertAlmostEqual(addon.hud._valor_hud(c,ctx),original+total,delta=.02)
@@ -1926,7 +1926,7 @@ class TestHUD(unittest.TestCase):
             ctx, c, _ = self._volume_preparar(grupo, 'PRATELEIRAS', 2, lado)
             s = addon.hud_volume._estado[0]
             bpy.context.scene.cursor.location = Vector(s['inicio']) + Vector(s['eixo']) * deslocamento
-            # Confirmacao da macro aplica o ultimo movimento mesmo sem tique de timer.
+            # Macro confirmation applies the last movement even without a timer tick.
             self.assertEqual(bpy.ops.object.cabinet_confirmar_volume(), {'FINISHED'})
         self.assertAlmostEqual(p.medidas(grupo)[1], altura - 218, places=2)
         self.assertAlmostEqual(grupo[p.CHAVE_MARGENS][2], 200, places=2)
@@ -2112,8 +2112,8 @@ class TestHUD(unittest.TestCase):
             else:
                 addon.portas._vestir_folha(folha, {'folha':'QUADRO'})
             addon.chapas.gerar_malha_chapa(folha)
-        # A nova fixture tem outra topologia; o primeiro preparo deve
-        # reconhecer sua superficie sem herdar os rotulos da caixa inicial.
+        # The new fixture has different topology; initial preparation must recognize
+        # its surface without inheriting the original box's labels.
         for nome in (addon.frentes.ATR_FACE, addon.frentes.ATR_BORDA):
             atributo = folha.data.attributes.get(nome)
             if atributo is not None:
@@ -2126,7 +2126,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(sum(l['tipo']=='medida' for l in geometria['linhas']),12)
         self.assertFalse(any(l['tipo'] in ('contorno_porta','gap') for l in geometria['linhas']))
         self.assertTrue(all(len(l['pontos'])==2 for l in geometria['linhas']))
-        # A abertura da folha nao muda a blocagem da carcaca.
+        # Opening a leaf does not change the carcass blockout.
         antes=[l['pontos'] for l in geometria['linhas']]
         addon.ferragens._definir_abertura(bpy.context,folha,.35)
         bpy.context.view_layer.update()
@@ -2160,8 +2160,8 @@ class TestHUD(unittest.TestCase):
                          [l['pontos'] for l in addon.hud._geometria_hud(bpy.context)['linhas']])
 
     def test_clique_leva_a_gaveta_para_a_aba_do_item(self):
-        # Pedido do usuario: clicou na porta -> aba Portas; no modulo ->
-        # Modulos; no puxador -> Puxadores. So' o CLIQUE troca a aba.
+        # User request: clicking a door selects Doors, a cabinet selects Cabinets,
+        # a handle selects Handles. Only clicking switches tabs.
         modulo = self.modulo()
         bpy.ops.object.cabinet_portas(
             capturado=True, ponto_a=(-0.3, -0.15, 0), ponto_b=(0.3, -0.15, 0.4),
@@ -2179,8 +2179,8 @@ class TestHUD(unittest.TestCase):
         self.clicar_pelo_keymap(chapa, 'PRESS')
         self.assertEqual(bpy.context.object, modulo)
         self.assertEqual(cena.cabinet_aba, 'MODULOS')
-        # puxador: o clique nativo o deixa ativo
-        pux = bpy.data.objects.new('Puxador', None)
+        # Handle: the native click makes it active.
+        pux = bpy.data.objects.new("Handle", None)
         bpy.context.collection.objects.link(pux)
         pux[addon.chapas.MARCA_PUXADOR] = 1
         bpy.ops.object.select_all(action='DESELECT')
@@ -2188,11 +2188,11 @@ class TestHUD(unittest.TestCase):
         bpy.context.view_layer.objects.active = pux
         addon.selecao._seguir_selecao_na_gaveta(bpy.context)
         self.assertEqual(cena.cabinet_aba, 'PUXADORES')
-        # o ADD-ON trocar o ativo (criar porta deixa o modulo) nao mexe
+        # The add-on changing the active object, such as after door creation, does not switch tabs.
         bpy.context.view_layer.objects.active = modulo
         modulo.select_set(True)
         self.assertEqual(cena.cabinet_aba, 'PUXADORES')
-        # objeto de fora nao e' de aba nenhuma
+        # External objects belong to no tab.
         self.assertIsNone(addon.selecao._aba_da_selecao(bpy.data.objects.new('X', None)))
 
     def test_hover_acende_as_quatro_arestas_do_eixo(self):
@@ -2230,15 +2230,15 @@ class TestHUD(unittest.TestCase):
                     linha = next(l for l in geometria['linhas']
                                  if l['eixo'] == eixo)
                     a, b = linha['pontos']
-                    # mouse a 1/5 da aresta, do lado pedido, fora do
-                    # raio da quina
+                    # Mouse at one fifth of the edge on the requested side, outside
+                    # the corner radius.
                     perto, longe = (a, b) if lado == 'min' else (b, a)
                     mouse = projetar(perto + (longe - perto) * 0.2)
                     alvo = addon.hud._acertar_linhas_hud(geometria, mouse, projetar)
                     self.assertEqual(alvo['tipo'], 'medida')
                     self.assertEqual(alvo['lado'], lado)
                     self.assertEqual(alvo['pontos'][0], perto)
-                    # a linha compartilhada nao foi alterada
+                    # The shared line was not changed.
                     self.assertNotIn('lado', linha)
                     novo = getattr(modulo, prop) + 100
                     addon.hud._aplicar_valor_hud(bpy.context, alvo, novo)
@@ -2252,8 +2252,8 @@ class TestHUD(unittest.TestCase):
                     self.assertAlmostEqual(getattr(modulo, prop), novo, places=3)
 
     def test_tres_eixos_de_uma_vez_respeitam_a_ancora(self):
-        # REGRESSAO: o segundo eixo lia matrix_world defasado e gravava
-        # de volta o centro antigo -- a peca crescia pelo meio.
+        # Regression: the second axis read a stale matrix_world and restored
+        # the old center, causing the part to grow from its center.
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         lo, hi = (list(v) for v in addon.modulos._caixa_de(chapas))
@@ -2272,7 +2272,7 @@ class TestHUD(unittest.TestCase):
         chapa = bpy.context.object
         chapa.chapa_modo = 'GRUPO'
         cena = bpy.context.scene
-        cena.grupo_profundidade_mm = 123.0      # valor velho de outro grupo
+        cena.grupo_profundidade_mm = 123.0      # Old value from another group.
         lo, hi = (list(v) for v in addon.modulos._caixa_de([chapa]))
         geometria = addon.hud._geometria_hud(bpy.context)
         projetar = lambda p: Vector((300+p.x*500+p.y*150, 200+p.z*500+p.y*90))
@@ -2285,7 +2285,7 @@ class TestHUD(unittest.TestCase):
         lo2, hi2 = addon.modulos._caixa_de([chapa])
         self.assertAlmostEqual(lo2[0], lo[0], places=5)
         self.assertAlmostEqual(hi2[0], hi[0] + 0.1, places=5)
-        # o eixo que ninguem tocou continua igual
+        # The untouched axis remains unchanged.
         self.assertAlmostEqual(hi2[1] - lo2[1], hi[1] - lo[1], places=5)
 
     def test_chapa_individual_tambem_cresce_pela_ancora(self):
@@ -2311,9 +2311,9 @@ class TestHUD(unittest.TestCase):
             agora = nova['cantos'][i] if lado == 'min' else nova['cantos'][j]
             self.assertLess((agora - fixa).length, 1e-5)
             geometria = nova
-        # E (espessura) tambem tem seta nas quinas (pedido do usuario):
-        # a face da quina perto do mouse fica parada, engrossa para o
-        # outro lado -- nos dois sentidos.
+        # E (thickness) also has corner arrows, as requested: hold the corner face
+        # nearest the mouse fixed and thicken toward the other side,
+        # in either direction.
         for lado, soma in (('min', 12.0), ('max', -10.0)):
             linha = next(l for l in geometria['linhas'] if l['eixo'] == 2)
             a, b = linha['pontos']
@@ -2357,8 +2357,8 @@ class TestHUD(unittest.TestCase):
         return primeiro, segundo
 
     def test_selecao_principal_tem_a_linha_mais_grossa(self):
-        # Pedido do usuario: com 2+ itens selecionados, o ATIVO (que manda
-        # nas funcoes) sai levemente mais grosso; com 1 so', nada muda.
+        # User request: with multiple selected items, draw the active one controlling
+        # operations slightly thicker; with one item selected, change nothing.
         primeiro, segundo = self.dois_modulos()
         contexto = _ContextoRegiao()
         desenhos = addon.hud._desenhos_hud(contexto)
@@ -2373,7 +2373,7 @@ class TestHUD(unittest.TestCase):
             o.select_set(False)
         self.assertIsNone(addon.hud._principal_hud(
             contexto, addon.hud._desenhos_hud(contexto)))
-        # levemente: +40%, nunca menos de 1 px
+        # Slightly thicker: +40%, with a minimum of 1 px.
         self.assertEqual(addon.hud._espessura_principal_hud(1.5), 2.5)
         self.assertEqual(addon.hud._espessura_principal_hud(10.0), 14.0)
 
@@ -2401,20 +2401,20 @@ class TestHUD(unittest.TestCase):
 
         dois = {primeiro, *primeiro.children_recursive,
                 segundo, *segundo.children_recursive}
-        # PRESS: nada muda -- arrastar ainda leva os dois modulos
+        # PRESS changes nothing; dragging still moves both cabinets.
         self.assertIn('PASS_THROUGH', clicar('PRESS'))
         self.assertEqual(set(bpy.context.selected_objects), dois)
-        # soltou sem arrastar: so' o modulo clicado
+        # Release without dragging leaves only the clicked cabinet selected.
         self.assertEqual(clicar('CLICK'), {'FINISHED'})
         self.assertEqual(set(bpy.context.selected_objects),
                          {segundo, *segundo.children_recursive})
         self.assertEqual(bpy.context.object, segundo)
-        # sozinho: o PRESS seleciona direto e o CLICK nao se mete
+        # Alone: PRESS selects directly and CLICK does not intervene.
         self.assertEqual(clicar('PRESS'), {'FINISHED'})
         self.assertEqual(clicar('CLICK'), {'PASS_THROUGH'})
         self.assertEqual(set(bpy.context.selected_objects),
                          {segundo, *segundo.children_recursive})
-        # duplo clique partindo de varios selecionados ainda isola a chapa
+        # Double-clicking from a multiple selection still isolates the panel.
         for o in dois:
             o.select_set(True)
         for valor in ('PRESS', 'CLICK', 'DOUBLE_CLICK'):
@@ -2422,8 +2422,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(bpy.context.selected_objects, [chapa])
 
     def clicar_pelo_keymap(self, chapa, valor, shift=False):
-        """Roda cabinet_selecionar com as props da entrada do keymap
-        (valor, shift), com o raio acertando `chapa`."""
+        """Run cabinet_selecionar using keymap-entry properties (valor, shift), with the ray hitting chapa."""
         entrada = next(e for e in addon.selecao._ENTRADAS_KEYMAP
                        if e[0] == valor and e[1] == shift)
         original = addon.hud._raio_hud
@@ -2437,7 +2436,7 @@ class TestHUD(unittest.TestCase):
         op._soltou = lambda c, p: classe._soltou(op, c, p)
         op._invoke = lambda c, e: classe._invoke(op, c, e)
         def selecionar_nativo(c):
-            # Fora do modulo, o Blender limpa/escolhe o objeto comum.
+            # Outside a cabinet, Blender clears/selects the ordinary object.
             if not shift:
                 bpy.ops.object.select_all(action='DESELECT')
             if chapa is not None:
@@ -2452,7 +2451,7 @@ class TestHUD(unittest.TestCase):
             addon.hud._raio_hud = original
 
     def duplo(self, chapa, shift=False):
-        """O que o Blender entrega num duplo clique: PRESS e DOUBLE_CLICK."""
+        """Blender's double-click sequence: PRESS then DOUBLE_CLICK."""
         self.clicar_pelo_keymap(chapa, 'PRESS', shift)
         self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK', shift)
 
@@ -2464,7 +2463,7 @@ class TestHUD(unittest.TestCase):
         unidades=addon.gavetas.gavetas_do_grupo(grupo)
         return grupo,unidades,[addon.gavetas.frente_da_gaveta(g) for g in unidades]
 
-    # Regressao (era BUG, corrigido na 384): Shift voltava ao vao inteiro.
+    # Regression, fixed in v384: Shift restored selection of the whole opening.
     def test_shift_apos_duplo_na_gaveta_soma_unidade_sem_expandir_conjunto(self):
         grupo,unidades,frentes=self._gavetas_para_clique()
         self.duplo(frentes[0])
@@ -2504,7 +2503,7 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(all(g.select_get() for g in unidades))
         self.assertIs(bpy.context.object,grupo)
 
-    # Regressao (era BUG, corrigido na 385): puxador voltava ao conjunto inteiro.
+    # Regression, fixed in v385: a handle reverted to whole-assembly selection.
     def test_clique_no_puxador_da_gaveta_isolada_edita_so_ele(self):
         grupo,unidades,frentes=self._gavetas_para_clique()
         puxador=next(o for o in frentes[1].children if addon.chapas.MARCA_PUXADOR in o)
@@ -2612,7 +2611,7 @@ class TestHUD(unittest.TestCase):
         origem.select_set(True);bpy.context.view_layer.objects.active=origem
         return modulo,pecas,ferragens,origem,madeira,metal
 
-    # Regressao (era BUG, corrigido na 382): grupo pintava o puxador selecionado.
+    # Regression, fixed in v382: group painting affected the selected handle.
     def test_vincular_material_do_grupo_preserva_ferragens_sem_mudar_selecao(self):
         modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
         for obj in ferragens:obj.select_set(True)
@@ -2623,7 +2622,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(set(bpy.context.selected_objects),selecionados)
         self.assertIs(bpy.context.object,origem)
 
-    # Regressao (era BUG, corrigido na 382): filho sem marca passava pelo filtro.
+    # Regression, fixed in v382: an unmarked child passed the filter.
     def test_pintura_do_catalogo_reconhece_ferragem_pela_hierarquia(self):
         modulo,pecas,ferragens,origem,madeira,metal=self._grupo_para_pintar_com_ferragens()
         obj=bpy.data.objects.new('Filho sem marca do puxador',pecas[0].data.copy())
@@ -2780,8 +2779,8 @@ class TestHUD(unittest.TestCase):
         self.assertIs(origem.active_material, material)
 
     def test_clique_no_vazio_reseta_individual_e_exige_novo_duplo(self):
-        # Regressao v346: o nome do ultimo clique sobrevivia ao vazio,
-        # mantendo o contexto individual depois de limpar a selecao.
+        # Regression v346: the last-clicked name survived clicking empty space,
+        # retaining individual context after selection was cleared.
         modulo = self.modulo()
         chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
         self.duplo(chapa)
@@ -2793,7 +2792,7 @@ class TestHUD(unittest.TestCase):
         self.assertFalse(addon.hud._clique_chapa_hud)
         self.assertFalse(addon.hud._hover_hud)
         self.assertEqual(chapa.chapa_modo, 'GRUPO')
-        # Nem um DOUBLE_CLICK sem o primeiro clique pode reutilizar a memoria.
+        # Even a DOUBLE_CLICK without its first click must not reuse that memory.
         self.clicar_pelo_keymap(chapa, 'DOUBLE_CLICK')
         self.assertTrue(modulo.select_get())
         self.assertEqual(bpy.context.object, modulo)
@@ -2829,8 +2828,8 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(addon.hud._clique_chapa_hud, memoria)
 
     def test_shift_soma_chapas_individuais_do_mesmo_grupo(self):
-        # Pedido do usuario: clique = grupo; duplo = uma chapa dele;
-        # Shift+clique em outra chapa do MESMO grupo soma so' ela
+        # User request: click selects the group, double click selects one panel;
+        # Shift+click another panel of that same group adds only that panel.
         self.addCleanup(addon.hud._clique_chapa_hud.clear)
         primeiro, _segundo = self.dois_modulos()
         a1, a2, a3 = addon.modulos._chapas_do_conjunto(primeiro)[:3]
@@ -2845,7 +2844,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(a2.chapa_modo, 'INDIVIDUAL')
         self.clicar_pelo_keymap(a3, 'PRESS', shift=True)
         self.assertEqual(set(bpy.context.selected_objects), {a1, a2, a3})
-        # Shift+clique na chapa ATIVA tira ela, como o Shift nativo
+        # Shift+click the active panel removes it, like native Shift selection.
         self.clicar_pelo_keymap(a3, 'PRESS', shift=True)
         self.assertEqual(set(bpy.context.selected_objects), {a1, a2})
 
@@ -2857,29 +2856,29 @@ class TestHUD(unittest.TestCase):
         a1 = addon.modulos._chapas_do_conjunto(primeiro)[0]
         b1 = addon.modulos._chapas_do_conjunto(segundo)[1]
         bpy.ops.object.select_all(action='DESELECT')
-        # clique no grupo A, Shift+clique no grupo B: os dois grupos
+        # Click group A, then Shift+click group B: both groups selected.
         self.clicar_pelo_keymap(a1, 'PRESS')
         self.clicar_pelo_keymap(b1, 'PRESS', shift=True)
         self.assertEqual(set(bpy.context.selected_objects), grupo_a | grupo_b)
-        # Shift+duplo numa chapa de A: so' ela de A; B continua inteiro
+        # Shift+double-click a panel of A: only it from A, all of B retained.
         self.duplo(a1, shift=True)
         self.assertEqual(set(bpy.context.selected_objects), {a1} | grupo_b)
         self.assertEqual(bpy.context.object, a1)
-        # Shift+duplo numa chapa de B: a1 continua, b1 entra sozinha
+        # Shift+double-click a panel of B: retain a1 and add only b1.
         self.duplo(b1, shift=True)
         self.assertEqual(set(bpy.context.selected_objects), {a1, b1})
-        # mais um Shift+duplo em A: soma, sem perder ninguem
+        # Another Shift+double-click in A adds without losing any selected item.
         a2 = addon.modulos._chapas_do_conjunto(primeiro)[1]
         self.duplo(a2, shift=True)
         self.assertEqual(set(bpy.context.selected_objects), {a1, a2, b1})
-        # clique simples sem Shift volta ao grupo inteiro
+        # Single click without Shift restores the whole group.
         self.clicar_pelo_keymap(b1, 'PRESS')
         self.clicar_pelo_keymap(b1, 'CLICK')
         self.assertEqual(set(bpy.context.selected_objects), grupo_b)
 
     def test_props_do_clique_nao_herdam_o_ultimo_uso(self):
-        # o keymap so' preenche o que cita: sem SKIP_SAVE, o toggle de um
-        # Shift+clique vazava para o clique simples seguinte
+        # The keymap only fills declared properties; without SKIP_SAVE, a Shift+click's
+        # toggle setting leaked into the next single click.
         props = addon.selecao.OBJECT_OT_selecionar.__annotations__
         for nome in ('extend', 'deselect', 'toggle', 'deselect_all',
                      'select_passthrough', 'clique'):
@@ -2932,27 +2931,27 @@ class TestHUD(unittest.TestCase):
             desenhos = addon.hud._desenhos_hud(contexto)
             self.assertEqual(len(desenhos), 2)
             ja, outro = desenhos
-            # o escolhido so' mostra a medida escolhida (as 4 arestas do eixo)
+            # The chosen item shows only the chosen dimension: its four axis edges.
             self.assertEqual(len(ja[0]['linhas']), 4)
             self.assertEqual(ja[1], escolhido)
             self.assertGreater(len(outro[0]['linhas']), 4)
             self.assertIsNone(outro[1])
-            # o que ainda precisa de seta e' o que pisca
+            # Only the item still needing an arrow flashes.
             self.assertFalse(ja[0].get('pendente'))
             self.assertTrue(outro[0].get('pendente'))
         finally:
             addon.hud._edicao_hud[0] = None
 
     def test_sem_pergunta_editar_como_e_os_pendentes_piscam(self):
-        # Pedido do usuario: a SELECAO diz o que se edita; o pop-up
-        # "Editar como? Individual | Grupo" saiu
+        # User request: selection determines what is edited; remove the popup asking
+        # whether to edit individually or as a group.
         for nome in ('_botoes_popup_hud', '_botao_sob_mouse',
                      '_desenhar_popup_hud'):
             self.assertFalse(hasattr(addon, nome), nome)
         fonte = inspect.getsource(addon.hud.OBJECT_OT_arrastar_hud)
-        self.assertNotIn("'pergunta'", fonte)    # a fase do pop-up
+        self.assertNotIn("'pergunta'", fonte)    # The former popup phase.
         self.assertNotIn("'mais'", fonte)
-        # piscada: duas, curtas, e apaga
+        # Flash twice briefly, then turn off.
         inicio = addon.hud._piscada_hud[0]
         try:
             addon.hud._piscada_hud[0] = 100.0
@@ -2980,8 +2979,8 @@ class TestHUD(unittest.TestCase):
             self.assertFalse(addon.hud._hover_hud)
         finally:
             addon.eventos._transformando = original
-        self.assertFalse(addon.eventos._transformando())   # nada rodando aqui
-        # a seta sai da geometria atual, nao dos pontos do hover
+        self.assertFalse(addon.eventos._transformando())   # Nothing running here.
+        # The arrow uses current geometry rather than hover points.
         geometria = addon.hud._geometria_hud(bpy.context)
         self.assertTrue(all('cantos' in l for l in geometria['linhas']
                             if l['tipo'] == 'medida'))
@@ -2993,24 +2992,24 @@ class TestHUD(unittest.TestCase):
         self.addCleanup(desligados.clear)
         self.addCleanup(usuario.clear)
         novo, a, b = addon.eventos._novo_contorno, frozenset({'A'}), frozenset({'B'})
-        # ligado: desliga na edicao e religa ao terminar
+        # Initially enabled: disable during editing and restore afterward.
         self.assertIs(novo(1, True, a), False)
         self.assertIsNone(novo(1, False, a))
-        self.assertIsNone(novo(1, False, b))       # outro modulo: segue
+        self.assertIsNone(novo(1, False, b))       # Another cabinet: continue.
         self.assertIs(novo(1, False, frozenset()), True)
         self.assertIsNone(novo(1, True, frozenset()))
-        # quem trabalha sem contorno: nada muda, nem ao terminar
+        # For a user working without outlines, change nothing, including at completion.
         self.assertIsNone(novo(2, False, a))
-        self.assertIsNone(novo(2, True, a))        # religou na mao: fica
+        self.assertIsNone(novo(2, True, a))        # Manually reenabled: preserve it.
         self.assertIsNone(novo(2, True, frozenset()))
-        # religado na mao durante a edicao: respeitado ate' trocar
+        # Respect manual reenabling during editing until the next switch.
         self.assertIs(novo(3, True, a), False)
         self.assertIsNone(novo(3, True, a))
         self.assertIsNone(novo(3, True, a))
         self.assertIsNone(novo(3, True, frozenset()))
-        # os ganchos de verdade tambem rodam aqui: so' as falsas contam
+        # Real hooks also run here; count only the fake ones.
         self.assertFalse({1, 2, 3} & (desligados | set(usuario)))
-        # so' modulo/porta escondem; chapa solta continua com o contorno
+        # Only cabinets and doors hide the outline; loose panels retain it.
         modulo = self.modulo()
         camada = bpy.context.view_layer
         for o in camada.objects:
@@ -3033,7 +3032,7 @@ class TestHUD(unittest.TestCase):
             overlay.show_outline_selected = inicial
             addon.eventos.sincronizar_contornos()
             self.assertFalse(overlay.show_outline_selected)
-            addon.eventos._devolver_contornos()          # salvar: volta como era
+            addon.eventos._devolver_contornos()          # Saving restores the previous state.
             self.assertEqual(overlay.show_outline_selected, inicial)
             addon.eventos._retomar_contornos()
             self.assertFalse(overlay.show_outline_selected)
@@ -3045,7 +3044,7 @@ class TestHUD(unittest.TestCase):
                 o.select_set(True)
 
     def test_selecao_mista_devolve_contorno_e_vincula_material_do_objeto_comum(self):
-        # Regressao 358: o modulo ocultava tambem o feedback do mestre nativo.
+        # Regression v358: the cabinet also hid feedback for the native active object.
         e = addon.eventos
         modulo = self.modulo()
         pecas = addon.modulos._chapas_do_conjunto(modulo)
@@ -3066,7 +3065,7 @@ class TestHUD(unittest.TestCase):
             e.sincronizar_contornos()
             self.assertFalse(overlay.show_outline_selected)
             comum.select_set(True)
-            # Deve bastar ESTAR selecionado; o objeto comum nao precisa ser ativo.
+            # Selection alone must suffice; the ordinary object need not be active.
             e.sincronizar_contornos()
             self.assertTrue(overlay.show_outline_selected)
             bpy.context.view_layer.objects.active = comum
@@ -3144,7 +3143,7 @@ class TestHUD(unittest.TestCase):
                 for n, v in zip(nomes, inicial): setattr(overlay, n, v)
                 addon.opcoes._definir_opcao('ocultar_origens_grupo', True)
                 self.assertEqual([getattr(overlay, n) for n in nomes], [False, False])
-                e._devolver_contornos()   # salvar/desligar devolve o estado nativo
+                e._devolver_contornos()   # Saving/disabling restores native state.
                 self.assertEqual([getattr(overlay, n) for n in nomes], list(inicial))
                 e._retomar_contornos()
                 self.assertFalse(overlay.show_object_origins)
@@ -3175,17 +3174,17 @@ class TestHUD(unittest.TestCase):
             self.assertFalse(a.overlay.show_object_origins)
             a.overlay.show_object_origins = True
             e._sincronizar_origens(a, grupo)
-            self.assertTrue(a.overlay.show_object_origins)  # usuario manda nesta selecao
+            self.assertTrue(a.overlay.show_object_origins)  # The user controls this selection.
             e._sincronizar_origens(a, grupo, devolver=True)
             e._sincronizar_origens(a, grupo)
-            self.assertTrue(a.overlay.show_object_origins)  # salvar nao perde a escolha
+            self.assertTrue(a.overlay.show_object_origins)  # Saving preserves the choice.
             e._sincronizar_origens(a, frozenset({'Modulo B'}))
             self.assertFalse(a.overlay.show_object_origins)
             e._sincronizar_origens(a, frozenset()); e._sincronizar_origens(b, frozenset())
             self.assertTrue(a.overlay.show_object_origins)
             self.assertTrue(a.overlay.show_object_origins_all)
             self.assertFalse(b.overlay.show_object_origins)
-            self.assertFalse(b.overlay.show_object_origins_all)  # nunca ligar o que nao era nosso
+            self.assertFalse(b.overlay.show_object_origins_all)  # Never enable anything we did not disable.
         finally:
             for ptr in (-777, -778):
                 for n in ('show_object_origins', 'show_object_origins_all'):
@@ -3213,9 +3212,9 @@ class TestHUD(unittest.TestCase):
             tela[g._CHAVE_OPCOES] = 1
             tela[g._CHAVE_SUSPENSO] = 'ocultar_origens_grupo'
             widgets = g._rodape_gaveta(bpy.context, 12, 400)
-            self.assertTrue(any(w[4] == 'Origens no grupo' for w in widgets))
+            self.assertTrue(any(w[4] == "Group Origins" for w in widgets))
             escolhas = [w for w in widgets if w[5] and w[5][:2] == ('escolha','ocultar_origens_grupo')]
-            self.assertEqual({(w[4],w[5][2]) for w in escolhas}, {('Ocultar',True),('Mostrar',False)})
+            self.assertEqual({(w[4],w[5][2]) for w in escolhas}, {("Hide",True),("Show",False)})
             prop = addon.opcoes.ArchyBuilderPreferences.bl_rna.properties['ocultar_origens_grupo']
             self.assertTrue(prop.default)
         finally:
@@ -3236,19 +3235,19 @@ class TestHUD(unittest.TestCase):
                 (p.x * pixels_por_metro + p.y * 0.3 * pixels_por_metro,
                  p.z * pixels_por_metro + p.y * 0.2 * pixels_por_metro))
 
-        vista(500)          # perto: o modulo ocupa centenas de pixels
+        vista(500)          # Near: the cabinet spans hundreds of pixels.
         self.assertEqual({r[0] for r in addon.hud._rotulos_hud(
             contexto, geometria, None)}, {'A1', 'A2', 'A3'})
-        vista(40)           # longe: poucos pixels, as letras empilhavam
+        vista(40)           # Far: only a few pixels, previously causing letters to overlap.
         self.assertLess(addon.hud._tamanho_na_tela(contexto, geometria),
                         addon.hud.FATOR_ROTULO_HUD * addon.opcoes._opcao('hud_tamanho_rotulo'))
         self.assertEqual(addon.hud._rotulos_hud(contexto, geometria, None), [])
         alvo = next(l for l in geometria['linhas'] if l.get('letra') == 'A')
         self.assertEqual([r[0] for r in addon.hud._rotulos_hud(
-            contexto, geometria, alvo)], ['A2'])      # a acesa fica
-        # O tamanho de hoje e' o TETO; aresta mais curta que a seta
-        # (a E de 18 mm, print do usuario) leva a seta so' ate' a ponta
-        # dela -- inteira: ponto e haste nunca passam da aresta.
+            contexto, geometria, alvo)], ['A2'])      # The highlighted one remains.
+        # Current size is the maximum. On edges shorter than the arrow, such as the
+        # 18 mm E edge in the user's screenshot, fit the entire arrow within the edge;
+        # neither head nor shaft may extend past it.
         cheia = addon.hud.COMPRIMENTO_SETA_HUD
         for comprimento in (6, 10, 40, cheia, 800):
             pontos = addon.hud._triangulos_seta_hud(
@@ -3257,7 +3256,7 @@ class TestHUD(unittest.TestCase):
             self.assertAlmostEqual(max(p.x for p in pontos), esperado,
                                    msg=comprimento)
             self.assertGreaterEqual(min(p.x for p in pontos), -esperado)
-        # no tamanho cheio a seta e' a de antes (ponta 12, haste 2.5)
+        # At full size, retain the previous arrow: head 12, shaft 2.5.
         pontos = addon.hud._triangulos_seta_hud(Vector((0, 0)), Vector((800, 0)),
                                             1.0)
         self.assertAlmostEqual(max(p.y for p in pontos), addon.hud.ASA_SETA_HUD)
@@ -3267,7 +3266,7 @@ class TestHUD(unittest.TestCase):
         chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
         original = addon.hud._projetar_hud
         self.addCleanup(setattr, addon.hud, '_projetar_hud', original)
-        # vista obliqua de cima, como a da chapa deitada na referencia
+        # Oblique view from above, matching the horizontal panel in the reference.
         addon.hud._projetar_hud = lambda _c, p: Vector(
             (300 + p.x * 400 - p.y * 250, 200 + p.z * 400 + p.y * 120 + p.x * 60))
         contexto = SimpleNamespace(preferences=bpy.context.preferences)
@@ -3296,18 +3295,17 @@ class TestHUD(unittest.TestCase):
             h = casco([addon.hud._projetar_hud(None, c) for c in geometria['cantos']])
             centro = sum((Vector(p) for p in h), Vector((0, 0))) / len(h)
             for letra, ponto, _aceso in rotulos:
-                # nem o desenho da letra (meio tamanho para dentro) encosta
+                # Even the letter, inset by half its size, must not touch.
                 borda = ponto + (centro - ponto).normalized() * tamanho * 0.4
-                self.assertFalse(dentro(borda, h), '%s caiu sobre a peca' % letra)
+                self.assertFalse(dentro(borda, h), "%s overlaps the part" % letra)
             for i, (_l, a, _x) in enumerate(rotulos):
                 for _m, b, _y in rotulos[:i]:
                     self.assertGreaterEqual((a - b).length, tamanho * 1.3 - 1e-6)
 
-    # ------------------------------------------- correntes de adjacencia
+    # ------------------------------------------- Adjacency chains
     def piso_e_lateral(self, folga_mm=10.0):
-        """A cena da 1a print do usuario: piso deitado e lateral em pe' a
-        `folga_mm` da ponta dele, com a adjacencia memorizada."""
-        piso = addon.chapas.nova_chapa('Piso', 600.0, 400.0, 18.0, (0, 0, 9.0),
+        """Recreate the user's first screenshot: a horizontal floor and upright side panel folga_mm from its endpoint, with adjacency remembered."""
+        piso = addon.chapas.nova_chapa("Floor", 600.0, 400.0, 18.0, (0, 0, 9.0),
                                 (0, 0, 0), bpy.context)
         lateral = addon.chapas.nova_chapa('Lateral', 720.0, 400.0, 18.0,
                                    (300.0 + folga_mm + 9.0, 0, 360.0),
@@ -3317,8 +3315,7 @@ class TestHUD(unittest.TestCase):
         return piso, lateral
 
     def caixote_aberto(self, recuo_mm=250.0):
-        """A cena da 3a print: tampo e base encurtados, longe da lateral
-        direita -- 4 pontas separadas (tampo e base, frente e tras)."""
+        """Recreate the third screenshot: shortened top and base, far from the right side; four separated endpoints at the front and back of both panels."""
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         ordem = sorted(chapas, key=lambda o: o.matrix_world.translation.z)
@@ -3336,8 +3333,8 @@ class TestHUD(unittest.TestCase):
         bpy.context.view_layer.update()
 
     def test_corrente_liga_os_dois_vertices_da_junta(self):
-        # Soldados com 10 mm de folga: ESSA e' a origem da solda. A lateral
-        # anda mais 10 mm -> desvio de 10 mm, a corrente aparece
+        # Welded with a 10 mm gap: that is the weld origin. Moving the side another
+        # 10 mm creates a 10 mm deviation and displays the chain.
         piso, lateral = self.piso_e_lateral(10.0)
         self.assertEqual(addon.solda._ligacoes_adjacencia([piso, lateral]), [])
         self.afastar(lateral, 0.010)
@@ -3346,20 +3343,20 @@ class TestHUD(unittest.TestCase):
         ligacao = ligacoes[0]
         self.assertEqual((ligacao['a'], ligacao['b']), (piso, lateral))
         self.assertAlmostEqual(ligacao['desvio'], 0.010, places=5)
-        # Uma junta conserva somente um par real, mesmo com outras quinas proximas.
+        # A joint retains only one real pair, even with other nearby corners.
         self.assertEqual(len(ligacao['pares']), 1)
         for p, q, _assinatura in ligacao['pares']:
             self.assertAlmostEqual(p.x, 0.300, places=5)
             self.assertAlmostEqual(p.z, 0.0, places=5)
             self.assertAlmostEqual((q - p).length, 0.020, places=5)
         self.assertIn(round(ligacao['pares'][0][0].y,3),(-0.2,0.2))
-        # vale para qualquer das duas pecas como item da HUD
+        # Either part may be the HUD item.
         self.assertEqual(len(addon.solda._ligacoes_adjacencia([lateral])), 1)
 
     def test_corrente_so_aparece_com_desvio_maior_que_5mm(self):
-        # Pedido do usuario: o que conta e' o DESVIO da origem da solda;
-        # na viewport a corrente so' aparece acima de 5 mm, mas o botao
-        # da gaveta ja' acende com qualquer desvio
+        # User request: measure deviation from the weld origin. Show the viewport chain
+        # only above 5 mm, while the sidebar button highlights
+        # for any deviation.
         piso, lateral = self.piso_e_lateral(0.0)
         self.assertAlmostEqual(addon.solda.LIMIAR_CORRENTE_VIEWPORT, 0.005)
         self.afastar(lateral, 0.003)
@@ -3367,15 +3364,15 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(len(addon.solda._pontas_fora_do_lugar([piso, lateral])), 1)
         self.afastar(lateral, 0.003)          # 6 mm
         self.assertEqual(len(addon.solda._ligacoes_adjacencia([piso, lateral])), 1)
-        # sem teto: longe continua corrente
+        # No upper limit: the chain remains visible at long distances.
         self.afastar(lateral, 0.3)
         self.assertEqual(len(addon.solda._ligacoes_adjacencia([piso, lateral])), 1)
 
     def test_alt_mostra_todas_as_quinas_soldadas_com_corrente_e_regua(self):
-        # Alt mostra todos os pares de objetos fora da origem, uma corrente por par.
+        # Alt shows all object pairs away from their origins, one chain per pair.
         modulo, base, tampo, direita = self.caixote_aberto()
         self.selecionar(modulo, *addon.modulos._chapas_do_conjunto(modulo), ativo=modulo)
-        # cada funcao no modulo dela (o add-on e' um pacote)
+        # Each function belongs to its own module; the add-on is a package.
         for m, n in ((addon.solda, '_correntes_visiveis'),
                      (addon.hud, '_contexto_hud'),
                      (addon.gaveta, '_eh_area_gaveta'),
@@ -3388,11 +3385,11 @@ class TestHUD(unittest.TestCase):
         contexto = _ContextoRegiao()
         contexto.region_data = object()
         correntes = addon.solda._correntes_hud(contexto)
-        self.assertEqual(len(correntes), 2)          # tampo-direita e base-direita
+        self.assertEqual(len(correntes), 2)          # Top-right and base-right.
         self.assertEqual(len({frozenset((c['a'],c['b'])) for c in correntes}),2)
         self.assertEqual({c['a'] for c in correntes}, {base, tampo})
-        # a regua move a que se afastou... aqui quem encolheu foram tampo e
-        # base; a lateral tem as duas soldas fora, entao e' ela
+        # The ruler moves the part that moved away. Here the top and base shrank;
+        # the side has both welds displaced, so it is the moving part.
         self.assertTrue(all(c['movel'] == direita for c in correntes))
         botoes = addon.solda._botoes_da_corrente(contexto, correntes[0])
         self.assertLess(botoes['corrente'].x, botoes['regua'].x)
@@ -3404,14 +3401,14 @@ class TestHUD(unittest.TestCase):
                              for m in addon._MODULOS))
 
     def prateleira_solta(self, x_mm=800.0, z_mm=300.0):
-        """Prateleira fora do modulo, longe de tudo (nada ao alcance)."""
+        """Create a shelf outside the cabinet, far from everything and with nothing in range."""
         prateleira = addon.chapas.nova_chapa('Prateleira', 400.0, 300.0, 18.0,
                                       (x_mm, 0, z_mm), (0, 0, 0), bpy.context)
-        bpy.context.view_layer.update()      # matrix_world defasado
+        bpy.context.view_layer.update()      # Stale matrix_world.
         return prateleira
 
     def test_desagregar_solta_todas_as_quinas_de_uma_vez(self):
-        # Regra nova: a corrente clicada vale pelo OBJETO inteiro
+        # New rule: a clicked chain acts on the entire object.
         modulo, base, tampo, direita = self.caixote_aberto()
         corrente = addon.solda._ligacoes_adjacencia(
             addon.modulos._chapas_do_conjunto(modulo))[0]
@@ -3421,17 +3418,17 @@ class TestHUD(unittest.TestCase):
         self.assertTrue(addon.solda.agregado(peca))
         self.assertEqual(bpy.ops.object.cabinet_desassociar(chapa=peca.name),
                          {'FINISHED'})
-        # nenhuma quina dela segue ligada, em nenhum sentido
+        # None of its corners remains linked in either direction.
         self.assertFalse(addon.solda.agregado(peca))
         self.assertEqual(addon.solda._ligados_a(peca), set())
-        # saiu do modulo sem sair do lugar; as outras seguem la'
+        # It leaves the cabinet without moving; other parts stay in the cabinet.
         self.assertIsNone(peca.parent)
         for a, b in zip(peca.matrix_world, mundo):
             self.assertLess((a - b).length, 1e-6)
         outra = tampo if peca is base else base
         self.assertEqual(outra.parent, modulo)
         self.assertTrue(addon.solda.agregado(outra))
-        # de novo: nada a fazer
+        # Again: nothing to do.
         self.assertEqual(bpy.ops.object.cabinet_desassociar(chapa=peca.name),
                          {'CANCELLED'})
 
@@ -3442,17 +3439,17 @@ class TestHUD(unittest.TestCase):
         bpy.context.view_layer.objects.active = ativo
 
     def test_resetar_com_a_chapa_ativa_move_a_chapa(self):
-        # Print do usuario: a lateral afastada do nicho e SELECIONADA
-        # sozinha -> ela volta a origem da solda; o resto nao se mexe
+        # User screenshot: select only the side panel displaced from the niche;
+        # it returns to the weld origin while everything else stays still.
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
         antes = direita.matrix_world.copy()
         fixos = {o.name: o.matrix_world.copy() for o in chapas if o != direita}
         self.selecionar(direita, ativo=direita)
-        self.assertIsNone(addon.solda._estado_resetar(bpy.context))   # na origem
+        self.assertIsNone(addon.solda._estado_resetar(bpy.context))   # At the origin.
         self.afastar(direita, 0.2)
-        self.assertIs(addon.solda._estado_resetar(bpy.context), True)  # azul
+        self.assertIs(addon.solda._estado_resetar(bpy.context), True)  # Blue.
         self.assertEqual(bpy.ops.object.cabinet_resetar_distancia(),
                          {'FINISHED'})
         for a, b in zip(direita.matrix_world, antes):
@@ -3464,33 +3461,33 @@ class TestHUD(unittest.TestCase):
         self.assertIsNone(addon.solda._estado_resetar(bpy.context))
 
     def test_resetar_que_muda_a_medida_pergunta_antes(self):
-        # Caso extremo do usuario: o modulo mudou e a chapa so' volta as
-        # soldas mudando de medida -> pergunta; "Sim" estica, "Nao" nada
+        # User's extreme case: the cabinet changed, so restoring the panel to its welds
+        # requires resizing. Prompt; yes stretches it, no changes nothing.
         modulo, base, tampo, direita = self.caixote_aberto()
-        # o tampo vai a solda da esquerda (onde ja' esta') e da direita
-        # (250 mm adiante): so' esticando
+        # The top must meet both its left weld, already in place, and its right weld
+        # 250 mm farther away; this requires stretching.
         self.selecionar(tampo, ativo=tampo)
         largura = tampo.chapa_largura_mm
         plano = addon.solda._plano_reset_chapa(tampo)
         self.assertTrue(plano['muda_medida'])
-        self.assertIn('Mover mesmo assim', addon.solda.PERGUNTA_RESET)
+        self.assertIn('Move anyway', addon.solda.PERGUNTA_RESET)
         self.assertEqual(bpy.ops.object.cabinet_resetar_distancia(),
                          {'CANCELLED'})
         self.assertEqual(addon.solda._pergunta_reset[0], tampo.name)
         self.assertAlmostEqual(tampo.chapa_largura_mm, largura)
-        # "Nao"
+        # No.
         bpy.ops.object.cabinet_resetar_distancia(cancelar=True)
         self.assertEqual(addon.solda._pergunta_reset[0], '')
         self.assertAlmostEqual(tampo.chapa_largura_mm, largura)
-        # "Sim, mover"
+        # Yes, move.
         self.assertEqual(bpy.ops.object.cabinet_resetar_distancia(
             chapa=tampo.name, forcar=True), {'FINISHED'})
         self.assertAlmostEqual(tampo.chapa_largura_mm, largura + 250.0, places=2)
         self.assertEqual(addon.solda._pontas_fora_do_lugar([tampo]), [])
 
     def test_resetar_com_o_modulo_ativo_o_modulo_se_adapta(self):
-        # Modulo ativo: o GRUPO se adapta a chapa afastada -- as pontas
-        # soldadas esticam ate' ela e o modulo cresce; a chapa fica
+        # With the cabinet active, the group adapts to the displaced panel: welded ends
+        # stretch toward it and the cabinet grows, while that panel remains fixed.
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         direita = max(chapas, key=lambda o: o.matrix_world.translation.x)
@@ -3505,15 +3502,14 @@ class TestHUD(unittest.TestCase):
             self.assertLess((a - b).length, 1e-5)
         self.assertEqual(addon.solda._pontas_fora_do_lugar(chapas), [])
         self.assertAlmostEqual(modulo.conj_largura_mm, largura + 200.0, places=1)
-        # a regua de uma linha (viewport) vale pela peca da linha
+        # A viewport line's ruler acts on the line's part.
         self.afastar(direita, 0.05)
         self.assertEqual(bpy.ops.object.cabinet_resetar_distancia(
             chapa=direita.name), {'FINISHED'})
         self.assertEqual(addon.solda._pontas_fora_do_lugar(chapas), [])
 
     def solda_do_tampo(self):
-        """Nicho agrupado: (modulo, tampo, lateral direita, ponta do tampo
-        soldada na lateral)."""
+        """Create a grouped niche and return (cabinet, top, right side, top endpoint welded to that side)."""
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         tampo = max(chapas, key=lambda o: o.matrix_world.translation.z)
@@ -3524,7 +3520,7 @@ class TestHUD(unittest.TestCase):
         return modulo, tampo, direita, ponta
 
     def _ancoras_legadas_da_ligacao(self, C, ponta, N):
-        # Reproduz as duas quinas antigas sem depender do limite novo de cadastro.
+        # Reproduce both legacy corners independently of the new registration limit.
         s=addon.solda;eixo=0 if ponta.startswith('x') else 1
         inversa=C.matrix_world.inverted()
         extremo=(max if ponta.endswith('pos') else min)(v.co[eixo] for v in C.data.vertices)
@@ -3543,13 +3539,13 @@ class TestHUD(unittest.TestCase):
         return escolhidas
 
     def vertice_do_outro_lado(self, N, assinatura, sentido, espessura):
-        """O vertice de N do outro lado da espessura dele."""
+        """Return N's vertex on the opposite side of its thickness."""
         alvo = addon.solda._vertice_da_assinatura(N, assinatura) + sentido * espessura
         return min((a + b + c for a in '+-' for b in '+-' for c in '+-'),
                    key=lambda s: (addon.solda._vertice_da_assinatura(N, s) - alvo).length)
 
-    # Regressao (era BUG, corrigido na 304): a bolinha projetava em Python os
-    # vertices da peca a cada movimento; agora e' o cursor + snap nativo.
+    # Regression, fixed in v304: the dot projected part vertices in Python on every
+    # move; it now uses the cursor and native snapping.
     def test_ancora_arrastada_pelo_snap_nativo(self):
         S = addon.solda
         self.assertIn(S.OBJECT_OT_mover_ancora_solda, addon.CLASSES)
@@ -3575,7 +3571,7 @@ class TestHUD(unittest.TestCase):
         parametros = S._preparar_ancora_solda(contexto, tampo, ponta, direita, 0, 'b')
         self.assertEqual(parametros['snap_elements'], {'VERTEX'})
         self.assertTrue(parametros['cursor_transform'])
-        self.assertTrue(tampo.hide_select)          # so' o lado 'b' e' alvo
+        self.assertTrue(tampo.hide_select)          # Only side 'b' is a target.
         self.assertFalse(direita.hide_select)
         cena.cursor.location = S._vertice_da_assinatura(direita, fora)
         self.assertEqual(bpy.ops.object.cabinet_confirmar_ancora_solda(), {'FINISHED'})
@@ -3589,11 +3585,11 @@ class TestHUD(unittest.TestCase):
         self.assertIsNone(addon.solda._ancoras_gravadas(tampo, ponta))
         ancoras = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
         self.assertEqual(len(ancoras), 1)
-        for sc, sn in ancoras:                    # de fabrica: encostados
+        for sc, sn in ancoras:                    # Default: touching.
             self.assertLess((addon.solda._vertice_da_assinatura(tampo, sc)
                              - addon.solda._vertice_da_assinatura(direita, sn)).length,
                             1e-5)
-        # arrastar a bolinha do lado do vizinho ('b') para outro vertice
+        # Drag the neighbor-side dot ('b') to another vertex.
         _f, u, _e = addon.solda._folga_com_sinal(tampo, ponta, direita)
         sentido = u if ponta.endswith('pos') else -u
         fora = self.vertice_do_outro_lado(direita, ancoras[0][1], sentido,
@@ -3604,13 +3600,13 @@ class TestHUD(unittest.TestCase):
                          {'FINISHED'})
         self.assertEqual(addon.solda._ancoras_gravadas(tampo, ponta),
                          [(ancoras[0][0], fora)])
-        # mesma ancora de novo: nada a gravar
+        # Same anchor again: nothing to store.
         self.assertEqual(addon.solda.OBJECT_OT_arrastar_ancora._gravar(op, fora),
                          {'CANCELLED'})
-        # so' troca a ancora: a geometria nao mexeu, mas a solda saiu da
-        # origem (a regua acende)
+        # Only change the anchor: geometry remains unchanged, but the weld moves
+        # away from its origin and highlights the ruler.
         self.assertTrue(addon.solda._pontas_fora_do_lugar([tampo]))
-        # soldar de novo (ou desassociar) volta as ancoras de fabrica
+        # Welding again or disassociating restores default anchors.
         addon.chapas.detectar_adjacencia(addon.modulos._chapas_do_conjunto(modulo))
         self.assertIsNone(addon.solda._ancoras_gravadas(tampo, ponta))
         addon.solda._gravar_ancoras(tampo, ponta, [(ancoras[0][0], fora)])
@@ -3618,8 +3614,8 @@ class TestHUD(unittest.TestCase):
         self.assertNotIn('adj_%s_ancoras' % ponta, tampo)
 
     def test_regua_rejeita_destinos_contraditorios_sem_alterar_modulo(self):
-        # Regressao (era BUG, corrigido na 347): a regua aceitava a mesma
-        # quina em dois destinos e ainda remontava portas e dobradicas.
+        # Regression, fixed in v347: the ruler accepted one corner for two destinations
+        # and also rebuilt doors and hinges.
         modulo, tampo, direita, ponta = self.solda_do_tampo()
         pares = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
         sc, sn = pares[0]
@@ -3646,15 +3642,15 @@ class TestHUD(unittest.TestCase):
             (sc, sn), (sc, addon.solda._parceiro_espessura(direita, sn))])
         antes = [tuple(v.co) for v in base.data.vertices]
         matriz = base.matrix_world.copy()
-        with self.assertRaisesRegex(ValueError, 'destinos diferentes'):
+        with self.assertRaisesRegex(ValueError, 'different destinations'):
             addon.solda.resetar_pontas([(base, ponta), (tampo, ponta)])
         self.assertEqual(base.matrix_world, matriz)
         self.assertEqual([tuple(v.co) for v in base.data.vertices], antes)
 
     def test_regua_leva_aos_vertices_ancorados_mesmo_torta(self):
-        # Print 1 do usuario: uma ancora na quina de FORA da lateral e a
-        # outra na de dentro -> a ponta do tampo fica torta, na diagonal,
-        # com a espessura intacta; a lateral nao se mexe
+        # User's first screenshot: one anchor on the side's outer corner, the other
+        # on the inner corner; the top endpoint becomes diagonal with unchanged
+        # thickness, while the side remains stationary.
         modulo, tampo, direita, ponta = self.solda_do_tampo()
         ancoras = self._ancoras_legadas_da_ligacao(tampo, ponta, direita)
         _f, u, _e = addon.solda._folga_com_sinal(tampo, ponta, direita)
@@ -3676,11 +3672,11 @@ class TestHUD(unittest.TestCase):
             self.assertLess((addon.solda._vertice_da_assinatura(tampo, sc)
                              - addon.solda._vertice_da_assinatura(direita, sn)).length,
                             1e-4, sc)
-        # torta: os dois cantos da ponta nao estao mais na mesma reta
+        # Skewed: both endpoint corners no longer lie on the same straight line.
         a = addon.solda._vertice_da_assinatura(tampo, sc0)
         b = addon.solda._vertice_da_assinatura(tampo, sc1)
         self.assertGreater(abs((a - b).dot(sentido)), 0.005)
-        # o outro lado da espessura veio junto
+        # The opposite side of the thickness follows.
         self.assertAlmostEqual((a - addon.solda._vertice_da_assinatura(
             tampo, parceiro)).length, espessura, places=5)
         for x, y in zip(direita.matrix_world, lateral):
@@ -3688,9 +3684,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(addon.solda._pontas_fora_do_lugar([tampo]), [])
 
     def ancora_na_quina_de_fora(self):
-        """Solda do tampo com o par 0 ancorado na quina de FORA da lateral
-        (print do usuario). Devolve (modulo, tampo, direita, ponta, novas,
-        sentido)."""
+        """Weld the top with pair 0 anchored at the side's outer corner, as in the user's screenshot. Return (modulo, tampo, direita, ponta, novas, sentido)."""
         modulo, tampo, direita, ponta = self.solda_do_tampo()
         ancoras = self._ancoras_legadas_da_ligacao(tampo, ponta, direita)
         _f, u, _e = addon.solda._folga_com_sinal(tampo, ponta, direita)
@@ -3702,8 +3696,8 @@ class TestHUD(unittest.TestCase):
         return modulo, tampo, direita, ponta, novas, sentido
 
     def test_lateral_ativa_e_ela_que_entorta_ate_as_ancoras(self):
-        # Print do usuario: a LATERAL selecionada nao se deformava -- so'
-        # andava ate' a media e as ancoras ficavam sem encostar
+        # User screenshot: the selected side did not deform; it only moved to the
+        # average position, leaving anchors apart.
         modulo, tampo, direita, ponta, novas, sentido = self.ancora_na_quina_de_fora()
         tampo_antes = [tuple(tampo.matrix_world @ v.co) for v in tampo.data.vertices]
         sn0 = novas[0][1]
@@ -3718,7 +3712,7 @@ class TestHUD(unittest.TestCase):
             self.assertLess((addon.solda._vertice_da_assinatura(tampo, sc)
                              - addon.solda._vertice_da_assinatura(direita, sn)).length,
                             1e-4, sn)
-        # a lateral (a ativa) entortou, com a espessura intacta; o tampo nao
+        # The active side deforms with unchanged thickness; the top does not.
         self.assertAlmostEqual((addon.solda._vertice_da_assinatura(direita, sn0)
                                 - addon.solda._vertice_da_assinatura(direita, parceiro)
                                 ).length, espessura, places=5)
@@ -3728,9 +3722,9 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(addon.solda._pontas_fora_do_lugar([direita]), [])
 
     def test_lateral_afastada_com_ancora_volta_e_entorta(self):
-        # A cena das prints: lateral 200 mm longe, uma ancora na quina de
-        # fora. Lateral ativa: volta inteira pelas soldas normais (a base)
-        # e entorta so' o que a ancora pede; tudo encostado, nada aparece.
+        # Screenshot scene: side 200 mm away, one anchor at an outer corner.
+        # Active side returns as a whole through normal base welds and deforms
+        # only as the anchor requires; all joints touch, so no indicators remain.
         modulo, tampo, direita, ponta, novas, sentido = self.ancora_na_quina_de_fora()
         self.afastar(direita, 0.2)
         self.selecionar(direita, ativo=direita)
@@ -3744,9 +3738,9 @@ class TestHUD(unittest.TestCase):
             addon.modulos._chapas_do_conjunto(modulo)), [])
 
     def test_ancora_em_vertice_de_chanfro(self):
-        # Print do usuario (caso extremo): lateral com um chanfro curvo.
-        # A bolinha tem que poder cair em QUALQUER vertice da malha, nao
-        # so' nos 8 cantos da caixa; a regua leva a ponta ate' ele.
+        # User's extreme-case screenshot: a side with a curved chamfer. The dot must
+        # reach any mesh vertex, not just the box's eight corners;
+        # the ruler moves the endpoint there.
         modulo, tampo, direita, ponta = self.solda_do_tampo()
         malha = bmesh.new()
         malha.from_mesh(direita.data)
@@ -3762,7 +3756,7 @@ class TestHUD(unittest.TestCase):
         self.assertGreater(len(candidatos), 8)
         self.assertTrue(all(a.startswith('v') for a, _p in candidatos))
         ancoras = addon.solda._ancoras_da_ligacao(tampo, ponta, direita)
-        # um vertice do MEIO do chanfro (nao e' canto da caixa)
+        # A middle chamfer vertex, not a box corner.
         cantos = [addon.solda._vertice_da_assinatura(direita, a + b + c)
                   for a in '+-' for b in '+-' for c in '+-']
         alvo, ponto = max(candidatos, key=lambda c: min(
@@ -3773,7 +3767,7 @@ class TestHUD(unittest.TestCase):
                          {'FINISHED'})
         self.assertLess((addon.solda._vertice_da_assinatura(direita, alvo) - ponto)
                         .length, 1e-6)
-        # o outro lado da espessura de um vertice qualquer existe e e' outro
+        # An arbitrary vertex has a distinct partner across the thickness.
         parceiro = addon.solda._parceiro_espessura(direita, alvo)
         self.assertNotEqual(parceiro, alvo)
         self.selecionar(tampo, ativo=tampo)
@@ -3783,14 +3777,14 @@ class TestHUD(unittest.TestCase):
                         1e-4)
 
     def test_par_que_ja_encostou_some_da_viewport(self):
-        # Print do usuario: o par que ja' chegou continuava desenhado em
-        # cima do vertice (linha, bolinhas e botoes sobrepostos)
+        # User screenshot: a pair already at its target remained drawn over the vertex,
+        # overlapping lines, dots and buttons.
         modulo, tampo, direita, ponta, novas, sentido = self.ancora_na_quina_de_fora()
         ligacao = next(l for l in addon.solda._ligacoes_adjacencia([tampo])
                        if l['a'] == tampo and l['b'] == direita)
         self.assertEqual(ligacao['soltos'], [True, False])
         self.selecionar(tampo, ativo=tampo)
-        # cada funcao no modulo dela (o add-on e' um pacote)
+        # Each function belongs to its own module; the add-on is a package.
         for m, n in ((addon.solda, '_correntes_visiveis'),
                      (addon.hud, '_contexto_hud'),
                      (addon.gaveta, '_eh_area_gaveta'),
@@ -3810,14 +3804,14 @@ class TestHUD(unittest.TestCase):
         piso, lateral = self.piso_e_lateral(10.0)
         self.selecionar(piso, ativo=piso)
         self.assertIs(addon.solda._estado_corrente_objeto(bpy.context), True)
-        # as duas pecas ligadas = o grupo: azul, o clique desagrega todas
+        # Both linked parts form the group: blue, and clicking detaches all.
         self.selecionar(piso, lateral, ativo=lateral)
         self.assertIs(addon.solda._estado_corrente_objeto(bpy.context), True)
         self.assertEqual(addon.solda._acao_corrente(bpy.context)[0], 'grupo')
         addon.solda.desagregar(piso)
         self.selecionar(piso, ativo=piso)
         self.assertIs(addon.solda._estado_corrente_objeto(bpy.context), False)
-        # o botao da gaveta leva o estado (azul = agregado)
+        # The sidebar button conveys state: blue means attached.
         widgets = addon.gaveta._widgets_gaveta(bpy.context, 478, 900)
         botao = next(v for v in widgets if v[5] and v[5][:2] == (
             'operador', addon.solda.OP_CORRENTE_OBJETO))
@@ -3827,15 +3821,15 @@ class TestHUD(unittest.TestCase):
     def test_uma_peca_solta_vai_direto_ao_selecionar_vertice(self):
         piso, lateral = self.piso_e_lateral(3.0)
         addon.solda.desagregar(piso)
-        # mesmo com vizinha a 3 mm: sozinha, nada de conectar por distancia
+        # Even with a neighbor 3 mm away, a lone selection must not connect by distance.
         self.selecionar(piso, ativo=piso)
         self.assertEqual(addon.solda._acao_corrente(bpy.context),
                          ('vertices', piso, []))
 
     def test_alvos_primeiro_e_a_peca_de_fora_por_ultimo(self):
-        # Pedido do usuario: seleciona o(s) alvo(s) e, por ULTIMO (o ativo
-        # do Blender), a peca de fora. Ate' 5 mm conecta sozinho; so' com
-        # os alvos selecionados, nunca com uma vizinha que nao foi.
+        # User request: select targets first, then the external part last to make it
+        # active in Blender. Connect automatically within 5 mm, only to selected targets,
+        # never to an unselected neighbor.
         piso, lateral = self.piso_e_lateral(3.0)
         addon.solda.desagregar(piso)
         intrusa = addon.chapas.nova_chapa('Intrusa', 720.0, 400.0, 18.0,
@@ -3851,14 +3845,14 @@ class TestHUD(unittest.TestCase):
                          {'FINISHED'})
         self.assertEqual(addon.solda._vizinho_da_ponta(piso, 'x_pos'), lateral)
         self.assertIsNone(addon.solda._vizinho_da_ponta(piso, 'x_neg'))
-        # as duas estavam soltas: a Corrente as junta num GRUPO com nome
-        # (pedido do usuario); a intrusa fica de fora
+        # Both were loose: the chain joins them in a named group, as requested;
+        # the intruding part stays excluded.
         grupo = addon.portas._modulo_da_chapa(piso)
         self.assertIsNotNone(grupo)
         self.assertIs(addon.portas._modulo_da_chapa(lateral), grupo)
         self.assertIsNone(addon.portas._modulo_da_chapa(intrusa))
-        self.assertTrue(grupo.name.startswith('Armario '))
-        # a 10 mm a automatica falha: selecionar vertice, so' nos alvos
+        self.assertTrue(grupo.name.startswith('Cabinet '))
+        # At 10 mm automatic connection fails; select a vertex on eligible targets only.
         addon.solda.desagregar_grupo([piso, lateral])
         lateral.location.x += 0.007
         bpy.context.view_layer.update()
@@ -3871,7 +3865,7 @@ class TestHUD(unittest.TestCase):
                          {lateral})
 
     def test_modulo_como_ativo_nao_e_puxado_ate_o_alvo(self):
-        # quem vai ate' o alvo e' UMA peca; um modulo por ultimo nao vale
+        # One part moves to the target; a cabinet as the last selection is invalid.
         modulo = self.modulo()
         solta = self.prateleira_solta()
         self.selecionar(solta, modulo, *addon.modulos._chapas_do_conjunto(modulo),
@@ -3883,21 +3877,21 @@ class TestHUD(unittest.TestCase):
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         mundo = {o.name: o.matrix_world.copy() for o in chapas}
-        addon.hud._selecionar_chapa_hud(bpy.context, chapas[0])   # clique: modulo
+        addon.hud._selecionar_chapa_hud(bpy.context, chapas[0])   # Click target: cabinet.
         self.assertEqual(addon.solda._acao_corrente(bpy.context),
                          ('grupo', None, chapas))
-        self.assertIn('todos os itens deste grupo',
+        self.assertIn('all items from this group',
                       addon.solda.PERGUNTA_DESAGREGAR_GRUPO)
         self.assertEqual(bpy.ops.object.cabinet_corrente_objeto(),
                          {'FINISHED'})
         self.assertEqual(addon.solda._desagregar_pendente[0],
                          sorted(o.name for o in chapas))
-        # "Nao": nada muda
+        # No: change nothing.
         self.assertEqual(bpy.ops.object.cabinet_desagregar_selecao(
             desagregar=False), {'CANCELLED'})
         self.assertIsNone(addon.solda._desagregar_pendente[0])
         self.assertTrue(all(o.parent == modulo for o in chapas))
-        # "Sim": todas soltas, no lugar, e o modulo vazio some
+        # Yes: detach all in place and remove the empty cabinet.
         nome_modulo = modulo.name
         bpy.ops.object.cabinet_corrente_objeto()
         self.assertEqual(bpy.ops.object.cabinet_desagregar_selecao(),
@@ -3910,8 +3904,8 @@ class TestHUD(unittest.TestCase):
                 self.assertLess((a - b).length, 1e-6, o.name)
 
     def test_pergunta_vai_para_a_gaveta_ou_para_o_popup(self):
-        # Botao da gaveta (_na_gaveta) -> caixa na gaveta; viewport -> pop-up.
-        # A resposta e' a mesma nos dois: cabinet_responder_pergunta.
+        # Sidebar button (_na_gaveta) uses a sidebar box; viewport uses a popup.
+        # Both use the same response operator: cabinet_responder_pergunta.
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         addon.hud._selecionar_chapa_hud(bpy.context, chapas[0])
@@ -3921,19 +3915,19 @@ class TestHUD(unittest.TestCase):
         finally:
             addon.perguntas._na_gaveta[0] = False
         self.assertTrue(addon.perguntas._pergunta_atual[0]['na_gaveta'])
-        bpy.ops.object.cabinet_corrente_objeto()            # sem gaveta
+        bpy.ops.object.cabinet_corrente_objeto()            # Without a sidebar.
         self.assertFalse(addon.perguntas._pergunta_atual[0]['na_gaveta'])
-        # "Nao": nada muda e a pergunta some
+        # No: change nothing and dismiss the question.
         self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=1),
                          {'CANCELLED'})
         self.assertIsNone(addon.perguntas._pergunta_atual[0])
         self.assertTrue(all(o.parent == modulo for o in chapas))
-        # "Sim": desagrega
+        # Yes: detach.
         bpy.ops.object.cabinet_corrente_objeto()
         self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=0),
                          {'FINISHED'})
         self.assertTrue(all(o.parent is None for o in chapas))
-        # sem pergunta pendente: nada a responder
+        # No pending question: nothing to answer.
         self.assertEqual(bpy.ops.object.cabinet_responder_pergunta(opcao=0),
                          {'CANCELLED'})
 
@@ -3944,7 +3938,7 @@ class TestHUD(unittest.TestCase):
         addon.hud._selecionar_chapa_hud(bpy.context, peca, individual=True)
         self.assertEqual(addon.solda._acao_corrente(bpy.context),
                          ('desagregar', peca, [peca]))
-        self.assertIn('desagregar esse objeto do grupo',
+        self.assertIn('detach this object from the group',
                       addon.solda.PERGUNTA_DESAGREGAR_OBJETO)
         bpy.ops.object.cabinet_corrente_objeto()
         self.assertEqual(addon.solda._desagregar_pendente[0], [peca.name])
@@ -3954,13 +3948,13 @@ class TestHUD(unittest.TestCase):
         self.assertFalse(addon.solda.agregado(peca))
         self.assertTrue(all(o.parent == modulo for o in chapas[1:]))
         self.assertIn(modulo.name, bpy.data.objects)
-        # sem pergunta pendente: nada a fazer
+        # No pending question: nothing to do.
         self.assertEqual(bpy.ops.object.cabinet_desagregar_selecao(),
                          {'CANCELLED'})
 
     def test_conexao_automatica_so_ate_5mm(self):
-        # Pedido do usuario: juntar sozinho so' ate' 5 mm; mais longe ja'
-        # e' "selecionar vertice" (nenhum vizinho "ao alcance").
+        # User request: automatic joining only within 5 mm; beyond that,
+        # enter vertex selection because no neighbor is in range.
         self.assertAlmostEqual(addon.chapas.ALCANCE_CONEXAO_AUTOMATICA, 0.005)
         for folga, alcanca in ((5.0, True), (6.0, False), (20.0, False)):
             for o in list(bpy.data.objects):
@@ -3975,12 +3969,12 @@ class TestHUD(unittest.TestCase):
                              {'FINISHED'} if alcanca else {'CANCELLED'}, folga)
             self.assertEqual(addon.solda._vizinho_da_ponta(piso, 'x_pos'),
                              lateral if alcanca else None, folga)
-        # o agrupar do modulo (detectar_adjacencia) segue com o alcance dele
+        # Cabinet grouping through detectar_adjacencia retains its own range.
         piso, lateral = self.piso_e_lateral(20.0)
         self.assertEqual(addon.solda._vizinho_da_ponta(piso, 'x_pos'), lateral)
 
     def test_associar_uma_peca_nao_apaga_as_ligacoes_das_outras(self):
-        # detectar_adjacencia zera quem recebe; associar_por_distancia nao
+        # detectar_adjacencia clears the recipient; associar_por_distancia does not.
         piso, lateral = self.piso_e_lateral(10.0)
         fora = addon.chapas.nova_chapa('Fora', 400.0, 400.0, 18.0,
                                 (319.0 + 9.0 + 200.0 + 5.0, 0, 300.0),
@@ -3997,7 +3991,7 @@ class TestHUD(unittest.TestCase):
         fixos = {o.name: o.matrix_world.copy() for o in chapas}
         prateleira = self.prateleira_solta(x_mm=900.0, z_mm=300.0)
         bpy.context.view_layer.update()
-        # Um canto da ponta ESQUERDA da prateleira no vertice real da lateral.
+        # One corner at the shelf's left endpoint targets a real side-panel vertex.
         fora_x = max(p.x for p in addon.chapas._cantos(direita))
         alvos_lateral = sorted((p for p in addon.chapas._cantos(direita)
                                 if abs(p.x - fora_x) < 1e-6 and p.z < 0.01),
@@ -4023,7 +4017,7 @@ class TestHUD(unittest.TestCase):
         for p,v in zip(antes,prateleira.data.vertices):
             self.assertLess((prateleira.matrix_world@v.co-p).length,1e-6)
         self.assertFalse(addon.solda._pontas_fora_do_lugar([prateleira]))
-        # entrou no modulo, associada; o modulo NAO foi puxado
+        # Joined the cabinet with association; the cabinet was not pulled.
         self.assertEqual(prateleira.parent, modulo)
         self.assertTrue(addon.solda.agregado(prateleira))
         for o in chapas:
@@ -4048,7 +4042,7 @@ class TestHUD(unittest.TestCase):
         self.assertIsNone(prateleira.parent)
         for a, b in zip(prateleira.matrix_world, antes):
             self.assertLess((a - b).length, 1e-9)
-        # sem pergunta pendente: nada a fazer
+        # No pending question: nothing to do.
         self.assertEqual(bpy.ops.object.cabinet_juntar_modulo(),
                          {'CANCELLED'})
 
@@ -4061,11 +4055,11 @@ class TestHUD(unittest.TestCase):
             addon.opcoes._definir_opcao('tecla_corrente', 'ALT')
             self.assertFalse(addon.solda._correntes_visiveis())
             for tecla, apertou, visivel in (
-                    ('LEFT_CTRL', True, False),     # outra tecla: nada
+                    ('LEFT_CTRL', True, False),     # Another key: no action.
                     ('LEFT_ALT', True, True),
                     ('RIGHT_ALT', False, False)):
                 fake = SimpleNamespace(tecla=tecla, apertou=apertou)
-                # o evento segue adiante: Alt continua valendo no Blender
+                # Pass the event through so Alt still works in Blender.
                 self.assertEqual(op.invoke(fake, ctx, evento),
                                  {'PASS_THROUGH'})
                 self.assertEqual(addon.solda._correntes_visiveis(), visivel, tecla)
@@ -4080,15 +4074,15 @@ class TestHUD(unittest.TestCase):
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         lo = min(min(p.x for p in addon.chapas._cantos(c)) for c in chapas)
-        # A adjacencia liga a PONTA de uma chapa a FACE de outra (duas
-        # laterais face com face nao se ligam): prateleira de fora com a
-        # ponta a 5 mm da lateral do modulo
+        # Adjacency links a panel end to another panel's face; two sides face-to-face
+        # do not link. Use an external shelf whose end is 5 mm from
+        # the cabinet side.
         de_fora = addon.chapas.nova_chapa('Vizinha', 400.0, 300.0, 18.0,
                                    (lo * 1000.0 - 5.0 - 200.0, 0, 300.0),
                                    (0, 0, 0), bpy.context)
         bpy.context.view_layer.update()
         addon.chapas.detectar_adjacencia(chapas + [de_fora])
-        self.assertEqual(addon.solda._ligacoes_adjacencia(chapas), [])   # na origem
+        self.assertEqual(addon.solda._ligacoes_adjacencia(chapas), [])   # At the origin.
         self.afastar(de_fora, -0.010)
         ligacoes = addon.solda._ligacoes_adjacencia(chapas)
         self.assertTrue(ligacoes)
@@ -4100,9 +4094,9 @@ class TestHUD(unittest.TestCase):
                       addon.hud._itens_da_selecao(bpy.context))
 
     def test_hud_mostra_todos_os_itens_sem_ordem(self):
-        # Pedido do usuario: com dois modulos selecionados o contorno so'
-        # aparecia no ultimo. Cada item tem o seu, em QUALQUER ordem:
-        # dois grupos, grupo + chapa, chapa + grupo, duas chapas.
+        # User request: with two cabinets selected, only the last had an outline.
+        # Every item needs its own in any order: two groups, group plus panel,
+        # panel plus group, or two panels.
         primeiro, segundo = self.dois_modulos()
         a1 = addon.modulos._chapas_do_conjunto(primeiro)[0]
         b1 = addon.modulos._chapas_do_conjunto(segundo)[0]
@@ -4127,10 +4121,10 @@ class TestHUD(unittest.TestCase):
                              [o.name for o in selecao])
             desenhos = addon.hud._desenhos_hud(_ContextoRegiao())
             self.assertEqual(len(desenhos), len(esperado))
-            # o item do ativo vem primeiro (gaveta e correntes leem ele)
+            # The active object's item comes first because the sidebar and chains read it.
             self.assertIn(ativo, (addon.hud._alvo_hud(bpy.context)[0],
                                   *addon.hud._alvo_hud(bpy.context)[2]))
-        # chapa individual mostra L/A/E; modulo mostra L/P/A
+        # Individual panel shows L/A/E; cabinet shows L/P/A.
         self.selecionar(*grupo_a, b1, ativo=b1)
         letras = {g['objeto'].name: {l['letra'] for l in g['linhas']
                                      if l['tipo'] == 'medida'}
@@ -4139,7 +4133,7 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(letras[primeiro.name], {'L', 'P', 'A'})
 
     def test_linhas_e_quinas_valem_em_qualquer_item_selecionado(self):
-        # Setas e quinas tambem no item que NAO e' o ativo
+        # Arrows and corners also appear on inactive items.
         primeiro, segundo = self.dois_modulos()
         b1 = addon.modulos._chapas_do_conjunto(segundo)[0]
         self.selecionar(primeiro, *primeiro.children_recursive, b1, ativo=b1)
@@ -4152,10 +4146,10 @@ class TestHUD(unittest.TestCase):
         self.addCleanup(setattr, addon.hud, '_projetar_hud', originais[1])
         geometria = addon.hud._geometria_do_item(
             primeiro, 'GRUPO', addon.modulos._chapas_do_conjunto(primeiro))
-        # quina do modulo nao ativo: mover
+        # Inactive cabinet corner: move.
         alvo = addon.hud._acertar_hud(bpy.context, projetar(geometria['cantos'][5]))
         self.assertEqual((alvo['tipo'], alvo['objeto']), ('ancora', primeiro))
-        # linha L do modulo nao ativo: a seta e' dele
+        # Inactive cabinet L line: the arrow belongs to it.
         linha = next(l for l in geometria['linhas']
                      if l['tipo'] == 'medida' and l['eixo'] == 0)
         a, b = (projetar(q) for q in linha['pontos'])
@@ -4167,7 +4161,7 @@ class TestHUD(unittest.TestCase):
         addon.hud._aplicar_valor_hud(bpy.context, alvo, 900.0)
         self.assertAlmostEqual(primeiro.conj_largura_mm, 900.0, places=3)
         self.assertAlmostEqual(segundo.conj_largura_mm, largura, places=3)
-        # so' o item do alvo acende; o outro desenha normal
+        # Only the target item highlights; draw the other normally.
         addon.hud._hover_hud[4242] = alvo
         acesos = [g['objeto'] for g, aceso in
                   addon.hud._desenhos_hud(_ContextoRegiao()) if aceso]
@@ -4182,9 +4176,9 @@ class TestHUD(unittest.TestCase):
         self.assertEqual(alvo['tipo'], 'ancora')
         self.assertNotIn('lado', alvo)
 
-    # Regressao (era BUG, corrigido na 304): com Ctrl as quinas da cena eram
-    # juntadas e projetadas em Python a cada movimento. Agora o cursor anda
-    # pelo translate NATIVO (o Ctrl dele liga o snap) e o modulo o segue.
+    # Regression, fixed in v304: Ctrl gathered and projected scene corners in Python
+    # on every move. Now native cursor translation handles snapping through Ctrl,
+    # and the cabinet follows it.
     def test_quina_move_o_modulo_pelo_snap_nativo(self):
         H = addon.hud
         self.assertIn(H.OBJECT_OT_mover_quina_hud, addon.CLASSES)
@@ -4204,7 +4198,7 @@ class TestHUD(unittest.TestCase):
         self.addCleanup(H._terminar_quina_nativa)
         parametros = H._preparar_quina_nativa(contexto, primeiro, origem,
                                               primeiro.matrix_world.copy())
-        self.assertFalse(parametros['snap'])          # o Ctrl do translate liga
+        self.assertFalse(parametros['snap'])          # Translation's Ctrl enables snapping.
         self.assertEqual(parametros['snap_elements'], {'VERTEX'})
         self.assertTrue(all(o.hide_select for o in chapas(primeiro)))
         self.assertFalse(any(o.hide_select for o in chapas(segundo)))
@@ -4221,8 +4215,8 @@ class TestHUD(unittest.TestCase):
             addon.gaveta_desenho._tecla_no_texto(estado, 'X', c)
 
     def test_operador_continua_a_conta_em_vez_de_apagar(self):
-        # Pedido do usuario: caixa aberta com "600" (todo selecionado);
-        # '+' nao apaga -- fica "600 + "
+        # User request: with "600" entirely selected in the open field,
+        # '+' preserves it and produces "600 + ".
         estado = {'texto': '600', 'cursor': 3, 'selecionado': True}
         addon.gaveta_desenho._tecla_no_texto(estado, 'NUMPAD_PLUS', '+')
         self.assertEqual(estado['texto'], '600 + ')
@@ -4233,12 +4227,12 @@ class TestHUD(unittest.TestCase):
             estado = {'texto': '600', 'cursor': 3, 'selecionado': True}
             addon.gaveta_desenho._tecla_no_texto(estado, 'X', operador)
             self.assertEqual(estado['texto'], '600 %s ' % operador)
-        # print do usuario: "664 - 100+25" -- todo operador digitado sai
-        # com um espaco de cada lado, em qualquer ponto da conta
+        # User screenshot: "664 - 100+25". Every typed operator receives one space
+        # on each side, anywhere in the expression.
         estado = {'texto': '664', 'cursor': 3, 'selecionado': True}
         self.teclar(estado, '-100+25*2/4')
         self.assertEqual(estado['texto'], '664 - 100 + 25 * 2 / 4')
-        # sem espaco dobrado se ja' havia um; no meio tambem
+        # Avoid duplicate spaces if one already exists, including in the middle.
         estado = {'texto': '664 ', 'cursor': 4, 'selecionado': False}
         self.teclar(estado, '+')
         self.assertEqual(estado['texto'], '664 + ')
@@ -4246,11 +4240,11 @@ class TestHUD(unittest.TestCase):
         self.teclar(estado, '+')
         self.assertEqual(addon.gaveta_desenho._com_cursor(estado['texto'], estado['cursor']),
                          '600 + |100')
-        # colado entra como veio
+        # Pasted text remains exactly as pasted.
         estado = {'texto': '', 'cursor': 0, 'selecionado': False}
         addon.gaveta_desenho._tecla_no_texto(estado, 'V', '1+2')
         self.assertEqual(estado['texto'], '1+2')
-        # numero com tudo selecionado continua trocando o texto
+        # A number typed over a full selection still replaces the text.
         estado = {'texto': '600', 'cursor': 3, 'selecionado': True}
         self.teclar(estado, '75')
         self.assertEqual(estado['texto'], '75')
@@ -4261,14 +4255,14 @@ class TestHUD(unittest.TestCase):
     def test_unidade_solta_ou_no_meio_vale_para_o_numero(self):
         try:
             addon.opcoes._definir_opcao('unidade_padrao', 'MM')
-            # "500 + cm" -> 500 cm; "500 +" -> 500
+            # "500 + cm" evaluates to 500 cm; "500 +" to 500.
             self.assertEqual(addon.gaveta_desenho._arrumar_texto_medida('500 + cm'), '500cm')
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('500 + cm'), 5.0)
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('500 +'), 0.5)
-            # "51cm00" (cm digitado no meio) -> 5100 cm
+            # "51cm00", with cm inserted in the middle, evaluates to 5100 cm.
             self.assertEqual(addon.gaveta_desenho._arrumar_texto_medida('51cm00'), '5100cm')
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('51cm00'), 51.0)
-            # o que ja' funcionava nao muda
+            # Preserve previously working behavior.
             for texto, metros in (('1m - 20mm', 0.98), ('600cm + 500mm', 6.5),
                                   ('2*300', 0.6), ('600 + 500', 1.1)):
                 self.assertEqual(addon.gaveta_desenho._ler_medida_digitada(texto), metros, texto)
@@ -4276,8 +4270,8 @@ class TestHUD(unittest.TestCase):
             addon.opcoes._definir_opcao('unidade_padrao', 'MM')
 
     def test_cursor_anda_e_escreve_no_meio(self):
-        # 500| -> clique ao lado do 5 -> 5|00 -> '1' -> 51|00 -> 'cm'
-        largura = lambda t: 10 * len(t)            # 10 px por caractere
+        # 500| -> click beside 5 -> 5|00 -> '1' -> 51|00 -> 'cm'.
+        largura = lambda t: 10 * len(t)            # 10 px per character.
         estado = {'texto': '500', 'cursor': 3, 'selecionado': True}
         estado['cursor'] = addon.gaveta_desenho._cursor_no_x('500', 3, 0, 12, largura)
         estado['selecionado'] = False
@@ -4288,10 +4282,10 @@ class TestHUD(unittest.TestCase):
         self.teclar(estado, 'cm')
         self.assertEqual(estado['texto'], '51cm00')
         self.assertEqual(addon.gaveta_desenho._ler_medida_digitada(estado['texto']), 51.0)
-        # depois da barra as posicoes andam a largura dela: "5|00", clique
-        # em x=25 cai entre os dois zeros (posicao 2, x=30 na tela)
+        # After the caret, positions shift by its width: in "5|00", clicking x = 25
+        # lands between the zeros at position 2, displayed at x = 30.
         self.assertEqual(addon.gaveta_desenho._cursor_no_x('500', 1, 0, 25, largura), 2)
-        # setas, Home/End, Del e Backspace no cursor
+        # Arrows, Home/End, Del and Backspace act at the cursor.
         estado = {'texto': '1234', 'cursor': 4, 'selecionado': False}
         for tecla in ('LEFT_ARROW', 'LEFT_ARROW'):
             addon.gaveta_desenho._tecla_no_texto(estado, tecla)
@@ -4308,14 +4302,14 @@ class TestHUD(unittest.TestCase):
         for texto, metros in (('600 + 500', 1.1), ('600CM + 500MM', 6.5),
                               ('600cm + 500mm', 6.5), ('1m - 20mm', 0.98),
                               ('(600+500)/2', 0.55), ('2*300', 0.6)):
-            # exato: o ruido do parser (1100.0001) e' arredondado
+            # Exact: round parser noise such as 1100.0001.
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada(texto), metros, texto)
         try:
             addon.opcoes._definir_opcao('unidade_padrao', 'CM')
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('60'), 0.6)
-            # sem unidade = a padrao, mesmo ao lado de outra unidade
+            # Without a unit, use the default even beside another unit.
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('60 + 5mm'), 0.605)
-            # o 2 multiplica, nao e' medida
+            # The 2 is a multiplier, not a measurement.
             self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('2*30cm + 5'), 0.65)
             self.assertEqual(addon.opcoes._texto_medida(600.0), '60 cm')
             self.assertEqual(addon.opcoes._numero_na_unidade(600.0), '60')
@@ -4330,14 +4324,14 @@ class TestHUD(unittest.TestCase):
         for texto in ('abc', '0', '-5'):
             with self.assertRaises(ValueError):
                 addon.gaveta_desenho._ler_medida_digitada(texto)
-        # Regressao (era BUG, corrigido na 302): folga/curva digitada como 0
-        # era recusada, embora o arraste aceite 0 nesses campos.
+        # Regression, fixed in v302: typing 0 for clearance/curve was rejected,
+        # although dragging accepted 0 in those fields.
         self.assertEqual(addon.gaveta_desenho._ler_medida_digitada('0', 0.0), 0.0)
         with self.assertRaises(ValueError):
             addon.gaveta_desenho._ler_medida_digitada('-5', 0.0)
 
     def test_espessura_individual_livre_sem_alterar_outras_chapas(self):
-        # A espessura nao arredonda mais para 15/18/20/30 (usuario).
+        # Thickness no longer rounds to 15/18/20/30, as requested.
         modulo = self.modulo()
         chapa = addon.modulos._chapas_do_conjunto(modulo)[0]
         outras = {o: o.chapa_espessura_mm for o in addon.modulos._chapas_do_conjunto(modulo)
@@ -4391,8 +4385,8 @@ class TestHUD(unittest.TestCase):
                 self.assertFalse(any(w[5] and w[5][0] == 'wireframe' for w in widgets))
 
     def test_hover_esquece_objeto_liberado(self):
-        # Crash do usuario no Ctrl+Z: o hover guardava o OBJETO e a HUD o
-        # desenhava depois que o undo o liberou (memoria liberada).
+        # User Ctrl+Z crash: hover stored the object, and the HUD drew it after
+        # undo freed its memory.
         modulo = self.modulo()
         chapas = addon.modulos._chapas_do_conjunto(modulo)
         alvo = {'tipo': 'medida', 'objeto': modulo, 'chapas': chapas}
@@ -4408,8 +4402,8 @@ class TestHUD(unittest.TestCase):
         self.assertFalse(addon.hud._alvo_vivo(alvo))
 
     def test_handler_do_depsgraph_espera_o_undo_assentar(self):
-        # Crash do usuario (2x): Ctrl+Z logo apos criar a porta; o 1o
-        # recalculo depois do undo chamava o handler, que lia a selecao.
+        # User crash, twice: Ctrl+Z immediately after creating a door; the first
+        # post-undo recalculation called the handler, which read selection.
         modulo = self.modulo()
         chamadas = []
         original = addon.eventos.sincronizar_contornos
@@ -4419,16 +4413,16 @@ class TestHUD(unittest.TestCase):
             self.assertTrue(addon.eventos._desfazendo[0])
             self.assertTrue(bpy.app.timers.is_registered(addon.eventos._fim_do_desfazer))
             addon.chapas.ao_atualizar_depsgraph(bpy.context.scene, None)
-            self.assertEqual(chamadas, [])          # nada durante o undo
-            addon.eventos._fim_do_desfazer()                 # o proximo tique
+            self.assertEqual(chamadas, [])          # No work during undo.
+            addon.eventos._fim_do_desfazer()                 # The next tick.
             self.assertFalse(addon.eventos._desfazendo[0])
-            self.assertEqual(chamadas, [1])          # o contorno volta
+            self.assertEqual(chamadas, [1])          # The outline returns.
         finally:
             addon.eventos.sincronizar_contornos = original
             addon.eventos._desfazendo[0] = False
             if bpy.app.timers.is_registered(addon.eventos._fim_do_desfazer):
                 bpy.app.timers.unregister(addon.eventos._fim_do_desfazer)
-        # a selecao dos grupos sai por select_get, sem a colecao
+        # Read group selection through select_get, without the selection collection.
         bpy.ops.object.select_all(action='DESELECT')
         modulo.select_set(True)
         self.assertEqual(addon.eventos._grupos_selecionados(bpy.context.view_layer),
@@ -4447,4 +4441,4 @@ resultado = unittest.TextTestRunner(verbosity=2).run(
     unittest.defaultTestLoader.loadTestsFromTestCase(TestHUD))
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes da HUD')
+    raise RuntimeError("HUD tests failed")

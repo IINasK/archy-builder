@@ -14,24 +14,24 @@ import bpy
 from mathutils import Matrix, Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware")
 
 RAIZ, PORTA, CONTROLE = 'Hinge Empty', 'Door Left', 'door controller'
-LATERAL = 'Left table'                          # a chapa onde a base prende
+LATERAL = 'Left table'                          # Panel to which the mounting plate attaches.
 CORTADOR, CABECA = 'Boolean Hinge Botton', 'Left Hinge Head'
 PAPEIS = {RAIZ: 'raiz', 'Left Hinge base': 'base',
           'Left Hinge suport': 'suporte', CABECA: 'cabeca',
           CORTADOR: 'furo', CONTROLE: 'controle', 'Armature': 'armacao',
           'Armature.001': 'armacao_ik'}
-# a porta do usuario e o que vai nela: ficam de fora
+# The user's door and its attached components are excluded.
 FORA = {PORTA, 'Aluminum handle Left', 'Boolean Hinge Botton.001'}
-LIXO = ('hops', 'kitops', 'scatter5', 'HG')    # props de outros add-ons
-CONTROLE_MIN, CONTROLE_MAX = 0.5, 90.0          # graus (Limit Rotation)
-FOLGA_COPO_MM = 0.2          # de cada lado do copo, no furo
-# Versao do asset: copia de versao antiga (nomes em ingles, furo velho) e'
-# trocada pela nova quando a porta se refaz. Suba ao mudar o asset.
+LIXO = ('hops', 'kitops', 'scatter5', 'HG')    # Properties from other add-ons.
+CONTROLE_MIN, CONTROLE_MAX = 0.5, 90.0          # Degrees (Limit Rotation).
+FOLGA_COPO_MM = 0.2          # On each side of the cup, at the hole.
+# Asset version: replace copies of older versions (English names, old hole)
+# when rebuilding the door. Increment when the asset changes.
 VERSAO = 2
-NOMES_PT = {RAIZ: 'Dobradica', 'Left Hinge base': 'Dobradica Base',
+NOMES_PT = {RAIZ: "Hinge", 'Left Hinge base': 'Dobradica Base',
             'Left Hinge suport': 'Dobradica Suporte', CABECA: 'Dobradica Copo',
             CORTADOR: 'Dobradica Furo do Copo', CONTROLE: 'Dobradica Controle',
             'Armature': 'Dobradica Armacao',
@@ -39,35 +39,35 @@ NOMES_PT = {RAIZ: 'Dobradica', 'Left Hinge base': 'Dobradica Base',
             'Left Hinge.Arm.001': 'Dobradica Braco 1',
             'Left Hinge.Arm': 'Dobradica Braco 2',
             'Left Hinge spring': 'Dobradica Mola'}
-NOMES_MODIFICADORES = {'MIRROR': 'Espelhar', 'SUBSURF': 'Subdivisao',
-                       'NODES': 'Suavizar por Angulo'}
-NOMES_RESTRICOES = {'LIMIT_ROTATION': 'Limitar Giro', 'IK': 'IK'}
+NOMES_MODIFICADORES = {'MIRROR': "Mirror", 'SUBSURF': "Subdivision",
+                       'NODES': "Smooth by Angle"}
+NOMES_RESTRICOES = {'LIMIT_ROTATION': "Limit Rotation", 'IK': 'IK'}
 NOMES_OSSOS = {'Bone': 'Osso 1', 'Bone.001': 'Osso 2', 'Bone.002': 'Osso 3'}
-NOMES_MATERIAIS = {'Steel Rough #1.009': 'Aco Fosco'}
-ABA_COPO_MM = 1.0            # o que entra menos que isto e' aba, nao copo
+NOMES_MATERIAIS = {'Steel Rough #1.009': "Matte Steel"}
+ABA_COPO_MM = 1.0            # Anything penetrating less than this is flange, not cup.
 
 objs = bpy.data.objects
 raiz, porta = objs[RAIZ], objs[PORTA]
 bpy.context.view_layer.update()
 
-# medidas tiradas ANTES de mexer (porta fechada)
+# Measurements taken BEFORE changes, with the door closed.
 inv = raiz.matrix_world.inverted()
 cantos = [inv @ (porta.matrix_world @ Vector(c)) for c in porta.bound_box]
-costas_mm = min(v.y for v in cantos) * 1000.0      # +Y = frente
+costas_mm = min(v.y for v in cantos) * 1000.0      # +Y = front.
 espessura_mm = (max(v.y for v in cantos) - min(v.y for v in cantos)) * 1000.0
-borda_mm = max(v.x for v in cantos) * 1000.0       # a folha passa da face
-# a folga que o usuario deixou entre as costas da porta e a frente do
-# modulo: o rig foi feito com ela (sem ela o canto da porta aberta entra)
+borda_mm = max(v.x for v in cantos) * 1000.0       # Leaf extends beyond the face.
+# Gap the user left between the door back and cabinet front: the rig
+# was built with it; without it, the open door's corner penetrates.
 frente_mm = max((inv @ (objs[LATERAL].matrix_world @ Vector(c))).y
                 for c in objs[LATERAL].bound_box) * 1000.0
 folga_mm = costas_mm - frente_mm
 
 
 def refazer_cortador():
-    """O furo pelo COPO de verdade: a parte da cabeca (com modificadores)
-    que entra mais que ABA_COPO_MM na porta fechada. Cilindro redondo no
-    centro dela, um pouco mais largo e mais fundo, saindo 1 mm das costas
-    (sem face coplanar para o Boolean)."""
+    """Hole based on the ACTUAL CUP: the modified head portion penetrating
+    more than ABA_COPO_MM into the closed door. Round cylinder centered
+    there, slightly wider and deeper, extending 1 mm beyond the back
+    to avoid a coplanar Boolean face."""
     cabeca, cortador = objs[CABECA], objs[CORTADOR]
     grafo = bpy.context.evaluated_depsgraph_get()
     avaliada = cabeca.evaluated_get(grafo)
@@ -75,7 +75,7 @@ def refazer_cortador():
     da_porta = porta.matrix_world.inverted()
     pontos = [da_porta @ (cabeca.matrix_world @ v.co) for v in malha.vertices]
     avaliada.to_mesh_clear()
-    costas = min(Vector(c).y for c in porta.bound_box)     # -Y local
+    costas = min(Vector(c).y for c in porta.bound_box)     # Local -Y.
     copo = [p for p in pontos if p.y > costas + ABA_COPO_MM / 1000.0]
     xs, zs = [p.x for p in copo], [p.z for p in copo]
     cx, cz = (max(xs) + min(xs)) / 2.0, (max(zs) + min(zs)) / 2.0
@@ -86,7 +86,7 @@ def refazer_cortador():
     bm = bmesh.new()
     bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=64,
                           radius1=raio, radius2=raio, depth=y1 - y0)
-    # cilindro em Z -> eixo Y da porta (o furo entra pelas costas)
+    # Z cylinder -> door Y axis (the hole enters through the back).
     bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
                      matrix=Matrix.Rotation(-math.pi / 2, 3, 'X'))
     novo = bpy.data.meshes.new('Copo Furo')
@@ -113,7 +113,7 @@ for o in (objs[CORTADOR], objs[CONTROLE]):
 mundo_raiz = raiz.matrix_world.copy()
 raiz.parent = None
 raiz.matrix_world = Matrix.Identity(4)
-objs[CONTROLE].animation_data_clear()           # a acao travava o giro
+objs[CONTROLE].animation_data_clear()           # The action locked rotation.
 manter = {o.name for o in guardar}
 for o in list(objs):
     if o.name not in manter:
@@ -132,8 +132,8 @@ for o in guardar:
 for c in list(bpy.data.collections):
     if c != colecao:
         bpy.data.collections.remove(c)
-# so' o material das pecas: o da porta, o do puxador e o HDRI do mundo
-# vinham empacotados (MBs de textura)
+# Only component materials: door, handle, and world HDRI materials
+# were being packed too, adding megabytes of textures.
 usados = {s.material for o in guardar for s in o.material_slots if s.material}
 for cena in bpy.data.scenes:
     cena.world = None
@@ -150,13 +150,13 @@ for colecao_dados in (bpy.data.meshes, bpy.data.curves, bpy.data.armatures,
                       bpy.data.materials, bpy.data.node_groups,
                       bpy.data.images):
     for idb in colecao_dados:
-        idb['cabinet_origem'] = idb.name     # o add-on deduplica por isto
+        idb['cabinet_origem'] = idb.name     # The add-on uses this for deduplication.
         for chave in LIXO:
             if chave in idb:
                 del idb[chave]
 
-# Movimento: a cabeca (e a porta presa nela) para cada angulo do
-# controlador, no referencial da raiz. Planar: giro em Z + translacao XY.
+# Motion: head (and its attached door) for each controller angle,
+# in the root frame. Planar: Z rotation + XY translation.
 vl = bpy.context.view_layer
 controle, cabeca = objs[CONTROLE], objs[CABECA]
 
@@ -173,15 +173,15 @@ fechada = cabeca_em(CONTROLE_MIN)
 def linha(graus):
     rel = cabeca_em(graus) @ fechada.inverted()
     giro = rel.to_euler('XYZ')
-    assert abs(giro.x) < 1e-3 and abs(giro.y) < 1e-3, giro   # so' em Z
+    assert abs(giro.x) < 1e-3 and abs(giro.y) < 1e-3, giro   # Z only.
     t = rel.translation * 1000.0
     return [round(graus, 6), round(math.degrees(giro.z), 6),
             round(t.x, 6), round(t.y, 6)]
 
 
-# 0,5 grau do controlador, subdividido onde a folha gira mais de 0,1
-# grau entre duas amostras: no fim do curso o IK estica e a folha salta
-# ~2 graus em 0,05 grau do controlador (o rig do usuario e' assim)
+# Controller steps of 0.5 degrees, subdivided where leaf rotation exceeds
+# 0.1 degrees between samples: near the travel end, IK stretches and the
+# leaf jumps about 2 degrees per 0.05 controller degrees in the user's rig.
 tabela = []
 passos = 179
 anterior = linha(CONTROLE_MIN)
@@ -199,8 +199,8 @@ for i in range(1, passos + 1):
             novas.append(b)
     tabela += novas
     anterior = atual
-# so' ate' a abertura MAXIMA: depois dela o IK volta um pouco (a folha
-# "assenta"), e a tabela tem de ser monotona para achar o controlador
+# Only up to MAXIMUM opening: afterward IK settles back slightly,
+# and the table must be monotonic to recover the controller value.
 fim = max(range(len(tabela)), key=lambda i: abs(tabela[i][1]))
 tabela = tabela[:fim + 1]
 assert all(abs(b[1]) >= abs(a[1]) for a, b in zip(tabela, tabela[1:]))
@@ -208,8 +208,8 @@ cabeca_em(CONTROLE_MIN)
 
 
 def nome_pt(nome):
-    """Nome em portugues (pedido do usuario) pelo nome no arquivo dele;
-    pinos e parafusos repetidos ganham o .001 do Blender."""
+    """Portuguese name, as requested by the user, from the source filename;
+    repeated pins and screws receive Blender's .001 suffix."""
     if nome in NOMES_PT:
         return NOMES_PT[nome]
     if nome.startswith('Screw'):
@@ -219,9 +219,9 @@ def nome_pt(nome):
     return 'Dobradica Peca'
 
 
-# Tudo em portugues. Nomes nao sao chave de nada (o add-on acha cada peca
-# por `cabinet_peca`; driver e IK apontam para o objeto, e renomear osso
-# pelo Blender acerta o alvo do IK).
+# All names are Portuguese. Names are not keys: the add-on finds each component
+# by `cabinet_peca`; drivers and IK reference objects, and renaming a bone
+# through Blender updates the IK target.
 for o in sorted(guardar, key=lambda o: o.name):
     novo = nome_pt(o.name)
     o.name = novo
@@ -262,11 +262,10 @@ with open(os.path.join(DESTINO, 'dobradica_reta.json'), 'w',
 bpy.ops.wm.save_as_mainfile(
     filepath=os.path.join(DESTINO, 'dobradica_reta.blend'),
     compress=True, copy=True)
-print('[extrair] costas %.2f mm, porta %.2f mm, borda %.2f mm, folga %.2f'
-      ' mm, furo do copo %.2f x %.2f mm, %d objetos, giro maximo %.2f graus'
+print("[extract] back %.2f mm, door %.2f mm, edge %.2f mm, gap %.2f mm, cup hole %.2f x %.2f mm, %d objects, maximum rotation %.2f degrees"
       % (costas_mm, espessura_mm, borda_mm, folga_mm, diametro_copo,
          fundo_copo, len(guardar), tabela[-1][1]))
-# o arame da previa (contorno de cada peca) vai para o mesmo .json
+# Preview wireframe (each component's outline) goes into the same .json.
 with open(str(Path(__file__).with_name('extract_hinge_wireframe.py')),
           encoding='utf-8') as f:
     exec(compile(f.read(), 'tools/hardware/extract_hinge_wireframe.py', 'exec'))

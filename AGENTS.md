@@ -13,7 +13,7 @@ Visible UI also requires [DESIGN.md](DESIGN.md) and the
 [cabinet-design skill](docs/skills/cabinet-design/SKILL.md).
 Front geometry requires [FRONT_GEOMETRY.md](FRONT_GEOMETRY.md).
 Tests: [tests/AGENTS.md](tests/AGENTS.md). Assets:
-[library guide](archy_builder/biblioteca/AGENTS.md).
+[library guide](archy_builder/assets/library/AGENTS.md).
 
 ## Package and boundaries
 
@@ -45,7 +45,7 @@ Use temporary scenes/fixtures; never modify the open project or real library.
 `--gui` OPENS Blender: only with the user releasing the PC NOW.
 Structural failures protect intentional decisions. Do not weaken them; requested
 architecture changes update the layout contract while preserving behavior.
-Test-count floors only rise. Increment bl_info['version'] for each delivery (409).
+Test-count floors only rise. Increment bl_info['version'] for each delivery (410).
 
 ## Global preferences
 
@@ -134,6 +134,6 @@ Test-count floors only rise. Increment bl_info['version'] for each delivery (409
 
 Commit each validated stage automatically, with an English message; push only
 on explicit request. Preserve pending edits. Ignore dist/, *.blend1, __pycache__.
-Original asset directory/file names stay unchanged: they are user/library data,
-not source layout. Do not run maintenance against the real library.
+Resources live in assets/library, assets/hardware and assets/previews.
+Asset filenames and catalog UUIDs remain data identities. Do not run maintenance against the real library.
 Old Chapa G3 tag and Object/Scene props remain compatibility contracts.

@@ -1,4 +1,4 @@
-"""Grupos visuais por categoria; arame nativo conserva geometria e snap."""
+"""Visual groups by category; native wireframe preserves geometry and snapping."""
 import json
 import bpy
 from bpy.types import Operator
@@ -187,7 +187,7 @@ def widgets(context, x, w, altura):
             if context.screen.get(_biblioteca_faixa.CHAVE_LAYOUT) != 2
             else _gaveta.ALTURA_RODAPE_GAVETA)
     escondido = ativo(dono, tipo)
-    rotulo = 'Visibilidade de objetos' if w >= 260 else 'Visibilidade'
+    rotulo = "Object Visibility" if w >= 260 else "Visibility"
     return [(x + w - 78, base + 4, 36, 30, '', ('operador', ALTERNAR, escondido)),
             (x + w - 36, base + 4, 36, 30, '', ('operador', EDITAR)),
             (x, base + 4, max(0, w - 84), 30, rotulo, ('rotulo',))]
@@ -195,7 +195,7 @@ def widgets(context, x, w, altura):
 
 class OBJECT_OT_alternar_partes(Operator):
     bl_idname = ALTERNAR
-    bl_label = 'Mostrar ou esmaecer partes da aba atual'
+    bl_label = "Show or Fade Components in the Current Tab"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -210,7 +210,7 @@ class OBJECT_OT_alternar_partes(Operator):
 
 
 def _selecionar_nativo(context, event):
-    # O seletor nativo resolve o hit, incluindo arestas do arame e oclusao.
+    # Native selection resolves the hit, including wireframe edges and occlusion.
     bpy.ops.view3d.select('EXEC_DEFAULT', location=(event.mouse_x - context.region.x, event.mouse_y - context.region.y),
                           deselect_all=True)
     return context.view_layer.objects.active
@@ -242,7 +242,7 @@ def esquecer_edicao():
 
 class OBJECT_OT_editar_grupo_visual(Operator):
     bl_idname = EDITAR
-    bl_label = 'Editar grupo visual: esquerdo inclui, direito retira, Enter conclui, Esc cancela'
+    bl_label = "Edit visual group: left click adds, right click removes, Enter finishes, Esc cancels"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -254,7 +254,7 @@ class OBJECT_OT_editar_grupo_visual(Operator):
             _edicao[0]['concluir'] = True
             return {'FINISHED'}
         dono = modulo(context)
-        # O editor nao disputa cliques com uma captura interrompida.
+        # The editor does not compete for clicks with an interrupted capture.
         _areas_criacao.esquecer()
         for estado in (_gavetas._assistente_gavetas[0], _prateleiras._assistente_prateleiras[0],
                        _divisorias._assistente_divisorias[0], _fundos._assistente_fundo[0],
@@ -266,7 +266,7 @@ class OBJECT_OT_editar_grupo_visual(Operator):
             ativo=context.object.name if context.object else '', concluir=False, area=context.area.as_pointer())
         _hud._hover_hud.clear()
         context.window_manager.modal_handler_add(self)
-        context.area.header_text_set('Grupo visual: esquerdo inclui | direito retira | Enter conclui | Esc cancela')
+        context.area.header_text_set("Visual group: left click adds | right click removes | Enter: finish | Esc: cancel")
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):

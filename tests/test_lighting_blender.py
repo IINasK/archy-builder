@@ -1,4 +1,4 @@
-"""Instalacoes eletricas, forro e luzes em cenas descartaveis."""
+"""Electrical installations, ceilings and lights in disposable scenes."""
 import math
 import os
 import sys
@@ -16,6 +16,32 @@ A, I, L, P = addon.alvenaria, addon.instalacoes, addon.iluminacao, addon.paredes
 
 
 class TestIluminacao(unittest.TestCase):
+    def test_saved_pendant_roles_keep_canopy_and_vertical_drop(self):
+        ceiling = self.plano('TETO', (math.pi+.35, 0, 0), z=3)
+        frame = self.quadro(ceiling)
+        obj = I.instalar(bpy.context, 'PENDENTE', ceiling, 0, frame)
+        aliases = {'Canopy':'Canopla', 'Stem':'Haste', 'Light':'Luz', 'Diffuser':'Difusor'}
+        positions = {part.name: part.matrix_basis.copy() for part in obj.children}
+        for part in obj.children:
+            part[A.PECA] = aliases[part[A.PECA]]
+        L.posar_pendente(obj, frame)
+        for part in obj.children:
+            self.assertLess((part.matrix_basis.translation-positions[part.name].translation).length, 1e-7)
+
+    def test_saved_shadow_gap_cleanup_removes_cuts_and_lights(self):
+        ceiling = self.plano('TETO', (math.pi, 0, 0), z=3)
+        obj = I.instalar(bpy.context, 'REBAIXO', ceiling, 0, self.quadro(ceiling))
+        obj[L.LADOS] = [True, False, False, False]
+        obj[L.LADOS_LUZ] = [True, False, False, False]
+        L.acao_forro(obj, 'tabica')
+        panel = next(part for part in obj.children if part.get(L.FORRO))
+        panel.modifiers[0].name = 'Archy Builder - Tabica 1'
+        for part in obj.children:
+            if part.type == 'LIGHT':part[A.PECA] = 'Luz da tabica 1'
+        L.acao_forro(obj, 'completo')
+        self.assertEqual(len(panel.modifiers), 0)
+        self.assertFalse(any(part.type=='LIGHT' for part in obj.children))
+
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False)
@@ -39,7 +65,7 @@ class TestIluminacao(unittest.TestCase):
         parede = self.plano('PAREDE', (math.pi/2, 0, 0))
         for modelo in ('TOMADA', 'INTERRUPTOR'):
             obj = I.instalar(bpy.context, modelo, parede, 0, self.quadro(parede))
-            self.assertIn('Espelho', [o.get(A.PECA) for o in obj.children])
+            self.assertIn("Faceplate", [o.get(A.PECA) for o in obj.children])
             self.assertEqual(len(A.cotas(obj)), 4)
             self.assertEqual(len(parede.modifiers), 0)
 
@@ -152,7 +178,7 @@ class TestIluminacao(unittest.TestCase):
                 cartoes = [v for v in itens if v[5] and v[5][:2] == ('escolha', 'modelo_instalacao')
                            and v[5][2] in L.MODELOS]
                 seletores = [v for v in itens if v[5] and v[5][:2] == ('escolha', 'tipo_instalacao')]
-                titulo = next(v for v in itens if v[4]=='Instalacoes')
+                titulo = next(v for v in itens if v[4]=="Installations")
                 self.assertLessEqual(titulo[1]+titulo[3], min(v[1] for v in seletores))
                 self.assertEqual({v[5][2] for v in cartoes}, esperado)
                 for x, y, w, h, _, _ in cartoes:
@@ -165,7 +191,7 @@ class TestIluminacao(unittest.TestCase):
             itens = addon.gaveta._widgets_aba_gaveta(bpy.context, largura, 1400, 0)
             cotas = [v for v in itens if v[5] and v[5][:2] == ('medida', 'instalacao')]
             self.assertEqual(len(cotas), 4)
-            self.assertIn('Queda do pendente', [v[5][3] for v in itens if v[5] and v[5][0] == 'medida'])
+            self.assertIn("Pendant drop", [v[5][3] for v in itens if v[5] and v[5][0] == 'medida'])
 
 
 with tempfile.TemporaryDirectory(prefix='iluminacao_') as pasta, \
@@ -178,4 +204,4 @@ with tempfile.TemporaryDirectory(prefix='iluminacao_') as pasta, \
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nas provas de iluminacao')
+        raise RuntimeError("Lighting tests failed")

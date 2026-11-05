@@ -1,7 +1,7 @@
 """Extract the profile handle mesh, materials, textures and dimensions.
 
 Run with the user source scene in background Blender 4.2. Writes the existing
-puxador_perfil.blend/.json resource names in archy_builder/ferragens.
+puxador_perfil.blend/.json resource names in archy_builder/assets/hardware.
 Coordinates follow the handle edge: X along the edge, Y into the leaf, Z outward."""
 from pathlib import Path
 import json
@@ -12,11 +12,11 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', "assets/hardware")
 PORTA, PUXADOR = 'Door Left', 'Aluminum handle Left'
 NOME = 'Puxador Perfil'
 NOME_MATERIAL = 'Aluminio Escovado'
-NOMES_IMAGENS = {'BaseColor': 'Cor', 'Metalness': 'Metal',
+NOMES_IMAGENS = {'BaseColor': "Color", 'Metalness': 'Metal',
                  'Roughness': 'Aspereza', 'Normal': 'Relevo'}
 LIXO = ('hops', 'kitops', 'scatter5', 'HG')
 
@@ -26,8 +26,8 @@ bpy.context.view_layer.update()
 grafo = bpy.context.evaluated_depsgraph_get()
 malha = bpy.data.meshes.new_from_object(puxador.evaluated_get(grafo))
 
-# referencial da porta (local): x = largura, y = espessura (+y = frente),
-# z = altura; o perfil fica na borda de BAIXO
+# Local door frame: x = width, y = thickness (+y = front),
+# z = height; the profile sits on the BOTTOM edge.
 da_porta = porta.matrix_world.inverted() @ puxador.matrix_world
 cantos = [Vector(c) for c in porta.bound_box]
 frente = max(v.y for v in cantos)
@@ -35,13 +35,13 @@ costas = min(v.y for v in cantos)
 base_porta = min(v.z for v in cantos)
 pontos = [da_porta @ v.co for v in malha.vertices]
 x0, x1 = min(p.x for p in pontos), max(p.x for p in pontos)
-borda = min(p.z for p in pontos)             # borda NOMINAL da folha
+borda = min(p.z for p in pontos)             # NOMINAL leaf edge.
 meio = (x0 + x1) / 2.0
 
 bm = bmesh.new()
 bm.from_mesh(malha)
 for v, p in zip(bm.verts, pontos):
-    # (-x, z, y): rotacao propria (o X invertido nao espelha a malha)
+    # (-x, z, y): proper rotation (inverting X does not mirror the mesh).
     v.co = Vector((-(p.x - meio), p.z - borda, p.y - frente))
 bm.to_mesh(malha)
 bm.free()
@@ -77,7 +77,7 @@ for imagem in bpy.data.images:
 for colecao_dados in (bpy.data.meshes, bpy.data.materials, bpy.data.images,
                       bpy.data.node_groups):
     for idb in colecao_dados:
-        idb['cabinet_origem'] = idb.name     # o add-on deduplica por isto
+        idb['cabinet_origem'] = idb.name     # The add-on uses this for deduplication.
         for chave in LIXO:
             if chave in idb:
                 del idb[chave]
@@ -95,8 +95,7 @@ with open(os.path.join(DESTINO, 'puxador_perfil.json'), 'w',
 bpy.ops.wm.save_as_mainfile(
     filepath=os.path.join(DESTINO, 'puxador_perfil.blend'),
     compress=True, copy=True)
-print('[extrair] puxador perfil: corta %.2f mm, porta %.2f mm, comprimento'
-      ' %.2f mm, %d vertices, material %s, imagens %s' % (
+print("[extract] profile handle: cut %.2f mm, door %.2f mm, length %.2f mm, %d vertices, material %s, images %s" % (
           dados['altura_mm'], dados['espessura_porta_mm'],
           dados['comprimento_mm'], len(malha.vertices),
           [m.name for m in malha.materials],

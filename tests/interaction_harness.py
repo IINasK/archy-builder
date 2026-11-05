@@ -1,21 +1,12 @@
-"""Harness de testes de INTERFACE (cliques e teclas de verdade).
+"""Interface test harness using real click and key events.
 
-Segue o padrao oficial do Blender (tests/python/ui_simulate, easy_keys):
-o Blender abre COM janela e `--enable-event-simulate`, que ignora o
-mouse/teclado reais; cada teste e' um GERADOR rodado por um timer, e cada
-`yield` deixa o loop principal processar os eventos e redesenhar. Um
-`yield datetime.timedelta(...)` espera aquele tempo de relogio.
+Follows Blender's official tests/python/ui_simulate and easy_keys pattern: open a window with --enable-event-simulate, which ignores physical mouse and keyboard input. Each test is a generator advanced by a timer; yield lets the main loop process events and redraw. Yielding datetime.timedelta(...) waits for that elapsed time.
 
-Limites conhecidos (fonte do Blender, ver CLAUDE.md):
-- o simulador NAO gera DOUBLE_CLICK (`check_double_click = false`): dois
-  cliques chegam como PRESS, RELEASE, PRESS, RELEASE. Modal nunca recebe
-  DOUBLE_CLICK nem do mouse real, entao isso cobre os modais; o
-  DOUBLE_CLICK de keymap (selecao em 3 camadas) so' com entrada real.
-- excecao num timer so' e' impressa: aqui tudo e' capturado e o processo
-  sai com `os._exit(codigo)`; o executor ainda tem tempo-limite.
+Known limitations (Blender source; see CLAUDE.md):
+- The simulator does not generate DOUBLE_CLICK (check_double_click = false). Two clicks arrive as PRESS, RELEASE, PRESS, RELEASE. Modal operators never receive DOUBLE_CLICK, even from a physical mouse, so this covers modals; keymap DOUBLE_CLICK for three-level selection requires physical input.
+- Timer exceptions are otherwise only printed. This harness captures them and exits with os._exit(codigo); the runner also enforces a timeout.
 
-Rodado pelo executor:  blender ... --python tests/run_tests.py -- --gui
-"""
+Run through: blender ... --python tests/run_tests.py -- --gui"""
 import datetime
 import os
 import sys
@@ -25,12 +16,12 @@ import traceback
 import bpy
 from bpy_extras import view3d_utils
 
-TICKS = 4               # o upstream usa 4 ("3 funciona, 4 por seguranca")
+TICKS = 4               # Upstream uses 4 ticks: 3 works, but 4 provides a safety margin.
 LIMITE_SEGUNDOS = 120
 
 
 class Mouse:
-    """Mouse e teclado simulados, em coordenadas da JANELA."""
+    """Simulated mouse and keyboard input in window coordinates."""
 
     def __init__(self, janela):
         self.janela = janela
@@ -41,8 +32,7 @@ class Mouse:
         self.janela.event_simulate('MOUSEMOVE', 'NOTHING', x=self.x, y=self.y)
 
     def apertar(self, botao='LEFTMOUSE', **mods):
-        """mods: alt/ctrl/shift=True -- o simulador so' poe no evento os
-        modificadores passados (o estado real do teclado e' ignorado)."""
+        """mods: alt/ctrl/shift=True. The simulator includes only explicitly supplied modifiers; physical keyboard state is ignored."""
         self.janela.event_simulate(botao, 'PRESS', x=self.x, y=self.y, **mods)
 
     def soltar(self, botao='LEFTMOUSE', **mods):
@@ -62,7 +52,7 @@ class Mouse:
         self.janela.event_simulate(tipo, 'RELEASE', x=self.x, y=self.y)
 
     def digitar(self, texto):
-        # '+' e '*' so' existem no teclado numerico como tipo de evento
+        # '+' and '*' are available as event types only on the numeric keypad.
         nomes = {'.': 'PERIOD', ',': 'COMMA', '-': 'MINUS',
                  '+': 'NUMPAD_PLUS', '*': 'NUMPAD_ASTERIX', '/': 'SLASH',
                  ' ': 'SPACE'}
@@ -74,7 +64,7 @@ class Mouse:
 
 
 def viewport_principal(janela, gaveta=None):
-    """(area, regiao, region_3d) da maior VIEW_3D que nao e' a gaveta."""
+    """Return (area, regiao, region_3d) for the largest VIEW_3D other than the sidebar."""
     areas = [a for a in janela.screen.areas
              if a.type == 'VIEW_3D' and a != gaveta]
     area = max(areas, key=lambda a: a.width * a.height)
@@ -83,20 +73,17 @@ def viewport_principal(janela, gaveta=None):
 
 
 def na_tela(regiao, rv3d, ponto):
-    """Ponto 3D -> coordenada da JANELA (para event_simulate)."""
+    """Convert a 3D point to window coordinates for event_simulate."""
     p = view3d_utils.location_3d_to_region_2d(regiao, rv3d, ponto)
     return None if p is None else (regiao.x + p.x, regiao.y + p.y)
 
 
 class Pular(Exception):
-    """Levante dentro do teste para pula-lo com um motivo."""
+    """Raise inside a test to skip it with a reason."""
 
 
 class ErrosDeCallback:
-    """sys.stderr que conta os tracebacks de CALLBACK (desenho da gaveta,
-    gizmo, timer): o Blender so' os IMPRIME e o teste passava com a gaveta
-    quebrada (v140: abas, icones e fundo sumiram e os 26 testes passaram).
-    Os tracebacks do proprio harness (falha de teste) nao contam."""
+    """A sys.stderr wrapper that counts callback tracebacks from sidebar drawing, gizmos and timers. Blender otherwise only prints them, allowing tests to pass with a broken sidebar (v140: tabs, icons and background disappeared while all 26 tests passed). Exclude tracebacks from harness assertion failures."""
     MARCA = 'Traceback (most recent call last)'
 
     def __init__(self, original):
@@ -130,8 +117,7 @@ class Resultado:
 
 
 def rodar(testes, preparar=None, limpar=None):
-    """Roda os geradores `testes` em sequencia; saida no formato do
-    unittest (Ran N tests / OK / FAIL:) para o executor contar."""
+    """Run test generators sequentially, emitting unittest-style output (Ran N tests / OK / FAIL:) for the runner to count."""
     prefs = bpy.context.preferences
     prefs.view.show_splash = False
     prefs.view.smooth_view = 0
@@ -154,7 +140,7 @@ def rodar(testes, preparar=None, limpar=None):
         print('OK' + pulados if not resultado.falhas else
               'FAILED (failures=%d)' % len(resultado.falhas))
         sys.stdout.flush()
-        os._exit(codigo)   # sys.exit num timer deixa a janela viva as vezes
+        os._exit(codigo)   # sys.exit inside a timer sometimes leaves the window open.
 
     def proximo():
         if estado['gerador'] is None:
@@ -174,10 +160,10 @@ def rodar(testes, preparar=None, limpar=None):
         except StopIteration:
             estado['gerador'] = None
             if erros.contagem > estado['erros']:
-                # quebrou um callback durante o teste: e' falha, mesmo
-                # com todos os asserts passando
+                # A callback failed during the test: count it as a failure even if
+                # all assertions passed.
                 print('FAIL: %s' % estado['nome'])
-                print('%d erro(s) em callback (desenho/gizmo/timer):'
+                print('%d callback error(s) (drawing/gizmo/timer):'
                       % (erros.contagem - estado['erros']))
                 print(erros.trecho)
                 resultado.falhas.append(estado['nome'])
@@ -204,8 +190,8 @@ def rodar(testes, preparar=None, limpar=None):
     def passo():
         try:
             if time.monotonic() > estado['prazo']:
-                print('FAIL: TEMPO ESGOTADO em %s' % estado['nome'])
-                resultado.falhas.append(estado['nome'] + ' (tempo)')
+                print('FAIL: TIMEOUT in %s' % estado['nome'])
+                resultado.falhas.append(estado['nome'] + ' (timeout)')
                 sair(3)
             if not estado['preparado']:
                 estado['preparado'] = True

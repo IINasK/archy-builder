@@ -1,4 +1,4 @@
-"""Layout, catalogo e cache da faixa horizontal, sem gravar biblioteca real."""
+"""Horizontal strip layout, catalog and cache without writing to the real library."""
 import os
 import sys
 import tempfile
@@ -18,12 +18,12 @@ class TestFaixa(unittest.TestCase):
     def setUp(self):
         F.invalidar()
         bpy.context.scene.cabinet_bib_modo = 'MODULOS'
-        addon.biblioteca.definir_trilha(bpy.context.scene, ('Armarios','Cozinha','Cantos'))
+        addon.biblioteca.definir_trilha(bpy.context.scene, ("Cabinets","Kitchen","Corners"))
         self.ctx = SimpleNamespace(scene=bpy.context.scene, screen={},
                                   preferences=bpy.context.preferences)
         addon.perguntas._pergunta_atual[0] = None
         self.indice = [dict(nome='Canto %05d' % i, arquivo='%d.blend' % i,
-                            pasta=PASTA, niveis=['Armarios','Cozinha','Cantos'])
+                            pasta=PASTA, niveis=["Cabinets","Kitchen","Corners"])
                        for i in range(10000)]
         self.patches = [patch.object(addon.biblioteca, 'indice_completo', return_value=self.indice),
                         patch.object(addon.biblioteca, 'itens_de_fabrica', return_value=[])]
@@ -46,7 +46,7 @@ class TestFaixa(unittest.TestCase):
 
     def test_so_itens_visiveis_viram_widgets(self):
         fake = SimpleNamespace(data=SimpleNamespace(libraries=SimpleNamespace(
-            load=lambda *a, **kw: self.fail('abriu blend'))))
+            load=lambda *a, **kw: self.fail("Opened a .blend file"))))
         with patch.object(F, 'bpy', fake):
             widgets = F.widgets(self.ctx, 1600, 240)
         fotos = [v for v in widgets if v[5] and v[5][0] == 'preset']
@@ -59,8 +59,8 @@ class TestFaixa(unittest.TestCase):
         self.assertEqual(outros[0][5][1]['nome'], 'Canto 00050')
 
     def test_botao_assets_descontinuado(self):
-        # Pedido do usuario: o botao "Assets" (prateleira nativa) saiu da
-        # faixa e do menu; o operador dele nao existe mais.
+        # User request: remove the native Assets shelf button from the strip and menu;
+        # its operator no longer exists.
         operadores = {v[5][1] for v in F.widgets(self.ctx, 1600, 240)
                       if v[5] and v[5][0] == 'operador'}
         self.assertTrue(operadores)
@@ -73,13 +73,13 @@ class TestFaixa(unittest.TestCase):
     def test_lugar_da_biblioteca_faixa_ou_menu(self):
         tela = bpy.context.screen
         tela.pop(F.CHAVE_LUGAR, None)
-        # padrao (pedido do usuario): na lateral esquerda, dentro do menu
+        # Default, as requested: inside the menu on the left side.
         self.assertEqual(addon.opcoes.OPCOES_INTERNAS['biblioteca_lugar'], 'MENU')
         self.assertEqual(addon.opcoes.ArchyBuilderPreferences.__annotations__[
             'biblioteca_lugar'].keywords['default'], 'MENU')
         self.assertTrue(F.acoplada(tela))
         self.assertIn(F.OBJECT_OT_lugar_biblioteca, addon.CLASSES)
-        # O botao: no cabecalho da faixa e no pe' da biblioteca do menu.
+        # The button appears in the strip header and menu library footer.
         lugar = lambda ws: [v for v in ws if v[5] == ('operador', F.OP_LUGAR)]
         faixa = F.widgets(self.ctx, 1600, 240)
         self.assertEqual(len(lugar(faixa)), 1)
@@ -90,8 +90,8 @@ class TestFaixa(unittest.TestCase):
         tela[F.CHAVE_LAYOUT] = 2
         self.assertFalse(lugar(addon.gaveta._widgets_gaveta(bpy.context, 320, 900)))
         try:
-            # O clique so' agenda: fechar a area que atende o clique a
-            # liberaria debaixo do operador. A troca vem no timer.
+            # Clicking only schedules work: closing the area handling the click would free
+            # it underneath the operator. Perform the switch in a timer.
             with patch.object(F, '_trocar_agora') as trocar:
                 self.assertEqual(bpy.ops.object.cabinet_lugar_biblioteca(), {'FINISHED'})
                 trocar.assert_not_called()
@@ -99,7 +99,7 @@ class TestFaixa(unittest.TestCase):
                 self.assertTrue(bpy.app.timers.is_registered(F._abrir_menus_pendentes))
                 self.assertIsNone(F._abrir_menus_pendentes())
                 trocar.assert_called_once()
-            # Escolhido o menu, reconectar nao o migra mais para a faixa.
+            # After choosing the menu, reconnecting must not migrate back to the strip.
             tela[F.CHAVE_LAYOUT] = 1
             for lugar_escolhido, migra in (('MENU', False), ('FAIXA', True)):
                 F.definir_lugar(lugar_escolhido, tela)
@@ -119,28 +119,28 @@ class TestFaixa(unittest.TestCase):
         self.assertFalse(bpy.app.timers.is_registered(F._abrir_menus_pendentes))
 
     def test_lugar_escolhido_vale_para_todo_arquivo(self):
-        # Pedido do usuario: lembrar a escolha do lugar da biblioteca. Ela
-        # ficava so' na screen do arquivo; agora fica nas preferencias.
+        # User request: remember the library placement choice. Previously stored only
+        # in the file's screen, it now lives in preferences.
         O = addon.opcoes
         tela = bpy.context.screen
         try:
             for nome, valor in O.OPCOES_INTERNAS.items():
                 O._definir_opcao(nome, valor)
-            # screen de arquivo antigo marcada: vira a preferencia, uma vez
+            # A marked old screen migrates into preferences once.
             tela[F.CHAVE_LUGAR] = 'MENU'
             self.assertTrue(F.acoplada(tela))
             self.assertEqual(O._opcao('biblioteca_lugar'), 'MENU')
             self.assertTrue(O._opcao('biblioteca_lugar_definido'))
-            # outro arquivo, screen sem marca: segue a escolha
+            # Another file with an unmarked screen follows the preference.
             self.assertTrue(F.acoplada({'outra': 1}))
-            # o botao troca o que esta' aberto e grava na preferencia
+            # The button switches the open library and saves the preference.
             F.definir_lugar('FAIXA', tela)
             cena = SimpleNamespace(as_pointer=lambda: 1)
             with patch.object(F, 'viewport', return_value=cena),                  patch.object(F, 'area_da_faixa', return_value=None),                  patch.object(addon.gaveta, '_area_gaveta', return_value=None):
                 F._trocar_agora(bpy.context.window, tela)
             self.assertEqual(O._opcao('biblioteca_lugar'), 'MENU')
             self.assertEqual(tela[F.CHAVE_LUGAR], 'MENU')
-            # screen antiga marcada nao desfaz mais a escolha feita
+            # A marked old screen no longer overrides an explicit choice.
             F.definir_lugar('FAIXA')
             self.assertFalse(F.acoplada({F.CHAVE_LUGAR: 'MENU'}))
         finally:
@@ -202,7 +202,7 @@ class TestFaixa(unittest.TestCase):
 
     def test_pergunta_respostas_ficam_na_faixa(self):
         addon.perguntas._pergunta_atual[0] = dict(biblioteca=True, texto='Pintar?',
-            opcoes=[('Sim','','',{}),('Nao','','',{})])
+            opcoes=[("Yes",'','',{}),("No",'','',{})])
         widgets = F.widgets(self.ctx, 1000, 240)
         caixas = [v for v in widgets if v[5] and v[5][0] in ('pergunta','resposta')]
         self.assertEqual(len(caixas), 3)
@@ -212,7 +212,7 @@ class TestFaixa(unittest.TestCase):
         self.ctx.screen[F.CHAVE_RECOLHIDA] = 1
         widgets = F.widgets(self.ctx, 1000, 42)
         self.assertEqual(len(widgets), 3)
-        self.assertEqual(widgets[-1][4], 'Expandir')
+        self.assertEqual(widgets[-1][4], "Expand")
         self.assertIn(F.OBJECT_OT_recolher_biblioteca, addon.CLASSES)
 
     def test_layout_nao_excede_largura_nas_escalas(self):
@@ -250,7 +250,7 @@ class TestFaixa(unittest.TestCase):
         self.assertNotIn(14, depois)
 
     def test_chaves_de_rolagem_cabem_em_idproperty_mesmo_com_nome_longo(self):
-        caminho = ('Armarios', 'Ambiente ' * 20, 'Categoria ' * 20)
+        caminho = ("Cabinets", 'Ambiente ' * 20, 'Categoria ' * 20)
         self.indice[:] = [dict(nome='Item', arquivo='item.blend', pasta=PASTA, niveis=list(caminho))]
         addon.biblioteca.definir_trilha(self.ctx.scene, caminho)
         for v in F.widgets(self.ctx, 1000, 240):
@@ -288,7 +288,7 @@ class TestFaixa(unittest.TestCase):
             itens = []
             F._linha(self.ctx, itens, 6, 100, largura, nomes, 1, '')
             return itens
-        # 3 botoes de 32 + 2 intervalos de 2: a borda exata ja' cabe.
+        # Three 32 px buttons plus two 2 px gaps: the exact boundary already fits.
         itens = linha(100, ['A', 'B', 'C'])
         self.assertFalse(any(v[5][0] == 'rolar_nivel' for v in itens))
         self.assertEqual(itens[0][0], 6)
@@ -337,8 +337,8 @@ class TestFaixa(unittest.TestCase):
         materiais.start()
         self.addCleanup(materiais.stop)
         self.indice[:] = [dict(nome='Item', arquivo='item.blend', pasta=PASTA,
-                              niveis=['Armarios', 'Cozinha', 'Baixos', 'Cantos'])]
-        addon.biblioteca.definir_trilha(self.ctx.scene, ('Armarios', 'Cozinha', 'Baixos', 'Cantos'))
+                              niveis=["Cabinets", "Kitchen", 'Baixos', "Corners"])]
+        addon.biblioteca.definir_trilha(self.ctx.scene, ("Cabinets", "Kitchen", 'Baixos', "Corners"))
         for modo in ('MODULOS', 'MATERIAIS'):
             self.ctx.scene.cabinet_bib_modo = modo
             for altura in (100, 180, 320):
@@ -391,9 +391,9 @@ class TestFaixa(unittest.TestCase):
         self.ctx.preferences = SimpleNamespace(system=SimpleNamespace(ui_scale=1))
         self.ctx.region = SimpleNamespace(width=700, height=180)
         self.ctx.area = SimpleNamespace(tag_redraw=lambda: None)
-        niveis = [(1, ['Armarios'], 'Armarios', None),
-                  (2, ['Ambiente %02d' % i for i in range(30)], '', 'Armarios'),
-                  (3, ['Categoria %02d' % i for i in range(30)], '', ('Armarios', 'Cozinha'))]
+        niveis = [(1, ["Cabinets"], "Cabinets", None),
+                  (2, ['Ambiente %02d' % i for i in range(30)], '', "Cabinets"),
+                  (3, ['Categoria %02d' % i for i in range(30)], '', ("Cabinets", "Kitchen"))]
         with patch.object(F, 'catalogo', return_value=(niveis, [], 'cabinet_carrossel')):
             itens = F.widgets(self.ctx, 700, 180)
             alvo = next(v for v in itens if v[5] and v[5][0] == 'navegar' and v[5][1] == 3)
@@ -408,9 +408,9 @@ class TestFaixa(unittest.TestCase):
         self.ctx.preferences = SimpleNamespace(system=SimpleNamespace(ui_scale=1))
         self.ctx.region = SimpleNamespace(width=700, height=120)
         self.ctx.area = SimpleNamespace(tag_redraw=lambda: None)
-        niveis = [(1, ['Armarios'], 'Armarios', None),
-                  (2, ['Ambiente %02d' % i for i in range(30)], 'Ambiente 00', 'Armarios'),
-                  (3, ['Categoria %02d' % i for i in range(30)], 'Categoria 00', ('Armarios', 'Ambiente 00'))]
+        niveis = [(1, ["Cabinets"], "Cabinets", None),
+                  (2, ['Ambiente %02d' % i for i in range(30)], 'Ambiente 00', "Cabinets"),
+                  (3, ['Categoria %02d' % i for i in range(30)], 'Categoria 00', ("Cabinets", 'Ambiente 00'))]
         with patch.object(F, 'catalogo', return_value=(niveis, [], 'cabinet_carrossel')):
             widgets = F.widgets(self.ctx, 700, 120)
             grupo = next(v for v in widgets if v[5] and v[5][0] == 'navegar' and v[5][1] == 3)
@@ -467,10 +467,10 @@ class TestFaixa(unittest.TestCase):
                              for v in F.widgets(self.ctx, 1000, 240)))
 
     def test_menu_preserva_protecao_e_alterna_rotulo_do_cadeado(self):
-        self.assertEqual(F.opcoes_do_item({})[2][0], 'Bloquear')
+        self.assertEqual(F.opcoes_do_item({})[2][0], "Lock")
         opcoes = F.opcoes_do_item(dict(bloqueado=True))
         self.assertFalse(opcoes[1][2])
-        self.assertEqual(opcoes[2], ('Desbloquear', 'LOCKED', True))
+        self.assertEqual(opcoes[2], ("Unlock", 'LOCKED', True))
         fabrica = F.opcoes_do_item(dict(fabrica='puxador'))
         self.assertEqual([v[2] for v in fabrica], [True, False, False])
 
@@ -528,7 +528,7 @@ class TestFaixa(unittest.TestCase):
 
     def test_modelo_de_puxador_abre_criador_em_vez_de_inserir_malha(self):
         it = self.indice[0]
-        it['niveis'] = ['Puxadores', 'Teste']
+        it['niveis'] = ["Handles", 'Teste']
         op = SimpleNamespace(pasta=it['pasta'], arquivo=it['arquivo'], indice=0, report=Mock())
         posicionar = Mock(return_value={'RUNNING_MODAL'})
         with patch.object(addon.gaveta_eventos, '_modelo_do_criador', return_value='CRIAR') as criador, \
@@ -543,4 +543,4 @@ addon.register()
 resultado = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestFaixa))
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha na faixa da biblioteca')
+    raise RuntimeError("Library-strip tests failed")

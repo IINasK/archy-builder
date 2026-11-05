@@ -1,4 +1,4 @@
-"""Blocagens eletricas, luzes e forro rebaixado sobre a Alvenaria."""
+"""Electrical placeholders, lights, and suspended ceilings on masonry surfaces."""
 import math
 
 import bmesh
@@ -11,12 +11,12 @@ from mathutils import Matrix, Vector
 _alvenaria = _instalacoes = _paredes = _opcoes = _hud = None
 
 MODELOS = {
-    'TOMADA': ('Tomada', (.080, .120, .018)),
-    'INTERRUPTOR': ('Interruptor', (.080, .120, .018)),
-    'SPOT_EMBUTIDO': ('Spot embutido', (.078, .078, .055)),
-    'SPOT_SOBREPOSTO': ('Spot de sobrepor', (.090, .090, .065)),
-    'PENDENTE': ('Pendente', (.130, .130, .450)),
-    'REBAIXO': ('Rebaixar teto', (1., 1., .120)),
+    'TOMADA': ("Outlet", (.080, .120, .018)),
+    'INTERRUPTOR': ("Switch", (.080, .120, .018)),
+    'SPOT_EMBUTIDO': ("Recessed spotlight", (.078, .078, .055)),
+    'SPOT_SOBREPOSTO': ("Surface-mounted spotlight", (.090, .090, .065)),
+    'PENDENTE': ("Pendant light", (.130, .130, .450)),
+    'REBAIXO': ("Lower ceiling", (1., 1., .120)),
 }
 LUZES = {'SPOT_EMBUTIDO', 'SPOT_SOBREPOSTO', 'PENDENTE'}
 FORRO = 'cabinet_superficie_do_forro'
@@ -27,8 +27,8 @@ LADOS_LUZ = 'cabinet_lados_com_luz'
 LARGURA = 'cabinet_largura_tabica'
 PROFUNDIDADE = 'cabinet_rebaixo'
 FONTE = 'cabinet_apoio_original_da_luz'
-# O nome identifica modificadores de forros salvos antes da troca da marca.
-CORTE_TABICA = 'Archy Builder - Tabica '
+# The name identifies ceiling modifiers saved before the branding change.
+CORTE_TABICA = "Archy Builder - Shadow Gap "
 GESSO = .015
 
 
@@ -39,7 +39,7 @@ def tipos_de_apoio(modelo):
 
 
 def _luz(obj, nome, tipo, energia):
-    peca = next((o for o in obj.children if o.get(_alvenaria.PECA) == nome), None)
+    peca = next((o for o in obj.children if _instalacoes.nome_peca(o) == nome), None)
     if peca is None:
         peca = bpy.data.objects.new(nome, bpy.data.lights.new(nome, tipo))
         obj.users_collection[0].objects.link(peca)
@@ -54,24 +54,24 @@ def montar(obj):
     modelo = obj[_alvenaria.MARCA]
     l, a, p = obj[_alvenaria.MEDIDAS]
     if modelo in {'TOMADA', 'INTERRUPTOR'}:
-        _instalacoes.caixa(obj, 'Espelho', (0, 0, .004), (l, a, .008))
-        _instalacoes.caixa(obj, 'Tecla' if modelo == 'INTERRUPTOR' else 'Tomada central',
+        _instalacoes.caixa(obj, "Faceplate", (0, 0, .004), (l, a, .008))
+        _instalacoes.caixa(obj, "Rocker" if modelo == 'INTERRUPTOR' else "Central outlet",
                           (0, 0, .009), (l*.52, a*.41, .010))
         return
     if modelo == 'REBAIXO':
         atualizar_forro(obj)
         return
     if modelo == 'PENDENTE':
-        _instalacoes.cilindro(obj, 'Canopla', l*.38, .018, (0, 0, .009))
-        _instalacoes.cilindro(obj, 'Haste', .004, p)
-        _instalacoes.cilindro(obj, 'Difusor', l/2, .085)
-        _luz(obj, 'Luz', 'POINT', 18).data.shadow_soft_size = .04
+        _instalacoes.cilindro(obj, "Canopy", l*.38, .018, (0, 0, .009))
+        _instalacoes.cilindro(obj, "Stem", .004, p)
+        _instalacoes.cilindro(obj, "Diffuser", l/2, .085)
+        _luz(obj, "Light", 'POINT', 18).data.shadow_soft_size = .04
         posar_pendente(obj, obj.matrix_world)
         return
     embutido = modelo == 'SPOT_EMBUTIDO'
-    _instalacoes.anel(obj, 'Corpo', l*.48, p, (0, 0, -p/2 if embutido else p/2))
-    _instalacoes.anel(obj, 'Aro', l*.57, .008, (0, 0, .004 if embutido else p))
-    luz = _luz(obj, 'Luz', 'SPOT', 18)
+    _instalacoes.anel(obj, "Body", l*.48, p, (0, 0, -p/2 if embutido else p/2))
+    _instalacoes.anel(obj, "Trim", l*.57, .008, (0, 0, .004 if embutido else p))
+    luz = _luz(obj, "Light", 'SPOT', 18)
     luz.matrix_basis = (Matrix.Translation((0, 0, -.002 if embutido else p+.004))
                         @ Matrix.Rotation(math.pi, 4, 'X'))
     luz.data.spot_size = math.radians(46)
@@ -85,16 +85,16 @@ def posar_pendente(obj, matriz):
     vertical = matriz.to_3x3().inverted_safe() @ Vector((0, 0, -1))
     giro = Vector((0, 0, 1)).rotation_difference(vertical).to_matrix().to_4x4()
     for peca in obj.children:
-        nome = peca.get(_alvenaria.PECA)
-        if nome == 'Canopla':
+        nome = _instalacoes.nome_peca(peca)
+        if nome == "Canopy":
             continue
-        posicao = queda/2 if nome == 'Haste' else queda + (.045 if nome == 'Luz' else 0)
+        posicao = queda/2 if nome == "Stem" else queda + (.045 if nome == "Light" else 0)
         peca.matrix_basis = (Matrix.Translation(vertical*posicao) @ giro
                              @ Matrix.Diagonal((*peca.scale, 1.)))
 
 
 def preparar_regiao(limites, matriz):
-    """Malha numerica do forro com bordas orientadas pelo interior."""
+    """Numeric ceiling mesh with edges oriented toward the interior."""
     inversa = matriz.inverted_safe()
     vertices, indices, trios, bordas = [], {}, [], {}
     for tri in np.asarray(limites['triangulos']).reshape(-1, 3, 3):
@@ -119,8 +119,8 @@ def preparar_regiao(limites, matriz):
             else:
                 bordas[p, q] = True
     if not trios or not bordas:
-        raise ValueError('Selecione uma regiao plana continua do teto')
-    # Une apenas segmentos consecutivos que pertencem ao mesmo lado reto.
+        raise ValueError("Select a continuous planar ceiling region")
+    # Merge only consecutive segments belonging to the same straight side.
     lados = list(bordas)
     mudou = True
     while mudou:
@@ -152,13 +152,13 @@ def montar_forro(obj, limites, matriz):
     faces = [tuple(t) for t in regiao['trios']]
     faces.extend(tuple(i+quantidade for i in reversed(t)) for t in regiao['trios'])
     faces.extend((b,a,a+quantidade,b+quantidade) for a,b in regiao['bordas'])
-    malha = bpy.data.meshes.new('Superficie do forro')
+    malha = bpy.data.meshes.new("Suspended ceiling surface")
     malha.from_pydata(vertices, [], faces)
     malha.update()
     tipo = malha.attributes.new(_alvenaria.ATR_TIPO, 'INT', 'FACE')
     for i in range(len(regiao['trios'])):
         tipo.data[i].value = 3
-    placa = bpy.data.objects.new('Superficie do forro', malha)
+    placa = bpy.data.objects.new("Suspended ceiling surface", malha)
     obj.users_collection[0].objects.link(placa)
     placa.parent = obj
     placa[FORRO] = True
@@ -187,7 +187,7 @@ def atualizar_forro(obj, matriz=None):
         centro = (p+q)/2 + queda + interior*(largura/2)
         comprimento = (q-p).length
         nome = CORTE_TABICA + str(i+1)
-        mod = placa.modifiers.get(nome)
+        mod = _instalacoes.modificador(placa, nome)
         if obj[TABICAS] and obj[LADOS][i]:
             caixa = _instalacoes.caixa(obj, nome, (0,0,0), (comprimento+2*largura, largura+.002, .1))
             caixa.matrix_basis = (Matrix.Translation(centro) @ rotacao
@@ -204,7 +204,7 @@ def atualizar_forro(obj, matriz=None):
             placa.modifiers.remove(mod)
             if cortador is not None:
                 _instalacoes.remover_peca(cortador)
-        nome_luz = 'Luz da tabica %d' % (i+1)
+        nome_luz = "Shadow gap light %d" % (i+1)
         if obj[TABICAS] and obj[LADOS][i] and obj[LADOS_LUZ][i]:
             luz = _luz(obj, nome_luz, 'AREA', comprimento*12)
             luz.matrix_basis = Matrix.Translation(centro) @ rotacao @ Matrix.Rotation(math.pi, 4, 'X')
@@ -212,7 +212,7 @@ def atualizar_forro(obj, matriz=None):
             luz.data.size = comprimento
             luz.data.size_y = min(largura, .018)
         else:
-            luz = next((o for o in obj.children if o.get(_alvenaria.PECA) == nome_luz), None)
+            luz = next((o for o in obj.children if _instalacoes.nome_peca(o) == nome_luz), None)
             if luz is not None:
                 _instalacoes.remover_peca(luz)
 
@@ -220,14 +220,14 @@ def atualizar_forro(obj, matriz=None):
 def instalar_forro(context, apoio, indice, matriz, limites=None):
     limites = limites or _alvenaria.regiao(apoio, indice, matriz)
     if not limites:
-        raise ValueError('Selecione uma regiao plana continua do teto')
+        raise ValueError("Select a continuous planar ceiling region")
     x0,x1,y0,y1 = limites['retangulo']
     medidas = (x1-x0, y1-y0, MODELOS['REBAIXO'][1][2])
     matriz = matriz.copy()
     u, v = (matriz.to_3x3().col[i] for i in (0, 1))
     matriz.translation += u*((x0+x1)/2-matriz.translation.dot(u))
     matriz.translation += v*((y0+y1)/2-matriz.translation.dot(v))
-    obj = _instalacoes.nova(context, 'REBAIXO', 'Forro rebaixado', medidas, matriz)
+    obj = _instalacoes.nova(context, 'REBAIXO', "Dropped ceiling", medidas, matriz)
     try:
         _alvenaria.vincular(obj, apoio, indice, matriz, 'TETO')
         montar_forro(obj, limites, matriz)
@@ -288,7 +288,7 @@ def devolver_luzes_do_forro(placa):
 
 def editar_forro(obj, propriedade, valor):
     if propriedade not in {PROFUNDIDADE, LARGURA} or not .005 <= valor <= (3. if propriedade == PROFUNDIDADE else .20):
-        return 'Valor invalido para o rebaixo'
+        return "Invalid ceiling drop value"
     obj[propriedade] = valor
     atualizar_forro(obj)
     return None
@@ -316,11 +316,11 @@ def acao_forro(obj, acao):
 def widgets(context, itens, x, y, w, obj):
     modelo = obj[_alvenaria.MARCA]
     if modelo == 'REBAIXO':
-        campos = [(PROFUNDIDADE, 'Altura do rebaixo', obj[PROFUNDIDADE])]
+        campos = [(PROFUNDIDADE, "Ceiling drop height", obj[PROFUNDIDADE])]
         if obj[TABICAS]:
-            campos.append((LARGURA, 'Largura da tabica', obj[LARGURA]))
+            campos.append((LARGURA, "Shadow gap width", obj[LARGURA]))
     elif modelo == 'PENDENTE':
-        campos = [('2', 'Queda do pendente', obj[_alvenaria.MEDIDAS][2])]
+        campos = [('2', "Pendant drop", obj[_alvenaria.MEDIDAS][2])]
     else:
         return y
     for chave, rotulo, valor in campos:
@@ -332,16 +332,16 @@ def widgets(context, itens, x, y, w, obj):
         return y
     metade = (w-6)/2
     y -= 29
-    completo = 'Rebaixo completo' if metade >= 100 else 'Completo'
-    for i, (acao, rotulo) in enumerate((('completo', completo), ('tabica', 'Com tabica'))):
+    completo = "Full ceiling drop" if metade >= 100 else "Full"
+    for i, (acao, rotulo) in enumerate((('completo', completo), ('tabica', "With shadow gap"))):
         itens.append((x+i*(metade+6), y, metade, 25, rotulo,
                       ('escolha', 'acao_instalacao', acao, obj[TABICAS] == bool(i), True, _instalacoes.ALVO)))
     if obj[TABICAS]:
         for i, lado in enumerate(obj[LADOS]):
             y -= 29
-            itens.append((x, y, metade, 25, 'Lado %d' % (i+1),
+            itens.append((x, y, metade, 25, "Side %d" % (i+1),
                           ('escolha', 'acao_instalacao', 'lado_%d'%i, lado, True, _instalacoes.ALVO)))
-            itens.append((x+metade+6, y, metade, 25, 'Luz %d' % (i+1),
+            itens.append((x+metade+6, y, metade, 25, "Light %d" % (i+1),
                           ('escolha', 'acao_instalacao', 'luz_%d'%i, obj[LADOS_LUZ][i], True, _instalacoes.ALVO)))
     return _instalacoes.widgets_modelos(context, itens, x, y-8, w, 'TETO', excluir={'REBAIXO'})
 
@@ -358,7 +358,7 @@ def desenhar_lados(context, tela):
         centro = obj.matrix_world @ ((p+q)/2) - Vector((0, 0, obj[PROFUNDIDADE]))
         posicao = tela(centro)
         if posicao is not None:
-            texto = 'Lado %d' % (i+1)
+            texto = "Side %d" % (i+1)
             blf.size(0, tamanho)
             largura, _ = blf.dimensions(0, texto)
             _hud._caixa_texto_hud(posicao.x-largura/2, posicao.y, texto, tamanho, escala)
@@ -366,7 +366,7 @@ def desenhar_lados(context, tela):
 
 class OBJECT_OT_rebaixar_faces(Operator):
     bl_idname = 'object.cabinet_rebaixar_faces'
-    bl_label = 'Rebaixar faces do teto'
+    bl_label = "Lower ceiling faces"
     bl_options = {'UNDO'}
 
     @classmethod
@@ -379,7 +379,7 @@ class OBJECT_OT_rebaixar_faces(Operator):
         bm.faces.index_update()
         faces = {f for f in bm.faces if f.select and not f.hide}
         if not faces:
-            self.report({'WARNING'}, 'Selecione faces do teto')
+            self.report({'WARNING'}, "Select ceiling faces")
             return {'CANCELLED'}
         frente = min(faces, key=lambda f: f.index)
         indice = frente.index
@@ -401,7 +401,7 @@ class OBJECT_OT_rebaixar_faces(Operator):
                                       and _paredes.tipo_superficie(n) == 'TETO')
             if (not teto or f not in visitadas or n.dot(normal) < .99985
                     or any(abs((apoio.matrix_world @ v.co-ponto).dot(normal)) > .002 for v in f.verts)):
-                self.report({'WARNING'}, 'Selecione uma regiao plana continua do teto')
+                self.report({'WARNING'}, "Select a continuous planar ceiling region")
                 return {'CANCELLED'}
         matriz = _alvenaria.referencial(ponto, normal)
         vertices = [apoio.matrix_world @ l.vert.co for tri in bm.calc_loop_triangles()

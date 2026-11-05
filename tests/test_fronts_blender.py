@@ -1,8 +1,6 @@
-"""Invariantes independentes da referencia geometrica LOCAL das frentes.
+"""Independent invariants for the fronts' local geometric reference.
 
-Execute no Blender com --background --factory-startup --python-exit-code 1.
-Fixtures proprias: nenhuma leitura ou escrita da biblioteca real.
-"""
+Run Blender with --background --factory-startup --python-exit-code 1. Use dedicated fixtures without reading or writing the real library."""
 import math
 import os
 import sys
@@ -57,7 +55,7 @@ class DadosSemVarredura:
 
 
 class SemMalha:
-    """Permite ID props e pose; qualquer consulta geometrica reprova o redraw."""
+    """Allow ID properties and pose access; any geometry query fails the redraw test."""
     def __init__(self, objeto):
         self.objeto = objeto
 
@@ -115,7 +113,7 @@ class TestFrentes(unittest.TestCase):
             self.vetor(a, b)
 
     def geometria(self, linha, altura=.8, espessura=.018):
-        # Frente +Z; as quatro linhas tem a MESMA ordem de X crescente.
+        # Front +Z; all four lines have the same ascending X order.
         frente = [Vector((x, -altura / 2, z)) for x, z in linha]
         tras = [p - Vector((0, 0, espessura)) for p in frente]
         cima = Vector((0, altura, 0))
@@ -167,7 +165,7 @@ class TestFrentes(unittest.TestCase):
         self.assertAlmostEqual(ref['comprimento'], comprimento, places=6)
         return ref
 
-    # Regressao corrigida (era BUG): A API combinada devolve dict; implementacao devolve IDPropertyGroup.
+    # Fixed regression: the combined API returns a dict, while the implementation returns IDPropertyGroup.
     def test_contrato_referencia_devolve_dict(self):
         obj = self.chapa()
         self.api.preparar(obj, forcar=True)
@@ -177,12 +175,12 @@ class TestFrentes(unittest.TestCase):
         obj = self.chapa()
         self.conferir_referencia(obj, [(-.3, .009), (.3, .009)])
 
-    # Regressao corrigida (era BUG): Tampas estreitas entram no percurso da polilinha.
+    # Fixed regression: narrow end caps entered the polyline path.
     def test_polilinha_dobrada_nao_vira_corda_ou_envelope(self):
         linha = [(-.3, .009), (-.1, .15), (.3, .009)]
         self.conferir_referencia(self.chapa(linha), linha)
 
-    # Regressao corrigida (era BUG): Extracao inclui as tampas estreitas no percurso da frente.
+    # Fixed regression: extraction included narrow caps in the front path.
     def test_arco_preserva_todas_as_quebras_e_comprimento(self):
         linha = [(.3 * math.sin(t), .009 + .3 * math.cos(t))
                  for t in [-1.0, -.6, -.2, .2, .6, 1.0]]
@@ -206,7 +204,7 @@ class TestFrentes(unittest.TestCase):
                 self.vetor(depois[chave][1], obj.matrix_world @ b)
         self.assertEqual(tuple(obj.scale), (1, 1, 1))
 
-    # Regressao corrigida (era BUG): Segmentos extras das tampas alteram a fracao do percurso.
+    # Fixed regression: extra cap segments changed the path fraction.
     def test_segmento_normaliza_por_comprimento_real(self):
         linha = [(-.3, .009), (-.1, .159), (.3, .159)]
         obj = self.chapa(linha)
@@ -235,14 +233,14 @@ class TestFrentes(unittest.TestCase):
                 self.vetor(matriz.to_3x3().col[2], (0, 0, face))
                 self.assertAlmostEqual(matriz.to_3x3().determinant(), 1, places=5)
 
-    # Regressao corrigida (era BUG): Expansao da frente inclui tampas e diverge do verso.
+    # Fixed regression: front expansion included caps and diverged from the back.
     def test_verso_e_topo_seguem_superficies_distintas(self):
         obj = self.chapa([(-.3, .009), (0, .12), (.3, .009)])
         self.api.preparar(obj, forcar=True)
         frente, verso = self.api.bordas(obj, 1), self.api.bordas(obj, -1)
         self.assertEqual(set(frente), set(verso))
         for chave in frente:
-            # O verso pode inverter a ordem da ancora sem mudar sua geometria.
+            # The back can reverse anchor order without changing its geometry.
             correspondentes = [b+Vector((0,0,.018)) for b in verso[chave]]
             for a in frente[chave]:
                 self.vetor(a, min(correspondentes, key=lambda b:(a-b).length))
@@ -275,13 +273,13 @@ class TestFrentes(unittest.TestCase):
         for a, b in zip(obj.matrix_world, pose):
             self.assertLess((a-b).length, 1e-6)
 
-    # Regressao corrigida (era BUG): Reconhecimento apos recriar inclui tampas estreitas na frente.
+    # Fixed regression: recognition after rebuilding included narrow caps in the front.
     def test_edicao_topologica_reordena_vertices_e_acrescenta_quebra(self):
         obj = self.chapa()
         self.api.preparar(obj, forcar=True)
         linha = [(-.3, .009), (-.07, .16), (.3, .009)]
         pontos, faces = self.geometria(linha)
-        # Recria na MESMA Mesh, com indices invertidos e numero diferente.
+        # Rebuild the same Mesh with reversed indices and a different vertex count.
         n = len(pontos)
         obj.data.clear_geometry()
         obj.data.from_pydata(list(reversed(pontos)), [],
@@ -289,11 +287,11 @@ class TestFrentes(unittest.TestCase):
         obj.data.update()
         self.conferir_referencia(obj, linha)
 
-    # Regressao corrigida (era BUG): Trecho horizontal no Y minimo descarta a ponta recortada.
+    # Fixed regression: a horizontal segment at minimum Y discarded the trimmed endpoint.
     def test_recorte_inferior_preserva_ponta_e_nao_encurta_caminho(self):
         obj = self.chapa([(-.3, .009), (-.1, .009), (.3, .009)])
         self.api.preparar(obj, forcar=True)
-        # Levanta apenas a quina esquerda inferior nas duas superficies.
+        # Raise only the lower-left corner on both surfaces.
         for v in obj.data.vertices:
             if v.co.x < -.29 and v.co.y < 0:
                 v.co.y += .1
@@ -362,7 +360,7 @@ class TestFrentes(unittest.TestCase):
             self.assertIsNone(self.api.contorno(protegido))
             self.assertFalse(self.api.bordas(protegido))
 
-    # Regressao corrigida (era BUG): Renomear escapa da pendencia por nome.
+    # Fixed regression: renaming bypassed pending work tracked by name.
     def test_invalidacao_sobrevive_renomear_objeto(self):
         obj = self.chapa()
         self.api.preparar(obj, forcar=True)
@@ -370,7 +368,7 @@ class TestFrentes(unittest.TestCase):
         obj.name = 'Chapa teste renomeada'
         self.assertIsNone(self.api.referencia(obj))
 
-    # Regressao corrigida (era BUG): Cache da Mesh e invalidado somente pelo nome de um objeto.
+    # Fixed regression: Mesh cache invalidation used only one object's name.
     def test_invalidacao_cobre_usuarios_da_mesma_mesh(self):
         obj = self.chapa()
         copia = obj.copy()
@@ -391,7 +389,7 @@ class TestFrentes(unittest.TestCase):
             self.assertIsNone(self.api.contorno(protegido))
             self.assertFalse(self.api.bordas(protegido))
 
-    # Regressao: bordas X conservam o centro Y real da geometria.
+    # Regression: X edges retain the geometry's actual Y center.
     def test_lugar_preserva_origem_local_nao_centrada(self):
         obj = self.chapa()
         deslocamento = Vector((.12, .23, .017))
@@ -459,7 +457,7 @@ class TestFrentes(unittest.TestCase):
         self.api.invalidar(obj)
         obj.data.name = 'Malha teste renomeada'
         self.assertIsNone(self.api.referencia(obj))
-        # Um tique descobre o nome antigo; o seguinte reexamina a cena.
+        # One tick discovers the old name; the next reexamines the scene.
         self.api.processar_pendentes()
         self.api.processar_pendentes()
         ref = self.api.referencia(obj)
@@ -480,7 +478,7 @@ class TestFrentes(unittest.TestCase):
                 for v in cubo['verts']:
                     v.co = Vector(tuple(limites[2*i+(1 if v.co[i]>0 else 0)]
                                         for i in range(3)))
-            # Cinco solidos sem vertices soldados, incluindo o vidro maior.
+            # Five solids with unwelded vertices, including the larger glass panel.
             obj.data.clear_geometry()
             bm.to_mesh(obj.data)
         finally:
@@ -504,12 +502,12 @@ class TestFrentes(unittest.TestCase):
             _, comprimento = self.api.lugar(obj, borda, 1, .5, 0, 0, inteiro=True)
             self.assertAlmostEqual(comprimento, 600, places=4)
 
-    # Regressao corrigida: tampas radiais nao pertencem ao patch do verso.
+    # Fixed regression: radial caps do not belong to the back patch.
     def test_curva_espessura_normal_nao_inclui_tampas_no_verso(self):
         angulos = (-.8, -.4, 0, .4, .8)
         raio, espessura = .6, .018
         frente = [Vector((raio*math.sin(t), -.4, raio*math.cos(t))) for t in angulos]
-        # Intersecao dos planos deslocados: cada face tem 18 mm na normal.
+        # Intersection of offset planes: each face has 18 mm thickness along its normal.
         raio_interno = raio-espessura/math.cos((angulos[1]-angulos[0])/2)
         tras = [Vector((raio_interno*math.sin(t), -.4,
                         raio_interno*math.cos(t))) for t in angulos]
@@ -531,7 +529,7 @@ class TestFrentes(unittest.TestCase):
             self.assertAlmostEqual((Vector(ref['frente'][i])-Vector(ref['tras'][i])).dot(normal),
                                    espessura, places=6)
         papeis = [d.value for d in obj.data.attributes[self.api.ATR_FACE].data]
-        # As duas tampas radiais fecham o solido; nao sao frente nem verso.
+        # Both radial caps close the solid; neither is front nor back.
         self.assertEqual(papeis[-2:], [0,0])
         self.assertEqual(papeis.count(1), len(angulos)-1)
         self.assertEqual(papeis.count(-1), len(angulos)-1)
@@ -604,7 +602,7 @@ class TestFrentes(unittest.TestCase):
             self.assertIsNotNone(self.api.contorno(protegido))
 
 
-# Redireciona ANTES do register: nem timers podem tocar a biblioteca real.
+# Redirect before registration so even timers cannot touch the real library.
 with tempfile.TemporaryDirectory(prefix='cabinet_frentes_') as pasta:
     with patch.object(addon.biblioteca, 'pasta_biblioteca', return_value=pasta), \
          patch.object(addon.opcoes, '_pasta_addon', return_value=pasta):
@@ -615,4 +613,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_frentes_') as pasta:
         finally:
             addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de frentes')
+    raise RuntimeError("Front-reference tests failed")

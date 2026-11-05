@@ -1,4 +1,4 @@
-"""Orcamento em .txt (botao nas Opcoes) e comodos (pastas no Outliner)."""
+"""Estimates in .txt (Options button) and rooms (Outliner folders)."""
 
 import os
 import re
@@ -8,62 +8,62 @@ from bpy.props import BoolProperty, StringProperty
 from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _eventos = _portas = _solda = _perguntas = None
 _prateleiras = _gavetas = _materiais = None
 
-# ======================================================== ORCAMENTO
-# O add-on e' vendido: nada de "ERP" na tela. O botao "Gerar orcamento"
-# (painel da engrenagem) pede onde salvar e grava um .txt -- o conteudo
-# segue o padrao da empresa do usuario, que o ERP dela ja' le: Markdown
-# no padrao de um prompt de ditado, um bloco ```markdown e, fora dele,
-# as Pendencias. Daqui sai SO'
-# a marcenaria; o resto do documento fica como o prompt manda quando nada
-# foi dito (Limpeza geral, Valores e Pagamento vazios, perfil investidor).
-# Nada se inventa: a linha do modulo e' o NOME do grupo e os detalhes
-# (portas, prateleiras, divisorias, puxadores) saem do 3D.
-# O COMODO e' uma PASTA no Outliner (pedido do usuario): Collection
-# marcada, na raiz da cena, com as Collections dos armarios dentro. Ela
-# e' a unica fonte: arrastar o armario para outra pasta no Outliner
-# tambem muda o comodo do orcamento.
+# ======================================================== ESTIMATES
+# This is a commercial add-on: do not show "ERP" onscreen. The "Generate Estimate"
+# button (gear panel) asks where to save and writes a .txt file in the user's
+# company format, already read by its ERP: Markdown following a dictation
+# prompt format, with a ```markdown block and outstanding items outside it.
+# This module exports ONLY
+# cabinetry; the rest follows the prompt's defaults for unspecified content:
+# general cleaning, empty Values and Payment sections, and investor profile.
+# Invent nothing: the cabinet line is the group NAME, and its details
+# (doors, shelves, partitions, handles) come from the 3D model.
+# A ROOM is a FOLDER in the Outliner, as requested by the user: a marked
+# Collection at the scene root containing the cabinet Collections. It
+# is the only source: dragging a cabinet to another Outliner folder
+# also changes its room in the estimate.
 MARCA_COLECAO_COMODO = "eh_colecao_comodo"
-ALVO_COMODO = '@comodo'                  # alvo da 'escolha' que grava o comodo
-SUSPENSO_COMODO = 'comodo'               # lista que expande na aba Modulos
-COMODO_NENHUM = ''                       # volta o armario a' raiz
-COMODO_OUTRO = '@outro'                  # abre o campo do nome digitado
+ALVO_COMODO = '@comodo'                  # Target of the 'choice' that assigns the room.
+SUSPENSO_COMODO = 'comodo'               # Expandable list in the Cabinets tab.
+COMODO_NENHUM = ''                       # Return the cabinet to the root.
+COMODO_OUTRO = '@outro'                  # Open the typed-name field.
 OP_EXPORTAR_ORCAMENTO = 'object.cabinet_exportar_orcamento'
-# Os comodos do prompt, na ORDEM do orcamento (os digitados vem depois,
-# em ordem alfabetica). Varanda e' Sacada (regra do prompt). Com acento:
-# e' o nome da pasta e o texto que o ERP le.
+# Prompt rooms in estimate ORDER (user-entered rooms follow
+# alphabetically). Varanda maps to Sacada per the prompt. Keep accents:
+# these are folder names and text read by the ERP.
 COMODOS = (
-    'Cozinha', 'Copa', 'Sala', 'Quarto', 'Su\u00edte', 'Quarto su\u00edte',
-    'Banheiro', 'Banheiro da su\u00edte', 'Lavabo', 'Lavanderia',
-    '\u00c1rea de servi\u00e7o', 'Sacada', 'Escrit\u00f3rio', 'Closet',
+    "Kitchen", "Dining Room", "Living Room", "Bedroom", "Suite", "En-suite Bedroom",
+    "Bathroom", "En-suite Bathroom", "Powder Room", "Laundry Room",
+    "Utility Area", "Balcony", "Office", 'Closet',
 )
-SINONIMOS_COMODO = {'varanda': 'Sacada'}
-# depois de salvar: o botao mostra o que fez e as pendencias ficam a'
-# vista ate' o proximo, uma troca de comodo ou este tempo
+SINONIMOS_COMODO = {'varanda': "Balcony"}
+# After saving, the button shows the result and outstanding items remain
+# visible until the next save, a room change, or this timeout.
 SEGUNDOS_ORCAMENTO_GERADO = 30.0
 _orcamento_gerado = [None]       # {'modulos': n, 'pendencias': [...], 'arquivo'}
-ARQUIVO_ORCAMENTO = 'Orçamento'     # nome sugerido no "Salvar como"
-# Nome que o add-on deu sozinho: o usuario nao disse que modulo e'.
-NOME_AUTOMATICO_MODULO = re.compile(r'^(Armario \d+x\d+x\d+|Conjunto)$')
-# (singular, plural) por modelo de porta e de puxador
+ARQUIVO_ORCAMENTO = "Estimate"     # Suggested name in "Save As".
+# Name assigned automatically by the add-on: the user has not identified the cabinet.
+NOME_AUTOMATICO_MODULO = re.compile(r'^((?:Cabinet|Armario) \d+x\d+x\d+|Assembly|Conjunto)$')
+# (singular, plural) by door and handle model.
 PALAVRAS_PORTA = {
-    'CORRER': ('porta de correr', 'portas de correr'),
-    'BASCULANTE': ('porta basculante', 'portas basculantes'),
-    'EMBUTIDA': ('porta embutida', 'portas embutidas'),
-    'GIRO': ('porta', 'portas'),
+    'CORRER': ("sliding door", "sliding doors"),
+    'BASCULANTE': ("lift-up door", "lift-up doors"),
+    'EMBUTIDA': ("inset door", "inset doors"),
+    'GIRO': ('hinged door', 'hinged doors'),
 }
-PALAVRAS_PUXADOR = {'PERFIL': 'perfil', 'ALCA': 'al\u00e7a', 'BORDA': 'borda'}
-NOMES_DOBRADICA = {'RETA': 'reta', 'CURVA': 'curva',
-                  'SUPER_CURVA': 'super curva', 'ARTICULADA': 'articulada'}
+PALAVRAS_PUXADOR = {'PERFIL': 'profile', 'ALCA': "pull", 'BORDA': 'edge'}
+NOMES_DOBRADICA = {'RETA': 'full overlay', 'CURVA': 'half crank',
+                  'SUPER_CURVA': "full inset", 'ARTICULADA': 'articulated'}
 
 
 def _modulo_do_objeto(obj):
-    """Modulo de qualquer coisa nossa: ele mesmo, uma chapa dele, a porta
-    ligada a ele (folha ou grupo) ou o puxador de uma delas."""
+    """Cabinet for any of our components: itself, one of its panels, a door
+    linked to it (leaf or group), or a handle on one of those doors."""
     if obj is None:
         return None
     if _chapas.MARCA_CONJUNTO in obj:
@@ -72,8 +72,8 @@ def _modulo_do_objeto(obj):
         obj = obj.parent
     grupo = _portas._grupo_portas(obj)
     if grupo is not None:
-        # Hierarquia primeiro, como `_portas_do_conjunto`: o nome gravado
-        # nao ganha .001 quando o mesmo preset entra duas vezes.
+        # Hierarchy first, like `_portas_do_conjunto`: the stored name
+        # does not gain .001 when the same preset is inserted twice.
         pai = grupo.parent
         while pai is not None and _chapas.MARCA_CONJUNTO not in pai:
             pai = pai.parent
@@ -109,7 +109,7 @@ def _pais_da_colecao(colecao, cena):
 
 
 def _comodo_do_modulo(conj):
-    """Pasta de comodo onde mora a Collection do armario, ou None."""
+    """Room folder containing the cabinet Collection, or None."""
     colecao = _modulos._colecao_do_modulo(conj)
     if colecao is None:
         return None
@@ -119,7 +119,7 @@ def _comodo_do_modulo(conj):
 
 
 def _comodos_da_cena(cena):
-    """Pastas de comodo que estao na cena (por nome sem o .001)."""
+    """Room folders present in the scene (by name without .001)."""
     pastas = {}
     for c in cena.collection.children_recursive:
         if c.get(MARCA_COLECAO_COMODO):
@@ -128,7 +128,7 @@ def _comodos_da_cena(cena):
 
 
 def _comodos_da_lista(cena):
-    """O que a lista oferece: os do prompt e os ja' digitados na cena."""
+    """List choices: prompt rooms and names already entered in the scene."""
     digitados = sorted((n for n in _comodos_da_cena(cena) if n not in COMODOS),
                        key=str.casefold)
     return [*COMODOS, *digitados]
@@ -156,8 +156,8 @@ def _limpar_comodos_vazios():
 
 
 def definir_comodo(cena, modulos, nome):
-    """Poe a Collection de cada armario na pasta `nome` (vazio = raiz da
-    cena). Devolve quantos armarios mudaram de lugar ou ja' estavam la'."""
+    """Put each cabinet Collection in folder `nome` (empty = scene root).
+    Return the number of cabinets moved or already there."""
     nome = _limpar_nome_comodo(nome)
     feitos = 0
     for conj in modulos:
@@ -166,7 +166,7 @@ def definir_comodo(cena, modulos, nome):
         colecao = _modulos._garantir_colecao_modulo(cena, conj)
         destino = (_colecao_do_comodo(cena, nome) if nome
                    else cena.collection)
-        # liga antes de desligar: a Collection nunca fica sem dono
+        # Link before unlinking: the Collection must always have an owner.
         if colecao.name not in destino.children:
             destino.children.link(colecao)
         for pai in _pais_da_colecao(colecao, cena):
@@ -179,22 +179,22 @@ def definir_comodo(cena, modulos, nome):
 
 
 def _abrir_caixa_comodo(context):
-    """"Outro nome...": o mesmo campo da caixa do nome do grupo, logo
-    abaixo da linha do comodo. Guarda os armarios: o clique fora pode
-    mudar a selecao antes do Enter."""
+    """"Other Name...": the same field as the group name box, directly below
+    the room row. Store the cabinets: clicking elsewhere may change
+    selection before Enter."""
     nomes = [m.name for m in _modulos_da_selecao(context)]
     _solda._nome_grupo_gaveta[0] = {'comodo': nomes, 'grupo': '', 'texto': '',
                              'cursor': 0, 'selecionado': False}
     op = 'object.cabinet_definir_comodo'
     _perguntas._pergunta_atual[0] = {
-        'texto': 'Nome do comodo', 'campo': True, 'na_gaveta': True,
+        'texto': "Room name", 'campo': True, 'na_gaveta': True,
         'comodo': True,
         'opcoes': [('OK', 'CHECKMARK', op, {'digitado': True}),
-                   ('Cancelar', 'X', op, {'manter': True})]}
+                   ("Cancel", 'X', op, {'manter': True})]}
 
 
 def _confirmar_campo_gaveta(estado):
-    """Enter/OK no campo da caixa preta: nome do grupo ou do comodo."""
+    """Enter/OK in the black box field: group or room name."""
     if estado.get('comodo') is not None:
         modulos = [bpy.data.objects.get(n) for n in estado['comodo']]
         nome = _limpar_nome_comodo(estado['texto'])
@@ -204,13 +204,13 @@ def _confirmar_campo_gaveta(estado):
 
 
 class OBJECT_OT_definir_comodo(Operator):
-    """Poe os armarios selecionados na pasta do comodo (Outliner)"""
+    """Put selected cabinets in the room folder (Outliner)."""
     bl_idname = 'object.cabinet_definir_comodo'
-    bl_label = 'Comodo do Armario'
+    bl_label = "Cabinet Room"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
-    nome: StringProperty(name='Comodo', options={'SKIP_SAVE'})
-    # OK / Cancelar da caixa do "Outro nome..."
+    nome: StringProperty(name="Room", options={'SKIP_SAVE'})
+    # OK / Cancel for the "Other Name..." box.
     digitado: BoolProperty(options={'SKIP_SAVE', 'HIDDEN'})
     manter: BoolProperty(options={'SKIP_SAVE', 'HIDDEN'})
 
@@ -225,7 +225,7 @@ class OBJECT_OT_definir_comodo(Operator):
                     else {'CANCELLED'})
         if not definir_comodo(context.scene, _modulos_da_selecao(context),
                               self.nome):
-            self.report({'WARNING'}, "Selecione um armario")
+            self.report({'WARNING'}, "Select a cabinet")
             return {'CANCELLED'}
         return {'FINISHED'}
 
@@ -236,9 +236,9 @@ def _quantos(n, palavras):
 
 
 def _pecas_internas(conj):
-    """(prateleiras, divisorias) no referencial do MODULO (girado vale):
-    chapa deitada entre a de baixo e a de cima e chapa em pe' entre a da
-    esquerda e a da direita. As das pontas sao base, tampo e laterais."""
+    """(shelves, partitions) in the CABINET frame, including rotated cabinets:
+    a horizontal panel between bottom and top, and an upright panel between
+    left and right. Outer panels are the base, top, and sides."""
     inversa = conj.matrix_world.to_3x3().normalized().inverted()
     posicoes = {0: [], 2: []}
     for chapa in _modulos._chapas_do_conjunto(conj):
@@ -253,19 +253,19 @@ def _pecas_internas(conj):
         baixo, alto = min(valores), max(valores)
         return sum(1 for v in valores
                    if baixo + _modulos.TOL_BORDA < v < alto - _modulos.TOL_BORDA)
-    # mais as da aba Prateleiras (filhas do grupo delas, nao do modulo)
+    # Plus those from the Shelves tab (children of their group, not the cabinet).
     return (entre(posicoes[2]) + _prateleiras.quantas_no_modulo(conj),
             entre(posicoes[0]))
 
 
 def cadastro_do_modulo(conj):
-    """Ficha atual do 3D, sem gravar contagens que envelhecem no preset."""
+    """Current 3D record without persisting counts that become stale in presets."""
     bpy.context.view_layer.update()
     dep = bpy.context.evaluated_depsgraph_get()
     inversa = conj.matrix_world.to_quaternion().inverted().to_matrix()
     origem = conj.matrix_world.translation
-    # O referencial tira so' a rotacao: escala real e edicoes da malha
-    # entram na medida, sem incluir portas/gavetas abertas ou ferragens.
+    # The frame removes only rotation: actual scale and mesh edits
+    # contribute to measurements, excluding open doors/drawers and hardware.
     pontos = []
     for peca in _modulos.pecas_do_envelope(conj):
         avaliada = peca.evaluated_get(dep)
@@ -299,7 +299,7 @@ def cadastro_do_modulo(conj):
                   if any(_chapas.MARCA_CHAPA in o for o in gaveta.children_recursive))
     materiais, sem_material = set(), 0
     for peca in _materiais.pecas_dos_alvos([conj, *grupos]):
-        # Slots guardados sem faces nao representam material utilizado.
+        # Stored slots with no faces do not represent material in use.
         indices = {p.material_index for p in peca.data.polygons}
         faltando = not indices
         for i in indices:
@@ -322,46 +322,46 @@ def cadastro_do_modulo(conj):
 
 
 def _detalhes_do_modulo(conj, puxadores, cadastro=None):
-    """O 3o andar do orcamento: so' o que o modelo 3D TEM."""
+    """Third estimate level: only what the 3D model HAS."""
     cadastro = cadastro if cadastro is not None else cadastro_do_modulo(conj)
     medidas = cadastro['medidas_mm']
-    detalhes = [('Medidas gerais (largura x altura x profundidade): %s mm'
+    detalhes = [("Overall dimensions (width x height x depth): %s mm"
                  % ' x '.join(format(round(v, 2), '.2f').rstrip('0').rstrip('.')
-                              for v in medidas)) if medidas else 'Medidas gerais nao identificadas']
+                              for v in medidas)) if medidas else "Overall dimensions not identified"]
     for tipo, n in cadastro['portas'].items():
         if n:
             detalhes.append(_quantos(n, PALAVRAS_PORTA.get(
                 tipo, PALAVRAS_PORTA['GIRO'])))
     if not cadastro['portas']:
-        detalhes.append('Sem portas')
+        detalhes.append("No doors")
     dobradicas = [NOMES_DOBRADICA[t] for t in cadastro['dobradicas']]
     if cadastro['dobradicas_pendentes']:
-        dobradicas.append('nao identificada')
-    detalhes.append('Dobradicas: ' + ', '.join(dobradicas) if dobradicas else 'Sem dobradicas')
+        dobradicas.append("not identified")
+    detalhes.append("Hinges: " + ', '.join(dobradicas) if dobradicas else "No hinges")
     n = cadastro['gavetas']
-    detalhes.append(_quantos(n, ('gaveta interna', 'gavetas internas'))
-                    if n else 'Sem gavetas internas')
+    detalhes.append(_quantos(n, ("internal drawer", "internal drawers"))
+                    if n else "No internal drawers")
     prateleiras, divisorias = cadastro['prateleiras'], cadastro['divisorias']
-    detalhes.append(_quantos(prateleiras, ('prateleira interna',
-                                           'prateleiras internas'))
-                    if prateleiras else 'Sem prateleiras internas')
+    detalhes.append(_quantos(prateleiras, ("internal shelf",
+                                           "internal shelves"))
+                    if prateleiras else "No internal shelves")
     if divisorias:
-        detalhes.append(_quantos(divisorias, ('divis\u00f3ria interna',
-                                              'divis\u00f3rias internas')))
+        detalhes.append(_quantos(divisorias, ("internal partition",
+                                              "internal partitions")))
     for tipo, n in puxadores.items():
         palavra = PALAVRAS_PUXADOR.get(tipo, '')
-        detalhes.append(_quantos(n, ('puxador ' + palavra, 'puxadores '
-                                     + palavra)).strip())
+        detalhes.append(_quantos(n, ((palavra + ' handle').strip(),
+                                     (palavra + ' handles').strip())))
     materiais = cadastro['materiais']
-    detalhes.append('Materiais: ' + ', '.join(materiais) if materiais else 'Material nao identificado')
+    detalhes.append("Materials: " + ', '.join(materiais) if materiais else "Material not identified")
     if materiais and cadastro['pecas_sem_material']:
         detalhes.append(_quantos(cadastro['pecas_sem_material'],
-                                 ('peca sem material', 'pecas sem material')))
+                                 ("part without material", "parts without material")))
     return detalhes
 
 
 def _puxadores_por_modulo(objetos):
-    """{modulo: {tipo: quantidade}} -- importado (sem tipo) conta como ''."""
+    """{cabinet: {type: count}}; imported items without a type count as ''."""
     contas = {}
     for pux in objetos:
         if _chapas.MARCA_PUXADOR not in pux:
@@ -375,7 +375,7 @@ def _puxadores_por_modulo(objetos):
 
 
 def orcamento_da_cena(cena):
-    """(texto, modulos exportados, pendencias) no padrao da empresa."""
+    """(text, exported cabinets, outstanding items) in the company format."""
     objetos = list(cena.objects)
     puxadores = _puxadores_por_modulo(objetos)
     por_comodo = {}
@@ -387,40 +387,33 @@ def orcamento_da_cena(cena):
         nome = _portas._sem_sufixo(conj.name)
         comodo = _nome_comodo(_comodo_do_modulo(conj)) or None
         if NOME_AUTOMATICO_MODULO.match(nome):
-            pendencias.append('- %s%s: n\u00e3o foi dito que m\u00f3dulo '
-                              '\u00e9 (o nome do grupo ainda \u00e9 o '
-                              'autom\u00e1tico).'
+            pendencias.append("- %s%s: the cabinet type was not specified (the group still has its automatic name)."
                               % (comodo + ', ' if comodo else '', nome))
         if comodo is None:
-            pendencias.append('- %s: n\u00e3o foi dito o c\u00f4modo; o '
-                              'm\u00f3dulo ficou fora do or\u00e7amento.'
+            pendencias.append("- %s: the room was not specified; the cabinet was excluded from the estimate."
                               % nome)
             continue
         cadastro = cadastro_do_modulo(conj)
         if cadastro['pecas_sem_material']:
-            pendencias.append('- %s, %s: material nao identificado em %s.' % (
-                comodo, nome, _quantos(cadastro['pecas_sem_material'], ('peca', 'pecas'))))
+            pendencias.append("- %s, %s: material not identified on %s." % (
+                comodo, nome, _quantos(cadastro['pecas_sem_material'], ('part', 'parts'))))
         if cadastro['dobradicas_pendentes']:
-            pendencias.append('- %s, %s: tipo de dobradica nao identificado.' % (comodo, nome))
+            pendencias.append("- %s, %s: hinge type not identified." % (comodo, nome))
         por_comodo.setdefault(comodo, []).append(
             (nome, _detalhes_do_modulo(conj, puxadores.get(conj.name, {}), cadastro)))
     soltas = [o for o in objetos if _chapas.MARCA_CHAPA in o and _chapas.MARCA_FOLHA not in o
               and _portas._modulo_da_chapa(o) is None]
     if soltas:
-        pendencias.append('- %s, fora de um arm\u00e1rio: n\u00e3o foi dito '
-                          'a qual m\u00f3dulo pertence%s; ficou%s fora do '
-                          'or\u00e7amento.' % (
-                              _quantos(len(soltas), ('chapa solta',
-                                                     'chapas soltas')),
-                              'm' if len(soltas) > 1 else '',
-                              'aram' if len(soltas) > 1 else ''))
+        pendencias.append('- %s, outside a cabinet: the cabinet was not specified; '
+                          'excluded from the estimate.' %
+                          _quantos(len(soltas), ('loose panel', 'loose panels')))
 
-    linhas = ['# Or\u00e7amento', 'cliente:', 'endereco:',
-              'perfil: investidor', '']
+    linhas = ["# Estimate", "client:", "address:",
+              "profile: investor", '']
     exportados = sum(len(v) for v in por_comodo.values())
     if exportados:
-        # bloco sem conteudo nao tem cabecalho (regra do prompt)
-        linhas += ['## M\u00f3veis', '']
+        # A block without content has no heading (prompt rule).
+        linhas += ["## Furniture", '']
         for comodo in sorted(por_comodo, key=_ordem_comodo):
             itens = por_comodo[comodo]
             linhas.append('### ' + comodo)
@@ -428,19 +421,18 @@ def orcamento_da_cena(cena):
                 linhas.append('- ' + nome)
                 linhas += ['  - ' + d for d in detalhes]
             linhas.append('')
-    # Limpeza: a unica coisa que entra sem pedir; sem Obras, e' a geral
-    linhas += ['## Outros', '', '### Geral', '- Limpeza geral.', '',
-               '## Valores', '- moveis:', '- obras:', '- eletros:',
-               '- outros:', '',
-               '## Pagamento', '- modalidade: entrada+parcelas',
-               '- entrada:', '- parcelas:']
+    # Cleaning is the only unsolicited item; without construction work, use general cleaning.
+    linhas += ["## Other", '', "### General", "- General cleaning.", '',
+               "## Costs", "- furniture:", "- construction:", "- appliances:",
+               "- other:", '',
+               "## Payment", "- method: down payment+installments",
+               "- down payment:", "- installments:"]
     texto = '```markdown\n' + '\n'.join(linhas) + '\n```\n\n'
     if pendencias:
-        texto += ('Pend\u00eancias\n' + '\n'.join(pendencias)
-                  + '\n\nQuer atualizar algum destes antes de eu refazer o '
-                  'or\u00e7amento?\n')
+        texto += ("Pending items\n" + '\n'.join(pendencias)
+                  + "\n\nWould you like to update any of these before I rebuild the estimate?\n")
     else:
-        texto += 'Sem pend\u00eancias.\n'
+        texto += "No pending items.\n"
     return texto, exportados, pendencias
 
 
@@ -454,8 +446,8 @@ def _apagar_orcamento_gerado():
 
 
 def _arquivo_sugerido():
-    """Ao lado do .blend, com o nome dele; sem .blend salvo, na pasta do
-    usuario (o "Salvar como" do Blender abriria na pasta do executavel)."""
+    """Beside the .blend with the same name; if unsaved, use the user's folder
+    (Blender's "Save As" would open in the executable's folder)."""
     if bpy.data.filepath:
         pasta, nome = os.path.split(bpy.data.filepath)
         return os.path.join(pasta, '%s - %s.txt' % (
@@ -464,9 +456,9 @@ def _arquivo_sugerido():
 
 
 class OBJECT_OT_exportar_orcamento(Operator, ExportHelper):
-    """Salva o orcamento dos moveis da cena num arquivo de texto (.txt)"""
+    """Save an estimate for the scene's furniture to a text file (.txt)."""
     bl_idname = OP_EXPORTAR_ORCAMENTO
-    bl_label = "Gerar orcamento"
+    bl_label = "Generate estimate"
 
     filename_ext = '.txt'
     filter_glob: StringProperty(default='*.txt', options={'HIDDEN'})
@@ -481,15 +473,15 @@ class OBJECT_OT_exportar_orcamento(Operator, ExportHelper):
         texto, exportados, pendencias = orcamento_da_cena(context.scene)
         caminho = bpy.path.ensure_ext(bpy.path.abspath(self.filepath), '.txt')
         try:
-            # UTF-8 (acentos dos comodos) e quebra de linha do sistema: o
-            # Bloco de Notas abre direto
+            # UTF-8 for accented room names and system line endings let
+            # Notepad open the file directly.
             with open(caminho, 'w', encoding='utf-8') as arquivo:
                 arquivo.write(texto)
         except OSError as e:
-            self.report({'ERROR'}, "Nao deu para salvar o orcamento: %s" % e)
+            self.report({'ERROR'}, "Could not save the estimate: %s" % e)
             return {'CANCELLED'}
-        # a gaveta mostra o que aconteceu (so' o relatorio na barra de
-        # status passava despercebido: "copiar e nada acontece")
+        # The sidebar shows what happened; a status-bar report alone
+        # went unnoticed ("copy and nothing happens").
         _orcamento_gerado[0] = {'modulos': exportados,
                                 'pendencias': list(pendencias),
                                 'arquivo': os.path.basename(caminho)}
@@ -499,7 +491,7 @@ class OBJECT_OT_exportar_orcamento(Operator, ExportHelper):
                                 first_interval=SEGUNDOS_ORCAMENTO_GERADO)
         _eventos._redesenhar_viewports(context)
         self.report({'WARNING'} if pendencias else {'INFO'},
-                    "Orcamento salvo em %s: %d modulo(s)%s" % (
-                        caminho, exportados, ", %d pendencia(s)"
+                    "Estimate saved to %s: %d cabinet(s)%s" % (
+                        caminho, exportados, ", %d pending item(s)"
                         % len(pendencias) if pendencias else ""))
         return {'FINISHED'}

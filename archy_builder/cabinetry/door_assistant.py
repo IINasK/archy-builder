@@ -1,5 +1,5 @@
-"""Wizard de criacao da porta (2 cliques + caixas) e o operador
-das portas parametricas."""
+"""Door creation wizard (two clicks plus choice boxes) and the
+parametric door operator."""
 
 import bpy, gpu, blf
 from gpu_extras.batch import batch_for_shader
@@ -8,28 +8,29 @@ from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
 from mathutils import Matrix, Vector
 from bpy_extras import view3d_utils
 from bpy.types import Operator
+_opcoes = None
 
-# usados ao CARREGAR (corpo de classe, constantes): ja' carregados antes
+# Used at LOAD time (class bodies/constants): already loaded earlier.
 from .. import chapas as _chapas
 from .. import portas as _portas
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at runtime (circular imports): __init__ binds these
+# aliases after loading all modules (`_ligar_modulos`).
 _eventos = _ferragens = _gaveta_eventos = _arame = _gaveta = _hud = None
 _modulos = None
 _gavetas = None
 _areas_criacao = None
 
-PX_CARACTERE_ASSISTENTE = 7.0    # estimativa de um caractere de 12 px
-MARGEM_CAIXA_ASSISTENTE = 10.0   # px entre a caixa e a borda da viewport
+PX_CARACTERE_ASSISTENTE = 7.0    # Estimated width of a 12 px character.
+MARGEM_CAIXA_ASSISTENTE = 10.0   # Pixels between the box and viewport edge.
 
 
 def _botoes_assistente(ancora, opcoes, escala, tamanho=None, pergunta=''):
-    """Botoes da caixa de escolha, ao lado de `ancora` (pixels).
+    """Choice-box buttons beside `ancora` (pixels).
 
-    `tamanho` = (largura, altura) da regiao: a caixa INTEIRA (pergunta em
-    cima, botoes embaixo) tem de caber (pedido do usuario: terminando a
-    porta perto da borda, a caixa saia cortada). Sem espaco a' direita
-    ela vai para a esquerda do mouse; embaixo/em cima, ela sobe/desce."""
+    `tamanho` is region (width, height). The ENTIRE box, with its question
+    above the buttons, must fit: completing a door near the edge used to
+    clip it. Place left of the mouse if there is no room on the right;
+    move up/down near the bottom/top."""
     largura, altura, vao = 150 * escala, 26 * escala, 6 * escala
     x, y = ancora.x + 18 * escala, ancora.y - 14 * escala
     colunas, linhas = 1, len(opcoes)
@@ -37,7 +38,7 @@ def _botoes_assistente(ancora, opcoes, escala, tamanho=None, pergunta=''):
         margem = MARGEM_CAIXA_ASSISTENTE * escala
         cabecalho = (8 + 12 + 4) * escala if pergunta else 0
         if len(opcoes) > 4:
-            # Com oito folhas, uma viewport baixa exige varias colunas.
+            # Eight leaves in a short viewport require multiple columns.
             disponivel = max(1, tamanho[0] - 2 * margem)
             cabem = max(1, int((tamanho[1] - 2 * margem - cabecalho + vao) / (altura + vao)))
             colunas = min((len(opcoes) + cabem - 1) // cabem,
@@ -45,7 +46,7 @@ def _botoes_assistente(ancora, opcoes, escala, tamanho=None, pergunta=''):
             linhas = (len(opcoes) + colunas - 1) // colunas
             largura = min(largura, (disponivel - vao * (colunas - 1)) / colunas)
             altura = min(altura, max(1, (tamanho[1] - 2 * margem - cabecalho - vao * (linhas - 1)) / linhas))
-        # o texto da pergunta pode ser mais largo que os botoes
+        # The question text can be wider than the buttons.
         bloco = min(tamanho[0] - 2 * margem, max(colunas * largura + (colunas - 1) * vao,
                      (len(pergunta) * PX_CARACTERE_ASSISTENTE + 8) * escala))
         if x + bloco > tamanho[0] - margem:
@@ -69,7 +70,7 @@ def _botao_sob(botoes, mouse):
 
 
 def _desenhar_assistente_2d(estado):
-    """Caixa de escolha, bolinhas do snap e o recado do passo."""
+    """Choice box, snap dots and step prompt."""
     if estado is None:
         return
     regiao = getattr(bpy.context, 'region', None)
@@ -106,12 +107,12 @@ def _desenhar_assistente_2d(estado):
             (x, y, _w, h), _c, _t = estado['botoes'][0]
             _hud._caixa_texto_hud(x, y + h + 8 * escala, estado['pergunta'],
                              12 * escala, escala)
-        # com caixa aberta a pergunta ja' esta' em cima dela; o recado no
-        # mouse cobria o 2o botao
+        # With a box open, its question is already above it; the mouse prompt
+        # would cover the second button.
         if (estado.get('recado') and estado.get('mouse') is not None
                 and not estado.get('botoes')):
-            # o recado tambem nao sai cortado: perto da borda ele vai para
-            # o outro lado do mouse (aqui, no desenho, o blf mede)
+            # Keep the prompt unclipped too: move it to the other side of the
+            # mouse near an edge (blf measures it here, during drawing).
             blf.size(0, 12 * escala)
             largura = blf.dimensions(0, estado['recado'])[0]
             margem = MARGEM_CAIXA_ASSISTENTE * escala
@@ -129,58 +130,58 @@ def _desenhar_assistente_2d(estado):
 
 
 class OBJECT_OT_apanhar_vao_portas(Operator):
-    """Marca os 2 cantos do vao na viewport, com ima nos vertices"""
+    """Mark two opening corners in the viewport with vertex snapping."""
     bl_idname = "object.cabinet_apanhar_vao"
-    bl_label = "Apanhar Vao das Portas"
+    bl_label = "Capture Door Opening"
     bl_options = {'REGISTER'}
 
     @classmethod
     def poll(cls, context):
         return context.mode == 'OBJECT'
 
-    # ------------------------------------------------ ima
+    # ------------------------------------------------ snapping
     def _mouse_na_regiao(self, event):
-        # O apanhador costuma ser disparado da gaveta, que e' outra
-        # area: mouse_region_* viria da gaveta, nao da viewport.
+        # Capture usually starts from the sidebar, a different area:
+        # mouse_region_* would refer to the sidebar rather than the viewport.
         return Vector((event.mouse_x - self._regiao.x,
                        event.mouse_y - self._regiao.y))
 
     def _imantar(self, event):
-        """O ponto vem do snap NATIVO (o cursor da macro `cabinet_marcar_ponto_vao`,
-        como em `gavetas.AssistenteDoVao`). Antes toda malha visivel era lida no
-        clique e cada vertice projetado em Python a cada movimento do mouse."""
+        """Use NATIVE snap points (the cursor from `cabinet_marcar_ponto_vao`,
+        as in `gavetas.AssistenteDoVao`). Previously each click read all
+        visible meshes and every mouse move projected every vertex in Python."""
         w = getattr(self, '_w', None) or {}
         cursor = w.get('cursor')
         self._imantado = cursor.copy() if cursor is not None else None
         self._objeto_imantado = bpy.data.objects.get(w.get('cursor_obj') or '')
 
-    # ------------------------------------------------ previa
+    # ------------------------------------------------ preview
     def _referencia(self, obj_a, obj_b):
-        """Mesma escolha de eixos que o operador fara' depois: os do
-        modulo (pai comum), ou o mundo para porta solta."""
+        """Use the operator's eventual axes: the cabinet's common parent axes,
+        or world axes for a loose door."""
         if not OBJECT_OT_apanhar_vao_portas._associar(self, bpy.context):
             return Matrix.Identity(3)
         return _portas._referencia_do_par(obj_a, obj_b)[0]
 
     def _associar(self, context):
-        """Porta presa ao modulo? A corrente decide: a da porta que esta'
-        sendo reposicionada, ou a da cena para porta nova."""
+        """The chain determines cabinet attachment: the repositioned door's
+        chain, or the scene chain for a new door."""
         alvo = bpy.data.objects.get(getattr(self, '_grupo_alvo', '') or '')
         if alvo is not None:
             return bool(alvo.get(_portas.CHAVE_MODULO_PORTA))
         return bool(getattr(context.scene, 'porta_associar', True))
 
     def _centro(self, obj_a, obj_b):
-        """Ponto interno do movel, para saber que face olha para fora."""
+        """Interior cabinet point used to determine which face points outward."""
         return _portas._centro_do_movel(obj_a, obj_b)
 
     def _cliques(self):
-        """Criar e reposicionar compartilham a mesma diagonal."""
+        """Creation and repositioning share the same diagonal."""
         return 2
 
     def _cantos_marcados(self):
-        """Pontos ja' clicados e, enquanto marca, o que esta' sob o
-        cursor. (Chamado pela classe: o teste usa um operador falso.)"""
+        """Clicked points, plus the point under the cursor during capture.
+        Called through the class because tests use a fake operator."""
         marcados = list(self._pontos)
         etapa = (getattr(self, '_w', None) or {}).get('etapa', 'DIAGONAL')
         if (etapa == 'DIAGONAL' and self._imantado is not None
@@ -189,19 +190,18 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return marcados
 
     def _previa(self):
-        """Caixas das folhas pela diagonal, incluindo o ponto sob o cursor.
+        """Leaf boxes from the diagonal, including the point under the cursor.
 
-        Usa os parametros da ABA, nao um padrao fixo: o que se ve
-        arrastando tem de ser a porta que vai nascer. Quando a conta
-        nao fecha, guarda o motivo em `_recado` -- antes a previa
-        sumia calada e o usuario nao sabia o que estava errado.
+        Use TAB parameters rather than fixed defaults: the drag preview must
+        match the door to be created. If calculation fails, store the reason
+        in `_recado`; the preview used to disappear without explanation.
         """
         tipo = OBJECT_OT_apanhar_vao_portas
         self._recado = ''
         marcados = tipo._cantos_marcados(self)
         portas = None
         if len(marcados) >= 4:
-            # Compatibilidade da API de captura antiga; a UI so' marca dois.
+            # Preserve the old capture API; the UI marks only two points.
             (p1, o1), (a, obj_a), (b, obj_b), (p4, o4) = marcados[:4]
             obj_a, obj_b = obj_a or o1, obj_b or o4
             portas = (p1, p4)
@@ -210,12 +210,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 return []
             (a, obj_a), (b, obj_b) = marcados[:2]
             if not getattr(self, '_grupo_alvo', ''):
-                # O mesmo solver encontra as faces internas e mede a
-                # cobertura ate' os dois limites clicados, sem novos gestos.
+                # The same solver finds internal faces and measures coverage
+                # to both clicked boundaries, without additional gestures.
                 portas = (a, b)
         obj_b = obj_b or obj_a
-        # Reposicionando, os parametros sao os da porta e ela nao serve
-        # de apoio para si mesma.
+        # Repositioning uses the door's parameters; the door must not
+        # serve as its own support.
         alvo = bpy.data.objects.get(getattr(self, '_grupo_alvo', '') or '')
         parametros = _gaveta._valores_portas(bpy.context.scene, alvo)
         apoios = tuple(None if alvo is not None and _portas._grupo_portas(o) == alvo
@@ -226,9 +226,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         area = (assistente or {}).get('area_livre')
         escolhas = assistente.get('escolhas', {}) if assistente else {}
         parametros.update(escolhas)
-        # As mesmas espessuras que o operador vai resolver: a previa
-        # tem de ser a porta que vai nascer (corrente partida = sem modulo,
-        # como em `_concluir`).
+        # Use the thicknesses the operator will resolve: the preview must
+        # match the final door (broken chain = no cabinet,
+        # as in `_concluir`).
         modulo = (_portas._modulo_da_chapa(obj_a)
                   if tipo._associar(self, bpy.context) else None)
         if area and tipo._associar(self, bpy.context):
@@ -254,7 +254,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                     forcar=escolhas.get('tipo_correr', ''))
             parametros.update(coberturas)
             if alvo is None and _portas._correr_sobreposta(parametros):
-                # com moldura a folha nasce de 18 (pesado) ou 15 (leve)
+                # With a frame, the leaf starts at 18 mm (heavy) or 15 mm (light).
                 parametros['espessura_mm'] = _portas._espessura_porta_do_trilho(parametros)
             embutida = portas is not None and _portas._porta_embutida(coberturas)
             if portas is not None and parametros['abertura'] != 'CORRER':
@@ -266,12 +266,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         except (ValueError, KeyError) as erro:
             self._recado = str(erro)
             return []
-        self._recado = 'Vao %.0f x %.0f mm - %d folha(s)%s' % (
-            largura, altura, len(folhas), ' - embutida' if embutida else '')
+        self._recado = "Opening %.0f x %.0f mm - %d leaf/leaves%s" % (
+            largura, altura, len(folhas), " - inset" if embutida else '')
         if assistente is not None:
             _l, _a, e, centro = folhas[0]
-            # medidas da PORTA inteira (todas as folhas): a gaveta mostra
-            # assim que a area fica marcada
+            # Dimensions of the ENTIRE door (all leaves): the sidebar displays
+            # them as soon as the area is marked.
             xs = [c[0] + s * l / 2.0 for l, _al, _e, c in folhas
                   for s in (-1, 1)]
             ys = [c[1] + s * al / 2.0 for _l2, al, _e, c in folhas
@@ -302,7 +302,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if regiao is None or regiao.as_pointer() != self._regiao_ptr:
             return
         if self._w.get('snap_pendente'):
-            # o translate nativo segura os eventos: a previa segue o cursor
+            # Native translate owns events: the preview follows the cursor.
             self._imantar(None)
         tema = bpy.context.preferences.themes[0]
         cor_ima = (*tema.view_3d.object_active, 1.0)
@@ -318,7 +318,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             linhas.extend(marcados)
         ferragens = []
         if etapa == 'EIXO':
-            # a borda sob o mouse acende na cor da HUD
+            # Highlight the edge under the mouse in the HUD color.
             destaque = (self._w.get('snap') or (None,))[0]
             for aresta in self._w.get('arestas', ()):
                 arestas_cor.append((
@@ -341,7 +341,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 shader.uniform_float('color', cor)
                 batch_for_shader(shader, 'LINES', {'pos': pontos}).draw(shader)
             if ferragens:
-                # pistao aberto: fio branco ate' a folha levantada
+                # Open piston: white line to the raised leaf.
                 gpu.state.line_width_set(1.5)
                 shader.uniform_float('color', (1.0, 1.0, 1.0, 0.7))
                 batch_for_shader(shader, 'LINES', {'pos': [
@@ -355,11 +355,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 shader.uniform_float('color', cor_ima)
                 batch_for_shader(shader, 'POINTS',
                                  {'pos': marcas}).draw(shader)
-            # as ferragens: o arame delas, na espessura da HUD
+            # Hardware: its actual wireframe, drawn at HUD line thickness.
             _arame._desenhar_arame(bpy.context, pecas_arame, pontos_arame,
                             matriz=self._w.get('matriz'))
         except Exception as e:
-            print("[Archy Builder] previa do vao:", e)
+            print("[Archy Builder] opening preview:", e)
         finally:
             try:
                 gpu.state.line_width_set(1.0)
@@ -368,9 +368,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             except Exception:
                 pass
 
-    # ------------------------------------------------ ciclo
+    # ------------------------------------------------ lifecycle
     def _mundo(self, ponto_mm, z=0.0):
-        """(x, y) em mm no referencial do vao -> ponto em mundo."""
+        """Opening-space (x, y) in mm -> world point."""
         return self._w['matriz'] @ Vector((ponto_mm[0] / 1000.0,
                                             ponto_mm[1] / 1000.0, z))
 
@@ -379,11 +379,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._regiao, self._rv3d, ponto_mundo)
 
     def _ferragens_do_wizard(self):
-        """(pecas do rig, pontos, fios dos pistoes abertos) da porta que o
-        wizard vai criar: o ARAME das ferragens de verdade (pedido do
-        usuario) -- as MESMAS que a porta monta (`_ferragens_da_porta`;
-        a Reta e' o rig do usuario) --, no referencial do vao (m). Os
-        pistoes so' depois que o wizard chega neles."""
+        """Return (rig parts, points, open-piston lines) for the wizard's door.
+        Use wireframes of the ACTUAL hardware assembled by the door
+        (`_ferragens_da_porta`; the straight hinge uses the user's rig),
+        in opening coordinates (m). Include pistons only once the wizard
+        reaches their step."""
         w = self._w
         if w.get('aresta') is None or not w.get('folhas'):
             return [], [], []
@@ -404,7 +404,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         pecas, pontos = _arame._arame_dos_itens(itens)
         fios = []
         if w.get('pistoes') and w.get('folha'):
-            # e um fio ate' onde o pistao vai com a porta aberta
+            # Also draw a line to the piston's position with the door open.
             g = _portas._pistao_do_vao(w['altura'], w['folha'], w['poffset'], p)
             xs = (_ferragens.PISTAO_DA_LATERAL_MM, w['largura'] - _ferragens.PISTAO_DA_LATERAL_MM)
             for x in xs[:max(1, min(2, w['pqtd']))]:
@@ -435,8 +435,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             context.window.cursor_modal_restore()
 
     def cancel(self, context):
-        # Abrir arquivo/fechar janela cancela por fora: sem isto handlers,
-        # cursor e `_apanhando_vao` (que desliga a HUD) ficavam presos.
+        # Loading a file/closing a window cancels externally: without cleanup,
+        # handlers, cursor and `_apanhando_vao` (which disables HUD) stayed stuck.
         self._encerrar(context)
 
     def invoke(self, context, event):
@@ -447,37 +447,37 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                  if a.type == 'VIEW_3D' and a != context.area
                  and a.x > context.area.x and a.y == context.area.y), None)
         if self._area is None or self._area.type != 'VIEW_3D':
-            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            self.report({'ERROR'}, "No 3D viewport to mark the opening")
             return {'CANCELLED'}
         self._regiao = next((r for r in self._area.regions
                              if r.type == 'WINDOW'), None)
         self._rv3d = getattr(self._area.spaces.active, "region_3d", None)
         if self._regiao is None or self._rv3d is None:
-            self.report({'ERROR'}, "Sem viewport 3D para marcar o vao")
+            self.report({'ERROR'}, "No 3D viewport to mark the opening")
             return {'CANCELLED'}
         self._regiao_ptr = self._regiao.as_pointer()
         area = _areas_criacao.consumir('PORTAS')
 
-        # Com uma porta selecionada o gesto REPOSICIONA aquela porta: o
-        # vao novo vem da diagonal, os parametros sao os dela.
+        # With a door selected, the gesture REPOSITIONS it: the new opening
+        # comes from the diagonal and retains that door's parameters.
         alvo = _portas._grupo_portas(context.object)
         if alvo is not None and not alvo.get('porta_parametros'):
             alvo = None
         self._grupo_alvo = alvo.name if alvo is not None else ''
 
-        # Um vao de mentira so' para validar os parametros: melhor
-        # recusar agora do que deixar o usuario fazer o gesto inteiro
-        # e so' entao descobrir que falta escolher a dobradica.
+        # Use a placeholder opening to validate parameters now, rather than
+        # letting the user complete the gesture before discovering
+        # that a hinge still needs selecting.
         try:
             _portas._calcular_folhas_portas(
                 1000.0, 1000.0, _gaveta._valores_portas(context.scene, alvo))
         except (ValueError, KeyError) as erro:
-            self.report({'WARNING'}, "%s (aba Portas)" % erro)
+            self.report({'WARNING'}, "%s (Doors tab)" % erro)
             return {'CANCELLED'}
 
-        _ferragens._ferragens_selecionadas[0] = None    # criar encerra aquela selecao
+        _ferragens._ferragens_selecionadas[0] = None    # Creation ends the previous selection.
         if area is None and not any(o.type == 'MESH' for o in context.visible_objects):
-            self.report({'WARNING'}, "Nenhuma malha visivel para o ima")
+            self.report({'WARNING'}, "No visible mesh for snapping")
             return {'CANCELLED'}
         self._pontos = []
         self._imantado = None
@@ -506,7 +506,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         _portas._marcar_apanhando(True)
         context.window.cursor_modal_set('CROSSHAIR')
         context.window_manager.modal_handler_add(self)
-        # acorda o modal quando a macro nativa confirma ou cancela
+        # Wake the modal when the native macro confirms or cancels.
         self._timer = context.window_manager.event_timer_add(.02, window=context.window)
         self.report({'INFO'}, self._instrucao())
         self._area.header_text_set(self._instrucao())
@@ -514,30 +514,29 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
 
     # ------------------------------------------------ wizard
     RECADOS = {
-        'CONFIRMAR': 'A cobertura nao bate com reta, meia nem embutida',
-        'FOLHAS': 'Quantas folhas?',
-        'TIPO': 'Escolha a abertura',
-        # cliques metade-metade (um par no mesmo ponto, o outro nao)
-        'MOLDURA': 'Os cliques nao combinam: embutida ou com moldura?',
-        'BASE': 'A porta tem base (rodape) ou vai direto no chao?',
-        'TRILHO': 'Trilho pesado (aluminio) ou leve (canais fresados)?',
-        'EIXO': "Clique na borda das dobradicas (o tipo e' automatico)",
-        'QUANTIDADE': 'Scroll: quantidade de dobradicas | clique confirma',
-        'MARGEM': 'Mova em Y: distancia das quinas | clique confirma',
-        'PISTOES_QTD': 'Scroll: quantidade de pistoes | clique confirma',
-        'PISTOES_OFFSET': 'Posicao automatica | mova em Y para subir o '
-                          'pistao | clique cria a porta',
+        'CONFIRMAR': "The overlay does not match a full-overlay, half-overlay or inset hinge",
+        'FOLHAS': "How many leaves?",
+        'TIPO': "Choose the opening type",
+        # Mixed midpoint clicks: one pair coincides, the other does not.
+        'MOLDURA': "The clicks do not match: inset or framed?",
+        'BASE': "Does the door have a base (toe kick) or reach the floor?",
+        'TRILHO': "Heavy-duty track (aluminum) or light-duty track (routed grooves)?",
+        'EIXO': "Click the hinge edge (the type is automatic)",
+        'QUANTIDADE': "Scroll: hinge count | click confirms",
+        'MARGEM': "Move in Y: distance from corners | click confirms",
+        'PISTOES_QTD': "Scroll: gas stay count | click confirms",
+        'PISTOES_OFFSET': "Automatic position | move in Y to raise the gas stay | click creates the door",
     }
-    PASSOS_CANTOS = ('1/2: primeiro canto da porta', '2/2: canto oposto da porta')
-    PERGUNTAS = {'CONFIRMAR': (_portas.OPCOES_CONFIRMAR, 'As medidas estao corretas?'),
-                 'FOLHAS': (_portas.OPCOES_FOLHAS, 'Quantas folhas?'),
-                 'MOLDURA': (_portas.TIPOS_CORRER, 'Porta embutida ou com moldura?'),
-                 'BASE': (_portas.OPCOES_BASE, 'A porta tem base?'),
-                 'TRILHO': (_portas.OPCOES_TRILHO, 'Qual trilho?')}
+    PASSOS_CANTOS = ("1/2: first door corner", "2/2: opposite door corner")
+    PERGUNTAS = {'CONFIRMAR': (_portas.OPCOES_CONFIRMAR, "Are the dimensions correct?"),
+                 'FOLHAS': (_portas.OPCOES_FOLHAS, "How many leaves?"),
+                 'MOLDURA': (_portas.TIPOS_CORRER, "Inset or framed door?"),
+                 'BASE': (_portas.OPCOES_BASE, "Does the door have a base?"),
+                 'TRILHO': (_portas.OPCOES_TRILHO, "Which track?")}
     ETAPAS_CAIXA = ('CONFIRMAR', 'FOLHAS', 'TIPO', 'MOLDURA', 'BASE', 'TRILHO')
 
     def _instrucao(self):
-        return 'Clique %s (Esc cancela)' % self.PASSOS_CANTOS[min(len(self._pontos), 1)]
+        return "Click %s (Esc cancels)" % self.PASSOS_CANTOS[min(len(self._pontos), 1)]
 
     def _ir(self, etapa, mouse=None):
         w = self._w
@@ -548,7 +547,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         ancora = mouse if mouse is not None else w.get('mouse') or Vector((200, 200))
         if etapa in self.PERGUNTAS or etapa == 'TIPO':
             opcoes, pergunta = self.PERGUNTAS.get(
-                etapa, (w.get('tipos', ()), 'Abertura:'))
+                etapa, (w.get('tipos', ()), "Opening:"))
             w['botoes'] = _botoes_assistente(
                 ancora, opcoes, escala,
                 (self._regiao.width, self._regiao.height), pergunta)
@@ -564,7 +563,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         elif etapa in {'MARGEM', 'PISTOES_OFFSET'}:
             w['y0'] = ancora.y
             w['valor0'] = w['margem'] if etapa == 'MARGEM' else w['poffset']
-            # mm por pixel medido no proprio eixo (vale de qualquer zoom)
+            # mm per pixel measured on the actual axis, valid at any zoom.
             if etapa == 'MARGEM':
                 a, b = w['aresta']['a'], w['aresta']['b']
             else:
@@ -573,25 +572,25 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             px = (tb - ta).length if ta is not None and tb is not None else 0
             w['mm_por_px'] = ((b - a).length / px) if px > 1 else 1.0
         elif etapa == 'PISTOES_QTD':
-            # o pistao nasce na posicao AUTOMATICA (modelo e ponto pela
-            # conta do aberto = 2x fechado); o offset manual parte dela
+            # The piston starts at its AUTOMATIC model/position (open = 2x closed);
+            # manual offset is measured from there.
             g = _portas._pistao_do_vao(w['altura'], w['folha'],
                                p=_portas._parametros_do_wizard(w))
             w['pistoes'] = True
             w['pqtd'] = _portas._qtd_pistoes_padrao(w['largura'])
             w['poffset'] = w['poffset_auto'] = g['offset']
         w['recado'] = self.RECADOS.get(etapa, '')
-        # a aba Portas revela cada categoria respondida
+        # The Doors tab reveals each answered category.
         _eventos._redesenhar_viewports(bpy.context)
         if etapa == 'CONFIRMAR':
             fora = _portas._lados_fora_do_padrao(w['coberturas'])
-            w['recado'] = 'Cobertura fora do padrao: %s' % ', '.join(
+            w['recado'] = "Nonstandard overlay: %s" % ', '.join(
                 k[len('cobertura_'):-len('_e')] for k in fora)
         self._area.header_text_set(w['recado'])
         self._area.tag_redraw()
 
     def _recomecar(self):
-        """"Nao, marcar de novo": volta ao 1o clique."""
+        """"No, mark again": return to the first click."""
         self._pontos = []
         self._w.update(etapa='DIAGONAL', botoes=[], escolhas={},
                        pistoes=False, duas_bordas=False, aresta=None,
@@ -600,8 +599,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         self._area.tag_redraw()
 
     def _escolher(self, context, chave):
-        """Resposta de uma caixa (CONFIRMAR, FOLHAS, TIPO, MOLDURA, BASE ou
-        TRILHO)."""
+        """Answer a choice box (CONFIRMAR, FOLHAS, TIPO, MOLDURA, BASE or TRILHO)."""
         w = self._w
         escolhas = w['escolhas']
         if w['etapa'] == 'MOLDURA':
@@ -612,11 +610,11 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             escolhas.pop('rodape_mm', None)
             return self._criar(context)
         if w['etapa'] == 'BASE':
-            # sem base = sem rodape: a moldura vai direto no chao
+            # No base means no plinth: the frame sits directly on the floor.
             padrao = (getattr(context.scene, 'porta_rodape_mm', 0.0) if context
                       else 0.0) or _portas.PADRAO_MEDIDAS_PORTAS['porta_rodape_mm']
             escolhas['rodape_mm'] = 0.0 if chave == 'SEM' else float(padrao)
-            self._ir('TRILHO')          # e o trilho: pesado ou leve?
+            self._ir('TRILHO')          # Track choice: heavy or light.
             return None
         if w['etapa'] == 'TRILHO':
             escolhas['trilho'] = chave
@@ -633,14 +631,14 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             w['tipos'] = tuple(t for t in opcoes
                                if (2 if t[0] == 'ZIGZAG' else 1) <= escolhas['folhas'] <= _portas.LIMITES_FOLHAS[t[0]])
             if len(w['tipos']) == 1:
-                # uma opcao so': nada a perguntar
+                # Only one option: no question needed.
                 return self._escolher_abertura(context, w['tipos'][0][0])
             self._ir('TIPO')
             return None
         return self._escolher_abertura(context, chave)
 
     def _metade_metade(self):
-        """Limites com coberturas mistas deixam o tipo de correr explicito."""
+        """Mixed-coverage boundaries require an explicit sliding-door type."""
         if len(self._pontos) < 4:
             coberturas = self._w.get('coberturas', {})
             lados = [float(coberturas.get(k, 0)) > 1e-6 for k in _portas.COBERTURAS_LADOS]
@@ -661,12 +659,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if chave == 'CORRER':
             escolhas['dobradica'] = 'RETA'
             if self._metade_metade():
-                # um par clicado no mesmo ponto e o outro nao: o gesto nao
-                # diz se e' embutida ou com moldura (pedido do usuario)
+                # One clicked pair coincides and the other does not: the gesture
+                # does not distinguish inset from framed installation.
                 self._ir('MOLDURA')
                 return None
             if not w.get('embutida'):
-                self._ir('BASE')        # com moldura: tem base (rodape)?
+                self._ir('BASE')        # With a frame: does it have a base/plinth?
                 return None
             return self._criar(context)
         w['tipo'] = chave
@@ -674,8 +672,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             escolhas['dobradica'] = 'SUPER_CURVA'
         w['duas_bordas'] = chave == 'GIRO' and escolhas.get('folhas', 1) > 1
         if w['duas_bordas'] or chave == 'BASCULANTE':
-            # sem perguntar a borda: duas folhas de giro levam dobradicas
-            # nas DUAS; o basculante, sempre na de CIMA (pedido do usuario)
+            # Do not ask for an edge: two swing leaves have hinges on BOTH;
+            # lift-up doors always use the TOP edge, as requested.
             w['arestas'] = _portas._arestas_da_porta(w['largura'], w['altura'],
                                              w['coberturas'], w['lateral'],
                                              chave)
@@ -686,7 +684,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return None
 
     def _fixar_borda(self, aresta):
-        """Borda das dobradicas escolhida: o TIPO sai da cobertura dela."""
+        """Chosen hinge edge: its coverage determines the TYPE."""
         w = self._w
         w['aresta'] = aresta
         chave = _portas.COBERTURAS_LADOS[_portas.INDICE_LADO[aresta['lado']]]
@@ -696,7 +694,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             dobradica_lado=aresta['lado'])
 
     def _snap_sob_mouse(self, mouse):
-        """(borda, ponto na tela) da borda mais perto do mouse."""
+        """Return (edge, screen point) for the edge nearest the mouse."""
         melhor = None
         for aresta in self._w.get('arestas', ()):
             a = self._tela(self._mundo(aresta['a']))
@@ -714,7 +712,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return melhor[1:] if melhor else None
 
     def _etapa_wizard(self, context, event):
-        """Tudo depois dos cantos. Devolve o resultado do modal."""
+        """Everything after the corners; return the modal result."""
         w = self._w
         mouse = self._mouse_na_regiao(event)
         w['mouse'] = mouse
@@ -725,12 +723,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             passo = 1 if event.type == 'WHEELUPMOUSE' else -1
             if etapa == 'QUANTIDADE':
                 _ajustar_dobradicas_wizard(w, w['qtd'] + passo, w['margem'])
-                w['recado'] = '%d dobradicas (scroll) | clique confirma' % w['qtd']
+                w['recado'] = "%d hinges (scroll) | click confirms" % w['qtd']
             else:
                 w['pqtd'] = max(_portas.LIMITES_PISTOES[0],
                                 min(_portas.LIMITES_PISTOES[1], w['pqtd'] + passo))
-                w['recado'] = '%d pistao(oes) (scroll) | clique confirma' % w['pqtd']
-            _eventos._redesenhar_viewports(context)       # a gaveta mostra o numero
+                w['recado'] = "%d gas stay(s) (scroll) | click confirms" % w['pqtd']
+            _eventos._redesenhar_viewports(context)       # The sidebar displays the count.
             return {'RUNNING_MODAL'}
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
@@ -745,36 +743,35 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                     lado = achado[0]['lado']
                     fracao = float(w['coberturas'].get(
                         _portas.COBERTURAS_LADOS[_portas.INDICE_LADO[lado]], 1.0))
-                    w['recado'] = 'Dobradicas na borda %s: %s' % (
-                        lado.lower(), _portas.NOME_DOBRADICA[_portas._dobradica_da_cobertura(
+                    w['recado'] = "Hinges on edge %s: %s" % (
+                        _opcoes.DIRECTION_LABELS[lado].lower(), _portas.NOME_DOBRADICA[_portas._dobradica_da_cobertura(
                             fracao, w['embutida'])])
                 else:
                     w['recado'] = self.RECADOS['EIXO']
-                # a gaveta mostra o tipo da borda sob o mouse
+                # The sidebar displays the type for the edge under the mouse.
                 _eventos._redesenhar_viewports(context)
             elif etapa in {'MARGEM', 'PISTOES_OFFSET'}:
                 if w.pop('rebase', False):
-                    # valor digitado na gaveta: o mouse parte dele
+                    # Sidebar input: mouse adjustment starts from the typed value.
                     w['y0'] = mouse.y
                     w['valor0'] = (w['margem'] if etapa == 'MARGEM'
                                    else w['poffset'])
                 delta = (mouse.y - w['y0']) * w['mm_por_px']
                 if etapa == 'MARGEM':
                     _ajustar_dobradicas_wizard(w, w['qtd'], w['valor0'] + delta)
-                    w['recado'] = 'Margem %.0f mm | clique confirma' % w['margem']
+                    w['recado'] = "Margin %.0f mm | click confirms" % w['margem']
                 else:
-                    # de cima para baixo: descer o mouse aumenta o offset,
-                    # mas so' ate' onde o pistao alcanca com a porta aberta
+                    # Top to bottom: lowering the mouse increases the offset,
+                    # limited to the piston's reach with the door open.
                     g = _portas._pistao_do_vao(w['altura'], w['folha'],
                                        max(1e-3, w['valor0'] - delta),
                                        _portas._parametros_do_wizard(w))
                     w['poffset'] = g['offset']
                     limite = g['offset'] >= g['offset_max'] - 0.5
-                    w['recado'] = ('Pistao %.0f mm a %.0f mm do topo%s | '
-                                   'clique cria' % (
+                    w['recado'] = ("Gas stay %.0f mm at %.0f mm from top%s | click creates" % (
                                        g['aberto'], g['offset'],
-                                       ' (curso maximo)' if limite else ''))
-                _eventos._redesenhar_viewports(context)   # margem/offset na gaveta
+                                       " (maximum stroke)" if limite else ''))
+                _eventos._redesenhar_viewports(context)   # Margin/offset in the sidebar.
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
@@ -795,10 +792,9 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return self._confirmar_etapa(context, mouse) or {'RUNNING_MODAL'}
 
     def _confirmar_etapa(self, context, mouse=None):
-        """Clique na viewport OU "Confirmar" da gaveta (pedido do usuario:
-        quantidade e afastamento tambem se confirmam la'). Sem `mouse`
-        (veio da gaveta), a etapa seguinte parte do mouse na viewport
-        quando ele voltar (`rebase`), nao de onde ele estava."""
+        """Viewport click OR sidebar Confirm: count and offset can be confirmed
+        there too. Without `mouse` (sidebar action), rebase the next step on
+        the viewport mouse when it returns, rather than its old position."""
         w = self._w
         etapa = w['etapa']
         seguinte = {'QUANTIDADE': 'MARGEM', 'PISTOES_QTD': 'PISTOES_OFFSET'}
@@ -814,14 +810,14 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return None
 
     def _voltar(self):
-        """Botao direito: uma etapa para tras."""
+        """Right-click: go back one step."""
         w = self._w
         etapa = w['etapa']
         if w.get('area_livre') and etapa in {'CONFIRMAR', 'FOLHAS'}:
             self._ir('FOLHAS')
             return
         if etapa in {'CONFIRMAR', 'FOLHAS'}:
-            # Conserva o primeiro canto para remarcar so' o oposto.
+            # Keep the first corner to mark only the opposite one again.
             self._pontos = self._pontos[:1]
             w.update(etapa='DIAGONAL', botoes=[], escolhas={}, iniciar_snap=True)
             self._area.header_text_set(self._instrucao())
@@ -856,22 +852,21 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             extras.update(dobradicas_qtd=w['qtd'],
                           dobradicas_margem_mm=float(w['margem']))
         if w.get('pistoes'):
-            # na automatica grava 0: o pistao acompanha o modulo redimensionado
+            # Automatic mode stores 0 so the piston follows cabinet resizing.
             manual = abs(w['poffset'] - w.get('poffset_auto', 0.0)) > 0.5
             extras.update(pistoes_qtd=w['pqtd'],
                           pistoes_offset_mm=float(w['poffset']) if manual else 0.0)
         return self._concluir(context, extras)
 
     def _responder_pela_gaveta(self, context, pergunta, chave):
-        """Fila da aba Portas = a caixa da viewport (pedido do usuario).
-        Responder de novo uma pergunta ja' respondida refaz dali: o que
-        vinha depois dela cai."""
+        """The Doors-tab row mirrors the viewport choice box. Answering an
+        already answered question restarts from there and discards later steps."""
         w = self._w
         if pergunta in {'dobradicas_qtd', 'pistoes_qtd'}:
-            _editar_assistente(pergunta, chave)    # so' o valor; nao avanca
+            _editar_assistente(pergunta, chave)    # Value only; do not advance.
             return None
         if pergunta == _portas.CONFIRMAR_ETAPA:
-            # o botao de uma etapa que ja' passou nao vale
+            # A button from an earlier step is no longer valid.
             return (self._confirmar_etapa(context) if chave == w['etapa']
                     else None)
         if pergunta == 'porta_confirmar':
@@ -881,12 +876,12 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if pergunta == 'porta_tipo_correr':
             if w['etapa'] not in {'MOLDURA', 'BASE'}:
                 return None
-            w['etapa'] = 'MOLDURA'          # respondida de novo: refaz dali
+            w['etapa'] = 'MOLDURA'          # Answered again: restart from this step.
             return self._escolher(context, chave)
         if pergunta == 'porta_base':
             if w['etapa'] not in {'BASE', 'TRILHO'}:
                 return None
-            w['etapa'] = 'BASE'             # respondida de novo: refaz dali
+            w['etapa'] = 'BASE'             # Answered again: restart from this step.
             return self._escolher(context, chave)
         if pergunta == 'porta_trilho':
             if w['etapa'] != 'TRILHO':
@@ -903,8 +898,8 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             return None
         if (pergunta == 'porta_abertura' and w['etapa'] != 'TIPO'
                 and chave == w['escolhas'].get('abertura')):
-            # o retrato da abertura ja' escolhida (linha das dobradicas):
-            # volta a' escolha, com as tres a' vista
+            # The image of the chosen opening on the hinge row:
+            # return to the choice, showing all three options.
             w['escolhas'] = {'folhas': folhas}
             self._ir('TIPO')
             return None
@@ -915,13 +910,13 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         try:
             return OBJECT_OT_apanhar_vao_portas._modal(self, context, event)
         except Exception:
-            # erro no meio prendia handlers, timer, snap e a HUD desligada
+            # An intermediate error used to strand handlers, timer, snap and disabled HUD.
             self._encerrar(context)
             raise
 
     def _modal(self, context, event):
         w = self._w
-        if w.get('cancelar'):           # Esc/direito no translate nativo
+        if w.get('cancelar'):           # Esc/right-click during native translate.
             self._encerrar(context)
             return {'CANCELLED'}
         confirmado = w.pop('ponto_confirmado', None)
@@ -936,20 +931,20 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         if w.get('snap_pendente'):
             return {'PASS_THROUGH'}
         if self._w.get('etapa') != getattr(self, '_etapa_vista', None):
-            # etapa nova: a aba Portas rola ate' ela (nasce no fim)
+            # New step: scroll the Doors tab to its new row at the bottom.
             self._etapa_vista = self._w.get('etapa')
             _gaveta._rolar_ate_o_fim(context)
         if (event.type == 'LEFTMOUSE' and event.value == 'RELEASE'
                 and self._engolir_soltar):
-            # o soltar do clique que respondeu pela gaveta: a fila ja'
-            # mudou e ele cairia noutro widget
+            # The release of a sidebar answer click must be consumed: the row
+            # has changed and it would hit another widget.
             self._engolir_soltar = False
             return {'RUNNING_MODAL'}
         gaveta = (_gaveta_eventos._gaveta_sob_evento(context, event)
                   if event.type != 'ESC' else None)
         if gaveta is not None:
-            # Na gaveta o mouse e' DELA (hover, abas, rolagem, campos); o
-            # wizard so' atende as filas que copiam a caixa da viewport.
+            # In the sidebar, the mouse belongs to its hover, tabs, scrolling and fields;
+            # the wizard handles only rows mirroring viewport choices.
             if (event.type == 'LEFTMOUSE' and event.value == 'PRESS'
                     and self._w['etapa'] != 'DIAGONAL'):
                 acao = _gaveta_eventos._acao_da_gaveta(context, event, *gaveta)
@@ -969,7 +964,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 self._voltar()
                 return {'RUNNING_MODAL'}
             return self._etapa_wizard(context, event)
-        # Navegar precisa continuar funcionando durante a marcacao.
+        # Navigation must remain available during capture.
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
@@ -988,14 +983,14 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
         return {'RUNNING_MODAL'}
 
     def _iniciar_snap(self, context):
-        # o protocolo comum do snap nativo (corrigir la', nao copiar)
+        # Shared native snap protocol: fix it at its owner, do not copy it.
         _gavetas.AssistenteDoVao._iniciar_snap_nativo(self, context)
 
     def _marcar_canto(self, context, event):
-        """Aceita o ponto do snap como o proximo canto."""
+        """Accept the snap point as the next corner."""
         if self._imantado is None or self._objeto_imantado is None:
-            # sem a peca o vao nao tem eixos nem modulo
-            self.report({'WARNING'}, "Clique num vertice de uma chapa")
+            # Without a part, the opening has neither axes nor a cabinet.
+            self.report({'WARNING'}, "Click a panel vertex")
             self._w['iniciar_snap'] = True
             return {'RUNNING_MODAL'}
         self._pontos.append((self._imantado.copy(),
@@ -1006,13 +1001,13 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             self._w['iniciar_snap'] = True
             return {'RUNNING_MODAL'}
         if self._grupo_alvo:
-            # reposicionar: so' a diagonal, com os parametros da porta
+            # Reposition: only the diagonal, using the door's parameters.
             return self._concluir(context)
-        # porta nova: o wizard segue (folhas, tipo, borda, ferragens)
+        # New door: continue the wizard (leaves, type, edge, hardware).
         self._w['matriz'] = None
         self._previa()
         if self._w.get('matriz') is None:
-            self.report({'WARNING'}, self._recado or "Vao invalido")
+            self.report({'WARNING'}, self._recado or "Invalid opening")
             self._pontos = self._pontos[:1]
             self._w['iniciar_snap'] = True
             return {'RUNNING_MODAL'}
@@ -1037,19 +1032,19 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
                 portas = (a, b)
         self._encerrar(context)
         referencia, pai = _portas._referencia_do_par(obj_a, obj_b)
-        # Cenario 2: o canto do vao caiu numa chapa, entao o vao
-        # pertence ao modulo que a contem e a porta fica vinculada a ele.
+        # Scenario 2: the opening corner landed on a panel, so its opening
+        # belongs to that panel's cabinet and the door is linked to it.
         modulo = _portas._modulo_da_chapa(obj_a)
         if not self._associar(context):
-            # corrente partida: porta solta, eixos do mundo, sem pai
+            # Broken chain: loose door, world axes, no parent.
             referencia, pai, modulo = Matrix.Identity(3), None, None
         ativa = obj_a.matrix_world.to_quaternion().to_matrix()
         s = context.scene
         parametros = _portas._parametros_portas_da_cena(s)
         parametros.update(extras or {})
         try:
-            # EXEC_DEFAULT, nao INVOKE: os parametros ja' vieram da aba
-            # Portas, entao nao ha' dialogo nenhum para abrir.
+            # Use EXEC_DEFAULT, not INVOKE: parameters already come from the
+            # Doors tab, so there is no dialog to open.
             bpy.ops.object.cabinet_portas(
                 'EXEC_DEFAULT', capturado=True,
                 ponto_a=a, ponto_b=b,
@@ -1088,15 +1083,15 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
 
 
 class OBJECT_OT_portas_parametricas(Operator):
-    """Cria portas por 2 vertices diagonais ou reconfigura o grupo selecionado"""
+    """Create doors from two diagonal vertices or reconfigure the selected group."""
     bl_idname = "object.cabinet_portas"
-    bl_label = "Portas Parametricas"
+    bl_label = "Parametric Doors"
     bl_options = {'REGISTER', 'UNDO'}
 
     editar: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
     grupo_nome: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})
-    # Reposicionar: o vao novo e' marcado na viewport, mas a porta e' uma
-    # que ja' existe -- os parametros sao os DELA e o grupo e' reusado.
+    # Repositioning uses an existing door with a newly marked opening:
+    # retain its parameters and reuse its group.
     grupo_alvo: StringProperty(options={'HIDDEN', 'SKIP_SAVE'})
     capturado: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
     area_definida: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
@@ -1104,8 +1099,8 @@ class OBJECT_OT_portas_parametricas(Operator):
     medidas_area: FloatVectorProperty(size=2, options={'HIDDEN', 'SKIP_SAVE'})
     ponto_a: FloatVectorProperty(size=3, options={'HIDDEN'})
     ponto_b: FloatVectorProperty(size=3, options={'HIDDEN'})
-    # API legada de cobertura explicita. No wizard de dois cliques os
-    # mesmos limites iniciam porta/vao; o solver acha as faces internas.
+    # Legacy explicit-coverage API. In the two-click wizard, door/opening
+    # start with the same bounds; the solver finds internal faces.
     quatro_pontos: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
     porta_a: FloatVectorProperty(size=3, options={'HIDDEN', 'SKIP_SAVE'})
     porta_b: FloatVectorProperty(size=3, options={'HIDDEN', 'SKIP_SAVE'})
@@ -1118,87 +1113,87 @@ class OBJECT_OT_portas_parametricas(Operator):
     objeto_a_nome: StringProperty(options={'HIDDEN'})
     objeto_b_nome: StringProperty(options={'HIDDEN'})
     orientacao: EnumProperty(
-        name="Eixos do vao", default='AUTO',
-        items=[('AUTO', "Pai comum / mundo", "Usa os eixos do pai comum, se existir"),
-               ('MUNDO', "Mundo", "Largura X/Y e altura Z do mundo"),
-               ('ATIVO', "Objeto ativo", "Para um movel rotacionado sem pai; altura Z local")])
+        name="Opening axes", default='AUTO',
+        items=[('AUTO', "Common parent / world", "Uses the common parent's axes, if one exists"),
+               ('MUNDO', "World", "World X/Y width and Z height"),
+               ('ATIVO', "Active object", "For a rotated cabinet without a parent; local Z height")])
     centro: FloatVectorProperty(size=3, options={'HIDDEN'})
-    # Fora da interface: a face sai sempre da diagonal. Fica so' para
-    # script e teste forcarem uma face.
+    # Outside the UI, where the diagonal always determines the face:
+    # retain this only for scripts/tests forcing a face.
     frente: EnumProperty(
-        name="Frente", default='AUTO', options={'HIDDEN', 'SKIP_SAVE'},
-        description="Direcao para fora, nos eixos do pai comum ou do mundo",
-        items=[('AUTO', "Automatica",
-                "Deduz a face pelos dois pontos marcados"),
-               ('NEG_Y', "-Y (frontal)", "Exterior em -Y"),
-               ('POS_Y', "+Y (traseira)", "Exterior em +Y"),
-               ('NEG_X', "-X (esquerda)", "Exterior em -X"),
-               ('POS_X', "+X (direita)", "Exterior em +X"),
-               ('NEG_Z', "-Z (embaixo)", "Exterior em -Z"),
-               ('POS_Z', "+Z (em cima)", "Exterior em +Z")])
-    abertura: EnumProperty(name="Abertura", items=_portas.ITENS_ABERTURA,
+        name="Front", default='AUTO', options={'HIDDEN', 'SKIP_SAVE'},
+        description="Outward direction, using the common parent's axes or world axes",
+        items=[('AUTO', "Automatic",
+                "Infers the face from the two marked points"),
+               ('NEG_Y', "-Y (front)", "Outward along -Y"),
+               ('POS_Y', "+Y (back)", "Outward along +Y"),
+               ('NEG_X', "-X (left)", "Outward along -X"),
+               ('POS_X', "+X (right)", "Outward along +X"),
+               ('NEG_Z', "-Z (below)", "Outward along -Z"),
+               ('POS_Z', "+Z (above)", "Outward along +Z")])
+    abertura: EnumProperty(name="Opening", items=_portas.ITENS_ABERTURA,
                            default='GIRO', update=_portas._limitar_folhas_portas)
-    folhas: IntProperty(name="Folhas", default=1, min=1, max=8,
+    folhas: IntProperty(name="Leaves", default=1, min=1, max=8,
                         update=_portas._limitar_folhas_portas)
-    dobradica: EnumProperty(name="Dobradica / posicionamento",
+    dobradica: EnumProperty(name="Hinge / placement",
                             items=_portas.ITENS_DOBRADICA, default='RETA')
-    # So' o padrao quando o vao nao tem chapa nem modulo: no resto as
-    # duas vem de `_espessura_do_vao` / `_espessura_da_porta_nova`.
+    # Defaults only when the opening has neither panel nor cabinet;
+    # otherwise use `_espessura_do_vao` / `_espessura_da_porta_nova`.
     espessura_mm: EnumProperty(
-        name="Espessura da porta (mm)", default='18',
+        name="Door thickness (mm)", default='18',
         options={'HIDDEN', 'SKIP_SAVE'},
         items=[(str(int(e)), str(int(e)), "mm") for e in _chapas.ESPESSURAS_PERMITIDAS])
     lateral_mm: EnumProperty(
-        name="Espessura da lateral (mm)", default='18',
+        name="Side panel thickness (mm)", default='18',
         options={'HIDDEN', 'SKIP_SAVE'},
         items=[(str(int(e)), str(int(e)), "mm") for e in _chapas.ESPESSURAS_PERMITIDAS])
-    # sem campo (sempre zero); fica para quem chama com ela (importacao)
-    folga_mm: FloatProperty(name="Folga no perimetro (mm)", default=0, min=0,
+    # No field (always zero); retain for callers such as imports.
+    folga_mm: FloatProperty(name="Perimeter clearance (mm)", default=0, min=0,
                             options={'HIDDEN', 'SKIP_SAVE'})
-    entre_folhas_mm: FloatProperty(name="Folga entre folhas (mm)", default=2, min=0)
-    afastamento_mm: FloatProperty(name="Afastamento frontal (mm)", default=0, min=0)
-    recuo_embutida_mm: FloatProperty(name="Recuo da embutida (mm)", default=0, min=0)
+    entre_folhas_mm: FloatProperty(name="Gap between leaves (mm)", default=2, min=0)
+    afastamento_mm: FloatProperty(name="Front clearance (mm)", default=0, min=0)
+    recuo_embutida_mm: FloatProperty(name="Inset door recess (mm)", default=0, min=0)
     recuo_correr_mm: FloatProperty(
-        name="Recuo para trilhos (mm)", default=30, min=0.1,
-        description="Distancia da borda frontal ate a face externa da primeira folha")
-    entre_planos_mm: FloatProperty(name="Folga entre planos (mm)", default=2, min=0.1)
-    # moldura do correr (`_portas._pecas_moldura`)
+        name="Track recess (mm)", default=30, min=0.1,
+        description="Distance from the front edge to the outer face of the first leaf")
+    entre_planos_mm: FloatProperty(name="Gap between planes (mm)", default=2, min=0.1)
+    # Sliding-door frame (`_portas._pecas_moldura`).
     moldura_mm: FloatProperty(
-        name="Espessura da moldura (mm)", min=1.0,
+        name="Frame thickness (mm)", min=1.0,
         default=_portas.PADRAO_MEDIDAS_PORTAS['porta_moldura_mm'])
     rodape_mm: FloatProperty(
-        name="Rodape (mm)", min=0.0,
+        name="Toe kick (mm)", min=0.0,
         default=_portas.PADRAO_MEDIDAS_PORTAS['porta_rodape_mm'])
     testeira_mm: FloatProperty(
-        name="Testeira (mm)", min=0.0,
+        name="Fascia (mm)", min=0.0,
         default=_portas.PADRAO_MEDIDAS_PORTAS['porta_testeira_mm'])
-    trilho: EnumProperty(name="Trilho", items=_portas.ITENS_TRILHO,
+    trilho: EnumProperty(name="Track", items=_portas.ITENS_TRILHO,
                          default='PESADO')
-    folha: EnumProperty(name="Folha", items=_portas.ITENS_FOLHA_CORRER,
+    folha: EnumProperty(name="Leaf", items=_portas.ITENS_FOLHA_CORRER,
                         default='CHAPA')
-    # resposta do "embutida ou com moldura?" (cliques metade-metade)
+    # Answer to inset or framed installation for mixed midpoint clicks.
     tipo_correr: EnumProperty(
-        name="Correr", default='AUTO', options={'HIDDEN', 'SKIP_SAVE'},
-        items=[('AUTO', "Pelos cliques", "")]
+        name="Sliding", default='AUTO', options={'HIDDEN', 'SKIP_SAVE'},
+        items=[('AUTO', "From clicks", "")]
         + [(k, t, "") for k, t in _portas.TIPOS_CORRER])
-    # Ferragens escolhidas no wizard (0 = automatico pela medida)
+    # Hardware chosen in the wizard (0 = automatic from dimensions).
     dobradica_lado: EnumProperty(
-        name="Lado das dobradicas", default='ESQUERDA',
-        items=[('ESQUERDA', "Esquerda", ""), ('DIREITA', "Direita", ""),
-               ('CIMA', "Cima", "Basculante")])
-    dobradicas_qtd: IntProperty(name="Dobradicas", default=0, min=0, max=8)
-    dobradicas_margem_mm: FloatProperty(name="Margem das dobradicas (mm)",
+        name="Hinge side", default='ESQUERDA',
+        items=[('ESQUERDA', "Left", ""), ('DIREITA', "Right", ""),
+               ('CIMA', "Top", "Lift-up")])
+    dobradicas_qtd: IntProperty(name="Hinges", default=0, min=0, max=8)
+    dobradicas_margem_mm: FloatProperty(name="Hinge margin (mm)",
                                         default=100.0, min=0)
-    pistoes_qtd: IntProperty(name="Pistoes", default=0, min=0, max=2)
+    pistoes_qtd: IntProperty(name="Gas Stays", default=0, min=0, max=2)
     pistoes_offset_mm: FloatProperty(
-        name="Pistao: distancia do topo (mm)", default=0.0, min=0,
-        description="0 = automatico; manual so' ate' o curso do pistao")
+        name="Gas stay: distance from top (mm)", default=0.0, min=0,
+        description="0 = automatic; manual adjustment limited to the gas stay stroke")
 
     @classmethod
     def poll(cls, context):
-        # Em Modo Objeto o vao pode chegar do apanhador
-        # (`cabinet_apanhar_vao`), que passa os pontos ja' prontos; o
-        # invoke e' quem valida o que faltar.
+        # In Object Mode the opening can come from the capture operator
+        # (`cabinet_apanhar_vao`) with ready-to-use points;
+        # invoke validates anything still missing.
         return context.mode in {'EDIT_MESH', 'OBJECT'}
 
     def _capturar(self, context):
@@ -1213,16 +1208,16 @@ class OBJECT_OT_portas_parametricas(Operator):
         modulo = _portas._modulo_da_chapa(obj_a)
         self.modulo_nome = modulo.name if modulo is not None else ''
         if not getattr(context.scene, 'porta_associar', True):
-            # corrente partida: solta, nos eixos do mundo (o centro do
-            # movel ainda serve para saber que face olha para fora)
+            # Broken chain: loose on world axes (the cabinet center still
+            # determines which face points outward).
             self.referencia = tuple(v for linha in Matrix.Identity(3)
                                     for v in linha)
             self.pai_nome = self.modulo_nome = ''
         if modulo is not None:
             self.centro = _portas._centro_do_movel(obj_a, obj_b)
         else:
-            # Sem modulo, as origens: a caixa de dois pontos no mesmo
-            # plano empata com eles e a frente ficava ao contrario.
+            # Without a cabinet, use origins: a coplanar two-point box ties
+            # against them and previously reversed the front.
             self.centro = (obj_a.matrix_world.translation
                            + obj_b.matrix_world.translation) / 2
         self.capturado = True
@@ -1236,7 +1231,7 @@ class OBJECT_OT_portas_parametricas(Operator):
         alvo = bpy.data.objects.get(self.grupo_alvo) if self.grupo_alvo else None
         objetos = (bpy.data.objects.get(self.objeto_a_nome),
                    bpy.data.objects.get(self.objeto_b_nome))
-        # A porta que se reposiciona nao serve de apoio para ela mesma.
+        # A repositioned door must not support itself.
         return tuple(None if o is not None and alvo is not None
                      and _portas._grupo_portas(o) == alvo else o for o in objetos)
 
@@ -1268,7 +1263,7 @@ class OBJECT_OT_portas_parametricas(Operator):
         alvo = bpy.data.objects.get(self.grupo_alvo) if self.grupo_alvo else None
         if alvo is not None and alvo.get('porta_parametros'):
             p.update(_gaveta._valores_portas(bpy.context.scene, alvo))
-            # reposicionar mantem a cobertura de cada lado
+            # Repositioning preserves each side's coverage.
             guardados = alvo['porta_parametros']
             p.update({k: float(guardados[k]) for k in _portas.COBERTURAS_LADOS
                       if k in guardados})
@@ -1277,8 +1272,8 @@ class OBJECT_OT_portas_parametricas(Operator):
                 p['lateral_mm'])
             return p
         if self.editar:
-            # Reconfigurar nao mexe em espessura: a da porta vive no E
-            # das folhas e a da lateral, no modulo.
+            # Reconfiguration does not change thickness: leaf E owns door thickness,
+            # while the cabinet owns side thickness.
             grupo = (bpy.data.objects.get(self.grupo_nome) if self.grupo_nome
                      else _portas._grupo_portas(bpy.context.object))
             guardados = (grupo.get('porta_parametros') or {}) if grupo else {}
@@ -1317,20 +1312,20 @@ class OBJECT_OT_portas_parametricas(Operator):
             if self.editar:
                 grupo = _portas._grupo_portas(context.object)
                 if grupo is None or context.mode != 'OBJECT':
-                    raise ValueError("Selecione um grupo de portas no Modo Objeto")
+                    raise ValueError("Select a door group in Object Mode")
                 self.grupo_nome = grupo.name
                 for nome, valor in grupo['porta_parametros'].items():
                     if nome in {'espessura_mm', 'lateral_mm'}:
-                        # o enum so' tem as convencionais; espessura livre
-                        # (25, 70...) vem do grupo em `_parametros`
+                        # The enum contains standard thicknesses only; free thickness
+                        # (25, 70, etc.) comes from the group in `_parametros`.
                         texto = str(int(valor))
                         if float(valor) in _chapas.ESPESSURAS_PERMITIDAS:
                             setattr(self, nome, texto)
                     elif nome in _portas._PARAMETROS_PORTAS:
                         setattr(self, nome, valor)
             else:
-                # Pontos ja' apanhados na viewport dispensam o Modo
-                # Edicao; sem eles, cai na captura por vertices.
+                # Points already captured in the viewport avoid Edit Mode;
+                # without them, fall back to vertex capture.
                 if not self.capturado:
                     self._capturar(context)
         except (ValueError, KeyError) as erro:
@@ -1350,9 +1345,9 @@ class OBJECT_OT_portas_parametricas(Operator):
             else:
                 layout.prop(self, 'orientacao')
                 if self.orientacao == 'AUTO':
-                    layout.label(text="Eixos: " + (self.pai_nome or "Mundo"))
+                    layout.label(text="Axes: " + (self.pai_nome or "World"))
                 largura, altura, _ = self._vao()
-            layout.label(text="Vao: %.1f x %.1f mm" % (largura, altura))
+            layout.label(text="Opening: %.1f x %.1f mm" % (largura, altura))
         except (ValueError, KeyError, TypeError) as erro:
             largura = altura = None
             layout.label(text=str(erro), icon='ERROR')
@@ -1360,10 +1355,10 @@ class OBJECT_OT_portas_parametricas(Operator):
         linha = layout.row()
         linha.enabled = self.abertura != 'BASCULANTE'
         linha.prop(self, 'folhas')
-        layout.label(text="Permitido: 1 a %d folha(s)" % _portas.LIMITES_FOLHAS[self.abertura])
+        layout.label(text="Allowed: 1 to %d leaf/leaves" % _portas.LIMITES_FOLHAS[self.abertura])
         if self.abertura != 'CORRER':
             caixa = layout.box()
-            caixa.label(text="Qual dobradica / posicionamento?")
+            caixa.label(text="Which hinge / placement?")
             caixa.prop(self, 'dobradica', text="")
             if self.dobradica in {'RETA', 'CURVA'}:
                 caixa.prop(self, 'afastamento_mm')
@@ -1372,7 +1367,7 @@ class OBJECT_OT_portas_parametricas(Operator):
             if self.folhas > 1:
                 layout.prop(self, 'entre_folhas_mm')
         else:
-            layout.label(text="Embutidas, uma em cada trilho")
+            layout.label(text="Inset, one on each track")
             layout.prop(self, 'recuo_correr_mm')
             if self.folhas > 1:
                 layout.prop(self, 'entre_planos_mm')
@@ -1380,13 +1375,13 @@ class OBJECT_OT_portas_parametricas(Operator):
             try:
                 folhas = _portas._calcular_folhas_portas(largura, altura, self._parametros())
                 l, a, e, _ = folhas[0]
-                layout.label(text="Cada folha: %.1f x %.1f x %.0f mm" % (l, a, e))
+                layout.label(text="Each leaf: %.1f x %.1f x %.0f mm" % (l, a, e))
                 if self.abertura == 'CORRER':
                     fundo = max(-f[3][2] + e / 2 for f in folhas)
-                    layout.label(text="Profundidade ocupada desde a borda: %.1f mm" % fundo)
+                    layout.label(text="Depth occupied from the edge: %.1f mm" % fundo)
             except ValueError as erro:
                 layout.label(text=str(erro), icon='ERROR')
-        layout.label(text="Blocagem: somente os solidos das portas", icon='INFO')
+        layout.label(text="Blockout: door solids only", icon='INFO')
 
     def check(self, context):
         return True
@@ -1398,7 +1393,7 @@ class OBJECT_OT_portas_parametricas(Operator):
             if self.editar:
                 grupo = bpy.data.objects.get(self.grupo_nome) if self.grupo_nome else _portas._grupo_portas(context.object)
                 if grupo is None or _chapas.MARCA_PORTAS not in grupo:
-                    raise ValueError("Grupo de portas nao encontrado")
+                    raise ValueError("Door group not found")
                 largura = grupo['porta_vao_largura_mm']
                 altura = grupo['porta_vao_altura_mm']
                 matriz = grupo.matrix_world.copy()
@@ -1413,25 +1408,25 @@ class OBJECT_OT_portas_parametricas(Operator):
                 if modulo is not None:
                     pai = modulo
                 if pai is not None and abs(pai.matrix_world.determinant()) < 1e-12:
-                    raise ValueError("O pai do vao tem escala zero")
+                    raise ValueError("The opening's parent has zero scale")
                 grupo = (bpy.data.objects.get(self.grupo_alvo)
                          if self.grupo_alvo else None)
             parametros = self._parametros()
             if not self.editar:
                 parametros.update(coberturas)
                 if not self.grupo_alvo and _portas._correr_sobreposta(parametros):
-                    # porta nova com moldura: folha do trilho (18 pesado, 15 leve)
+                    # New framed door: track leaf thickness (18 heavy, 15 light).
                     parametros['espessura_mm'] = _portas._espessura_porta_do_trilho(parametros)
                 if self.quatro_pontos and parametros['abertura'] != 'CORRER':
-                    # dobradica automatica: a cobertura do lado dela
+                    # Automatic hinge type: use coverage on its own side.
                     lado = parametros.get('dobradica_lado', 'ESQUERDA')
                     chave = _portas.COBERTURAS_LADOS[_portas.INDICE_LADO.get(lado, 0)]
                     parametros['dobradica'] = _portas._dobradica_da_cobertura(
                         float(parametros.get(chave, 1.0)),
                         _portas._porta_embutida(coberturas))
             _portas._calcular_folhas_portas(largura, altura, parametros)
-            # Validacoes ocorrem ainda em Edit Mode; erro/cancelamento
-            # conserva os dois vertices e nao deixa objetos incompletos.
+            # Validate while still in Edit Mode; errors/cancellation preserve
+            # both vertices and leave no incomplete objects.
             if context.mode == 'EDIT_MESH' and not self.editar:
                 bpy.ops.object.mode_set(mode='OBJECT')
             if self.editar:
@@ -1442,8 +1437,8 @@ class OBJECT_OT_portas_parametricas(Operator):
                 largura_em = _portas._largura_do_vao(self._ref(), self.ponto_a,
                                              self.ponto_b)
             if grupo is not None and not self.editar:
-                # Reposicionar: vinculos antigos saem; o pai passa a ser o
-                # do vao novo (o modulo dele, se houver).
+                # Reposition: remove old links; use the new opening's parent
+                # (its cabinet, if any).
                 for chave in [k for k in grupo.keys()
                               if k.startswith('porta_ancora_')
                               or k.startswith('porta_vao_')
@@ -1460,9 +1455,9 @@ class OBJECT_OT_portas_parametricas(Operator):
             if not self.editar:
                 for indice, folha in ancoras.items():
                     grupo['porta_ancora_%d' % indice] = folha
-            # Cenario 2: as folgas ate' as faces do modulo, em
-            # espessuras, sao o que mantem a porta acompanhando o
-            # redimensionamento depois.
+            # Scenario 2: clearances to cabinet faces, expressed in
+            # thickness units, make the door follow subsequent
+            # cabinet resizing.
             modulo = bpy.data.objects.get(self.modulo_nome)
             if modulo is not None and not self.editar:
                 medido = _portas._folgas_do_vao(modulo, *pontos, frente, largura_em)
@@ -1470,8 +1465,8 @@ class OBJECT_OT_portas_parametricas(Operator):
                     grupo[_portas.CHAVE_MODULO_PORTA] = modulo.name
                     grupo[_portas.CHAVE_FOLGAS_PORTA] = list(medido[0])
                     grupo[_portas.CHAVE_RECUO_PORTA] = medido[1]
-                    # so' agora a porta e' "do modulo": a moldura entra nas
-                    # medidas dele (`pecas_do_envelope`)
+                    # Only now does the door belong to the cabinet: include its frame
+                    # in cabinet dimensions (`pecas_do_envelope`).
                     _modulos.sincronizar_medidas_conjunto(modulo)
         except (ValueError, KeyError) as erro:
             self.report({'WARNING'}, str(erro))
@@ -1482,29 +1477,29 @@ class OBJECT_OT_portas_parametricas(Operator):
         for folha in _portas._folhas_portas(grupo):
             folha.select_set(True)
         context.view_layer.objects.active = grupo
-        # Com modulo vinculado, ele vira o ativo: o painel passa a
-        # mostrar as medidas do conjunto e o wireframe a volumetria do
-        # modulo com as portas na frente (etapa 3).
+        # With a linked cabinet, make it active: the panel displays
+        # assembly dimensions and the wireframe displays the cabinet
+        # volume with doors in front (step 3).
         vinculado = bpy.data.objects.get(grupo.get(_portas.CHAVE_MODULO_PORTA, ''))
         if vinculado is not None:
             vinculado.select_set(True)
             context.view_layer.objects.active = vinculado
-        self.report({'INFO'}, "%d folha(s) - vao %.1f x %.1f mm" %
+        self.report({'INFO'}, "%d leaf/leaves - opening %.1f x %.1f mm" %
                     (self.folhas, largura, altura))
         return {'FINISHED'}
 
 
 def _ajustar_dobradicas_wizard(w, qtd, margem):
-    """Grava quantidade e margem do wizard ja' cabendo na borda escolhida
-    (`_portas._ajustar_dobradicas`: nenhuma sobre a outra)."""
+    """Store wizard count and margin already fitting the chosen edge
+    (`_portas._ajustar_dobradicas`: no overlapping hinges)."""
     comprimento = (w['aresta']['b'] - w['aresta']['a']).length
     w['qtd'], w['margem'] = _portas._ajustar_dobradicas(comprimento, qtd, margem)
 
 
 def _editar_assistente(nome, valor):
-    """Como `_ferragens._editar_ferragens_selecionadas` (valor digitado na
-    gaveta), mas criando a porta: grava no estado do wizard. Na etapa do
-    mouse em Y, o 1o movimento depois parte do valor digitado."""
+    """Like `_ferragens._editar_ferragens_selecionadas` for sidebar input,
+    but during door creation: write wizard state. At the mouse-Y step,
+    the next movement starts from the typed value."""
     w = _portas._assistente_porta[0]
     if w is None:
         return

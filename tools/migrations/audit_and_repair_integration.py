@@ -1,10 +1,10 @@
 """Audit preset functions against DXF sources and stage repairs with backups.
 
-This tool can modify staged presets and publish with --aplicar; it is not
+This tool can modify staged presets and publish with --apply; it is not
 a read-only audit. The manifest retains expected/before/after functional checks.
 
-Supply --fontes DIRECTORY explicitly for preparation.
---aplicar uses the source paths recorded in the existing manifest.
+Supply --sources DIRECTORY explicitly for preparation.
+--apply uses the source paths recorded in the existing manifest.
 """
 from pathlib import Path
 import argparse, json, os, shutil, sys
@@ -69,8 +69,8 @@ def atual(conj):
 def deslocamento_do_preset(conj,dados):
     try:return deslocamento(conj,dados)
     except ValueError:
-        # Categoria tambem contem chapas avulsas, sem lateral vertical.
-        # Elas continuam componentes; nao inventar uma gaveta sem frente.
+        # The category also contains separate panels with no vertical side.
+        # They remain components; do not invent a drawer without a front.
         deltas=[]
         for o in addon.modulos._chapas_do_conjunto(conj):
             p=dados['pecas'].get(nome_fonte(o))
@@ -151,7 +151,7 @@ def corrigir_gavetas(conj,dados,geometria,offset):
     for q in qs:
         grupo=addon.promob._gavetas_do_plano(bpy.context,conj,q)
         if grupo is None:
-            raise RuntimeError('Gavetas nao integradas: '+conj.name)
+            raise RuntimeError("Drawers not integrated: "+conj.name)
         for d in addon.gavetas.gavetas_do_grupo(grupo):
             f=addon.gavetas.frente_da_gaveta(d)
             if mats:
@@ -184,7 +184,7 @@ def verificar_funcoes(conj):
         assert addon.gavetas.editar(bpy.context,g,'entre_gavetas_mm',p['entre_gavetas_mm']+1) is None
         assert addon.gavetas.editar(bpy.context,g,'entre_gavetas_mm',p['entre_gavetas_mm']) is None
         assert max(abs(a-b) for a,b in zip(margem,g[addon.gavetas.CHAVE_MARGENS]))<.001
-        funcoes.append('gavetas: selecao, slider, abertura, editar/restaurar, trilhos e puxadores')
+        funcoes.append("drawers: selection, slider, opening, edit/restore, rails and handles")
     for g in addon.prateleiras.grupos_do_modulo(conj):
         ps=addon.prateleiras.prateleiras_do_grupo(g)
         p=addon.prateleiras.parametros(g)
@@ -194,12 +194,12 @@ def verificar_funcoes(conj):
         assert bpy.context.object==g
         assert addon.prateleiras.editar(bpy.context,g,'espessura_mm',p['espessura_mm']) is None
         assert ids==[o.get('chapa_uid') for o in addon.prateleiras.prateleiras_do_grupo(g)]
-        funcoes.append('prateleiras: selecao, editar, UID, vao livre')
+        funcoes.append("shelves: selection, editing, UID, clear opening")
     for g in addon.portas._portas_do_conjunto(conj):
         for f in addon.portas._folhas_portas(g):
             addon.ferragens._definir_abertura(bpy.context,f,1)
             addon.ferragens._definir_abertura(bpy.context,f,0)
-        funcoes.append('portas: abertura/restaurar, ferragens nativas')
+        funcoes.append("doors: opening/restore, native hardware")
     bpy.context.view_layer.update()
     return funcoes
 
@@ -230,8 +230,8 @@ def preparar(biblioteca,fontes,destino):
             hashes={s:digital(caminho_da_peca(biblioteca,s)) for s in nomes}
             cols,objs=carregar(caminho_da_peca(biblioteca,nomes[0]))
             conj,=[o for o in objs if addon.chapas.MARCA_CONJUNTO in o]
-            # Pelas camadas de origem, como o integrar: o numero do nome nao
-            # e' o indice do plano ("Canto 05A/05B" divide um modulo em dois).
+            # Match by source layers, like integration: the name's number is not
+            # the plan index ("Canto 05A/05B" splits one cabinet in two).
             fontes_preset={nome_fonte(o) for o in addon.modulos._chapas_do_conjunto(conj)}
             d=max(planos,key=lambda d:len(fontes_preset&d['pecas'].keys()))
             p=d['plano'];exp=esperado(p)
@@ -254,14 +254,14 @@ def preparar(biblioteca,fontes,destino):
                 if all(s in existentes for s in nomes_ps):continue
                 if not all(s in chapas for s in nomes_ps):
                     json.dump(dict(fonte=d,existentes=list(chapas),antes=antes),open(os.path.join(destino,'ausentes.json'),'w'),indent=1)
-                    raise RuntimeError('Prateleira sem correspondencia: '+it['arquivo']+str(nomes_ps))
+                    raise RuntimeError("No matching shelf: "+it['arquivo']+str(nomes_ps))
                 ps=[dict(v,obj=chapas[v['origem']]) for v in pilha]
                 addon.promob._prateleiras_do_plano(bpy.context,conj,ps)
                 adotadas+=nomes_ps;modificado=True
             linha['depois']=atual(conj)
             for k in exp:
                 if linha['depois'][k]!=exp[k]:
-                    raise RuntimeError('Sistema diverge do DXF: '+it['arquivo']+' '+k+str(linha))
+                    raise RuntimeError("System differs from DXF: "+it['arquivo']+' '+k+str(linha))
             bpy.context.view_layer.update()
             linha['funcoes']=verificar_funcoes(conj)
             if modificado:
@@ -283,11 +283,11 @@ def preparar(biblioteca,fontes,destino):
                             antes=[list(v) for v in pontos_antes[obj.name]],depois=[list(v) for v in pts],
                             medidas=depois['objetos'][obj.name]['medidas'],parametros=numerico(addon.prateleiras.parametros(obj.parent))),
                             open(os.path.join(destino,'geometria-divergente.json'),'w'),indent=1)
-                        raise AssertionError('Geometria mundial mudou: '+obj.name)
+                        raise AssertionError("World-space geometry changed: "+obj.name)
                     conferir(antes['objetos'][obj.name]['materiais'],depois['objetos'][obj.name]['materiais'],obj.name+'/materiais')
                     if antes['objetos'][obj.name]['props'].get('chapa_uid')!=obj.get('chapa_uid'):
-                        raise AssertionError('UID mudou: '+obj.name)
-                conferir(antes['assets'],depois['assets'],'Catalogos')
+                        raise AssertionError("UID changed: "+obj.name)
+                conferir(antes['assets'],depois['assets'],"Catalogs")
                 for s in nomes:shutil.copy2(caminho_da_peca(biblioteca,s),os.path.join(originais,s))
                 blend,png=[os.path.join(novos,s) for s in nomes]
                 bpy.data.libraries.write(blend,set(bpy.data.collections)|set(bpy.data.objects),fake_user=True)
@@ -304,28 +304,28 @@ def preparar(biblioteca,fontes,destino):
                     json.dump(dict(antes=guardar,depois=relido),open(os.path.join(destino,'divergencia.json'),'w'),indent=1)
                     raise
                 for s in nomes:
-                    if digital(caminho_da_peca(biblioteca,s))!=hashes[s]:raise RuntimeError('Biblioteca mudou: '+s)
+                    if digital(caminho_da_peca(biblioteca,s))!=hashes[s]:raise RuntimeError("Library changed: "+s)
                     m['arquivos'].append(dict(nome=s,original=hashes[s],novo=digital(os.path.join(novos,s))))
                 m['modulos'].append(dict(arquivo=it['arquivo'],restauradas=restauradas,prateleiras=adotadas))
             m['auditoria'].append(linha)
-            print('[auditoria]',len(m['auditoria']),it['arquivo'],a,'->',linha['depois'],flush=True)
+            print("[audit]",len(m['auditoria']),it['arquivo'],a,'->',linha['depois'],flush=True)
     limpar();addon.unregister()
     json.dump(m,open(os.path.join(destino,'manifesto.json'),'w',encoding='utf-8'),ensure_ascii=False,indent=1)
     print('AUDITADOS',len(m['auditoria']),'CORRIGIDOS',len(m['modulos']),flush=True)
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--destino',required=True)
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'))
-    p.add_argument('--fontes',help='Source DXF directory; required for preparation');p.add_argument('--aplicar',action='store_true')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    p.add_argument('--sources', help='Source DXF directory; required for preparation', dest='fontes', metavar='SOURCES');p.add_argument('--apply', action='store_true', dest='aplicar')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
     if not a.aplicar and not a.fontes:
-        p.error('--fontes is required for preparation; provide the source DXF directory')
+        p.error('--sources is required for preparation; provide the source DXF directory')
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:
         m=json.load(open(os.path.join(a.destino,'manifesto.json'),encoding='utf-8'))
         for path,hash_fonte in m['fontes'].items():
-            if digital(path)!=hash_fonte:raise RuntimeError('Fonte mudou: '+path)
+            if digital(path)!=hash_fonte:raise RuntimeError("Source changed: "+path)
         publicar(a.destino)
     else:preparar(a.biblioteca,a.fontes,a.destino)
 

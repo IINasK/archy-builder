@@ -1,7 +1,7 @@
 """Stage library panel fit adjustments and provide shared migration helpers.
 
-Without --aplicar, prepare and reopen verified .blend/.png copies outside
-the library, preserving originals. With --aplicar, validate hashes before
+Without --apply, prepare and reopen verified .blend/.png copies outside
+the library, preserving originals. With --apply, validate hashes before
 publishing. Existing index entries, resource names and catalog UUIDs stay stable."""
 from pathlib import Path
 import argparse
@@ -24,14 +24,13 @@ def digital(caminho):
 
 def caminho_da_peca(pasta, nome):
     if os.path.basename(nome) != nome or nome in ('', '.', '..'):
-        raise ValueError('Nome de arquivo fora da biblioteca: ' + nome)
+        raise ValueError("Filename points outside the library: " + nome)
     return os.path.join(pasta, nome)
 
 
 def validar_destino(biblioteca, destino):
-    """CLI e chamadas diretas respeitam a mesma pasta de preparo externa.
-    realpath resolve junctions; normcase conserva a regra no Windows.
-    """
+    """CLI and direct calls use the same external staging folder.
+    realpath resolves junctions; normcase preserves this rule on Windows."""
     biblioteca, destino = [os.path.normcase(os.path.realpath(os.path.abspath(p)))
                            for p in (biblioteca, destino)]
     try:
@@ -39,11 +38,11 @@ def validar_destino(biblioteca, destino):
     except ValueError:
         dentro = False
     if dentro:
-        raise ValueError('Backup e preparo devem ficar FORA da biblioteca')
+        raise ValueError("Backup and staging must be OUTSIDE the library")
 
 
 def limpar():
-    # Bibliotecas sucessivas nao podem ganhar nomes .001 por IDs residuais.
+    # Successive libraries must not acquire .001 names from residual IDs.
     for nome in ('objects', 'collections', 'meshes', 'armatures', 'actions',
                  'curves', 'cameras', 'lights', 'materials', 'node_groups', 'images'):
         dados = getattr(bpy.data, nome)
@@ -95,19 +94,19 @@ def estado(colecoes, objetos):
 def conferir(a, b, caminho='estado'):
     if isinstance(a, dict):
         if a.keys() != b.keys():
-            raise AssertionError('Identidades diferentes: ' + caminho)
+            raise AssertionError("Different identities: " + caminho)
         for k in a:
             conferir(a[k], b[k], caminho + '/' + k)
     elif isinstance(a, list):
         if len(a) != len(b):
-            raise AssertionError('Comprimentos diferentes: ' + caminho)
+            raise AssertionError("Different lengths: " + caminho)
         for i, (x, y) in enumerate(zip(a, b)):
             conferir(x, y, caminho + '/%d' % i)
     elif isinstance(a, float):
         if abs(a - b) > 1e-5:
-            raise AssertionError('Medida/posicao mudou: ' + caminho)
+            raise AssertionError("Dimension/position changed: " + caminho)
     elif a != b:
-        raise AssertionError('Dado diferente: ' + caminho)
+        raise AssertionError("Different data: " + caminho)
 
 
 def preparar(biblioteca, destino):
@@ -116,7 +115,7 @@ def preparar(biblioteca, destino):
     novos = os.path.join(destino, 'novos')
     os.makedirs(originais, exist_ok=False)
     os.makedirs(novos, exist_ok=False)
-    # register/timers, se executados, tambem ficam fora da biblioteca real.
+    # If register/timers run, they also stay outside the real library.
     addon.opcoes._pasta_addon = lambda: novos
     addon.biblioteca.pasta_biblioteca = lambda: novos
     addon.register()
@@ -140,24 +139,24 @@ def preparar(biblioteca, destino):
             continue
         esperado = estado(colecoes, objetos)
         alteradas = {a['chapa'] for a in ajustes}
-        # So' a posicao das bases/tampos pode mudar; a malha/E e os sistemas ficam.
+        # Only base/top positions may change; mesh/thickness and systems remain intact.
         antes_sem_posicoes = valor_json(antes)
         for nome in alteradas:
             antes_sem_posicoes['objetos'][nome]['matriz'] = esperado['objetos'][nome]['matriz']
         conferir(antes_sem_posicoes, esperado)
         for g in grupos:
             if addon.promob.encaixes_a_ajustar(g):
-                raise AssertionError('Encaixe ainda aberto: ' + it['arquivo'])
+                raise AssertionError("Joint still open: " + it['arquivo'])
         for nome in nomes:
             original = caminho_da_peca(biblioteca, nome)
             if os.path.isfile(original):
                 shutil.copy2(original, os.path.join(originais, nome))
                 if digital(os.path.join(originais, nome)) != hashes_originais[nome]:
-                    raise RuntimeError('Arquivo editado durante a preparacao: ' + nome)
+                    raise RuntimeError("File edited during preparation: " + nome)
         blend = os.path.join(novos, nomes[0])
         bpy.data.libraries.write(blend, set(colecoes) | set(objetos),
                                  fake_user=True, compress=True)
-        # A foto segue o padrao da biblioteca, mas o asset fica FECHADO.
+        # The photo follows the library standard, but the asset remains CLOSED.
         for g in grupos:
             for porta in addon.portas._portas_do_conjunto(g):
                 for folha in addon.portas._folhas_portas(porta):
@@ -165,28 +164,28 @@ def preparar(biblioteca, destino):
         png = os.path.join(novos, nomes[1])
         ok, msg = addon.biblioteca.fotografar_com_camera(png, objetos)
         if not ok:
-            raise RuntimeError('Foto de %s: %s' % (it['arquivo'], msg))
+            raise RuntimeError("Photo for %s: %s" % (it['arquivo'], msg))
         limpar()
         ok, msg = addon.biblioteca.aplicar_preview_png(blend, png)
         if not ok:
-            raise RuntimeError('Preview de %s: %s' % (it['arquivo'], msg))
+            raise RuntimeError("Preview for %s: %s" % (it['arquivo'], msg))
         cols, objs = carregar(blend)
         conferir(esperado, estado(cols, objs))
         for g in [o for o in objs if addon.chapas.MARCA_CONJUNTO in o]:
             if addon.promob.encaixes_a_ajustar(g):
-                raise AssertionError('Arquivo reaberto com folga: ' + it['arquivo'])
+                raise AssertionError("Reopened file has a gap: " + it['arquivo'])
         for c in cols:
             if c.asset_data and (not c.preview or c.preview.image_size[0] == 0):
-                raise AssertionError('Preview perdida: ' + it['arquivo'])
+                raise AssertionError("Preview lost: " + it['arquivo'])
         manifesto['modulos'].append(dict(arquivo=it['arquivo'], ajustes=ajustes))
         for nome in nomes:
             original = caminho_da_peca(biblioteca, nome)
             if (digital(original) if os.path.isfile(original) else None) != hashes_originais[nome]:
-                raise RuntimeError('Arquivo editado durante a preparacao: ' + nome)
+                raise RuntimeError("File edited during preparation: " + nome)
             manifesto['arquivos'].append(dict(nome=nome,
                 original=hashes_originais[nome],
                 novo=digital(os.path.join(novos, nome))))
-        print('[encaixes] %d: %s (%d chapas)' % (
+        print("[fits] %d: %s (%d panels)" % (
             len(manifesto['modulos']), it['arquivo'], len(ajustes)), flush=True)
     limpar()
     addon.unregister()
@@ -201,15 +200,15 @@ def publicar(destino):
         manifesto = json.load(f)
     biblioteca = manifesto['biblioteca']
     validar_destino(biblioteca, destino)
-    # Conferir TODOS antes de substituir o primeiro: nao sobrescrever edicoes recentes.
+    # Check ALL hashes before replacing the first file; do not overwrite recent edits.
     for arq in manifesto['arquivos']:
         atual = caminho_da_peca(biblioteca, arq['nome'])
         if (digital(atual) if os.path.isfile(atual) else None) != arq['original']:
-            raise RuntimeError('Biblioteca mudou desde a preparacao: ' + arq['nome'])
+            raise RuntimeError("Library changed since preparation: " + arq['nome'])
         if arq['original'] is not None and digital(os.path.join(destino, 'originais', arq['nome'])) != arq['original']:
-            raise RuntimeError('Backup mudou: ' + arq['nome'])
+            raise RuntimeError("Backup changed: " + arq['nome'])
         if digital(os.path.join(destino, 'novos', arq['nome'])) != arq['novo']:
-            raise RuntimeError('Arquivo preparado mudou: ' + arq['nome'])
+            raise RuntimeError("Staged file changed: " + arq['nome'])
     aplicados = []
     temporario = None
     try:
@@ -220,7 +219,7 @@ def publicar(destino):
             os.replace(temporario, alvo)
             aplicados.append(arq)
     except Exception:
-        # o temporario do arquivo que falhou nao pode ficar na biblioteca real
+        # The failed file's temporary copy must not remain in the real library.
         if temporario and os.path.exists(temporario):
             os.remove(temporario)
         for arq in aplicados:
@@ -233,14 +232,14 @@ def publicar(destino):
     manifesto['publicado'] = True
     with open(caminho, 'w', encoding='utf-8') as f:
         json.dump(manifesto, f, ensure_ascii=False, indent=1)
-    print('[encaixes] PUBLICADOS %d modulos; backup em %s' % (len(manifesto['modulos']), destino))
+    print("[fits] PUBLISHED %d cabinets; backup in %s" % (len(manifesto['modulos']), destino))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--destino', required=True)
-    parser.add_argument('--biblioteca', default=os.path.join(RAIZ, 'archy_builder', 'biblioteca'))
-    parser.add_argument('--aplicar', action='store_true')
+    parser.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    parser.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    parser.add_argument('--apply', action='store_true', dest='aplicar')
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     args = parser.parse_args(argv)
     destino = os.path.abspath(args.destino)

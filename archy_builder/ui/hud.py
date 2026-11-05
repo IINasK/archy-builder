@@ -1,5 +1,5 @@
-"""HUD parametrica na viewport: linhas, rotulos, setas, quinas e arraste,
-os gizmos das correntes e o grid de medidas dos campos da gaveta."""
+"""Parametric viewport HUD: lines, labels, arrows, corners and dragging, chain gizmos,
+and the dimension grid for sidebar fields."""
 
 import bpy, math, gpu, blf, time, json
 from gpu_extras.batch import batch_for_shader
@@ -7,8 +7,8 @@ from mathutils import Matrix, Vector
 from bpy_extras import view3d_utils
 from bpy.types import Gizmo, GizmoGroup, Operator, Macro
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _frentes = None
 _modulos = None
@@ -35,29 +35,25 @@ _hud_volume = None
 _areas_criacao = None
 _visibilidade = None
 
-# ============================================= GRID DE MEDIDAS NA CENA
-# Passar o mouse num campo de medida (ou abri-lo para edicao) desenha a
-# caixa envolvente do alvo na viewport e ACENDE as quatro arestas do
-# eixo daquele campo. Assim da' para ver o que vai mudar antes de
-# mudar, em vez de descobrir por tentativa e erro. Aqui so' as tabelas e
-# o estado; as funcoes da secao sao `_caixa_da_medida`,
-# `_definir_realce_medida` e `_desenhar_grid_medidas`.
+# ============================================= SCENE DIMENSION GRID
+# Hovering a dimension field (or opening it for editing) draws the target's bounding box
+# in the viewport and HIGHLIGHTS the four edges along that field's axis. This previews
+# the change instead of requiring trial and error. Only tables and state live here; the
+# functions are `_caixa_da_medida`, `_definir_realce_medida` and
+# `_desenhar_grid_medidas`.
 
-# Qual eixo cada rotulo move, por modo de medida. INDIVIDUAL usa os
-# eixos LOCAIS da chapa (X=largura, Y=comprimento, Z=espessura), porque
-# a chapa pode estar girada e a Espessura continua sendo a aresta local
-# Z. Os outros modos usam eixos de MUNDO na convencao do add-on
-# (Largura=X, Altura=Z, Profundidade=Y). Espessura de modulo nao e'
-# aresta da caixa: nao acende nada, de proposito.
+# Axis changed by each label, per dimension mode. INDIVIDUAL uses panel LOCAL axes
+# (X=width, Y=length, Z=thickness): a rotated panel still has Thickness along local Z.
+# Other modes use WORLD axes with the add-on convention (Width=X, Height=Z, Depth=Y).
+# Cabinet thickness is not a box edge, so deliberately highlight nothing.
 EIXOS_MEDIDA = {
-    'INDIVIDUAL': {'Largura': 0, 'Altura': 1, 'Espessura': 2},
-    'GRUPO': {'Largura': 0, 'Altura': 2, 'Profundidade': 1},
-    'LIVRE': {'Largura': 0, 'Altura': 2, 'Profundidade': 1},
+    'INDIVIDUAL': {"Width": 0, "Height": 1, "Thickness": 2},
+    'GRUPO': {"Width": 0, "Height": 2, "Depth": 1},
+    'LIVRE': {"Width": 0, "Height": 2, "Depth": 1},
 }
 
-# Cantos indexados por bits: i + 2*j + 4*k ao longo de u, v, w. Com
-# essa ordem as quatro arestas de um eixo saem de uma conta simples,
-# sem tabela escrita a mao.
+# Bit-indexed corners: i + 2*j + 4*k along u, v, w. This order gives the four edges of
+# an axis by a simple calculation, without a handwritten table.
 ARESTAS_EIXO = (
     ((0, 1), (2, 3), (4, 5), (6, 7)),
     ((0, 2), (1, 3), (4, 6), (5, 7)),
@@ -65,27 +61,27 @@ ARESTAS_EIXO = (
 )
 
 _handler_grid = [None]
-_realce_medida = [None]      # rotulo do campo aceso, ou None
-_campos_gaveta = {}          # ponteiro do gizmo -> retangulo do campo
+_realce_medida = [None]      # Highlighted field label, or None.
+_campos_gaveta = {}          # Gizmo pointer -> field rectangle.
 
 
-# ======================================== HUD PARAMETRICA NA VIEWPORT
+# ======================================== PARAMETRIC VIEWPORT HUD
 _handler_hud_texto = [None]
 _clique_chapa_hud = {}
-# regiao -> nome da chapa cujo PRESS deixou passar (o CLICK leva o modulo)
+# Region -> name of the panel whose PRESS passed through (CLICK selects the cabinet).
 _clique_pendente = {}
-_hover_hud = {}             # regiao -> alvo espacial; nao vaza entre vistas
+_hover_hud = {}             # Region -> spatial target; does not leak between views.
 _edicao_hud = [None]
 RAIO_ARESTA_HUD = 7.0
 RAIO_CANTO_HUD = 10.0
-RAIO_PONTO_PAREDE_PX = 5.0  # bolinha do centro da borda na parede: cheia e com halo
-LIMIAR_ARRASTE_HUD_PX = 4.0  # abaixo disto o gesto e' clique, nao arraste
-GRAUS_POR_PIXEL_HUD = 0.25   # arraste do arco do angulo da diagonal
+RAIO_PONTO_PAREDE_PX = 5.0  # Wall edge-center dot: filled with a halo.
+LIMIAR_ARRASTE_HUD_PX = 4.0  # Below this threshold the gesture is a click, not a drag.
+GRAUS_POR_PIXEL_HUD = 0.25   # Diagonal angle-arc drag.
 
 
 def _contexto_hud(context):
-    """Onde a HUD existe. Durante G/R/S ela some inteira -- linhas,
-    letras, seta e hover -- e volta quando o gesto termina."""
+    """Where the HUD exists. During G/R/S it disappears entirely (lines, letters, arrow
+    and hover) and returns when the gesture ends."""
     if _visibilidade._edicao[0] or _solda._conexao_manual[0] is not None or _solda._arraste_ancora[0] is not None:
         _hover_hud.clear()
         return False
@@ -99,7 +95,7 @@ def _contexto_hud(context):
 
 
 def _raio_cru(context, posicao):
-    """(objeto original, ponto, normal, face, matriz) sob o mouse."""
+    """(original object, point, normal, face, matrix) under the mouse."""
     if not _contexto_hud(context):
         return None
     origem = view3d_utils.region_2d_to_origin_3d(
@@ -116,8 +112,8 @@ def _raio_cru(context, posicao):
         if (not _visibilidade.esmaecido(obj.original)
                 and obj.original.visible_get(view_layer=context.view_layer, viewport=context.space_data)):
             return obj.original, ponto, normal, face, matriz
-        # O ray cast da cena inclui objetos fora da vista local. Seguir
-        # pelo motor nativo evita selecionar a parede oculta diante do movel.
+        # Scene ray casting includes objects outside Local View. Continuing through the
+        # native engine avoids selecting a hidden wall in front of the cabinet.
         passo = (ponto - origem).length + .00001
         restante -= passo
         origem = ponto + direcao * .00001
@@ -125,7 +121,7 @@ def _raio_cru(context, posicao):
 
 
 def _ferragem_sob_mouse(context, posicao):
-    """A dobradica/pistao sob o mouse (o que tem modo de edicao), ou None."""
+    """Hinge/gas strut under the mouse (with its own editing mode), or None."""
     atingido = _raio_cru(context, posicao)
     if atingido is None:
         return None
@@ -139,24 +135,24 @@ def _raio_hud(context, posicao):
         return None
     obj, ponto, normal, face, matriz = atingido
     if _ferragens.CHAVE_FERRAGEM in obj:
-        # para quem pergunta "que porta e' esta": a ferragem vale pela
-        # folha (o clique nela mesma e' de `_ferragem_sob_mouse`)
+        # For callers asking which door this is, hardware represents its leaf (clicks on
+        # hardware itself use `_ferragem_sob_mouse`).
         dono = obj.parent
         if dono is not None and _chapas.MARCA_PORTAS in dono:
             dono = (_portas._folhas_portas(dono) or [None])[0]
         if dono is None or _chapas.MARCA_FOLHA not in dono:
             return None
-        # a face e' da ferragem, nao da folha: sem face (-1)
+        # The face belongs to hardware, not the leaf: no face (-1).
         return dono, ponto, normal, -1, dono.matrix_world.copy()
     return obj, ponto, normal, face, matriz
 
 
 def _familia_do_clique(obj, context=None):
-    """O que um clique simples em `obj` seleciona: o modulo com tudo
-    dentro, ou o grupo solto da chapa."""
+    """What a single click on `obj` selects: the cabinet and everything inside it, or
+    the panel's independent group."""
     modulo = _portas._modulo_da_chapa(obj)
     if modulo is not None:
-        # ferragem nao acende com o modulo (seleciona-se por si mesma)
+        # Hardware does not highlight with the cabinet; it is selected independently.
         familia = [modulo, *(o for o in modulo.children_recursive
                             if _ferragens.CHAVE_FERRAGEM not in o)]
     else:
@@ -165,15 +161,14 @@ def _familia_do_clique(obj, context=None):
 
 
 def _somar_peca(context, obj, duplo=False):
-    """Shift na viewport: SOMA a selecao, como no Blender (pedido do
-    usuario).
+    """Shift in the viewport ADDS to selection, like Blender (user request).
 
-    - Shift+clique: o modulo inteiro de `obj`; mas se o grupo dele ja'
-      esta' em selecao INDIVIDUAL (parte dele selecionada), so' a chapa
-      -- e clicar de novo na chapa ativa a tira, como o Shift nativo.
-    - Shift+duplo clique: isola `obj` DENTRO da selecao: o resto do grupo
-      dele sai, os outros grupos e chapas ficam. O 1o clique do duplo ja'
-      somou o grupo, por isso o duplo so' encolhe o grupo de `obj`."""
+    - Shift+click: the whole cabinet of `obj`, unless its group is already in
+    INDIVIDUAL selection (partially selected), in which case only the panel.
+    Clicking the active panel again removes it, like native Shift.
+    - Shift+double click: isolate `obj` WITHIN selection. Remove the rest of its
+    group; retain other groups and panels. The first click already added the group,
+    so the double click only narrows `obj`'s group."""
     familia = [o for o in _familia_do_clique(obj, context) if o.visible_get(view_layer=context.view_layer)]
     if obj not in familia:
         return
@@ -206,10 +201,10 @@ def _somar_peca(context, obj, duplo=False):
 
 
 def _selecionar_chapa_hud(context, obj, individual=False, somar=False):
-    """A selecao e o modo de medidas mudam juntos, inclusive para portas.
+    """Selection and dimension mode change together, including for doors.
 
-    `somar` (Shift) junta o modulo a selecao em vez de troca-la: e' assim
-    que se seleciona mais de um item para editar a medida de todos."""
+    `somar` (Shift) adds the cabinet to selection instead of replacing it, allowing
+    multiple items to be selected for editing their dimensions together."""
     modulo = _portas._modulo_da_chapa(obj)
     familia = _familia_do_clique(obj, context)
     alvos = _selecao.objetos_na_camada(context, [obj] if individual else familia or [obj])
@@ -225,7 +220,8 @@ def _selecionar_chapa_hud(context, obj, individual=False, somar=False):
         obj.chapa_modo = 'INDIVIDUAL' if individual else 'GRUPO'
     finally:
         _chapas._ocupado[0] = False
-    # Shift conserva o grupo, mas a malha clicada e' a mestre dos operadores nativos.
+    # Shift retains the group, but the clicked mesh becomes the master for native
+    # operators.
     context.view_layer.objects.active = modulo if not individual and not somar and modulo in alvos else obj
     if not individual and modulo is None:
         _modulos.sincronizar_grupo(context)
@@ -234,11 +230,10 @@ def _selecionar_chapa_hud(context, obj, individual=False, somar=False):
 
 
 def _nivel_da_selecao(context, obj):
-    """Em que nivel a porta de `obj` esta' selecionada agora.
+    """Current selection level of the door containing `obj`.
 
-    'PORTA' = o grupo inteiro, 'FOLHA' = uma folha dele, 'MODULO' =
-    qualquer outra coisa. Lido ANTES do clique que vai mudar a selecao.
-    """
+    'PORTA' = whole group, 'FOLHA' = one leaf, 'MODULO' = anything else. Read BEFORE
+    the click changes selection."""
     grupo = _portas._grupo_portas(obj)
     ativo = context.object
     if grupo is None or ativo is None:
@@ -252,8 +247,8 @@ def _nivel_da_selecao(context, obj):
 
 
 def _selecionar_porta_hud(context, folha, nivel, somar=False):
-    """Nivel PORTA: o grupo e todas as folhas. Nivel FOLHA: so' ela.
-    `somar` (Shift) junta a selecao em vez de troca-la."""
+    """PORTA level: group and all leaves. FOLHA level: only that leaf. `somar` (Shift)
+    adds to selection instead of replacing it."""
     grupo = _portas._grupo_portas(folha)
     if grupo is None:
         return
@@ -281,7 +276,7 @@ def _selecionar_porta_hud(context, folha, nivel, somar=False):
 
 
 def _caixa_hud_objetos(objetos, matriz=None):
-    """Uma caixa compartilhada pelo desenho e pelo hit-test."""
+    """One box shared by drawing and hit-testing."""
     matriz = matriz if matriz is not None else Matrix.Identity(4)
     inversa = matriz.inverted()
     pontos = []
@@ -289,7 +284,8 @@ def _caixa_hud_objetos(objetos, matriz=None):
         if o.type != 'MESH':
             continue
         if _chapas.MARCA_CHAPA in o:
-            # medida NOMINAL: o perfil tira uma faixa da malha, nao da chapa
+            # NOMINAL dimension: the profile removes a strip from the mesh, not the
+            # panel.
             pontos += [inversa @ p for p in _chapas._cantos(o)]
         else:
             pontos += [inversa @ (o.matrix_world @ Vector(v)) for v in o.bound_box]
@@ -303,7 +299,7 @@ def _caixa_hud_objetos(objetos, matriz=None):
 
 
 def _alvo_hud(context):
-    """O item do objeto ATIVO (o 1o de `_itens_da_selecao`), ou None."""
+    """The ACTIVE object's item (first in `_itens_da_selecao`), or None."""
     if _areas_criacao.escolhendo_frente():
         return None
     area = _areas_criacao.objeto()
@@ -319,10 +315,10 @@ def _alvo_hud(context):
 
 
 def _itens_hud(context):
-    """Itens que a HUD mostra: TODOS os da selecao, cada um com o seu
-    contorno (pedido do usuario: com dois modulos so' o ultimo aparecia).
-    Porta e folha ativas se editam pela gaveta: L/A de uma folha mexida
-    na HUD seria apagado no proximo recalculo das folhas."""
+    """HUD items: ALL selected items, each with its own outline (user request: with two
+    cabinets only the last appeared). Active doors and leaves are edited through the
+    sidebar: leaf L/A changes made in the HUD would be overwritten on the next leaf
+    recalculation."""
     if _areas_criacao.escolhendo_frente():
         return []
     area = _areas_criacao.objeto()
@@ -330,8 +326,8 @@ def _itens_hud(context):
         return [(area, 'AREA_CRIACAO', [])]
     nativo = _hud_volume._estado[0]
     if nativo and nativo.get('modo') == 'INDIVIDUAL':
-        # ONLY_SELECTABLE tira a chapa do snap destino e da selecao nativa.
-        # O escopo visual fica no item que iniciou o gesto ate' confirmar/Esc.
+        # ONLY_SELECTABLE excludes the panel from snap targets and native selection.
+        # Keep visual scope on the item that started the gesture until confirmation/Esc.
         obj = bpy.data.objects.get(nativo['objeto'])
         return [(obj, 'INDIVIDUAL', [obj])] if obj is not None else []
     obj = context.object
@@ -353,9 +349,9 @@ def _geometrias_hud(context):
 
 
 def _geometria_na_parede(geometria):
-    """Na vista da parede, so' as medidas NO plano dela: a profundidade
-    se ve de ponta e seus pontos de face cairiam no meio do modulo, em
-    cima do clique que move."""
+    """In wall view show only dimensions IN the wall plane: depth is seen end-on and
+    its face points would fall in the cabinet center, over the movement click
+    target."""
     normal = Vector(_paredes_edicao._sessao[0]['normal'])
     linhas = [l for l in geometria['linhas']
               if abs((l['pontos'][-1] - l['pontos'][0]).normalized().dot(normal)) < .5]
@@ -363,9 +359,9 @@ def _geometria_na_parede(geometria):
 
 
 def _hud_na_parede():
-    """Na parede a HUD so' edita a geometria (pontos das faces e setas das
-    quinas, pedido do usuario): a quina acesa do snap e o mover sao da
-    composicao. Durante a edicao ela continua ate' o fim."""
+    """On walls the HUD edits only geometry (face points and corner arrows, user
+    request): highlighted snap corners and movement belong to wall layout. An active
+    edit continues until completion."""
     if _edicao_hud[0] is not None or _hud_volume._estado[0] is not None:
         return True
     return (_paredes_composicao._quina_hover[0] is None
@@ -373,8 +369,8 @@ def _hud_na_parede():
 
 
 def _alvo_e_do_item(geometria, alvo):
-    """O alvo aceso pertence a este item? So' ele acende, mostra a seta
-    e ganha a letra E -- os outros itens desenham normal."""
+    """Does the highlighted target belong to this item? Only it highlights, shows an
+    arrow and gets the letter E; other items draw normally."""
     if not alvo:
         return False
     if alvo['tipo'] == 'espessura':
@@ -387,7 +383,7 @@ def _alvo_e_do_item(geometria, alvo):
 
 
 def _geometria_hud(context):
-    """Linhas de dimensao, contornos das portas e cantos em MUNDO."""
+    """Dimension lines, door outlines and corners in WORLD space."""
     alvo = _alvo_hud(context)
     if alvo is None:
         return None
@@ -405,18 +401,18 @@ def _chave_do_alvo(alvo):
 
 
 def _itens_da_selecao(context):
-    """Os itens independentes da selecao, como (objeto, modo, chapas), o
-    do objeto ativo primeiro.
+    """Independent selection items as (object, mode, panels), active object's item
+    first.
 
-    Sem ordem de hierarquia (pedido do usuario: dois grupos, um grupo e
-    uma chapa, duas chapas, em qualquer ordem):
-    - modulo com o Empty selecionado = o modulo inteiro (GRUPO), uma vez
-      so', por mais pecas que acendam com ele;
-    - grupo solto de chapas (adjacencia) todo selecionado = GRUPO;
-    - qualquer outra chapa vale SOZINHA (INDIVIDUAL): a isolada pelo
-      duplo clique ou somada com Shift, mesmo dentro de um modulo.
-    Porta, puxador e acessorio vem junto com o modulo, nao sao itens.
-    """
+    No hierarchy ordering (user request: two groups, a group and a panel, or two
+    panels, in any order):
+    - cabinet with its Empty selected = whole cabinet (GRUPO), once regardless of
+    how many parts highlight with it;
+    - fully selected independent panel group (adjacency) = GRUPO;
+    - any other panel stands ALONE (INDIVIDUAL): isolated by double click or added
+    with Shift, even inside a cabinet.
+    Doors, handles and accessories accompany the cabinet; they are not separate
+    items."""
     selecionados = list(getattr(context, 'selected_objects', ()) or ())
     marcados = set(selecionados)
     ativo = getattr(context, 'active_object', None)
@@ -437,9 +433,9 @@ def _itens_da_selecao(context):
                 pai in marcados and _chapas.MARCA_CONJUNTO in pai):
             pai = pai.parent
         if pai is not None and _chapas.MARCA_CONJUNTO in pai:
-            # Os filhos acendem com o modulo, mas nao sao novos alvos.
-            # O argumento era calculado ANTES de somar eliminar a copia:
-            # cada peca/rig selecionado relia todas as chapas da cena.
+            # Children highlight with the cabinet but are not new targets. The argument
+            # was calculated BEFORE adding removed the duplicate: every selected
+            # part/rig reread all scene panels.
             if ('M', pai.name) not in chaves:
                 somar(pai, 'GRUPO', _modulos.pecas_do_envelope(pai))
             continue
@@ -452,7 +448,7 @@ def _itens_da_selecao(context):
             continue
         prateleiras = _prateleiras.grupo_de(o)
         if prateleiras is not None:
-            # prateleiras (o grupo ou uma, pelo duplo): as linhas do vao
+            # Shelves (group or single shelf by double click): opening lines.
             chave = ('PR', prateleiras.parent, prateleiras.get(_divisorias.CHAVE_BLOCAGEM, prateleiras.name))
             if chave not in chaves:
                 chaves.add(chave)
@@ -460,14 +456,15 @@ def _itens_da_selecao(context):
             continue
         grupo = _gavetas.grupo_de(o)
         if grupo is not None and (o == grupo or _gavetas.MARCA_GAVETA in o):
-            # gavetas selecionadas: SO' elas tem linha (pedido do usuario)
+            # Selected drawers: ONLY they get lines (user request).
             if ('G', grupo.name) not in chaves:
                 chaves.add(('G', grupo.name))
                 itens.append((grupo, 'GAVETAS', []))
             continue
         if grupo is not None and (grupo.select_get() or any(
                 g.select_get() for g in _gavetas.gavetas_do_grupo(grupo))):
-            continue            # peca de gaveta selecionada junto: e' a gaveta
+            continue            # Drawer part selected alongside others: represents the
+                                # drawer.
         if grupo is not None and _portas._modulo_da_chapa(o) is None:
             continue
         if any(m in o for m in (_chapas.MARCA_PORTAS, _chapas.MARCA_FOLHA, _chapas.MARCA_PUXADOR,
@@ -494,14 +491,14 @@ def _itens_da_selecao(context):
 
 
 def _sistema_hud(tipo):
-    """Mesmo dono para desenho, valor, edicao e cancelamento da cota."""
+    """Same owner for dimension drawing, value, editing and cancellation."""
     return {'gavetas': _gavetas, 'prateleiras': _prateleiras, 'area_criacao': _areas_criacao,
             'divisorias': _divisorias}.get(tipo.lower()) if isinstance(tipo, str) else None
 
 
 def _geometria_do_item(obj, modo, chapas):
-    """A geometria da HUD de UM item -- o ativo ou, na edicao de varios
-    itens, cada modulo/chapa que entra na conta."""
+    """HUD geometry for ONE item: the active item or each cabinet/panel included when
+    editing multiple items."""
     dono = _sistema_hud(modo)
     if dono is not None:
         cantos, linhas = dono.linhas_hud(obj, chapas)
@@ -527,8 +524,8 @@ def _geometria_do_item(obj, modo, chapas):
         cantos,linhas=_linhas_da_secao(obj,chapas,secao)
         _numerar_cotas(linhas)
         return dict(objeto=obj,modo=modo,chapas=chapas,cantos=cantos,linhas=linhas)
-    # O escopo decide a referencia: o modulo e' sempre uma caixa.
-    # So' a chapa isolada oferece o contorno/angulo de sua propria face.
+    # Scope determines the reference: a cabinet is always a box. Only an isolated panel
+    # offers its own face outline/angle.
     forma = (_formas.forma_do_modulo(obj) if modo == 'INDIVIDUAL'
              and obj.type == 'MESH' and _chapas.MARCA_CHAPA in obj else None)
     if forma is not None:
@@ -548,7 +545,7 @@ def _geometria_do_item(obj, modo, chapas):
     if modo=='INDIVIDUAL':
         secao=obj.data.get(_chapas.CHAVE_ESPESSURA)
         if secao and secao.get('dobrada'):
-            # E segue arestas transversais reais, nunca a flecha da dobra.
+            # E follows actual transverse edges, never the bend's sagitta.
             espessuras=[l for l in linhas if l.get('letra')=='E']
             if espessuras:
                 modelo=espessuras[0]
@@ -567,11 +564,10 @@ def _geometria_do_item(obj, modo, chapas):
 
 
 def _linhas_da_secao(obj, chapas, secao):
-    """Contorno 3D da madeira editada, nunca uma extrusao do seu envelope.
+    """3D outline of the edited wood, never an extrusion of its envelope.
 
-    So' consome coordenadas preparadas fora do desenho. Frente e verso
-    compartilham a cota sem somar diagonais internas da triangulacao.
-    """
+    Only consumes coordinates prepared outside drawing. Front and back share the
+    dimension without adding internal triangulation diagonals."""
     matriz=obj.matrix_world;linhas=[];cantos=[];pares={}
     comum=dict(objeto=obj,modo='INDIVIDUAL',chapas=chapas)
     for uid,borda in secao['bordas'].items():
@@ -586,8 +582,8 @@ def _linhas_da_secao(obj, chapas, secao):
         linhas.append(dict(comum,tipo='medida',eixo=2,letra='E',seta_real=True,
                            borda_real=('E',i),pontos=[matriz@a,matriz@b]))
     if secao.get('deslocamento_mm',0)>secao['espessura_mm']+.01:
-        # A projecao fica junto a uma borda baixa real e termina antes de E.
-        # Nao atravessa o centro da peca nem prolonga sua caixa antiga.
+        # Projection stays beside an actual lower edge and ends before E. It neither
+        # crosses the part center nor extends its old box.
         a,b=min(pares.values(),key=lambda par:((matriz@par[0]).z,-par[0].z))
         lo=min(p[0].z for p in pares.values());hi=max(p[0].z for p in pares.values())
         pontos=[matriz@Vector((a.x,a.y,z)) for z in (lo,hi)]
@@ -616,7 +612,7 @@ def _linhas_da_secao(obj, chapas, secao):
 
 
 def _numerar_cotas(linhas):
-    """Rotulos independem dos identificadores de edicao/arquivos antigos."""
+    """Labels are independent of editing identifiers/old files."""
     def chave(linha):
         if linha['tipo']=='aresta':return ('aresta',tuple(linha['face']))
         return (('forma',tuple(linha['face']),linha.get('plano','XY'))
@@ -631,12 +627,12 @@ def _numerar_cotas(linhas):
 
 
 def rotulo_medida(nome):
-    """Mesma nomenclatura no menu e na HUD; props conservam seus nomes."""
-    return {'Largura':'A1','Largura da folha':'A1','Altura':'A2','Profundidade':'A3'}.get(nome,nome)
+    """Same terminology in menu and HUD; properties retain their names."""
+    return {"Width":'A1',"Leaf Width":'A1',"Height":'A2',"Depth":'A3'}.get(nome,nome)
 
 
 def chave_cota(linha):
-    """Identidade semantica, sem RNA nem numero A dependente da selecao."""
+    """Semantic identity without RNA or a selection-dependent A number."""
     return json.dumps([linha['tipo'],linha.get('eixo'),linha.get('face'),
                        linha.get('plano','XY')],separators=(',',':'))
 
@@ -648,16 +644,16 @@ def alvo_cota(obj, chave):
     if geo:
         for linha in geo['linhas']:
             if linha.get('rotulo') and chave_cota(linha)==chave:return dict(linha,lado='min')
-    # Arrastar abaixo do limiar esconde a cota, mas nao perde o gesto.
+    # Dragging below the threshold hides the dimension without losing the gesture.
     try:tipo,eixo,face,plano=json.loads(chave)
-    except (ValueError,TypeError):raise ValueError('Cota invalida')
+    except (ValueError,TypeError):raise ValueError("Invalid dimension")
     if tipo=='deslocamento' and modo=='INDIVIDUAL':
         return dict(tipo=tipo,objeto=obj,modo=modo,eixo=2,chapas=chapas)
-    raise ValueError('A geometria nao possui mais essa cota')
+    raise ValueError("The geometry no longer has this dimension")
 
 
 def campos_cotas(obj, modo, chapas):
-    """Menu e viewport editam os mesmos alvos e os mesmos valores."""
+    """Menu and viewport edit the same targets and values."""
     geo=_geometria_do_item(obj,modo,chapas)
     campos={}
     for linha in geo['linhas'] if geo else ():
@@ -668,10 +664,10 @@ def campos_cotas(obj, modo, chapas):
 
 
 def _linhas_da_forma(obj, chapas, forma):
-    """Modulo em L ou diagonal (`_formas`): a linha branca segue a
-    PLANTA, em baixo e em cima. L/P totais nos lados inteiros (esticam
-    sem deformar o canto), P1/P2 nos lados que chegam no canto (a
-    profundidade de cada braco), R na diagonal e A nas quinas."""
+    """L-shaped or diagonal cabinet (`_formas`): white lines follow the PLAN at bottom
+    and top. Total L/P on full sides (stretch without deforming the corner), P1/P2
+    on sides meeting the corner (each arm's depth), R on the diagonal and A at
+    corners."""
     plano=forma.get('plano','XY')
     modo='INDIVIDUAL' if obj.type=='MESH' else 'GRUPO'
     matriz = _formas.matriz_do_modulo(obj,plano)
@@ -711,8 +707,8 @@ def _linhas_da_forma(obj, chapas, forma):
         if not sobe:
             continue
         pontos = [mundo(x, y, lo.z), mundo(x, y, hi.z)]
-        # A normal de XZ aponta para -Y para conservar uma base direita.
-        # A seta de P continua de min para max no eixo real do modulo.
+        # The XZ normal points toward -Y to preserve a right-handed basis. The P arrow
+        # still runs from min to max on the cabinet's actual axis.
         if plano=='XZ':pontos.reverse()
         quina = next((i + 2 * j for i in (0, 1) for j in (0, 1)
                       if abs(x - (lo.x, hi.x)[i]) < 1e-6
@@ -728,10 +724,9 @@ def _linhas_da_forma(obj, chapas, forma):
     return cantos, linhas
 
 
-# Arco do ANGULO nas pontas da diagonal (esboco do usuario): pequeno e
-# colado na quina, como o do gizmo de angulo -- raio fixo NA TELA (a 70 mm
-# ele atravessava a peca de perto), nunca mais que uma fracao do lado mais
-# curto da quina; sem viewport (testes), em mm
+# ANGLE arc at the diagonal ends (user sketch): small and close to the corner, like the
+# angle gizmo arc. Fixed SCREEN radius (70 mm crossed the part at close range), never
+# exceeding a fraction of the corner's shorter side; use mm without a viewport (tests).
 RAIO_ARCO_ANGULO_PX = 26.0
 FRACAO_ARCO_ANGULO = 0.25
 RAIO_ARCO_ANGULO_MM = 30.0
@@ -739,7 +734,7 @@ PASSOS_ARCO_ANGULO = 12
 
 
 def _mm_por_pixel(ponto):
-    """Quantos mm vale 1 px de tela em `ponto` (mundo), ou None sem
+    """Millimeters per screen pixel at `ponto` (world space), or None without a
     viewport."""
     contexto = bpy.context
     regiao, rv3d = getattr(contexto, 'region', None), getattr(contexto, 'region_data', None)
@@ -754,10 +749,10 @@ def _mm_por_pixel(ponto):
 
 
 def _arcos_da_diagonal(obj, chapas, forma, mundo, altura=None):
-    """Linhas da HUD com o arco do angulo nas DUAS pontas de cada diagonal,
-    em cima: o angulo de DENTRO da planta ali (135 numa diagonal a 45).
-    Cada arco e' uma linha 'forma' de face ('ANG', canto, ponta): passar o
-    mouse acende, clicar digita o angulo, arrastar de lado gira."""
+    """HUD lines with an angle arc at BOTH ends of each diagonal, at the top: the
+    plan's INTERNAL angle there (135 for a 45-degree diagonal). Each arc is a face
+    'forma' line ('ANG', corner, end): hover highlights, click types an angle,
+    sideways drag rotates."""
     linhas = []
     z = forma['hi'].z if altura is None else altura
     escala = max(1.0, getattr(bpy.context.preferences.system, 'ui_scale', 1.0))
@@ -796,11 +791,11 @@ def _arcos_da_diagonal(obj, chapas, forma, mundo, altura=None):
 
 
 def _angulo_da_ponta(alvo):
-    """O angulo de DENTRO da planta na ponta do arco `alvo`."""
+    """The plan's INTERNAL angle at arc endpoint `alvo`."""
     if alvo['tipo']=='angulo_aresta':
         secao=alvo['objeto'].data.get(_chapas.CHAVE_ESPESSURA,{})
         quina=secao.get('quinas',{}).get(':'.join(str(uid) for uid in alvo['face']))
-        if not quina:raise ValueError('A quina nao existe mais')
+        if not quina:raise ValueError("The corner no longer exists")
         p,a,b=[Vector(quina[k]) for k in ('ponto','a','b')]
         return math.degrees((a-p).angle(b-p))
     if alvo['face'][0]=='JUNTA':return _formas.dados_junta(alvo['objeto'],alvo['face'])['angulo']
@@ -838,12 +833,12 @@ def _identidade_hud(alvo):
 
 
 def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True, so_faces=False):
-    """Distancia em pixels: funciona em perspectiva, ortografica e orbitando.
+    """Pixel distance: works in perspective, orthographic and orbiting views.
 
-    `cantos=False` ignora as quinas: escolhendo a linha do proximo item
-    so' medidas interessam, nunca mover o modulo. `so_faces=True` (parede,
-    pedido do usuario) deixa so' as bolinhas do centro das bordas: sem
-    setas nas arestas e sem ancora na quina, que e' do snap."""
+    `cantos=False` ignores corners: when choosing the next item's line, only
+    dimensions matter, never cabinet movement. `so_faces=True` (wall, user request)
+    leaves only edge-center dots: no edge arrows or corner anchor, which belongs to
+    snapping."""
     mouse = Vector(mouse)
     obj = geometria['objeto']
     if cantos:
@@ -867,7 +862,7 @@ def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True, so_fa
     for linha in geometria['linhas']:
         if linha['tipo'] in ('contorno_porta', 'contorno_forma') or not linha.get('editavel',True):
             continue
-        # linha de varios trechos (o arco do angulo): pares de pontos
+        # Multi-segment line (angle arc): point pairs.
         melhor = None
         for p, q in zip(linha['pontos'][0::2], linha['pontos'][1::2]):
             a, b = projetar(p), projetar(q)
@@ -882,11 +877,10 @@ def _acertar_linhas_hud(geometria, mouse, projetar, escala=1, cantos=True, so_fa
         return None
     _d, linha, a, b = min(candidatos, key=lambda item: (item[0],-item[1].get('prioridade',0)))
     if linha['tipo'] == 'medida' or linha.get('cantos') or linha.get('seta_real'):
-        # A quina mais perto do mouse fica PARADA e o movel cresce para
-        # o outro lado -- modulo (L/A/P) e chapa individual (L/A/E: a
-        # Espessura tambem tem seta nas quinas, pedido do usuario). Em
-        # ARESTAS_EIXO o primeiro canto e' o do lado minimo do eixo.
-        # Copia: a linha da geometria e' compartilhada.
+        # The corner nearest the mouse stays FIXED and the cabinet grows in the opposite
+        # direction: cabinet L/A/P and individual panel L/A/E (Thickness also has corner
+        # arrows, user request). In ARESTAS_EIXO the first corner is on the axis minimum
+        # side. Copy: the geometry line is shared.
         lado = linha.get('lado_fixo') or ('min' if (mouse - a).length <= (mouse - b).length else 'max')
         pontos = linha['pontos'] if lado == 'min' else linha['pontos'][::-1]
         linha = dict(linha, lado=lado, pontos=list(pontos))
@@ -901,8 +895,8 @@ def _face_espessura_hud(context, posicao, chapas):
     if obj not in chapas or _chapas.MARCA_CHAPA not in obj:
         return None
     normal_local = (matriz.to_3x3().transposed() @ normal).normalized()
-    # As faces largas tem normal Z local. Somente o topo estreito e
-    # as laterais da espessura devem oferecer esta edicao.
+    # Broad faces have local Z normals. Only narrow top and thickness side faces should
+    # offer this edit.
     if abs(normal_local.z) > 0.5:
         return None
     avaliado = obj.evaluated_get(context.evaluated_depsgraph_get())
@@ -915,7 +909,7 @@ def _face_espessura_hud(context, posicao, chapas):
 
 
 def _distancia_alvo_hud(alvo, mouse, projetar):
-    """Pixels do mouse ate' o alvo (quina ou linha) -- desempata itens."""
+    """Mouse-to-target distance in pixels (corner or line), for item tie-breaking."""
     pontos = [projetar(p) for p in (alvo['pontos'][1:2]
               if alvo.get('controle_face') else alvo['pontos'][:2])]
     if any(p is None for p in pontos):
@@ -926,8 +920,8 @@ def _distancia_alvo_hud(alvo, mouse, projetar):
 
 
 def _acertar_hud(context, posicao):
-    """Quina ou linha mais perto do mouse entre TODOS os itens da
-    selecao; quina antes de linha, como dentro de um item."""
+    """Corner or line nearest the mouse across ALL selected items; corners precede
+    lines, as within a single item."""
     parede = _paredes_edicao.ativa(context)
     if not _contexto_hud(context) or (parede and not _hud_na_parede()):
         return None
@@ -947,8 +941,8 @@ def _acertar_hud(context, posicao):
             melhor = (chave, alvo)
     if melhor is not None:
         return melhor[1]
-    # E pertence apenas a chapa individual. No modulo a espessura
-    # continua sendo editada na gaveta, mesmo com ela aberta.
+    # E belongs only to individual panels. Cabinet thickness is still edited through the
+    # sidebar, even when it is open.
     chapas = [c for g in geometrias if g['modo'] == 'INDIVIDUAL'
               for c in g['chapas']]
     if chapas and not parede:
@@ -957,15 +951,13 @@ def _acertar_hud(context, posicao):
 
 
 def _alvo_vivo(alvo):
-    """Os objetos do alvo guardado ainda existem?
+    """Do the stored target's objects still exist?
 
-    Ctrl+Z, abrir arquivo e apagar liberam os objetos, mas a referencia
-    Python guardada no hover continua com o endereco velho (o Blender de
-    release nao a invalida). Desenhar com ela le' memoria liberada e o
-    crash sai depois, em lugar aleatorio (visto no depsgraph e no
-    alocador do Python). `as_pointer()` so' devolve o endereco guardado,
-    sem tocar o objeto.
-    """
+    Ctrl+Z, file loading and deletion free objects, but the Python reference
+    retained by hover still holds the old address (release builds of Blender do not
+    invalidate it). Drawing through that reference reads freed memory; crashes occur
+    later at arbitrary locations (observed in the depsgraph and Python allocator).
+    `as_pointer()` only returns the stored address without accessing the object."""
     try:
         vivos = {o.as_pointer() for o in bpy.data.objects}
         return all(o.as_pointer() in vivos for o in
@@ -1012,13 +1004,11 @@ def _segmentos_hud(geometria, alvo):
 
 
 def _desenhos_hud(context):
-    """[(geometria, alvo aceso)] do que a HUD mostra agora.
+    """[(geometry, highlighted target)] for the current HUD display.
 
-    Normalmente e' so' o item ativo. Na edicao de varios itens: os ja'
-    escolhidos aparecem so' com a medida escolhida (acesa) -- nao da'
-    para escolher o mesmo objeto de novo --, os outros com todas as
-    linhas, acendendo a que esta' sob o mouse.
-    """
+    Normally only the active item. When editing multiple items, chosen items show
+    only the chosen highlighted dimension (the same object cannot be chosen twice);
+    others show all lines, highlighting the one under the mouse."""
     estado = _edicao_hud[0]
     if (estado is None or not estado.get('todos')
             or estado['regiao'] != context.region.as_pointer()):
@@ -1040,21 +1030,21 @@ def _desenhos_hud(context):
                 if _identidade_hud(l) == _identidade_hud(alvo)])
             desenhos.append((geometria, alvo))
         else:
-            # ainda sem seta: pisca (`_piscar_pendentes`)
+            # No arrow yet: flash (`_piscar_pendentes`).
             desenhos.append((dict(geometria, pendente=True),
                              hover if hover is not None
                              and _chave_do_alvo(hover) == chave else None))
     return desenhos
 
 
-# Varios itens: escolhida a seta do primeiro, os que ainda precisam de
-# seta dao uma piscada de luz nas linhas (pedido do usuario).
-DURACAO_PISCADA_HUD = 0.9           # s: duas piscadas
-_piscada_hud = [0.0]                # instante em que a piscada comecou
+# Multiple items: once the first arrow is chosen, flash lines of items still needing an
+# arrow (user request).
+DURACAO_PISCADA_HUD = 0.9           # Seconds: two flashes.
+_piscada_hud = [0.0]                # Flash start time.
 
 
 def _brilho_piscada(agora=None):
-    """0..1: duas piscadas em DURACAO_PISCADA_HUD, depois apaga."""
+    """0..1: two flashes over DURACAO_PISCADA_HUD, then off."""
     t = (time.time() if agora is None else agora) - _piscada_hud[0]
     if t < 0 or t > DURACAO_PISCADA_HUD:
         return 0.0
@@ -1062,14 +1052,14 @@ def _brilho_piscada(agora=None):
 
 
 def _animar_piscada():
-    """Timer: redesenha as viewports enquanto a piscada dura."""
+    """Timer: redraw viewports while flashing."""
     try:
         for janela in bpy.context.window_manager.windows:
             for area in janela.screen.areas:
                 if area.type == 'VIEW_3D':
                     area.tag_redraw()
     except Exception as e:
-        print("[Archy Builder] piscada:", e)
+        print("[Archy Builder] blinking:", e)
         return None
     if time.time() - _piscada_hud[0] > DURACAO_PISCADA_HUD:
         return None
@@ -1083,10 +1073,10 @@ def _piscar_pendentes():
 
 
 def _principal_hud(context, desenhos):
-    """Indice do desenho do item ATIVO quando ha' 2+ itens na HUD, ou None.
+    """Drawing index of the ACTIVE item when the HUD contains 2+ items, or None.
 
-    Pedido do usuario: com varios selecionados nao se sabia qual e' a
-    selecao principal (a que manda nas funcoes); a dela sai mais grossa."""
+    User request: with multiple selected items it was unclear which was the main
+    selection (controlling functions); draw its outline thicker."""
     if len(desenhos) < 2:
         return None
     item = _alvo_hud(context)
@@ -1100,7 +1090,7 @@ def _principal_hud(context, desenhos):
 
 
 def _espessura_principal_hud(espessura):
-    """Levemente mais grossa: +40% da escolhida, no minimo 1 px."""
+    """Slightly thicker: +40% of the chosen width, at least 1 px."""
     return espessura + max(1.0, 0.4 * espessura)
 
 
@@ -1114,7 +1104,8 @@ def _desenhar_hud_3d(context):
     for indice, (geometria, alvo) in enumerate(desenhos):
         n, a = _segmentos_hud(geometria, alvo)
         if parede:
-            n = []      # o contorno do modulo ja' e' o nativo: so' a aresta acesa
+            n = []      # The cabinet outline is already native: draw only the
+                        # highlighted edge.
         if indice == principal:
             principais += n
         else:
@@ -1122,23 +1113,23 @@ def _desenhar_hud_3d(context):
         if geometria.get('pendente'):
             pendentes += n
         if a:
-            # uma cor por medida acesa (realce do gizmo: L, A e P diferem)
+            # One color per highlighted dimension (gizmo highlight: L, A and P differ).
             acesos.setdefault(_cor_realce_hud(_letra_do_alvo(alvo)),
                               []).extend(a)
-    # Pecas associadas que se separaram: linha acesa (a corrente no meio
-    # dela e' um botao do VIEW3D_GGT_correntes_cabinet)
+    # Associated parts that moved apart: highlighted line with a chain button in its
+    # middle (VIEW3D_GGT_correntes_cabinet).
     for corrente in ([] if parede else _solda._correntes_hud(context)):
         acesos.setdefault(_cor_realce_hud(), []).extend(corrente['pontos'])
     if not normais and not acesos and not principais:
         return
     cor = _cor_linhas_hud(context)
     espessura = float(_opcoes._opcao('hud_espessura_linha'))
-    # POLYLINE: `line_width_set` com o shader comum para em poucos
-    # pixels (ou em 1) conforme o driver/backend, e a faixa vai a 50.
+    # POLYLINE: with the ordinary shader, `line_width_set` stops at a few pixels (or
+    # one), depending on driver/backend, while the slider goes up to 50.
     shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
     try:
         gpu.state.blend_set('ALPHA')
-        # Contorno parametricamente selecionavel de qualquer angulo.
+        # Outline selectable parametrically from any angle.
         gpu.state.depth_test_set('NONE')
         shader.bind()
         shader.uniform_float('viewportSize', (context.region.width,
@@ -1147,7 +1138,7 @@ def _desenhar_hud_3d(context):
         shader.uniform_float('color', cor)
         brilho = _brilho_piscada() if pendentes else 0.0
         if brilho > 0:
-            # luz por baixo das linhas dos itens que faltam orientar
+            # Light beneath lines of items still needing orientation.
             for folga, alfa in ((7.0, 0.18), (4.0, 0.35), (1.5, 0.9)):
                 shader.uniform_float('lineWidth', espessura + folga * brilho)
                 shader.uniform_float('color', (1.0, 1.0, 1.0, alfa * brilho))
@@ -1157,13 +1148,13 @@ def _desenhar_hud_3d(context):
         if normais:
             batch_for_shader(shader, 'LINES', {'pos': normais}).draw(shader)
         if principais:
-            # a selecao principal (ativa), entre varias
+            # Main (active) selection among multiple items.
             shader.uniform_float('lineWidth', _espessura_principal_hud(espessura))
             batch_for_shader(shader, 'LINES', {'pos': principais}).draw(shader)
             shader.uniform_float('lineWidth', espessura)
         for realce, pontos in acesos.items():
-            # Halo SOMADO a espessura (1.5 da' o 7/5/2.5 de sempre):
-            # multiplicado, a 50 px ele cobria o modulo inteiro.
+            # ADD the halo to thickness (1.5 gives the usual 7/5/2.5): multiplying at 50
+            # px covered the entire cabinet.
             for folga, alfa in ((5.5, 0.12), (3.5, 0.25), (1.0, 1)):
                 shader.uniform_float('lineWidth', espessura + folga)
                 shader.uniform_float('color', (*realce[:3], alfa))
@@ -1174,16 +1165,16 @@ def _desenhar_hud_3d(context):
         gpu.state.blend_set('NONE')
 
 
-# As letras somem quando o item fica menor na tela que FATOR x o tamanho
-# do rotulo: de longe, L/A/P empilhavam numa caixa de poucos pixels.
+# Hide letters when an item's screen size is below FACTOR times label size: at a
+# distance L/A/P stacked over a box only a few pixels wide.
 FATOR_ROTULO_HUD = 4.0
-# Seta guia em pixels de tela (x ui_scale): fixa, nao depende da aresta
+# Guide arrow in screen pixels (times ui_scale): fixed size, independent of the edge.
 COMPRIMENTO_SETA_HUD = 90
 ASA_SETA_HUD = 12
 
 
 def _tamanho_na_tela(context, geometria):
-    """Maior aresta de medida do item, em pixels de tela."""
+    """Largest dimension edge of the item, in screen pixels."""
     maior = 0.0
     for linha in geometria['linhas']:
         if linha['tipo'] not in ('medida', 'forma', 'aresta') and _sistema_hud(linha['tipo']) is None:
@@ -1209,13 +1200,12 @@ def _para_fora(ponto, centro, distancia):
 
 
 def _rotulos_hud(context, geometria, alvo):
-    """[(letra, centro do texto na tela, aceso)].
+    """[(letter, screen text center, highlighted)].
 
-    Cada letra vai para a aresta do seu eixo que esta' mais FORA na tela
-    e e' empurrada para longe do centro da peca: sobre a propria aresta,
-    numa chapa vista de cima, a letra caia em cima da face. Letras que
-    se encostam andam mais para fora, cada uma na sua direcao.
-    """
+    Place each letter on its axis's OUTERMOST screen edge and push it away from the
+    part center: directly on the edge of a panel viewed from above, the letter
+    landed on the face. Touching letters move farther outward, each in its own
+    direction."""
     escala = max(1.0, context.preferences.system.ui_scale)
     tamanho = _opcoes._opcao('hud_tamanho_rotulo') * escala
     cantos = [p for p in (_projetar_hud(context, c)
@@ -1224,7 +1214,7 @@ def _rotulos_hud(context, geometria, alvo):
         return []
     centro = sum(cantos, Vector((0.0, 0.0))) / len(cantos)
     afastar = 8 * escala + tamanho * 0.7
-    # longe demais: so' a letra acesa (hover/digitacao) continua
+    # Too far away: retain only the highlighted letter (hover/typing).
     cabem = _rotulos_cabem(context, geometria)
     rotulos = []
     for letra in dict.fromkeys(l.get('rotulo',l.get('letra'))
@@ -1243,7 +1233,7 @@ def _rotulos_hud(context, geometria, alvo):
             if cabem or aceso:
                 rotulos.append([letra, _para_fora(ponto, centro, afastar),
                                 aceso])
-    # arco do angulo da diagonal: o valor em graus, do lado de fora do arco
+    # Diagonal angle arc: value in degrees outside the arc.
     for linha in geometria['linhas']:
         if not linha.get('angulo'):
             continue
@@ -1251,8 +1241,8 @@ def _rotulos_hud(context, geometria, alvo):
         vertice = _projetar_hud(context, linha['vertice'])
         if meio is None or vertice is None:
             continue
-        # o numero logo FORA do arco, na bissetriz (no meio dele tampava a
-        # linha; no centro da forma ficava longe da quina)
+        # Number just OUTSIDE the arc along its bisector (in the middle it covered the
+        # line; at the shape center it was too far from the corner).
         fora = meio - vertice
         ponto = meio + (fora.normalized() * tamanho if fora.length > 1e-6 else Vector())
         aceso = _identidade_hud(linha) == _identidade_hud(alvo)
@@ -1262,8 +1252,8 @@ def _rotulos_hud(context, geometria, alvo):
             continue
         if cabem or aceso:
             rotulos.append(['%d\u00b0' % round(graus), ponto, aceso])
-    # vao entre prateleiras: o VALOR (sao varios, uma letra so' nao diria
-    # qual), a' direita do meio da linha
+    # Gap between shelves: show the VALUE (multiple gaps make a single letter
+    # ambiguous), to the right of the line midpoint.
     for linha in geometria['linhas']:
         if not linha.get('vao'):
             continue
@@ -1301,14 +1291,14 @@ def _desenhar_hud_texto():
     if not parede:
         if _prateleiras._referencia_pendente[0]:
             _assistente._desenhar_assistente_2d(_prateleiras._referencia_pendente[0])
-        # porta selecionada nao tem HUD de medida, mas tem os 4 cantos e o
-        # slider de abertura de cada folha; ferragens selecionadas, o realce
+        # Selected doors have no dimension HUD, but show four corners and each leaf's
+        # opening slider; selected hardware gets highlighting.
         _ferragens._desenhar_ferragens_selecionadas(context)
         _puxadores._desenhar_ancoras_puxador(context)
         _portas_viewport._desenhar_cantos_porta(context)
         _portas_viewport._desenhar_sliders_porta(context)
-        _paredes.desenhar_guias(context)     # modulo associado a uma parede
-        _gavetas.desenhar(context)           # sliders e, com Alt, os 3 pontos
+        _paredes.desenhar_guias(context)     # Cabinet associated with a wall.
+        _gavetas.desenhar(context)           # Sliders and, with Alt, the three points.
     desenhos = _desenhos_hud(context)
     if not desenhos:
         return
@@ -1320,32 +1310,32 @@ def _desenhar_hud_texto():
     nesta = edicao is not None and edicao['regiao'] == context.region.as_pointer()
     digitando = nesta and edicao.get('texto') is not None
     if digitando and not parede:
-        edicao['caixas'] = []   # na parede a caixa e' o numero da cota verde
+        edicao['caixas'] = []   # On walls, the box is the green dimension's number.
     try:
         for geometria, alvo in desenhos:
             _desenhar_controles_volume(context, geometria, alvo)
             for letra, ponto, aceso in ([] if parede else _rotulos_hud(context, geometria, alvo)):
                 blf.size(0, tamanho)
-                # o ponto e' o CENTRO da letra (ja' fora da peca)
+                # The point is the letter CENTER, already outside the part.
                 largura_letra, altura_letra = blf.dimensions(0, letra)
                 x, y = ponto.x - largura_letra / 2, ponto.y - altura_letra / 2
                 blf.position(0, x, y, 0)
-                # pela letra do ALVO: o rotulo vem numerado ('A1'), fora
-                # da tabela de eixos, e saia laranja ao lado da linha colorida
+                # Use the TARGET letter: numbered labels ('A1') are outside the axis
+                # table and used to appear orange beside the colored line.
                 blf.color(0, *(_cor_realce_hud(_letra_do_alvo(alvo)) if aceso else cor))
                 blf.draw(0, letra)
                 if digitando and aceso:
-                    # O valor sai da PROPRIA letra, numa caixa preta com
-                    # texto branco: repetir "L:" em outra cor ao lado so'
-                    # poluia e sumia contra o fundo.
+                    # The value comes from the letter ITSELF, in a black box with white
+                    # text: repeating 'L:' beside it in another color only added clutter
+                    # and disappeared against the background.
                     x_texto = x + blf.dimensions(0, letra)[0] + 6 * escala
-                    # guardada para o clique DENTRO da caixa mover o cursor
+                    # Stored so a click INSIDE the box can move the cursor.
                     edicao.setdefault('caixas', []).append(
                         (x_texto, y, tamanho, escala))
                     _caixa_texto_hud(x_texto, y, _gaveta_desenho._com_cursor(
                         edicao['texto'], edicao.get('cursor', len(edicao['texto'])),
                         medida=not edicao.get('subdivisao_vao') and not _eh_angulo(edicao['alvo'])) +
-                        (' prateleiras no vao' if edicao.get('subdivisao_vao') else ''),
+                        (" shelves in the opening" if edicao.get('subdivisao_vao') else ''),
                         tamanho, escala, edicao=edicao,
                         medida=not edicao.get('subdivisao_vao') and not _eh_angulo(edicao['alvo']))
             if alvo and alvo.get('lado') and not parede:
@@ -1356,7 +1346,7 @@ def _desenhar_hud_texto():
                     texto = '%s: %s' % (alvo.get('rotulo', alvo.get('letra', '')),
                         _opcoes._texto_medida(_valor_hud(alvo, context)))
                     if (_hud_volume._estado[0] or {}).get('erro'):
-                        texto += ' (limite)'
+                        texto += " (limit)"
                     _caixa_texto_hud(ponto.x + 12 * escala, ponto.y + 12 * escala,
                                       texto, tamanho, escala)
         if not parede:
@@ -1394,8 +1384,8 @@ def _desenhar_controles_volume(context, geometria, alvo):
                   and alvo['lado'] == controle['lado'])
         cor = _cor_realce_hud() if aceso else _cor_linhas_hud(context)
         if _paredes_edicao.ativa(context):
-            # Na parede ela e' o unico controle (pedido do usuario: mais
-            # visivel): disco cheio sobre halo do tema, maior aceso.
+            # On walls this is the only control (user request: more visible): filled
+            # disc over a theme-colored halo, larger when highlighted.
             raio = (RAIO_PONTO_PAREDE_PX + (2 if aceso else 0)) * escala
             halo = _paredes_composicao.estilo_cotas(context)['halo']
             shader.bind()
@@ -1412,7 +1402,7 @@ def _desenhar_controles_volume(context, geometria, alvo):
 
 
 def _disco_2d(centro, raio, passos=24):
-    """Triangulos de um disco cheio em pixels."""
+    """Triangles for a filled disc in pixels."""
     volta = [centro + Vector((math.cos(i * math.tau / passos),
                               math.sin(i * math.tau / passos))) * raio
              for i in range(passos + 1)]
@@ -1425,7 +1415,7 @@ def _cor_tema_linha():
 
 
 def _cor_opcao(nome):
-    """RGB que a opcao de cor esta' mostrando (o tema ja' resolvido)."""
+    """RGB currently shown by the color option, with theme colors resolved."""
     if nome == 'hud_rgb_linha' and _opcoes._opcao('hud_linha_tema'):
         return _cor_tema_linha()
     return tuple(_opcoes._opcao(nome))[:3]
@@ -1435,14 +1425,14 @@ def _cor_linhas_hud(context):
     return (*_cor_opcao('hud_rgb_linha'), 1.0)
 
 
-# Medida -> eixo do gizmo: largura X, profundidade Y, altura Z
+# Dimension -> gizmo axis: width X, depth Y, height Z.
 EIXO_GIZMO_DA_LETRA = {'L': 'axis_x', 'P': 'axis_y', 'A': 'axis_z'}
 EIXOS_GIZMO_PADRAO = {'axis_x': (1.0, 0.2, 0.32), 'axis_y': (0.54, 0.86, 0.0),
                       'axis_z': (0.16, 0.56, 1.0)}
 
 
 def _cor_eixo_gizmo(eixo):
-    """Cor do eixo no tema do usuario -- a mesma do gizmo nativo."""
+    """Axis color from the user's theme, matching the native gizmo."""
     try:
         return tuple(getattr(bpy.context.preferences.themes[0]
                              .user_interface, eixo))[:3]
@@ -1451,8 +1441,8 @@ def _cor_eixo_gizmo(eixo):
 
 
 def _cor_realce_hud(letra=''):
-    """Cor do que esta' aceso. Com o realce do gizmo, cada medida pinta
-    na cor do eixo dela; espessura e o resto (quina, gap) ficam laranja."""
+    """Highlight color. With gizmo highlighting, each dimension uses its axis color;
+    thickness and other targets (corner, gap) remain orange."""
     if _opcoes._opcao('hud_realce_gizmo'):
         eixo = EIXO_GIZMO_DA_LETRA.get(letra)
         return (*(_cor_eixo_gizmo(eixo) if eixo else _opcoes.COR_REALCE_PADRAO), 1.0)
@@ -1466,7 +1456,7 @@ def _letra_do_alvo(alvo):
 
 
 def _caixa_texto_hud(x, y, texto, tamanho, escala, edicao=None, medida=True):
-    """Texto branco numa caixa preta: legivel contra qualquer fundo."""
+    """White text in a black box, readable against any background."""
     blf.size(0, tamanho)
     largura = blf.dimensions(0, texto)[0]
     altura = blf.dimensions(0, '0')[1]
@@ -1483,14 +1473,11 @@ def _caixa_texto_hud(x, y, texto, tamanho, escala, edicao=None, medida=True):
 
 
 def _desenhar_seta_hud(context, alvo, geometria):
-    """Seta guia: sai da quina que fica parada e aponta para onde o
-    movel vai crescer (estilo DXF). Desenhada em pixels, entao tem o
-    mesmo tamanho de qualquer distancia.
+    """Guide arrow: starts at the stationary corner and points toward cabinet growth
+    (DXF style). Drawn in pixels, so size stays constant at any distance.
 
-    As pontas saem da aresta da geometria ATUAL, nao dos
-    pontos guardados no hover: estes ficam para tras quando o movel
-    muda de tamanho ou de lugar.
-    """
+    Endpoints come from the CURRENT geometry edge, not stored hover points: those
+    lag behind when the cabinet changes size or position."""
     if not _opcoes._opcao('hud_setas_quinas'):
         return
     if (not alvo.get('cantos') and not alvo.get('seta_real')) or alvo['objeto'] != geometria['objeto']:
@@ -1515,22 +1502,20 @@ def _desenhar_seta_hud(context, alvo, geometria):
 
 
 def _triangulos_seta_hud(a, b, escala):
-    """Ponto na quina parada, haste e ponta, tudo em triangulos.
+    """Dot at the stationary corner, shaft and arrowhead, all triangles.
 
-    COMPRIMENTO_SETA_HUD e' o TETO, na tela: a seta nunca passa da
-    propria aresta (pedido do usuario -- na E de 18 mm ela saia muito
-    alem da chapa). Encolhendo, ponta, haste e ponto encolhem junto, sem
-    a ponta comer a seta inteira. Limitar a uma FRACAO da aresta (45%)
-    ja' foi tentado e a seta sumia; aqui ela vai ate' a aresta toda.
-    Haste e ponto nao usam line_width / point_size, que o driver pode
-    travar em 1 px.
-    """
+    COMPRIMENTO_SETA_HUD is the screen-size CAP: the arrow never exceeds its own
+    edge (user request: on an 18 mm E it extended far beyond the panel). Arrowhead,
+    shaft and dot shrink together, so the head never consumes the entire arrow.
+    Limiting it to a FRACTION of the edge (45%) was tried and made it disappear;
+    here it may span the full edge. Shaft and dot avoid line_width / point_size,
+    which drivers may cap at 1 px."""
     direcao = (b - a).normalized()
     lateral = Vector((-direcao.y, direcao.x))
     cheio = COMPRIMENTO_SETA_HUD * escala
     comprimento = min(cheio, (b - a).length)
     ponta = a + direcao * comprimento
-    # ponta: no maximo 45% da seta; haste e ponto acompanham a asa
+    # Arrowhead: at most 45% of arrow length; shaft and dot scale with its wing.
     asa = min(ASA_SETA_HUD * escala, comprimento * 0.45 / 1.6)
     base = ponta - direcao * asa * 1.6
     meia = min(2.5 * escala, asa * 0.4)
@@ -1547,7 +1532,7 @@ def _triangulos_seta_hud(a, b, escala):
 
 
 class VIEW3D_GT_hud_cabinet(Gizmo):
-    """Captura apenas os contornos, cantos e faces interativos da HUD."""
+    """Capture only the HUD's interactive outlines, corners and faces."""
     bl_idname = 'VIEW3D_GT_hud_cabinet'
 
     def draw(self, context):
@@ -1557,9 +1542,9 @@ class VIEW3D_GT_hud_cabinet(Gizmo):
         if not _contexto_hud(context):
             return -1
         if _portas_viewport._slider_sob_mouse(context, location) is not None:
-            return -1       # a bolinha do slider de abertura e' de outro gizmo
-        # Sobre uma corrente o clique e' DELE (outro gizmo): a quina e as
-        # linhas da HUD ficam embaixo e nao podem roubar o pick.
+            return -1       # The opening-slider dot belongs to another gizmo.
+        # Over a chain, the click belongs to ITS gizmo: HUD corners and lines underneath
+        # must not steal picking.
         alvo_corrente = _solda._alvo_da_corrente(context, location)
         corrente = alvo_corrente[1] if alvo_corrente else None
         bolinha = (_solda._chave_bolinha(corrente, alvo_corrente[2])
@@ -1571,8 +1556,8 @@ class VIEW3D_GT_hud_cabinet(Gizmo):
                 else _acertar_hud(context, location))
         chave = context.region.as_pointer()
         antes = _hover_hud.get(chave)
-        # O lado entra a parte: ele muda a SETA, mas nao o realce das
-        # quatro arestas, que depende so' da identidade.
+        # Side is passed separately: it changes the ARROW, not the four-edge highlight,
+        # which depends only on identity.
         if (_identidade_hud(alvo) != _identidade_hud(antes)
                 or (alvo or {}).get('face') != (antes or {}).get('face')
                 or (alvo or {}).get('lado') != (antes or {}).get('lado')):
@@ -1583,7 +1568,7 @@ class VIEW3D_GT_hud_cabinet(Gizmo):
 
 class VIEW3D_GGT_hud_cabinet(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_hud_cabinet'
-    bl_label = 'Medidas espaciais Archy Builder'
+    bl_label = "Archy Builder Spatial Dimensions"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}
@@ -1604,10 +1589,10 @@ class VIEW3D_GGT_hud_cabinet(GizmoGroup):
 
 
 class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
-    """Corrente no meio de cada ligacao de adjacencia cujas pecas se
-    separaram: botao nativo (icone do tema, tooltip, hover) em pixels."""
+    """Chain midway along each adjacency link whose parts have moved apart: native
+    button (theme icon, tooltip, hover) in pixels."""
     bl_idname = 'VIEW3D_GGT_correntes_cabinet'
-    bl_label = 'Correntes de adjacencia Archy Builder'
+    bl_label = "Archy Builder Adjacency Chains"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE', 'SHOW_MODAL_ALL'}
@@ -1627,7 +1612,7 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
         self.botoes = []
 
     def draw_prepare(self, context):
-        # dois botoes por quina: corrente (desagrega) e regua (resetar)
+        # Two buttons per corner: chain (detach) and ruler (reset).
         correntes=_solda._correntes_hud(context)
         criando=bool(correntes and correntes[0].get('criacao'))
         if not hasattr(self,'botoes_criacao'):
@@ -1644,7 +1629,8 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
             botao.draw_options = {'BACKDROP', 'OUTLINE'}
             botao.use_tooltip = True
             pool.append(botao)
-        # Os slots alternam corrente/regua; religar no redraw invalida o tooltip nativo.
+        # Slots alternate chain/ruler; rebinding during redraw invalidates the native
+        # tooltip.
         operadores=self.operadores_criacao if criando else self.operadores
         while len(operadores) < len(pool):
             i = len(operadores)
@@ -1717,7 +1703,7 @@ def _valor_hud(alvo, context=None):
             matriz=alvo['objeto'].matrix_world
             return ((matriz@Vector(real['pontos'][1]))-(matriz@Vector(real['pontos'][0]))).length*1000
         borda=secao.get('bordas',{}).get(str(alvo['face'][0]))
-        if not borda:raise ValueError('A aresta nao existe mais')
+        if not borda:raise ValueError("The edge no longer exists")
         matriz=alvo['objeto'].matrix_world
         return ((matriz@Vector(borda[2]))-(matriz@Vector(borda[0]))).length*1000
     if alvo['tipo']=='deslocamento':
@@ -1733,7 +1719,7 @@ def _valor_hud(alvo, context=None):
         return float(alvo['objeto']['porta_parametros']['entre_folhas_mm'])
     propriedade = _propriedade_hud(alvo)
     if propriedade.startswith('conj_') and _chapas.MARCA_CONJUNTO not in alvo['objeto']:
-        # caixa do proprio item (ver `_aplicar_valor_hud`)
+        # The item's own box (see `_aplicar_valor_hud`).
         chapas = alvo.get('chapas') or _modulos.grupo_de(alvo['objeto']) or [alvo['objeto']]
         lo, hi = _modulos._caixa_de(chapas)
         return (hi[alvo['eixo']] - lo[alvo['eixo']]) * 1000.0
@@ -1741,11 +1727,11 @@ def _valor_hud(alvo, context=None):
 
 
 def _redimensionar_chapa_ancorada(chapa, eixo, valor_mm, lado):
-    """Muda L (eixo 0), A (eixo 1) ou E (eixo 2) de UMA chapa sem mexer
-    na face `lado` ('min'/'max' no eixo local). A malha da chapa e'
-    centrada na origem: sem deslocar o centro ela cresceria pelos dois
-    lados. Na E a seta escolhe a face parada, no lugar da regra
-    "engrossa para dentro" de `_modulos.aplicar_espessura_chapa`."""
+    """Change L (axis 0), A (axis 1) or E (axis 2) of ONE panel without moving face
+    `lado` ('min'/'max' on the local axis). The panel mesh is centered at the
+    origin: without shifting its center it would grow on both sides. For E, the
+    arrow selects the stationary face instead of
+    `_modulos.aplicar_espessura_chapa`'s inward-thickening rule."""
     prop = ('chapa_largura_mm', 'chapa_comprimento_mm',
             'chapa_espessura_mm')[eixo]
     antes = getattr(chapa, prop)
@@ -1774,7 +1760,7 @@ def _aplicar_valor_hud(context, alvo, valor):
         _chapas.definir_deslocamento(obj,valor,alvo.get('lado','min'))
         return
     if alvo['tipo']=='forma' and (obj.type!='MESH' or alvo.get('modo')!='INDIVIDUAL'):
-        raise ValueError('Selecione uma chapa individual para editar seu formato')
+        raise ValueError("Select an individual panel to edit its shape")
     if _eh_angulo(alvo):
         _formas.aplicar_angulo_interno(context, obj, alvo['face'][1],
                                       alvo['face'][2], valor,alvo.get('plano','XY'))
@@ -1805,16 +1791,16 @@ def _aplicar_valor_hud(context, alvo, valor):
     valor = max(20 if propriedade.startswith('conj_') else 1, valor)
     if propriedade == 'chapa_espessura_mm':
         valor = _chapas._espessura_livre(valor)
-    # A quina perto do mouse (`lado`) fica parada; os outros eixos nao
-    # mudam, entao a ancora deles tanto faz.
+    # The corner near the mouse (`lado`) stays fixed; other axes do not change, so their
+    # anchors do not matter.
     ancoras = None
     if alvo.get('lado') and propriedade.startswith('conj_'):
         ancoras = ['min', 'min', 'min']
         ancoras[alvo['eixo']] = alvo['lado']
     if _chapas.MARCA_CONJUNTO not in obj and propriedade.startswith('conj_'):
-        # Grupo de chapas sem Empty. As medidas saem da CAIXA das chapas
-        # do proprio item, nao dos campos da cena: estes sao do objeto
-        # ativo, e na edicao de varios itens o item pode ser outro.
+        # Panel group without an Empty. Dimensions come from the item's own panel BOX,
+        # not scene fields: those describe the active object, which may differ from this
+        # item during multi-item editing.
         chapas = alvo.get('chapas') or _modulos.grupo_de(obj) or [obj]
         lo, hi = _modulos._caixa_de(chapas)
         medidas = [(hi[0] - lo[0]) * 1000.0, (hi[2] - lo[2]) * 1000.0,
@@ -1827,7 +1813,8 @@ def _aplicar_valor_hud(context, alvo, valor):
             _modulos.sincronizar_medidas_conjunto(pai)
             _modulos.atualizar_sistemas_do_conjunto(pai)
         if context.object in chapas:
-            _modulos.sincronizar_grupo(context)          # a gaveta mostra o novo
+            _modulos.sincronizar_grupo(context)          # The sidebar shows the new
+                                                         # value.
         context.view_layer.update()
         return
     if (alvo.get('lado') and alvo.get('modo') == 'INDIVIDUAL'
@@ -1865,8 +1852,8 @@ def _estado_arraste_hud(context, alvo):
     estado = []
     for o in objetos:
         if _ferragens.CHAVE_FERRAGEM in o:
-            # refeitas a cada redimensionar (podem ate' sumir): no
-            # cancelar saem de novo da porta, nunca de um backup
+            # Rebuilt on every resize (may even disappear): on cancel, derive them from
+            # the door again, never from a backup.
             continue
         props = {}
         if _chapas.MARCA_CHAPA in o:
@@ -1947,10 +1934,10 @@ def _restaurar_arraste_hud(context, estado):
         _chapas._ocupado[0] = False
 
 
-# Mover o modulo pela quina: o cursor 3D e' a quina pega e o translate
-# NATIVO o leva (Ctrl liga o snap de vertice do proprio Blender, o gesto
-# de antes); um timer so' copia o cursor para o modulo. Antes as quinas
-# da cena eram juntadas e projetadas em Python a cada movimento.
+# Move the cabinet by a corner: the 3D cursor is the grabbed corner, moved by NATIVE
+# translate (Ctrl enables Blender's own vertex snapping, as before). A timer only copies
+# cursor position to the cabinet. Previously scene corners were gathered and projected
+# in Python on every movement.
 _arraste_quina = [None]
 
 
@@ -1964,15 +1951,15 @@ def _levar_quina(estado, ponto):
 
 
 def _preparar_quina_nativa(context, modulo, origem, matriz):
-    """Estado + parametros do translate. A propria peca nao e' alvo do
-    snap; puxador e ferragem so' pesariam o BVH."""
+    """State + translate parameters. The part itself is not a snap target; handles and
+    hardware would only burden the BVH."""
     proprios = {modulo.name, *(o.name for o in modulo.children_recursive)}
     _gavetas.iniciar_cursor_nativo(
         context, _arraste_quina,
         {'objeto': modulo.name, 'origem': origem.copy(), 'matriz': matriz.copy()},
         origem, lambda o: (o.name in proprios or _chapas.MARCA_PUXADOR in o
                            or _ferragens.CHAVE_FERRAGEM in o))
-    # snap desligado: o Ctrl do translate liga (vertice = quina da chapa)
+    # Snapping off: translate's Ctrl enables it (vertex = panel corner).
     return dict(_gavetas.PARAMETROS_CURSOR_NATIVO, snap=False, snap_elements={'VERTEX'})
 
 
@@ -1989,7 +1976,7 @@ def _acompanhar_quina_nativa():
         _levar_quina(estado, estado['ponto'])
         return 1.0 / 60.0
     if estado is not None:
-        # Esc/direito no translate: o modulo volta para onde estava
+        # Esc/right-click during translate: restore the cabinet's original position.
         _levar_quina(estado, estado['origem'])
     return None
 
@@ -2011,7 +1998,7 @@ def _iniciar_quina_nativa(context, modulo, origem, matriz):
 
 class OBJECT_OT_confirmar_quina_hud(Operator):
     bl_idname = 'object.cabinet_confirmar_quina_hud'
-    bl_label = 'Confirmar Quina do Modulo'
+    bl_label = "Confirm Cabinet Corner"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -2026,7 +2013,7 @@ class OBJECT_OT_confirmar_quina_hud(Operator):
 
 class OBJECT_OT_mover_quina_hud(Macro):
     bl_idname = 'object.cabinet_mover_quina_hud'
-    bl_label = 'Mover Modulo pela Quina'
+    bl_label = "Move Cabinet by Corner"
     bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
 
 
@@ -2036,9 +2023,9 @@ def registrar_macro_quina():
 
 
 class OBJECT_OT_arrastar_hud(Operator):
-    """Arrasta uma dimensao, uma espessura, o vao ou um canto do modulo"""
+    """Drag a cabinet dimension, thickness, opening or corner."""
     bl_idname = 'object.cabinet_arrastar_hud'
-    bl_label = 'Editar na Viewport'
+    bl_label = "Edit in Viewport"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
     @classmethod
@@ -2057,34 +2044,34 @@ class OBJECT_OT_arrastar_hud(Operator):
         self._origem = alvo['pontos'][0].copy()
         self._matriz = alvo['objeto'].matrix_world.copy()
         if alvo['tipo'] == 'ancora':
-            pass        # o arraste vai ao cursor nativo (`_iniciar_quina_nativa`)
+            pass        # Dragging uses the native cursor (`_iniciar_quina_nativa`).
         else:
             if _chapas.MARCA_CONJUNTO in alvo['objeto']:
                 _modulos.sincronizar_medidas_conjunto(alvo['objeto'])
             elif alvo.get('modo') == 'GRUPO':
-                _modulos.sincronizar_grupo(context)     # valor de partida real
+                _modulos.sincronizar_grupo(context)     # Actual starting value.
             self._valor = _valor_hud(alvo, context)
             if alvo['tipo'] == 'gap':
                 eixo = self._matriz.to_3x3().col[0].normalized()
             elif alvo['tipo'] == 'espessura':
                 eixo = self._matriz.to_3x3().col[2].normalized()
             elif alvo.get('direcao') is not None:
-                eixo = alvo['direcao']      # diagonal: cresce para dentro
+                eixo = alvo['direcao']      # Diagonal: grows inward.
             else:
                 eixo = (alvo['pontos'][1] - alvo['pontos'][0]).normalized()
-            # Escala de tela medida no proprio ponto: nao depende de
-            # pixels fixos por mm nem de um angulo frontal da vista.
+            # Measure screen scale at the point itself: independent of fixed pixels per
+            # mm or a front-facing viewing angle.
             a = _projetar_hud(context, self._origem)
             b = _projetar_hud(context, self._origem + eixo * 0.1)
             vetor = b-a if a is not None and b is not None else Vector((0, 0))
             if vetor.length < 1:
-                # Eixo visto de ponta: usar a vertical da tela mantem
-                # o arraste acessivel na vista alinhada ao eixo.
+                # Axis viewed end-on: use screen vertical to keep dragging accessible in
+                # an axis-aligned view.
                 vetor = Vector((0, 100))
             self._por_pixel = 100 / vetor.length
             self._direcao = vetor.normalized()
             if _eh_angulo(alvo):
-                # angulo: graus, de lado na tela (o mm por pixel nao serve)
+                # Angle: degrees, sideways onscreen (mm per pixel does not apply).
                 self._por_pixel = GRAUS_POR_PIXEL_HUD
                 self._direcao = Vector((1.0, 0.0))
         _edicao_hud[0] = {'regiao': context.region.as_pointer(), 'alvo': alvo}
@@ -2092,11 +2079,11 @@ class OBJECT_OT_arrastar_hud(Operator):
             _edicao_hud[0]['previa_gavetas']=True
         self._backups = [self._backup]
         if alvo['tipo'] == 'medida' and alvo.get('lado'):
-            # Varios itens selecionados: a SELECAO ja' diz o que se edita
-            # (pedido do usuario -- sem "Editar como?"). Falta so' a seta
-            # de cada um: os que ainda nao tem piscam, e cada clique numa
-            # linha deles escolhe a quina parada. Todos orientados, o
-            # valor digitado vale para todos.
+            # Multiple selected items: SELECTION already determines what is edited (user
+            # request: no 'Edit as?' question). Only each item's arrow remains to be
+            # chosen: items without arrows flash, and clicking one of their lines
+            # chooses the stationary corner. Once all are oriented, the typed value
+            # applies to all.
             itens = _itens_hud(context)
             if (len(itens) > 1 and _chave_do_alvo(alvo)
                     in {_chave_do_item(o, c) for o, _m, c in itens}):
@@ -2134,20 +2121,20 @@ class OBJECT_OT_arrastar_hud(Operator):
         return {'RUNNING_MODAL'}
 
     def _restantes(self):
-        """Itens da selecao ainda sem linha escolhida -- so' eles mostram
-        linhas para escolher; o mesmo objeto nao entra duas vezes."""
+        """Selected items without a chosen line: only these show selectable lines; the
+        same object cannot be added twice."""
         estado = _edicao_hud[0]
         escolhidos = {_chave_do_alvo(a) for a in estado['itens']}
         return [item for item in estado['todos']
                 if _chave_do_item(item[0], item[2]) not in escolhidos]
 
     def _multiplo(self, context, event):
-        """Coleta a seta (linha + quina parada) de cada item que falta;
-        o ultimo orientado leva direto a digitar o valor."""
+        """Collect the arrow (line + stationary corner) for each remaining item;
+        orienting the last one goes directly to value entry."""
         estado = _edicao_hud[0]
         mouse = Vector((event.mouse_region_x, event.mouse_region_y))
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}       # navegar continua valendo
+            return {'PASS_THROUGH'}       # Navigation remains available.
         if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
             self.cancel(context)
             return {'CANCELLED'}
@@ -2170,16 +2157,15 @@ class OBJECT_OT_arrastar_hud(Operator):
             estado['hover'] = None
             if not self._restantes():
                 return self._comecar_digitacao()
-            _piscar_pendentes()          # os que faltam piscam de novo
+            _piscar_pendentes()          # Flash the remaining items again.
             self._area.tag_redraw()
         return {'RUNNING_MODAL'}
 
     def _digitar(self, context, event):
-        """Medida do modulo por teclado, depois de um clique sem arraste.
+        """Keyboard entry of cabinet dimensions after a click without dragging.
 
-        Sem previa a cada tecla: digitando 750, o modulo passaria por
-        7 e 75 mm, e cada passagem reescala as pecas de novo.
-        """
+        No preview on every keystroke: typing 750 would resize through 7 and 75 mm,
+        repeatedly rescaling the parts."""
         estado = _edicao_hud[0]
         if event.value != 'PRESS':
             return {'RUNNING_MODAL'}
@@ -2187,7 +2173,7 @@ class OBJECT_OT_arrastar_hud(Operator):
             self.cancel(context)
             return {'CANCELLED'}
         if event.type == 'LEFTMOUSE' and self._clique_na_caixa(event):
-            # Clique DENTRO da caixa nao fecha: posiciona o cursor
+            # Clicking INSIDE the box does not close it: position the cursor.
             self._area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'LEFTMOUSE'}:
@@ -2201,8 +2187,8 @@ class OBJECT_OT_arrastar_hud(Operator):
                     valor = float(estado['texto'].replace(',', '.').strip(' \u00b0'))
                 else:
                     valor = _gaveta_desenho._ler_medida_digitada(estado['texto']) * 1000.0
-                # Varios itens: cada um fica com o MESMO valor, cada um
-                # ancorado na quina escolhida nele.
+                # Multiple items: each receives the SAME value, anchored at its own
+                # chosen corner.
                 for alvo in estado.get('itens') or [self._alvo]:
                     _aplicar_valor_hud(context, alvo, valor)
             except (ValueError, TypeError, ReferenceError) as erro:
@@ -2218,8 +2204,8 @@ class OBJECT_OT_arrastar_hud(Operator):
         return {'RUNNING_MODAL'}
 
     def _clique_na_caixa(self, event):
-        """True (e o cursor no lugar) se o clique caiu numa caixa de texto
-        desenhada -- as posicoes vem do ultimo desenho da HUD."""
+        """True, with cursor positioned, if the click hit a drawn text box; positions
+        come from the latest HUD draw."""
         estado = _edicao_hud[0]
         mx, my = event.mouse_region_x, event.mouse_region_y
         texto = estado['texto']
@@ -2255,8 +2241,8 @@ class OBJECT_OT_arrastar_hud(Operator):
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             if (not self._arrastou and (_sistema_hud(self._alvo['tipo']) is not None or self._alvo['tipo'] in ('forma', 'aresta', 'angulo_aresta', 'deslocamento') or (
                     self._alvo['tipo'] == 'medida' and self._alvo.get('lado')))):
-                # Clique sem arrastar numa linha do modulo: a seta fica e
-                # o valor passa a ser digitado (Enter confirma, Esc volta).
+                # Click a cabinet line without dragging: retain the arrow and switch to
+                # typing the value (Enter confirms, Esc restores).
                 texto = (('%.1f' % self._valor).rstrip('0').rstrip('.')
                          if _eh_angulo(self._alvo)
                          else _opcoes._numero_na_unidade(self._valor))
@@ -2269,17 +2255,17 @@ class OBJECT_OT_arrastar_hud(Operator):
         if event.type != 'MOUSEMOVE':
             return {'RUNNING_MODAL'}
         if not self._arrastou:
-            # Tremida de clique nao e' arraste: sem este limiar o clique
-            # nunca chegaria ao modo de digitar.
+            # Click jitter is not dragging: without this threshold, clicks would never
+            # reach typing mode.
             if (mouse - self._inicio).length < LIMIAR_ARRASTE_HUD_PX:
                 return {'RUNNING_MODAL'}
             if _hud_volume.elegivel(self._alvo):
-                # O modal nativo recebe B/Ctrl/teclado e possui o UNDO.
-                # CANCELLED aqui evita um segundo passo sem mudanca.
+                # The native modal receives B/Ctrl/keyboard input and owns UNDO.
+                # CANCELLED here avoids a second unchanged step.
                 _hud_volume.iniciar(context, self._alvo, self._backup)
                 return {'CANCELLED'}
             if self._alvo['tipo'] == 'ancora':
-                # o translate nativo segue com o arraste e possui o UNDO
+                # Native translate continues the drag and owns UNDO.
                 modulo, origem, matriz = self._alvo['objeto'], self._origem, self._matriz
                 self._encerrar()
                 _iniciar_quina_nativa(context, modulo, origem, matriz)
@@ -2310,15 +2296,15 @@ class OBJECT_OT_arrastar_hud(Operator):
         return {'RUNNING_MODAL'}
 
 
-# ---- grid de medidas na cena (tabelas e estado: `EIXOS_MEDIDA`,
-# `_handler_grid`, `_realce_medida`)
+# ---- scene dimension grid (tables and state: `EIXOS_MEDIDA`, `_handler_grid`,
+# `_realce_medida`).
 def _cantos_caixa(origem, u, v, w):
     return [origem + u * i + v * j + w * k
             for k in (0, 1) for j in (0, 1) for i in (0, 1)]
 
 
 def _alvos_da_medida(context, modo):
-    """Objetos que a medida daquele modo governa."""
+    """Objects governed by the dimension in that mode."""
     obj = context.object
     if modo == 'GRUPO' and obj is not None:
         familia = [o for o in _selecao.familia_de(obj) if o.type in _modulos.TIPOS_COM_VOLUME]
@@ -2328,16 +2314,15 @@ def _alvos_da_medida(context, modo):
 
 
 def _caixa_da_medida(context, modo):
-    """Os 8 cantos, em mundo, da caixa que o campo edita."""
+    """Eight WORLD-space corners of the box edited by the field."""
     obj = context.object
     if modo == 'INDIVIDUAL' and obj is not None:
-        # Caixa ORIENTADA pela chapa: girada, a espessura dela nao e'
-        # o eixo vertical do mundo, e uma caixa alinhada ao mundo
-        # acenderia a aresta errada.
+        # Panel-ORIENTED box: when rotated, its thickness is not world vertical, so a
+        # world-aligned box would highlight the wrong edge.
         mw = obj.matrix_world
         try:
             if _chapas.MARCA_CHAPA in obj:
-                # nominal: o corte do perfil nao encolhe a chapa medida
+                # Nominal: the profile cut does not shrink the measured panel.
                 meias = Vector(_chapas._meias(obj))
                 locais = [-meias, meias]
             else:
@@ -2368,12 +2353,11 @@ def _caixa_da_medida(context, modo):
 
 
 def _definir_realce_medida(rotulo):
-    """Guarda o campo aceso e manda a viewport se redesenhar.
+    """Store the highlighted field and request viewport redraw.
 
-    O glow mora na gaveta, mas a caixa aparece na area VIZINHA: sem
-    este tag_redraw ela so' apareceria quando algo mais pedisse
-    redesenho, e o realce pareceria intermitente.
-    """
+    The glow lives in the sidebar, but the box appears in the NEIGHBORING area:
+    without tag_redraw it would appear only when something else requested a redraw,
+    making highlighting seem intermittent."""
     if _realce_medida[0] == rotulo:
         return
     _realce_medida[0] = rotulo

@@ -1,9 +1,9 @@
 """Integrate DXF library categories with resumable staging and backups.
 
-Prepare outside the library; --aplicar validates hashes and publishes with rollback.
+Prepare outside the library; --apply validates hashes and publishes with rollback.
 
-Supply --fonte DIRECTORY explicitly for preparation.
---aplicar uses the source paths recorded in the existing manifest.
+Supply --source DIRECTORY explicitly for preparation.
+--apply uses the source paths recorded in the existing manifest.
 """
 from pathlib import Path
 import argparse,json,os,re,shutil,sys
@@ -50,7 +50,7 @@ def preparar(biblioteca,fonte,destino):
             indice=ler(os.path.join(novos,'indice.json'))
             existentes=[it for it in indice if addon.biblioteca.caminho_de(it)==niveis]
             antigos=[it for it in ler(os.path.join(originais,'indice.json')) if addon.biblioteca.caminho_de(it)==niveis]
-            revisar=bool(antigos) and niveis[-1] in ('Cantos','Cantos Bifold')
+            revisar=bool(antigos) and niveis[-1] in ("Corners","Bifold Corners")
             if antigos and not revisar:continue
             progresso['fontes'][path]=digital(path)
             metadados=[]
@@ -61,11 +61,11 @@ def preparar(biblioteca,fonte,destino):
                     for o in objs if o.type=='MESH' and origem(o)}
                 metadados.append(dict(item=it,slots=slots,nomes=set(slots)))
             limpar();bpy.context.view_layer.active_layer_collection=bpy.context.view_layer.layer_collection
-            if niveis[-2]=='Portas':
+            if niveis[-2]=="Doors":
                 grupos,info=addon.importacao.importar_portas_avulsas(bpy.context,path,prefixo)
             else:
                 grupos,info=addon.importacao.importar_dxf_promob(bpy.context,path,prefixo,na_origem=True)
-            if not grupos:raise RuntimeError('Categoria sem modelo: '+rel)
+            if not grupos:raise RuntimeError("Category has no model: "+rel)
             vinculos=[]
             for g in grupos:
                 nomes={origem(o) for o in g.children_recursive if origem(o)}
@@ -101,12 +101,12 @@ def preparar(biblioteca,fonte,destino):
                                 obj.material_slots[-1].material=mats.get(n)
                 alvo=os.path.basename(addon.biblioteca._nome_arquivo_seguro(g.name))+'.blend'
                 if os.path.isfile(os.path.join(novos,alvo)):
-                    raise RuntimeError('Nome colide com outra categoria: '+g.name)
+                    raise RuntimeError("Name conflicts with another category: "+g.name)
                 addon.biblioteca.gravar_modulo_na_biblioteca(bpy.context,g,g.name,niveis)
             progresso['concluidos'].append(rel)
             progresso['categorias'].append(dict(fonte=rel,niveis=niveis,antes=len(antigos),depois=len(grupos),info=info))
             gravar(status,progresso)
-            print('[integracao]',rel,'ANTES',len(antigos),'AGORA',len(grupos),flush=True)
+            print("[integration]",rel,'ANTES',len(antigos),'AGORA',len(grupos),flush=True)
             limpar()
     limpar();addon.unregister()
     arquivos=[]
@@ -126,12 +126,12 @@ def publicar(destino):
     m=ler(os.path.join(destino,'manifesto.json'))
     validar_destino(m['biblioteca'],destino)
     for p,sha in m['fontes'].items():
-        if digital(p)!=sha:raise RuntimeError('DXF mudou: '+p)
+        if digital(p)!=sha:raise RuntimeError("DXF changed: "+p)
     for d in m['arquivos']:
         for pasta,chave in ((m['biblioteca'],'original'),(os.path.join(destino,'originais'),'original'),
                             (os.path.join(destino,'novos'),'novo')):
             p=caminho_da_peca(pasta,d['nome']);sha=digital(p) if os.path.isfile(p) else None
-            if sha!=d[chave]:raise RuntimeError('Arquivo mudou: '+p)
+            if sha!=d[chave]:raise RuntimeError("File changed: "+p)
     aplicados=[];alvo=None
     try:
         for d in sorted(m['arquivos'],key=lambda d:d['nome'].endswith(('.json','.txt'))):
@@ -142,7 +142,7 @@ def publicar(destino):
                 os.replace(alvo+'.integracao',alvo)
             aplicados.append(d)
     except Exception:
-        # o temporario do arquivo que falhou nao pode ficar na biblioteca real
+        # The failed file's temporary copy must not remain in the real library.
         if alvo and os.path.exists(alvo+'.integracao'):os.remove(alvo+'.integracao')
         for d in aplicados:
             alvo=caminho_da_peca(m['biblioteca'],d['nome'])
@@ -150,16 +150,16 @@ def publicar(destino):
             else:shutil.copy2(os.path.join(destino,'originais',d['nome']),alvo)
         raise
     m['publicado']=True;gravar(os.path.join(destino,'manifesto.json'),m)
-    print('PUBLICADOS',len(aplicados),'ARQUIVOS; BACKUP',destino,flush=True)
+    print('PUBLICADOS',len(aplicados),"FILES; BACKUP",destino,flush=True)
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--destino',required=True);p.add_argument('--aplicar',action='store_true')
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'))
-    p.add_argument('--fonte',help='Source DXF directory; required for preparation')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION');p.add_argument('--apply', action='store_true', dest='aplicar')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    p.add_argument('--source', help='Source DXF directory; required for preparation', dest='fonte', metavar='SOURCE')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     if not a.aplicar and not a.fonte:
-        p.error('--fonte is required for preparation; provide the source DXF directory')
+        p.error('--source is required for preparation; provide the source DXF directory')
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:publicar(a.destino)
     else:preparar(a.biblioteca,a.fonte,a.destino)

@@ -1,4 +1,4 @@
-"""Classificacao, cotas e vinculos em cenas descartaveis."""
+"""Classification, dimensions and links in disposable scenes."""
 import os
 import sys
 import tempfile
@@ -100,7 +100,7 @@ class TestAlvenaria(unittest.TestCase):
             for largura in (190, 320, 564):
                 itens = []
                 A.widgets_classificar(bpy.context, itens, 12, 500, largura - 24)
-                self.assertEqual([v[4] for v in itens], ['Criar Alvenaria', 'Parede', 'Piso', 'Teto'])
+                self.assertEqual([v[4] for v in itens], ["Create Masonry", "Wall", "Floor", "Ceiling"])
                 self.assertEqual(len({v[1] for v in itens[1:]}), 1)
                 self.assertAlmostEqual(itens[-1][0] + itens[-1][2], largura - 12)
         finally:
@@ -132,7 +132,7 @@ class TestAlvenaria(unittest.TestCase):
         self.assertEqual(self.valores(), [0, 0, 0, 0, 0, 3])
 
     def test_confirmacao_le_selecao_nativa_sem_esperar_timer(self):
-        # Regressao (era BUG, corrigido na 403): o timer ainda nao viu o A nativo.
+        # Regression, fixed in v403: the timer had not yet observed native A selection.
         A.iniciar_edicao(bpy.context, 'PAREDE')
         bpy.ops.mesh.select_all(action='SELECT')
         self.assertEqual(addon.ambientes._edicao_faces[0]['selecionadas'], ())
@@ -186,8 +186,8 @@ class TestAlvenaria(unittest.TestCase):
         self.assertIs(A.alvo_novo(bpy.context), novo)
         bpy.context.scene.cabinet_aba = 'ALVENARIA'
         itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 564, 1400, 0)
-        self.assertIn('Criar Alvenaria', [v[4] for v in itens])
-        self.assertNotIn('Editar', [v[4] for v in itens])
+        self.assertIn("Create Masonry", [v[4] for v in itens])
+        self.assertNotIn("Edit", [v[4] for v in itens])
         A.iniciar_edicao(bpy.context, 'PISO')
         self.assertIs(bpy.context.edit_object, novo)
         self.marcar_faces([0])
@@ -219,7 +219,7 @@ class TestAlvenaria(unittest.TestCase):
         with patch.object(A, 'gpu'), patch.object(A, 'batch_for_shader'), \
              patch.object(addon.ambientes, '_rotulo') as rotulo:
             A.desenhar_visual(bpy.context, self.apoio)
-            self.assertEqual([c.args[3] for c in rotulo.call_args_list], ['Paredes']*4)
+            self.assertEqual([c.args[3] for c in rotulo.call_args_list], ["Walls"]*4)
         bpy.ops.object.cabinet_confirmar_alvenaria()
         with patch.object(A, 'gpu') as gpu:
             A.desenhar_visual(bpy.context, self.apoio)
@@ -235,17 +235,17 @@ class TestAlvenaria(unittest.TestCase):
             bpy.context.scene.cabinet_aba = aba
             itens = addon.gaveta._widgets_aba_gaveta(bpy.context, 564, 1400, 0)
             nomes = [v[4] for v in itens]
-            self.assertNotIn('Criar Alvenaria', nomes)
+            self.assertNotIn("Create Masonry", nomes)
             if aba == 'MODULOS':
-                self.assertIn('Editar em 2D', nomes)
-                self.assertIn('Editar categorias', nomes)
-                self.assertNotIn('Instalacoes', nomes)
+                self.assertIn("Edit in 2D", nomes)
+                self.assertIn("Edit categories", nomes)
+                self.assertNotIn("Installations", nomes)
             else:
-                self.assertIn('Editar', nomes)
-                self.assertIn('Instalacoes', nomes)
-                self.assertNotIn('Editar em 2D', nomes)
+                self.assertIn("Edit", nomes)
+                self.assertIn("Installations", nomes)
+                self.assertNotIn("Edit in 2D", nomes)
                 tipos = next(i for i,v in enumerate(itens) if v[5] and v[5][:2] == ('escolha','tipo_instalacao'))
-                editar = next(i for i,v in enumerate(itens) if v[4] == 'Editar')
+                editar = next(i for i,v in enumerate(itens) if v[4] == "Edit")
                 self.assertLess(editar, tipos)
                 olho = next(v for v in itens if v[5] and v[5][:2] == ('escolha','alvenaria_visual'))
                 self.assertEqual(olho[1], itens[tipos][1])
@@ -255,7 +255,7 @@ class TestAlvenaria(unittest.TestCase):
             bpy.context.scene.cabinet_aba = 'MODULOS'
             itens = addon.gaveta._widgets_aba_gaveta(bpy.context, largura, 1400, 0)
             topo = addon.gaveta._tamanho_cabecalho(itens)
-            self.assertEqual(itens[topo][4], 'Criar Alvenaria')
+            self.assertEqual(itens[topo][4], "Create Masonry")
         self.apoio[P.CHAVE_ALVENARIA] = True
         itens = []
         A.widgets_classificar(bpy.context, itens, 12, 500, 296)
@@ -284,4 +284,4 @@ with tempfile.TemporaryDirectory(prefix='alvenaria_') as pasta, \
     finally:
         addon.unregister()
     if not resultado.wasSuccessful():
-        raise RuntimeError('Falha nas provas de alvenaria')
+        raise RuntimeError("Masonry tests failed")

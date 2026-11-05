@@ -245,9 +245,9 @@
    ]
   ]
  ],
- "ZIGZAG/1/CURVA": "ERRO: Quantidade de folhas invalida para esta abertura",
- "ZIGZAG/1/RETA": "ERRO: Quantidade de folhas invalida para esta abertura",
- "ZIGZAG/1/SUPER_CURVA": "ERRO: Quantidade de folhas invalida para esta abertura",
+ "ZIGZAG/1/CURVA": "ERROR: Invalid leaf count for this opening",
+ "ZIGZAG/1/RETA": "ERROR: Invalid leaf count for this opening",
+ "ZIGZAG/1/SUPER_CURVA": "ERROR: Invalid leaf count for this opening",
  "ZIGZAG/2/CURVA": [
   [
    388.0,

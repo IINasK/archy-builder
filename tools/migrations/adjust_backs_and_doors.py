@@ -38,7 +38,7 @@ def retirar_portas_opostas(conj):
         for nome in reversed(objetos):
             obj=bpy.data.objects.get(nome)
             if obj is not None:addon.ferragens._remover_ferragem(obj)
-    # Os sistemas ja' existentes conservam sua geometria mundial.
+    # Existing systems preserve their world-space geometry.
     prateleiras=[(g,list(addon.prateleiras.prateleiras_do_grupo(g)))
                  for g in addon.prateleiras.grupos_do_modulo(conj)]
     addon.promob.orientar_modulo(conj,dict(portas=mantidas,gavetas=[]))
@@ -91,7 +91,7 @@ def preparar(biblioteca,destino):
         for o in bpy.data.objects:
             if o.name not in malhas or o.name in deslocadas:continue
             if o.name in ajustadas:
-                # Frentes, altura e largura nao mudam para caber o fundo.
+                # Do not change fronts, height, or width to fit the back.
                 a=malhas[o.name];b=[o.matrix_world @ v.co for v in o.data.vertices]
                 inv=conj.matrix_world.inverted();a=[inv@v for v in a];b=[inv@v for v in b]
                 for k in (0,2):
@@ -107,13 +107,13 @@ def preparar(biblioteca,destino):
             for i,v in enumerate(malhas[o.name]):kd.insert(v,i)
             kd.balance()
             if len(o.data.vertices)!=len(malhas[o.name]) or any(kd.find(o.matrix_world @ v.co)[2]>1e-5 for v in o.data.vertices):
-                raise AssertionError('Geometria mudou: '+o.name)
+                raise AssertionError("Geometry changed: "+o.name)
             conferir(antes['objetos'][o.name]['materiais'],depois['objetos'][o.name]['materiais'],o.name+'/material')
             assert antes['objetos'][o.name]['props'].get('chapa_uid')==o.get('chapa_uid')
         for nome,delta in fundos:
             conferir(antes['objetos'][nome]['malha'],depois['objetos'][nome]['malha'],nome+'/malha')
             conferir(antes['objetos'][nome]['medidas'],depois['objetos'][nome]['medidas'],nome+'/medidas')
-        conferir(antes['assets'],depois['assets'],'Catalogos')
+        conferir(antes['assets'],depois['assets'],"Catalogs")
         assert not addon.promob.fundos_a_recuar(conj)
         faces=faces_das_portas(conj)
         assert len(addon.promob.portas_sem_faces_opostas(faces))==len(faces)
@@ -131,16 +131,16 @@ def preparar(biblioteca,destino):
             assert digital(os.path.join(biblioteca,s))==hashes[s]
             manifesto['arquivos'].append(dict(nome=s,original=hashes[s],novo=digital(os.path.join(novos,s))))
         manifesto['modulos'].append(dict(arquivo=it['arquivo'],fundos=fundos,portas_retiradas=portas,internos=internos))
-        print('[fundos/portas]',it['nome'],fundos,portas,flush=True)
+        print("[backs/doors]",it['nome'],fundos,portas,flush=True)
     limpar();addon.unregister()
     json.dump(manifesto,open(os.path.join(destino,'manifesto.json'),'w',encoding='utf-8'),indent=1)
     print('VERIFICADOS',manifesto['verificados'],'CORRIGIDOS',len(manifesto['modulos']),flush=True)
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--destino',required=True)
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'))
-    p.add_argument('--aplicar',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--destination', required=True, dest='destino', metavar='DESTINATION')
+    p.add_argument('--library', default=os.path.join(RAIZ, 'archy_builder', "assets/library"), dest='biblioteca', metavar='LIBRARY')
+    p.add_argument('--apply', action='store_true', dest='aplicar')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:publicar(a.destino)

@@ -1,4 +1,4 @@
-"""Selecao em camadas (clique = modulo, duplo = peca) e os keymaps."""
+"""Layered selection (click = cabinet, double click = part) and keymaps."""
 
 import bpy
 _visibilidade = None
@@ -6,8 +6,8 @@ _alvenaria = None
 from bpy.props import BoolProperty, EnumProperty, IntVectorProperty
 from bpy.types import Operator, Menu
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ binds these aliases after loading
+# all modules (`_ligar_modulos`).
 _chapas = None
 _modulos = None
 _opcoes = None
@@ -25,14 +25,13 @@ _formas = None
 _paredes_edicao = None
 _fundos = None
 
-# ====================================================== SELECAO
-# 1 clique seleciona o MODULO inteiro (o realce nativo do Blender acende
-# em todas as pecas); 2 cliques isolam a chapa sob o cursor.
+# ====================================================== SELECTION
+# One click selects the whole CABINET (Blender's native highlight lights every part);
+# two clicks isolate the panel under the cursor.
 #
-# As entradas ficam no keyconfig do ADDON, avaliado antes do padrao.
-# Quando o poll falha -- fora do Object Mode, ou com a opcao desligada
-# nas Preferencias -- o evento cai para o `view3d.select` nativo e o
-# comportamento normal do Blender volta inteiro.
+# Entries belong to the ADDON keyconfig, evaluated before the default. When poll fails
+# (outside Object Mode or with the option disabled in Preferences), the event falls
+# through to native `view3d.select`, fully restoring normal Blender behavior.
 
 
 def _puxador_do_clique(obj):
@@ -44,8 +43,8 @@ def _puxador_do_clique(obj):
 
 
 def _selecionar_puxador(context, puxador, somar=False):
-    # A ascendencia identifica a montagem, mas nao amplia a selecao do
-    # acessorio: clicar nele abre so' as suas proprias funcoes.
+    # Ancestry identifies the assembly but does not expand accessory selection: clicking
+    # an accessory opens only its own functions.
     ligado = not puxador.select_get() if somar else True
     if not somar:
         for obj in context.selected_objects:
@@ -59,7 +58,7 @@ def _selecionar_puxador(context, puxador, somar=False):
 
 
 def _aba_da_selecao(obj):
-    """Aba da gaveta que cuida de `obj`, ou None (objeto que nao e' nosso)."""
+    """Sidebar tab responsible for `obj`, or None for an object outside the add-on."""
     if obj is None:
         return None
     if _alvenaria.grupo_de(obj) is not None:
@@ -82,10 +81,10 @@ def _aba_da_selecao(obj):
 
 
 def _seguir_selecao_na_gaveta(context):
-    """A gaveta vai para a aba do que o CLIQUE na viewport selecionou
-    (pedido do usuario): porta -> Portas, modulo -> Modulos, puxador ->
-    Puxadores. So' no clique: o add-on tambem troca o ativo sozinho (criar
-    porta deixa o modulo ativo) e ai' a aba nao pode pular."""
+    """Switch the sidebar to the tab matching a viewport CLICK selection (user
+    request): door -> Doors, cabinet -> Cabinets, handle -> Handles. Only on clicks:
+    the add-on also changes the active object itself (door creation leaves the
+    cabinet active), which must not make tabs jump."""
     camada = getattr(context, 'view_layer', None)
     ativo = camada.objects.active if camada is not None else None
     if ativo is None or not ativo.select_get():
@@ -96,14 +95,14 @@ def _seguir_selecao_na_gaveta(context):
     context.scene.cabinet_aba = aba
     tela = getattr(context, 'screen', None)
     if tela is not None:
-        # como o clique na aba: comeca do topo e fecha as opcoes
+        # Like clicking a tab: start at the top and close options.
         tela[_gaveta._CHAVE_ROLAGEM] = 0
         _gaveta._fechar_opcoes(tela)
     _eventos._redesenhar_viewports(context)
 
 
 def objetos_na_camada(context, objetos):
-    """Parent pode conservar IDs apagados; a View Layer nativa decide a selecao."""
+    """Parent may retain deleted IDs; the native View Layer determines selection."""
     camada = context.view_layer.objects
     return [o for o in objetos if camada.get(o.name) == o]
 
@@ -114,9 +113,9 @@ def montagem_da_porta(context):
 
 
 class OBJECT_OT_selecionar_montagem_porta(Operator):
-    """Seleciona a porta com puxadores, ferragens e demais componentes"""
+    """Select the door with handles, hardware and all other components."""
     bl_idname = 'object.cabinet_selecionar_montagem_porta'
-    bl_label = 'Grupo da porta'
+    bl_label = "Door Group"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -141,9 +140,9 @@ class OBJECT_OT_selecionar_montagem_porta(Operator):
 
 
 class OBJECT_OT_esconder_porta(Operator):
-    """Oculta na View Layer a porta inteira, incluindo seus agregados"""
+    """Hide the entire door in the View Layer, including attached components."""
     bl_idname = 'object.cabinet_esconder_porta'
-    bl_label = 'Esconder porta e agregados'
+    bl_label = "Hide Door and Attached Components"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -166,22 +165,20 @@ class OBJECT_OT_esconder_porta(Operator):
 
 class VIEW3D_MT_grupo_porta(Menu):
     bl_idname = 'VIEW3D_MT_cabinet_grupo_porta'
-    bl_label = 'Selecionar grupo'
+    bl_label = "Select Group"
 
     def draw(self, context):
         self.layout.operator_context = 'EXEC_DEFAULT'
         self.layout.operator(OBJECT_OT_selecionar_montagem_porta.bl_idname, icon='OUTLINER_OB_GROUP_INSTANCE')
         self.layout.separator()
-        self.layout.operator_menu_enum('object.select_grouped', 'type', text='Grupos do Blender')
+        self.layout.operator_menu_enum('object.select_grouped', 'type', text="Blender Groups")
 
 
 def familia_de(obj):
-    """Tudo que deve acender junto com obj: as chapas do grupo mais o
-    Empty do conjunto.
+    """Everything highlighted with obj: the group's panels plus its assembly Empty.
 
-    Selecionar o pai JUNTO com os filhos e' seguro: o Blender nao
-    transforma duas vezes o filho cujo pai tambem esta' selecionado.
-    """
+    Selecting the parent TOGETHER with its children is safe: Blender does not
+    transform a child twice when its parent is also selected."""
     if obj is None:
         return []
     if _puxador_do_clique(obj) is not None:
@@ -201,7 +198,7 @@ def familia_de(obj):
 
 
 def _encerrar_edicao_fora(context, atingido):
-    """Um clique fora encerra o escopo individual, inclusive entre viewports."""
+    """An outside click ends individual scope, including across viewports."""
     memoria = _hud._clique_chapa_hud.get(context.region.as_pointer())
     anterior = ((bpy.data.objects.get(memoria[0]) if memoria else None)
                 or getattr(context, 'object', None))
@@ -223,27 +220,27 @@ def _encerrar_edicao_fora(context, atingido):
 
 
 class OBJECT_OT_selecionar(Operator):
-    """Clique seleciona o modulo inteiro; clique duplo isola a chapa"""
+    """Click selects the whole cabinet; double click isolates the panel."""
     bl_idname = "object.cabinet_selecionar"
-    bl_label = "Selecionar Modulo"
+    bl_label = "Select Cabinet"
     bl_options = {'UNDO'}
 
     modo: EnumProperty(
-        name="Modo", default='GRUPO',
-        items=[('GRUPO', "Grupo", "Seleciona o modulo inteiro"),
-               ('INDIVIDUAL', "Individual", "Seleciona so' a chapa clicada")])
-    # espelham as props do view3d.select: sao repassadas tal e qual.
-    # SKIP_SAVE em TODAS: a entrada do keymap so' preenche as que cita,
-    # e o resto vinha do ULTIMO uso. Depois de um Shift+clique o clique
-    # simples herdava toggle=True e somava em vez de trocar a selecao.
+        name="Mode", default='GRUPO',
+        items=[('GRUPO', "Group", "Select the entire cabinet"),
+               ('INDIVIDUAL', "Individual", "Select only the clicked panel")])
+    # Mirror view3d.select properties and forward them unchanged. ALL use SKIP_SAVE:
+    # keymap entries set only the listed properties, and others used to come from the
+    # LAST invocation. After Shift+click, a plain click inherited toggle=True and added
+    # to selection instead of replacing it.
     location: IntVectorProperty(size=2, options={'SKIP_SAVE'})
     extend: BoolProperty(default=False, options={'SKIP_SAVE'})
     deselect: BoolProperty(default=False, options={'SKIP_SAVE'})
     toggle: BoolProperty(default=False, options={'SKIP_SAVE'})
     deselect_all: BoolProperty(default=False, options={'SKIP_SAVE'})
     select_passthrough: BoolProperty(default=False, options={'SKIP_SAVE'})
-    # Entrada do CLICK (soltou sem arrastar): termina o que o PRESS
-    # deixou passar, como o par PRESS/CLICK do keymap nativo
+    # CLICK entry (release without dragging): finish what PRESS passed through, like the
+    # native keymap's PRESS/CLICK pair.
     clique: BoolProperty(default=False, options={'SKIP_SAVE'})
 
     @classmethod
@@ -271,23 +268,23 @@ class OBJECT_OT_selecionar(Operator):
             return self._soltou(context, pendente)
         if (_portas_viewport._slider_sob_mouse(context, self.location) is not None
                 or _gavetas.slider_sob_mouse(context, self.location) is not None):
-            # a bolinha do slider: no keyconfig do usuario esta entrada vem
-            # antes da do slider, e selecionar aqui esconderia o slider
+            # Slider dot: in the user's keyconfig, this entry precedes the slider entry;
+            # selecting here would hide the slider.
             return {'PASS_THROUGH'}
         ferragem = _hud._ferragem_sob_mouse(context, self.location)
         if ferragem is not None:
             if not (self.toggle or self.extend):
                 _encerrar_edicao_fora(context, ferragem)
             if self.modo == 'INDIVIDUAL':
-                # duplo = a PECA, selecao nativa: Tab, G/R/S, modificadores
+                # Double click = PART, native selection: Tab, G/R/S, modifiers.
                 _ferragens._selecionar_peca(context, ferragem,
                                  somar=self.toggle or self.extend)
             else:
-                # dobradica/pistao: todas as do modulo, no modo delas
+                # Hinge/gas strut: all such parts in the cabinet, in their own mode.
                 _ferragens._selecionar_ferragem(context, ferragem,
                                      somar=self.toggle or self.extend)
             return {'FINISHED'}
-        # qualquer outro clique sai do modo de edicao das ferragens
+        # Any other click exits hardware editing mode.
         _ferragens._ferragens_selecionadas[0] = None
         atingido = _hud._raio_hud(context, self.location)
         if not (self.toggle or self.extend):
@@ -313,15 +310,16 @@ class OBJECT_OT_selecionar(Operator):
                        and gaveta.select_get() and not grupo.select_get())
             if (self.modo == 'INDIVIDUAL' or isolada
                     or (puxador.select_get() and context.view_layer.objects.active == puxador)):
-                # O escopo ja' isolado vale antes da selecao do modulo na parede.
+                # An already isolated scope takes precedence over wall-view cabinet
+                # selection.
                 _selecionar_puxador(context, puxador, somar=self.toggle or self.extend)
                 return {'FINISHED'}
         modulo_parede = (_paredes_edicao.modulo_da_peca(context, atingido[0])
                          if atingido is not None else None)
         if modulo_parede is not None and self.modo != 'INDIVIDUAL':
-            # Vista da parede: clique simples em QUALQUER peca e' o modulo
-            # (pedido do usuario), para o G nativo levar o movel inteiro.
-            # O duplo continua nos ramos de cada tipo, abaixo.
+            # Wall view: a single click on ANY part selects the cabinet (user request),
+            # so native G moves the entire unit. Double clicks still use the per-type
+            # branches below.
             obj = atingido[0]
             if self.toggle or self.extend:
                 _hud._somar_peca(context, obj)
@@ -329,8 +327,8 @@ class OBJECT_OT_selecionar(Operator):
             if self.select_passthrough and obj.select_get():
                 familia = set(_hud._familia_do_clique(obj, context))
                 if any(o not in familia for o in context.selected_objects):
-                    # varios modulos: o arraste leva todos; o CLICK sem
-                    # arrastar deixa so' este (`_soltou`)
+                    # Multiple cabinets: dragging moves all; CLICK without dragging
+                    # leaves only this one selected (`_soltou`).
                     _hud._clique_pendente[chave] = obj.name
                     return {'PASS_THROUGH', 'CANCELLED'}
             _hud._selecionar_chapa_hud(context, obj)
@@ -339,13 +337,13 @@ class OBJECT_OT_selecionar(Operator):
             _fundos.selecionar(context, atingido[0], somar=self.toggle or self.extend)
             return {'FINISHED'}
         if puxador is not None and puxador.parent is not None:
-            # Clique simples vale pela peca em que ele esta' (folha, frente
-            # da gaveta ou chapa): segue os ramos abaixo como se fosse nela.
+            # A single click targets the actual part (leaf, drawer front or panel): use
+            # the branches below as if clicking it directly.
             atingido = (puxador.parent, *atingido[1:])
         if atingido is not None and _gavetas.grupo_de(atingido[0]) is not None:
-            # GAVETA (pedido do usuario, como a porta): clique = todas as
-            # gavetas do vao, duplo = so' aquela; Shift soma. O corpo do
-            # modulo continua selecionando o modulo.
+            # DRAWER (user request, like doors): click = every drawer in the opening,
+            # double click = only this one; Shift adds. Clicking the cabinet body still
+            # selects the cabinet.
             grupo=_gavetas.grupo_de(atingido[0])
             somar=self.toggle or self.extend
             individual=(self.modo=='INDIVIDUAL' or (somar and not grupo.select_get()
@@ -359,8 +357,8 @@ class OBJECT_OT_selecionar(Operator):
                 somar=self.toggle or self.extend)
             return {'FINISHED'}
         if atingido is not None and _prateleiras.grupo_de(atingido[0]) is not None:
-            # PRATELEIRAS, como as gavetas: clique = todas do vao, duplo =
-            # so' aquela (a aba mostra os vaos dela); Shift soma
+            # SHELVES, like drawers: click = all in the opening, double click = only
+            # this one (the tab shows its gaps); Shift adds.
             _prateleiras.selecionar(context, atingido[0],
                                     'PRATELEIRA' if self.modo == 'INDIVIDUAL' else 'GRUPO',
                                     somar=self.toggle or self.extend)
@@ -370,21 +368,21 @@ class OBJECT_OT_selecionar(Operator):
             anterior = _hud._clique_chapa_hud.get(chave) or ('', 'MODULO')
             mesmo = anterior[0] == obj.name
             if _chapas.MARCA_FOLHA in obj and _portas._grupo_portas(obj) is not None:
-                # Porta (backlog do usuario, Epico 3): clique = a PORTA
-                # inteira (nunca o modulo); duplo = UMA folha ("aba").
-                # Shift soma. Ferragens nao entram (selecao propria).
+                # Door (user backlog, Epic 3): click = WHOLE DOOR (never the cabinet);
+                # double click = ONE leaf. Shift adds. Hardware is excluded and has its
+                # own selection.
                 somar = self.toggle or self.extend
                 if (self.modo != 'INDIVIDUAL' and self.select_passthrough
                         and not somar and obj.select_get()):
                     familia = {_portas._grupo_portas(obj), *_portas._folhas_portas(_portas._grupo_portas(obj))}
                     if any(o not in familia for o in context.selected_objects):
-                        # varios selecionados: o arraste leva todos; se
-                        # soltar sem arrastar, o CLICK deixa so' a porta
+                        # Multiple selected items: dragging moves all; release without
+                        # dragging makes CLICK leave only the door selected.
                         _hud._clique_pendente[chave] = obj.name
                         return {'PASS_THROUGH', 'CANCELLED'}
                 if modulo_parede is not None and somar:
-                    # Shift+duplo na vista da parede isola a folha DENTRO
-                    # do modulo que o primeiro clique somou
+                    # Shift+double click in wall view isolates the leaf WITHIN the
+                    # cabinet added by the first click.
                     _hud._somar_peca(context, obj, duplo=True)
                     return {'FINISHED'}
                 _hud._selecionar_porta_hud(
@@ -403,13 +401,13 @@ class OBJECT_OT_selecionar(Operator):
                     and self.modo != 'INDIVIDUAL' and obj.select_get()):
                 familia = set(_hud._familia_do_clique(obj, context)) | {obj}
                 if any(o not in familia for o in context.selected_objects):
-                    # Clicou num item JA' selecionado junto com outros:
-                    # no PRESS nada muda, senao o arraste so' levaria
-                    # este. Se soltar sem arrastar, o CLICK deixa so' ele.
+                    # Click on an item ALREADY selected with others: change nothing on
+                    # PRESS, otherwise dragging would move only this item. On release
+                    # without dragging, CLICK leaves only it selected.
                     _hud._clique_pendente[chave] = obj.name
-                    # Como o view3d.select nativo: CANCELLED + PASS_THROUGH.
-                    # Com FINISHED o Blender da' o PRESS por consumido e
-                    # nao gera o CLICK (alem de gravar um undo vazio).
+                    # Like native view3d.select: CANCELLED + PASS_THROUGH. With
+                    # FINISHED, Blender considers PRESS consumed and generates no CLICK
+                    # (and records an empty undo step).
                     return {'PASS_THROUGH', 'CANCELLED'}
             _hud._selecionar_chapa_hud(context, obj,
                                   self.modo == 'INDIVIDUAL' and mesmo,
@@ -418,10 +416,9 @@ class OBJECT_OT_selecionar(Operator):
         return self.execute(context)
 
     def _soltou(self, context, pendente):
-        """CLICK depois de um PRESS de CHAPA que deixou passar: so' o
-        modulo dela. Todo o resto e' do CLICK nativo -- para objeto comum
-        o Blender ja' deixa so' o clicado, e recriar isso aqui e' o que
-        NAO se quer."""
+        """CLICK after a PANEL PRESS passed through: select only its cabinet. All other
+        cases belong to native CLICK; for an ordinary object Blender already selects
+        only the clicked item, and that behavior must not be recreated here."""
         atingido = _hud._raio_hud(context, self.location)
         if not (self.toggle or self.extend):
             _encerrar_edicao_fora(context, atingido[0] if atingido is not None else None)
@@ -438,8 +435,8 @@ class OBJECT_OT_selecionar(Operator):
         return {'FINISHED'}
 
     def execute(self, context):
-        # a escolha de QUEM foi clicado continua sendo do Blender; este
-        # operador so' amplia (ou estreita) o resultado depois
+        # Blender still decides WHICH object was clicked; this operator only expands or
+        # narrows the resulting selection afterward.
         try:
             r = bpy.ops.view3d.select(
                 'EXEC_DEFAULT',
@@ -448,7 +445,7 @@ class OBJECT_OT_selecionar(Operator):
                 toggle=self.toggle, deselect_all=self.deselect_all,
                 select_passthrough=self.select_passthrough)
         except Exception as e:
-            print("[Archy Builder] selecao:", e)
+            print("[Archy Builder] selection:", e)
             return {'CANCELLED'}
         if 'PASS_THROUGH' in r or 'CANCELLED' in r:
             return r
@@ -458,7 +455,7 @@ class OBJECT_OT_selecionar(Operator):
         if not familia:
             return r
 
-        # se o clique DESLIGOU a peca (shift), o grupo inteiro apaga junto
+        # If the click DESELECTED the part (Shift), deselect the whole group too.
         ligado = obj.select_get()
         for o in familia:
             o.select_set(False if self.modo == 'INDIVIDUAL' else ligado, view_layer=context.view_layer)
@@ -469,9 +466,8 @@ class OBJECT_OT_selecionar(Operator):
 
 
 def malhas_para_editar(context):
-    """So' grupos selecionados explicitamente ampliam a edicao nativa.
-    Duplo clique numa chapa continua entrando apenas naquela peca.
-    """
+    """Only explicitly selected groups expand native editing scope. Double-clicking a
+    panel still enters only that part."""
     marcas = (_chapas.MARCA_CONJUNTO, _chapas.MARCA_PORTAS,
               _gavetas.MARCA_GRUPO, _gavetas.MARCA_GAVETA,
               _prateleiras.MARCA_GRUPO, _divisorias.MARCA_GRUPO)
@@ -482,14 +478,14 @@ def malhas_para_editar(context):
                 and o.get('cabinet_peca') not in _ferragens.PECAS_OCULTAS_RIG))
 
 
-_edicao_grupo = [None]  # So' nomes: undo/abrir arquivo liberam os objetos.
+_edicao_grupo = [None]  # Names only: undo/opening a file frees objects.
 
 
 def recuperar_edicao_grupo(context):
     if _edicao_grupo[0] is not None or not malhas_para_editar(context):
         return
-    # Undo pode devolver Edit Mode sem o estado Python. Os Empties que
-    # o Blender conservou selecionados ainda identificam o escopo.
+    # Undo may restore Edit Mode without Python state. Empties Blender kept selected
+    # still identify the scope.
     ativo, alvo = context.object, None
     while ativo is not None:
         if ativo.type == 'EMPTY' and ativo.select_get():
@@ -507,8 +503,8 @@ def concluir_edicao_grupo(context):
     estado, _edicao_grupo[0] = _edicao_grupo[0], None
     _ferragens.concluir_edicao_rigs(estado.get('ferragens', {}))
     _formas.esquecer()
-    # Sair pelo seletor de modo tambem chega aqui no timer. Se o usuario
-    # ja' mudou a selecao, essa nova escolha tem prioridade.
+    # Exiting through the mode selector also reaches this timer path. If the user has
+    # already changed selection, that new choice takes precedence.
     atuais = {o.name for o in context.selected_objects}
     if atuais != set(estado['durante']):
         return
@@ -525,9 +521,9 @@ def concluir_edicao_grupo(context):
 
 
 class OBJECT_OT_editar_grupo(Operator):
-    """Abre as malhas do grupo no Edit Mode original do Blender"""
+    """Open group meshes in Blender's native Edit Mode."""
     bl_idname = 'object.cabinet_editar_grupo'
-    bl_label = 'Editar Malhas do Grupo'
+    bl_label = "Edit Group Meshes"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -557,14 +553,14 @@ class OBJECT_OT_editar_grupo(Operator):
             return {'CANCELLED'}
         selecionados = [o.name for o in context.selected_objects]
         for o in context.selected_objects:
-            # O Empty selecionado e' o escopo do modulo. O Blender o
-            # conserva no Edit Mode e no undo; remove-lo espalhava a HUD
-            # por todas as chapas ao sair do Tab.
+            # The selected Empty defines cabinet scope. Blender retains it in Edit Mode
+            # and through undo; removing it spread the HUD across all panels when
+            # leaving Tab.
             if o.type != 'EMPTY':
                 o.select_set(False)
         for o in malhas:
-            # A ferragem compartilha a malha com outros modulos. Editar
-            # esta montagem nunca deve alterar outra copia na cena.
+            # Hardware shares meshes with other cabinets. Editing this assembly must
+            # never alter another copy in the scene.
             if o.data.users > 1:
                 o.data = o.data.copy()
             o.hide_set(False)
@@ -572,8 +568,8 @@ class OBJECT_OT_editar_grupo(Operator):
             o.select_set(True)
             _chapas.preparar_uvs_chapa(o)
         _ferragens.preparar_malhas_para_editar(context, malhas)
-        # O transformador nativo atualiza UVs/cores durante o gesto,
-        # mantendo a densidade da textura tambem nas faces que esticam.
+        # The native transform operator updates UVs/colors during the gesture,
+        # preserving texture density on stretched faces too.
         context.scene.tool_settings.use_transform_correct_face_attributes = True
         context.view_layer.objects.active = ativo if ativo in malhas else malhas[0]
         _prateleiras.iniciar_edicao(context, malhas, global_)
@@ -581,37 +577,36 @@ class OBJECT_OT_editar_grupo(Operator):
                                durante=[o.name for o in context.selected_objects],
                                ferragens=_ferragens.iniciar_edicao_rigs(malhas))
         bpy.ops.object.mode_set(mode='EDIT')
-        # Um Tab rapido pode terminar antes do proximo tique do timer.
+        # A quick Tab may finish before the next timer tick.
         _chapas.absorver_edicoes_de_malha()
         return {'FINISHED'}
 
 
 _keymaps = []
 
-# (valor do evento, shift, modo, props repassadas ao view3d.select)
-# O PRESS simples leva select_passthrough para preservar o arraste: o
-# clique sobre uma peca JA' selecionada nao desmonta a selecao, senao
-# nao daria para arrastar o modulo inteiro depois de seleciona-lo.
-# O CLICK so' age quando o PRESS de uma CHAPA deixou passar: o CLICK
-# nativo deixaria so' a chapa, nao o modulo. Para o resto ele devolve
-# PASS_THROUGH e quem desseleciona os outros e' o proprio Blender.
+# (event value, shift, mode, properties forwarded to view3d.select)
+# Plain PRESS uses select_passthrough to preserve dragging: clicking an ALREADY selected
+# part must not dismantle selection, otherwise the whole selected cabinet could not be
+# dragged. CLICK acts only when a PANEL PRESS passed through: native CLICK would leave
+# only the panel, not the cabinet. All other cases return PASS_THROUGH so Blender itself
+# deselects the other objects.
 _ENTRADAS_KEYMAP = (
     ('PRESS', False, 'GRUPO',
      {"deselect_all": True, "select_passthrough": True}),
     ('CLICK', False, 'GRUPO', {"deselect_all": True, "clique": True}),
     ('PRESS', True, 'GRUPO', {"toggle": True}),
     ('DOUBLE_CLICK', False, 'INDIVIDUAL', {"deselect_all": True}),
-    # Shift+duplo: isola a chapa DENTRO da selecao (ver `_hud._somar_peca`)
+    # Shift+double click: isolate the panel WITHIN selection (see `_hud._somar_peca`).
     ('DOUBLE_CLICK', True, 'INDIVIDUAL', {"toggle": True}),
 )
 
 
 def registrar_keymaps():
     kc = bpy.context.window_manager.keyconfigs.addon
-    if kc is None:          # Blender em background nao monta keyconfig
+    if kc is None:          # Background Blender does not create a keyconfig.
         return
     km = kc.keymaps.new(name="3D View", space_type='VIEW_3D')
-    # Esta entrada so' aceita eventos na area exclusiva da gaveta.
+    # This entry accepts events only in the sidebar's dedicated area.
     kmi = km.keymap_items.new("object.cabinet_interagir_gaveta",
                               'LEFTMOUSE', 'PRESS', head=True)
     _keymaps.append((km, kmi))
@@ -627,9 +622,8 @@ def registrar_keymaps():
             setattr(kmi.properties, chave, v)
         _keymaps.append((km, kmi))
 
-    # Correntes: a tecla escolhida nas opcoes, segurada, mostra a
-    # corrente (o operador devolve o evento: Alt/Ctrl/Shift seguem
-    # valendo para tudo o mais).
+    # Chains: holding the key chosen in options shows the chain (the operator passes the
+    # event through, so Alt/Ctrl/Shift still work everywhere else).
     for tecla in _solda.TECLAS_CORRENTE:
         for valor in ('PRESS', 'RELEASE'):
             kmi = km.keymap_items.new("object.cabinet_tecla_corrente",
@@ -640,16 +634,16 @@ def registrar_keymaps():
     kmi = km.keymap_items.new("object.cabinet_clique_corrente",
                               'LEFTMOUSE', 'PRESS', any=True, head=True)
     _keymaps.append((km, kmi))
-    # Slider de abertura das folhas: clique SEM modificador, antes da
-    # selecao; fora de um slider o operador devolve o evento.
+    # Leaf opening slider: click WITHOUT modifiers, before selection; outside a slider
+    # the operator passes the event through.
     kmi = km.keymap_items.new("object.cabinet_abrir_porta",
                               'LEFTMOUSE', 'PRESS', head=True)
     _keymaps.append((km, kmi))
 
-    # Paredes (como no DXF): botao DIREITO segurado num modulo o
-    # arrasta ate' uma parede. No "Object Mode" porque o menu de contexto
-    # mora la' (e esse keymap vem antes do "3D View"); fora de modulo o
-    # operador devolve o evento e o menu abre como sempre.
+    # Walls (as in the DXF): hold the RIGHT button on a cabinet to drag it to a wall.
+    # Use 'Object Mode' because the context menu lives there (and that keymap precedes
+    # '3D View'); outside cabinets the operator passes the event through and the menu
+    # opens normally.
     km_obj = kc.keymaps.new(name="Object Mode", space_type='EMPTY')
     kmi=km_obj.keymap_items.new('wm.call_menu','L','PRESS',ctrl=True,head=True)
     kmi.properties.name='VIEW3D_MT_cabinet_vinculos'
@@ -662,16 +656,15 @@ def registrar_keymaps():
     kmi = km_obj.keymap_items.new("object.cabinet_arrastar_na_parede",
                                   'RIGHTMOUSE', 'PRESS', head=True)
     _keymaps.append((km_obj, kmi))
-    # botao DIREITO na gaveta (pintura rapida sobre um material): tambem
-    # aqui, antes do menu de contexto; o poll so' aceita a gaveta
+    # RIGHT button in the sidebar (quick painting over a material): also register here
+    # before the context menu; poll only accepts the sidebar.
     kmi = km_obj.keymap_items.new("object.cabinet_interagir_gaveta",
                                   'RIGHTMOUSE', 'PRESS', head=True)
     _keymaps.append((km_obj, kmi))
 
-    # Posicionador a partir da grade. O keymap "User Interface" e' o
-    # unico que enxerga botoes de painel. O gesto de ARRASTAR raramente
-    # chega aqui (o handler de UI consome o PRESS antes), mas o
-    # CLIQUE-para-posicionar do operador funciona de qualquer forma.
+    # Placement from the grid. The 'User Interface' keymap is the only one that sees
+    # panel buttons. DRAG rarely reaches here (the UI handler consumes PRESS first), but
+    # the operator's CLICK-to-place works regardless.
     km_ui = kc.keymaps.new(name="User Interface", space_type='EMPTY')
     kmi = km_ui.keymap_items.new("object.cabinet_arrastar_preset",
                                  'LEFTMOUSE', 'PRESS', head=True)

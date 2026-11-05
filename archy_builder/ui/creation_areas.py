@@ -1,4 +1,5 @@
-"""Referencia retangular temporaria para criar internos sem vertices de apoio."""
+"""Temporary rectangular reference for creating cabinet internals without support
+vertices."""
 import math
 import bpy
 import gpu
@@ -30,11 +31,11 @@ DESTINOS = {'GAVETAS': 'object.cabinet_criar_gavetas',
 FACES = {'Z-': (0, 2, 3, 1), 'Z+': (4, 5, 7, 6),
          'Y-': (0, 1, 5, 4), 'Y+': (2, 6, 7, 3),
          'X-': (0, 4, 6, 2), 'X+': (1, 3, 7, 5)}
-RECADO_FRENTE = 'Clique na face que sera a frente | Backspace volta | Esc cancela'
+RECADO_FRENTE = "Click the front face | Backspace: back | Esc: cancel"
 
 
 def modulo_das_portas(context):
-    # A selecao pode mudar para a area temporaria; o assistente conserva o dono.
+    # Selection may move to the temporary area; the assistant retains the owner.
     estados = [_estado[0], _gavetas._assistente_gavetas[0],
                _prateleiras._assistente_prateleiras[0], _divisorias._assistente_divisorias[0]]
     for estado in estados:
@@ -67,16 +68,16 @@ def perguntar_portas(context, comando, destino='', modo='PONTOS'):
     na_gaveta = bool(_perguntas._na_gaveta[0] or _gaveta._eh_area_gaveta(context))
     props = dict(comando=comando, destino=destino, metodo=modo,
                  modulo=modulo.name, cena=context.scene.name, na_gaveta=na_gaveta)
-    _perguntas._perguntar(context, 'Esconder portas?',
+    _perguntas._perguntar(context, "Hide doors?",
         [(rotulo, 'NONE', 'object.cabinet_portas_internos', dict(props, esconder=esconder))
-         for rotulo, esconder in (('Sim', True), ('Nao', False))], na_gaveta=na_gaveta)
+         for rotulo, esconder in (("Yes", True), ("No", False))], na_gaveta=na_gaveta)
     _perguntas._pergunta_atual[0]['portas_internos'] = True
     return True
 
 
 class OBJECT_OT_portas_internos(Operator):
     bl_idname = 'object.cabinet_portas_internos'
-    bl_label = 'Mostrar ou esconder portas e agregados'
+    bl_label = "Show or Hide Doors and Attached Components"
     bl_options = {'REGISTER', 'UNDO'}
     comando: StringProperty(options={'SKIP_SAVE'})
     destino: StringProperty(options={'SKIP_SAVE'})
@@ -116,15 +117,15 @@ class OBJECT_OT_portas_internos(Operator):
 
 
 def caixa_de_pontos(modulo, pontos, validar=True):
-    # A diagonal nunca define os eixos: o modulo fornece apenas sua rotacao.
+    # The diagonal never defines the axes: the cabinet supplies only its rotation.
     mundo = modulo.matrix_world
     if any(not math.isfinite(v) for linha in mundo for v in linha):
-        raise ValueError('O modulo precisa de um referencial valido')
+        raise ValueError("The cabinet needs a valid reference frame")
     x = mundo.to_3x3().col[0].normalized()
     z = mundo.to_3x3().col[2]; z = (z - x * z.dot(x)).normalized()
     y = z.cross(x)
     if min(x.length, y.length, z.length) < .5:
-        raise ValueError('O modulo precisa de tres eixos validos')
+        raise ValueError("The cabinet needs three valid axes")
     if y.dot(mundo.to_3x3().col[1]) < 0:
         y = -y
     m = Matrix((x, y, z)).transposed().to_4x4()
@@ -132,12 +133,12 @@ def caixa_de_pontos(modulo, pontos, validar=True):
     inv = m.inverted()
     locais = [inv @ Vector(p) for p in pontos]
     if not locais or any(not math.isfinite(v) for p in locais for v in p):
-        raise ValueError('Marque pontos finitos para definir a area')
+        raise ValueError("Mark points with finite coordinates to define the area")
     lo = Vector(tuple(min(p[i] for p in locais) for i in range(3)))
     hi = Vector(tuple(max(p[i] for p in locais) for i in range(3)))
     medidas = tuple((hi[i] - lo[i]) * 1000 for i in range(3))
     if validar and min(medidas) < 1:
-        raise ValueError('Os tres pontos devem delimitar pelo menos 1 mm nos tres eixos')
+        raise ValueError("The three points must span at least 1 mm on all three axes")
     m.translation = m @ lo
     return dict(matriz=tuple(v for linha in m for v in linha), medidas=medidas,
                 modulo=modulo.name, plana=False)
@@ -151,7 +152,7 @@ def cantos_dados(d):
 
 def face_no_raio(d, origem, direcao):
     c = cantos_dados(d); acertos = []
-    # Somente as doze faces trianguladas da propria previa, via mathutils nativo.
+    # Only the preview's own twelve triangulated faces, using native mathutils.
     for nome, (a, b, e, f) in FACES.items():
         for indices in ((a, b, e), (a, e, f)):
             p = intersect_ray_tri(*(c[i] for i in indices), direcao, origem, True)
@@ -162,7 +163,7 @@ def face_no_raio(d, origem, direcao):
 
 def orientar_frente(d, face):
     if face not in FACES:
-        raise ValueError('Escolha a face da frente da area')
+        raise ValueError("Choose the area's front face")
     antigo = _matriz(d['matriz']).to_3x3()
     eixo = 'XYZ'.index(face[0]); sinal = -1 if face[1] == '-' else 1
     y = -sinal * antigo.col[eixo]
@@ -170,7 +171,7 @@ def orientar_frente(d, face):
     x = y.cross(z).normalized()
     m = Matrix((x, y, z)).transposed().to_4x4()
     origem = _matriz(d['matriz']).translation.copy(); medidas = []
-    # E' uma permutacao de eixos: conservar as medidas evita erro de arredondamento.
+    # This is an axis permutation: retaining dimensions avoids rounding errors.
     for novo in (x, y, z):
         indice = max(range(3), key=lambda i: abs(novo.dot(antigo.col[i])))
         medida = d['medidas'][indice]; medidas.append(medida)
@@ -221,16 +222,16 @@ def dados(obj):
     escalas = [e.length for e in eixos]
     if (min(escalas) <= 1e-8 or any(not math.isfinite(v) for v in escalas)
             or any(not math.isfinite(v) for linha in mundo for v in linha)):
-        raise ValueError('A area precisa de medidas positivas e finitas')
+        raise ValueError("Area dimensions must be positive and finite")
     eixos = [e.normalized() for e in eixos]
     if any(abs(eixos[i].dot(eixos[j])) > 1e-5 for i, j in ((0, 1), (0, 2), (1, 2))):
-        raise ValueError('A area deve permanecer retangular')
+        raise ValueError("The area must remain rectangular")
     base = Matrix(eixos).transposed().to_4x4()
     base.translation = mundo.translation
     medidas = tuple(float(v) * escala for v, escala in zip(obj['area_medidas_mm'], escalas))
     if (any(not math.isfinite(v) for v in medidas) or min(medidas[0], medidas[2]) < 1
             or not obj['area_plana'] and medidas[1] < 1):
-        raise ValueError('A area precisa de pelo menos 1 mm em cada direcao')
+        raise ValueError("The area must measure at least 1 mm in each direction")
     return dict(matriz=tuple(v for linha in base for v in linha), medidas=medidas,
                 modulo=obj.get('area_modulo', ''), plana=bool(obj['area_plana']))
 
@@ -279,12 +280,12 @@ def dados_visuais(obj):
 
 def aplicar(context, obj, chave, novo, lado=None):
     if obj is None:
-        return 'A area nao esta mais ativa'
+        return "The area is no longer active"
     if not math.isfinite(novo) or novo < 1:
-        return 'Informe uma medida de pelo menos 1 mm'
+        return "Enter a measurement of at least 1 mm"
     d = dados_visuais(obj); eixo = {'L': 0, 'P': 1, 'A': 2}[chave[0]]
     if d['plana'] and eixo == 1:
-        return 'O plano nao tem profundidade'
+        return "The plane has no depth"
     medidas = list(d['medidas']); m = _matriz(d['matriz'])
     if lado == 'max':
         m.translation -= m.to_3x3().col[eixo] * (novo - medidas[eixo]) / 1000
@@ -309,10 +310,10 @@ def restaurar(estado):
 
 
 def criar_referencia(context, destino, ponto, modulo=None, matriz=None):
-    """Empty impede Tab/bevel/subdivisao; o volume tem somente limites numericos."""
+    """An Empty prevents Tab/bevel/subdivision; the volume has only numeric bounds."""
     if destino not in DESTINOS:
-        raise ValueError('Sistema de criacao desconhecido')
-    obj = bpy.data.objects.new('Area de criacao', None)
+        raise ValueError("Unknown creation system")
+    obj = bpy.data.objects.new("Creation Area", None)
     context.scene.collection.objects.link(obj)
     obj[MARCA] = True
     obj['area_plana'] = destino in {'PORTAS', 'FUNDOS'}
@@ -399,9 +400,9 @@ def iniciar_internos(context, modo='PONTOS', portas_verificadas=False):
     _internos[0] = dict(etapa='TIPO', modo=modo, cena=context.scene.name,
         na_gaveta=bool(_perguntas._na_gaveta[0] or _gaveta._eh_area_gaveta(context)))
     context.scene.cabinet_aba = 'PRATELEIRAS'
-    _perguntar_internos(context, 'Criar prateleiras ou divisorias?',
-        [('Prateleiras', 'TIPO', 'PRATELEIRAS'),
-         ('Divisorias', 'TIPO', 'DIVISORIAS'), ('Sair', 'SAIR', '')])
+    _perguntar_internos(context, "Create shelves or partitions?",
+        [("Shelves", 'TIPO', 'PRATELEIRAS'),
+         ("Partitions", 'TIPO', 'DIVISORIAS'), ("Exit", 'SAIR', '')])
     return {'FINISHED'}
 
 
@@ -435,9 +436,9 @@ def criar_internos(context, assistente, extra):
         lacuna = _divisorias.prever_lacunas_prateleiras(conj,c['margens'],c['p'],ref)
     if lacuna:
         s['etapa'] = 'LACUNA'
-        _perguntar_internos(context, 'Qual prateleira preenche a lacuna?',
-            [('Esquerda', 'LACUNA', 'ESQUERDA'), ('Direita', 'LACUNA', 'DIREITA'),
-             ('Manter vao', 'LACUNA', 'MANTER'), ('Cancelar', 'SAIR', '')])
+        _perguntar_internos(context, "Which shelf should fill the gap?",
+            [("Left", 'LACUNA', 'ESQUERDA'), ("Right", 'LACUNA', 'DIREITA'),
+             ("Keep Gap", 'LACUNA', 'MANTER'), ("Cancel", 'SAIR', '')])
         return {'FINISHED'}
     return confirmar_internos(context)
 
@@ -461,15 +462,15 @@ def confirmar_internos(context):
         concluidos.append(s['tipo'])
     outro = 'DIVISORIAS' if s['tipo'] == 'PRATELEIRAS' else 'PRATELEIRAS'
     escolhas = ([] if outro in concluidos else
-        [('Prateleiras' if outro == 'PRATELEIRAS' else 'Divisorias', 'CONTINUAR', outro)])
-    _perguntar_internos(context, 'Continuar no mesmo volume?' if escolhas else 'Concluir criacao',
-        escolhas + [('Sair', 'SAIR', '')])
+        [("Shelves" if outro == 'PRATELEIRAS' else "Partitions", 'CONTINUAR', outro)])
+    _perguntar_internos(context, "Continue in the same volume?" if escolhas else "Finish Creation",
+        escolhas + [("Exit", 'SAIR', '')])
     return {'FINISHED'}
 
 
 class OBJECT_OT_internos(Operator):
     bl_idname = 'object.cabinet_internos'
-    bl_label = 'Criar Prateleiras ou Divisorias'
+    bl_label = "Create Shelves or Partitions"
     bl_options = {'REGISTER', 'UNDO'}
     acao: StringProperty(default='INICIAR', options={'SKIP_SAVE'})
     valor: StringProperty(options={'SKIP_SAVE'})
@@ -532,8 +533,8 @@ def verificar():
             dados_visuais(obj)
         except ValueError:
             return
-        # S pode atravessar zero enquanto o operador nativo esta' vivo.
-        # Ao terminar, conservar o ultimo retangulo valido sem erro no redraw.
+        # S may cross zero while the native operator is active. On completion, keep the
+        # last valid rectangle without redraw errors.
         try:
             dados(obj)
         except ValueError:
@@ -552,13 +553,13 @@ def consumir(destino):
 def preparar_entrega(context):
     s = _estado[0]; obj = objeto()
     if obj is None:
-        raise ValueError('Posicione a area com um clique na viewport')
+        raise ValueError("Click in the viewport to position the area")
     d = dict(dados(obj), destino=s['destino'])
     if not d['plana']:
         d = orientar_frente(d, s.get('frente'))
     modulo = bpy.data.objects.get(d['modulo'])
     if d['destino'] != 'PORTAS' and modulo is None:
-        raise ValueError('Selecione um modulo antes de definir a area')
+        raise ValueError("Select a cabinet before defining the area")
     l, prof, a = d['medidas']
     donos = {'GAVETAS': _gavetas, 'PRATELEIRAS': _prateleiras, 'DIVISORIAS': _divisorias}
     if d['destino'] in donos:
@@ -569,7 +570,7 @@ def preparar_entrega(context):
         p.update(dict.fromkeys(_portas.COBERTURAS_LADOS, 0.0))
         _portas._calcular_folhas_portas(l, a, p)
     elif min(l, a) <= 1:
-        raise ValueError('Marque uma area com largura e altura maiores que 1 mm')
+        raise ValueError("Mark an area with width and height greater than 1 mm")
     return d
 
 
@@ -590,7 +591,7 @@ def entregar(context):
 def solicitar_frente(context):
     obj = objeto()
     if obj is None:
-        raise ValueError('Posicione a area com um clique na viewport')
+        raise ValueError("Click in the viewport to position the area")
     if dados(obj)['plana']:
         return entregar(context)
     _estado[0].update(etapa='FRENTE', face_hover=None)
@@ -611,18 +612,18 @@ def vao_porta(d):
 
 def validar_plano(medidas, matriz):
     if any(not math.isfinite(v) for v in medidas) or min(medidas) < 1:
-        raise ValueError('Area da porta invalida')
+        raise ValueError("Invalid door area")
     eixos = [matriz.to_3x3().col[i] for i in range(3)]
     if (any(not math.isfinite(v) for linha in matriz for v in linha)
             or any(abs(e.length - 1) > 1e-5 for e in eixos)
             or any(abs(eixos[i].dot(eixos[j])) > 1e-5 for i, j in ((0,1),(0,2),(1,2)))):
-        raise ValueError('O plano deve permanecer retangular e sem escala')
+        raise ValueError("The plane must remain rectangular with no scale applied")
 
 
 def receber_internos(assistente, d):
     w = assistente._w; conj = bpy.data.objects.get(d['modulo'])
     if conj is None:
-        raise ValueError('O modulo da area nao existe mais')
+        raise ValueError("The area's cabinet no longer exists")
     m = _matriz(d['matriz']); l, prof, a = d['medidas']
     w.update(modulo=conj.name, pontos=[m @ Vector((0, 0, a / 1000)),
         m @ Vector((l / 1000, 0, 0))], nomes=['', ''], area_livre=True)
@@ -641,22 +642,22 @@ def receber_internos(assistente, d):
 def widgets(context, itens, x, y, w):
     obj = objeto()
     if obj is None:
-        itens.append((x, y, w, 28, 'Clique na viewport para posicionar a area', None))
+        itens.append((x, y, w, 28, "Click in the viewport to position the area", None))
     elif _estado[0].get('etapa') == 'FRENTE':
-        itens.append((x, y, w, 28, 'Clique na face da frente na viewport', None))
+        itens.append((x, y, w, 28, "Click the front face in the viewport", None))
         y -= 38
     else:
-        topo = _gaveta._titulo_secao(itens, x, y, w, 'Area de criacao')
+        topo = _gaveta._titulo_secao(itens, x, y, w, "Creation Area")
         chaves = [('L', 'A1'), ('A', 'A2')] + ([] if obj['area_plana'] else [('P', 'A3')])
         campos = [(rotulo + ': ' + _opcoes._texto_medida(valor(obj, (chave,))),
                    ('medida', 'area_criacao', chave, rotulo, valor(obj, (chave,)))) for chave, rotulo in chaves]
         y = _gaveta._campos_em_linhas(context, itens, x, topo, w, campos, colunas_uniformes=True)
         y -= 30
-        itens.append((x, y, w, 30, 'Aplicar area', ('operador', 'object.cabinet_aplicar_area')))
+        itens.append((x, y, w, 30, "Apply Area", ('operador', 'object.cabinet_aplicar_area')))
         y -= 38
     if obj is None:
         y -= 36
-    itens.append((x, y, w, 28, 'Cancelar', ('operador', 'object.cabinet_cancelar_area')))
+    itens.append((x, y, w, 28, "Cancel", ('operador', 'object.cabinet_cancelar_area')))
     return itens
 
 
@@ -686,7 +687,7 @@ def desenhar():
 
 class OBJECT_OT_definir_area(Operator):
     bl_idname = 'object.cabinet_definir_area'
-    bl_label = 'Definir Area de Criacao'
+    bl_label = "Define Creation Area"
     bl_options = {'INTERNAL'}
     destino: StringProperty(options={'SKIP_SAVE'})
     portas_verificadas: BoolProperty(options={'SKIP_SAVE'})
@@ -720,7 +721,7 @@ class OBJECT_OT_definir_area(Operator):
             _estado[0]['handler'] = bpy.types.SpaceView3D.draw_handler_add(desenhar, (), 'WINDOW', 'POST_VIEW')
             _estado[0]['timer'] = context.window_manager.event_timer_add(.1, window=context.window)
             context.scene.cabinet_aba = destino
-            area.header_text_set('Clique para posicionar a area | Esc cancela')
+            area.header_text_set("Click to position the area | Esc: cancel")
             context.window_manager.modal_handler_add(self)
         except Exception:
             encerrar(); raise
@@ -746,7 +747,7 @@ class OBJECT_OT_definir_area(Operator):
             if s.get('etapa') == 'FRENTE':
                 if event.type == 'BACK_SPACE' and event.value == 'PRESS':
                     s.pop('etapa', None); s.pop('face_hover', None)
-                    area.header_text_set('Ajuste a area | Enter aplica | Esc cancela')
+                    area.header_text_set("Adjust the area | Enter: apply | Esc: cancel")
                     return {'RUNNING_MODAL'}
                 if dentro and event.type in {'MOUSEMOVE', 'LEFTMOUSE'}:
                     xy = (event.mouse_x - regiao.x, event.mouse_y - regiao.y)
@@ -761,7 +762,7 @@ class OBJECT_OT_definir_area(Operator):
                     return {'RUNNING_MODAL'}
                 return {'PASS_THROUGH'}
             if event.type in {'RET', 'NUMPAD_ENTER'} and objeto() is not None:
-                # O Enter que confirma um campo/G nao confirma tambem a area.
+                # Enter confirming a field/G must not also confirm the area.
                 if event.value == 'PRESS' and dentro:
                     s['aplicar_tecla'] = True
                     return {'RUNNING_MODAL'}
@@ -794,7 +795,7 @@ class OBJECT_OT_definir_area(Operator):
                     obj = criar_referencia(context, s['destino'], ponto, modulo)
                     s['objeto'] = obj.name
                     dados_visuais(obj)
-                    area.header_text_set('Ajuste as faces ou use G/R/S | Enter aplica | Esc cancela')
+                    area.header_text_set("Adjust faces or use G/R/S | Enter: apply | Esc: cancel")
             _eventos._redesenhar_viewports(context)
             return {'RUNNING_MODAL'}
         except ValueError as erro:
@@ -809,7 +810,7 @@ class OBJECT_OT_definir_area(Operator):
 
 class OBJECT_OT_aplicar_area(Operator):
     bl_idname = 'object.cabinet_aplicar_area'
-    bl_label = 'Aplicar Area'
+    bl_label = "Apply Area"
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -826,7 +827,7 @@ class OBJECT_OT_aplicar_area(Operator):
 
 class OBJECT_OT_cancelar_area(Operator):
     bl_idname = 'object.cabinet_cancelar_area'
-    bl_label = 'Cancelar Area'
+    bl_label = "Cancel Area"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):

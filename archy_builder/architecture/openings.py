@@ -1,4 +1,4 @@
-"""Blocagens de esquadrias e volumes de passagem e de giro."""
+"""Opening placeholders and clearance volumes for passage and swing."""
 import math
 
 import bpy
@@ -8,15 +8,15 @@ from mathutils import Matrix, Vector, geometry
 _alvenaria = _paredes = _paredes_edicao = _instalacoes = None
 
 MODELOS = {
-    'PORTA': ('Porta de giro', (.90, 2.10, .12)),
-    'JANELA': ('Janela de correr', (1.20, 1., .10)),
-    'SACADA': ('Porta de sacada', (1.60, 2.10, .12)),
+    'PORTA': ("Hinged door", (.90, 2.10, .12)),
+    'JANELA': ("Sliding window", (1.20, 1., .10)),
+    'SACADA': ("Balcony door", (1.60, 2.10, .12)),
 }
 PERFIL = .045
 FOLGA = .003
 FOLHA = .035
 GIRO = math.radians(110)
-AVISO = 'O armario interfere na passagem ou na abertura da porta'
+AVISO = "The cabinet obstructs the passage or the door opening"
 CHAVE_LADO = 'cabinet_esquadria_lado'
 CHAVE_FACE = 'cabinet_esquadria_sentido'
 CHAVE_ABERTURAS = 'cabinet_esquadria_aberturas'
@@ -110,7 +110,7 @@ def _caixa(a, b, obj, nome):
 def _vidro():
     material = next((m for m in bpy.data.materials if m.get('cabinet_vidro_blocagem')), None)
     if material is None:
-        material = bpy.data.materials.new('Vidro de esquadria')
+        material = bpy.data.materials.new("Door/window glass")
         material['cabinet_vidro_blocagem'] = True
         material.diffuse_color = (.31, .58, .67, .36)
         material.use_nodes = True
@@ -125,18 +125,18 @@ def montar(obj):
     largura, altura, fundo = obj[_alvenaria.MEDIDAS]
     x, y = largura / 2, altura / 2
     porta = obj[_alvenaria.MARCA] == 'PORTA'
-    _caixa((-x, -y, -fundo), (-x + PERFIL, y, 0), obj, 'Batente esquerdo')
-    _caixa((x - PERFIL, -y, -fundo), (x, y, 0), obj, 'Batente direito')
-    _caixa((-x + PERFIL, y - PERFIL, -fundo), (x - PERFIL, y, 0), obj, 'Batente superior')
+    _caixa((-x, -y, -fundo), (-x + PERFIL, y, 0), obj, "Left jamb")
+    _caixa((x - PERFIL, -y, -fundo), (x, y, 0), obj, "Right jamb")
+    _caixa((-x + PERFIL, y - PERFIL, -fundo), (x - PERFIL, y, 0), obj, "Head jamb")
     if porta:
-        _instalacoes.caixa(obj, 'Folha 1', (0, 0, 0),
+        _instalacoes.caixa(obj, "Leaf 1", (0, 0, 0),
                         (largura - 2*(PERFIL+FOLGA), altura - PERFIL - 2*FOLGA, FOLHA))
         for i in range(2):
-            _instalacoes.cilindro(obj, 'Dobradica %d' % (i + 1), .008, .075)
+            _instalacoes.cilindro(obj, "Hinge %d" % (i + 1), .008, .075)
     else:
-        _caixa((-x + PERFIL, -y, -fundo), (x - PERFIL, -y + PERFIL, 0), obj, 'Trilhos inferiores')
+        _caixa((-x + PERFIL, -y, -fundo), (x - PERFIL, -y + PERFIL, 0), obj, "Lower tracks")
         for i in range(2):
-            folha = _instalacoes.caixa(obj, 'Folha %d' % (i + 1), (0, 0, 0),
+            folha = _instalacoes.caixa(obj, "Leaf %d" % (i + 1), (0, 0, 0),
                                     ((largura - 2*PERFIL) / 2, altura - 2*PERFIL, .018))
             folha.color = (.31, .58, .67, .65)
             if not folha.data.materials:
@@ -147,24 +147,24 @@ def montar(obj):
 
 def posar(obj):
     largura, altura, fundo = obj[_alvenaria.MEDIDAS]
-    pecas = {p.get(_alvenaria.PECA): p for p in obj.children}
+    pecas = {_instalacoes.nome_peca(p): p for p in obj.children}
     fracoes = obj[CHAVE_ABERTURAS]
     if obj[_alvenaria.MARCA] == 'PORTA':
         x, z, lado, sentido = _eixo(obj)
         angulo = _ficha(obj)[0] * fracoes[0]
         giro = Matrix.Rotation(-lado * sentido * angulo, 4, 'Y')
         meio = Vector((lado*(largura - 2*(PERFIL+FOLGA))/2, -PERFIL/2, -sentido*FOLHA/2))
-        folha = pecas['Folha 1']
+        folha = pecas["Leaf 1"]
         folha.matrix_basis = Matrix.Translation((x, 0, z)) @ giro @ Matrix.Translation(meio) @ Matrix.Diagonal((*folha.scale, 1.))
         for i in range(2):
-            peca = pecas.get('Dobradica %d' % (i + 1))
+            peca = pecas.get("Hinge %d" % (i + 1))
             if peca:
                 peca.matrix_basis = (Matrix.Translation((x, (.5-i)*altura*.65, z))
                                      @ Matrix.Rotation(math.pi/2, 4, 'X') @ Matrix.Diagonal((*peca.scale, 1.)))
     else:
         curso = (largura - 2*PERFIL) / 2
         for i, fracao in enumerate(fracoes):
-            pecas['Folha %d' % (i + 1)].location = ((2*i - 1)*curso*(.5-fracao), 0, -fundo*(i+1)/3)
+            pecas["Leaf %d" % (i + 1)].location = ((2*i - 1)*curso*(.5-fracao), 0, -fundo*(i+1)/3)
 
 
 def abrir(obj, folha, fracao):

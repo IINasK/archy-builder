@@ -1,4 +1,4 @@
-"""Correcoes de internos somente em cenas e pastas descartaveis."""
+"""Internal-component repairs using only disposable scenes and directories."""
 from pathlib import Path
 import json
 import sys
@@ -43,7 +43,7 @@ class TestCorrecaoInternos(unittest.TestCase):
 
     def test_preparo_recusa_destino_na_biblioteca_antes_de_criar_pastas(self):
         with tempfile.TemporaryDirectory() as pasta:
-            biblioteca=Path(pasta)/'biblioteca';biblioteca.mkdir()
+            biblioteca=Path(pasta)/"library";biblioteca.mkdir()
             with self.assertRaises(ValueError):
                 correcao.preparar(biblioteca,Path(pasta)/'fontes',biblioteca/'novos')
             self.assertFalse(list(biblioteca.iterdir()))
@@ -150,4 +150,4 @@ with tempfile.TemporaryDirectory(prefix='cabinet_correcao_teste_') as guarda:
             resultado=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(TestCorrecaoInternos))
         finally:
             correcao._base.limpar();addon.chapas._ocupado[0]=False;addon.unregister()
-if not resultado.wasSuccessful():raise RuntimeError('Correcao de internos reprovada')
+if not resultado.wasSuccessful():raise RuntimeError("Internal-component repair failed")

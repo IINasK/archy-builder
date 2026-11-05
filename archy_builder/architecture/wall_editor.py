@@ -1,8 +1,7 @@
-"""Vista local de uma face de parede e distribuicao de presets nessa face.
+"""Local view of a wall face and preset distribution on that face.
 
-A sessao guarda somente nomes e numeros: undo pode destruir qualquer ID.
-Geometria e coordenadas pertencem a paredes; resize pertence a modulos.
-"""
+The session stores only names and numbers: undo can destroy any ID.
+Geometry and coordinates belong to walls; resizing belongs to cabinets."""
 
 import math
 import time
@@ -35,7 +34,7 @@ _plano = [None]
 _escolha_area = [None]
 _snap_area = [None]
 ALVO_AREA = '__PAREDE_AREA__'
-METODOS_AREA = (('AUTO','Automatico'),('PONTOS','Por pontos'))
+METODOS_AREA = (('AUTO',"Automatic"),('PONTOS',"By points"))
 ALVO_QUANTIDADE = 'paredes_quantidade'
 CHAVE_VISUAL = 'cabinet_parede_exibicao_2d'
 CHAVE_ORDEM = 'parede_ordem_posicionamento'
@@ -54,7 +53,7 @@ def superficie(obj):
 
 
 def lembrar_face(context, posicao, contexto=False):
-    """Apenas observa o raycast; a selecao continua sendo do Blender."""
+    """Observe only the raycast; Blender still owns selection."""
     acerto = _hud._raio_cru(context, posicao)
     if contexto:
         _alvo_contexto[0] = acerto[0].name if acerto and superficie(acerto[0]) else ''
@@ -67,8 +66,8 @@ def lembrar_face(context, posicao, contexto=False):
 def face_do_objeto(context, obj):
     if not superficie(obj):
         return None
-    # Tab pode alterar o contorno sem mudar a quantidade de vertices.
-    # Esta leitura ocorre na entrada, nunca no desenho da gaveta.
+    # Tab can change the outline without changing the vertex count.
+    # Read this on entry, never while drawing the sidebar.
     _paredes._retangulos.clear()
     anterior = _ultima_face[0]
     if anterior and anterior[0] == obj.name:
@@ -78,7 +77,7 @@ def face_do_objeto(context, obj):
                     context.evaluated_depsgraph_get(), anterior[3])
         if regiao:
             return ponto, normal, regiao
-    # Outliner nao fornece face: escolher a maior voltada para a vista.
+    # The Outliner supplies no face: choose the largest face toward the view.
     area = viewport(context)
     frente = (area.spaces.active.region_3d.view_rotation @ Vector((0, 0, 1))
               if area else Vector((0, -1, 0)))
@@ -90,7 +89,7 @@ def face_do_objeto(context, obj):
         if (_paredes.eixos_da_parede(normal) and normal.dot(frente) > 0
                 and (not _paredes.alvenaria_definida(obj)
                      or _alvenaria.superficie(obj, poly.index, normal, avaliado.data) == 'PAREDE')):
-            # Area avaliada no mundo, inclusive para paredes com escala.
+            # Evaluate area in world space, including walls with scale.
             escala_area = abs(obj.matrix_world.to_3x3().determinant()) * (
                 normal_mundo @ poly.normal).length
             candidatas.append((poly.area * escala_area, normal.dot(frente), poly.index))
@@ -133,7 +132,7 @@ def ativa(context=None):
 
 
 def associados(parede, ponto, normal, objetos, regiao=None):
-    """Filtra tambem o plano: o mesmo objeto pode ter duas faces opostas."""
+    """Also filter by plane: one object can have two opposite faces."""
     resultado = []
     for obj in objetos:
         if _chapas.MARCA_CONJUNTO not in obj or _paredes.parede_do_modulo(obj) != parede:
@@ -194,24 +193,24 @@ def _aplicar_isolamento(context, area, manter):
                     obj.select_set(True)
             context.view_layer.objects.active = context.view_layer.objects.get(nome_ativo)
     if espaco.local_view is None:
-        raise ValueError('Nao foi possivel isolar a parede nesta viewport')
+        raise ValueError("Could not isolate the wall in this viewport")
     for obj in context.scene.objects:
         obj.local_view_set(espaco, obj.name in manter)
     context.view_layer.update()
 
 
 def esta_na_vista(obj, espaco, context):
-    # 4.2 le base_local_view_bits da copia avaliada; o setter escreve no
-    # Base da camada. O getter 5.x consulta o Base diretamente.
+    # In 4.2, the getter reads base_local_view_bits from the evaluated copy; the setter writes
+    # to the layer's Base. The 5.x getter reads Base directly.
     if bpy.app.version < (4, 3, 0):
         obj = obj.evaluated_get(context.evaluated_depsgraph_get())
     return obj.local_view_get(espaco)
 
 
 def modulo_da_peca(context, obj):
-    """Na viewport isolada, qualquer peca de um modulo da face (porta,
-    gaveta, prateleira, puxador) responde pelo modulo: o G nativo leva
-    o movel inteiro (pedido do usuario)."""
+    """In the isolated viewport, any component of a cabinet on the face (door,
+    drawer, shelf, or handle) represents that cabinet: native G moves
+    the whole cabinet, as requested by the user."""
     if (obj is None or not ativa(context) or context.area is None
             or context.area.as_pointer() != _sessao[0]['area']):
         return None
@@ -223,12 +222,12 @@ def modulo_da_peca(context, obj):
 
 
 def modulo_editavel(modulo):
-    # A elegibilidade e' da entrada, nao da posicao depois de um gesto.
+    # Eligibility is determined on entry, not by position after a gesture.
     return not _sessao[0] or modulo is None or modulo.name not in _sessao[0].get('restritos', ())
 
 
 def _tecla_de_mover(context, event):
-    """O atalho do G nativo no keymap do usuario (ele pode ter trocado)."""
+    """The user's native G keymap shortcut, which may have been reassigned."""
     configs = context.window_manager.keyconfigs.user
     mapas = (configs.keymaps.get(nome) for nome in ('Object Mode', '3D View'))
     return any(getattr(km and km.keymap_items.match_event(event), 'idname', '')
@@ -236,10 +235,10 @@ def _tecla_de_mover(context, event):
 
 
 def modulo_para_mover(context, event, regiao):
-    """Nome do modulo que o G (o do keymap do usuario) ou o arraste do
-    esquerdo levam no plano da parede (`OBJECT_OT_mover_na_parede`), ou
-    None para o Blender seguir. Com varios modulos selecionados o G e o
-    arraste continuam nativos: o ima 2D age ao soltar."""
+    """Name of the cabinet moved along the wall plane by the user's G shortcut
+    or left drag (`OBJECT_OT_mover_na_parede`), or None to let Blender handle it.
+    With multiple cabinets selected, G and drag remain native; 2D snapping
+    is applied on release."""
     if event.value != 'PRESS' or event.shift or event.ctrl or event.alt or event.oskey:
         return None
     if event.type == 'LEFTMOUSE':
@@ -262,7 +261,7 @@ def modulo_para_mover(context, event, regiao):
 
 
 def _preparar_fios(objetos):
-    # So' madeira: o wire das ferragens exporia triangulos e controles do rig.
+    # Wood only: hardware wireframes would expose triangles and rig controls.
     for obj in objetos:
         if obj.type == 'MESH' and _chapas.MARCA_CHAPA in obj:
             if CHAVE_FIOS not in obj:
@@ -287,7 +286,7 @@ def _preparar_visual(area, parede):
         'parede_exibicao': parede.display_type,
     }
     s['visual']['shading']['object_outline_color'] = tuple(espaco.shading.object_outline_color)
-    # Contorno nativo destaca as pecas sem esconder a superficie da parede.
+    # Native outlines highlight the components without hiding the wall surface.
     espaco.shading.type = 'SOLID'
     espaco.shading.light = 'FLAT'
     espaco.shading.color_type = 'OBJECT'
@@ -299,14 +298,14 @@ def _preparar_visual(area, parede):
     parede[CHAVE_VISUAL] = parede.display_type
     parede.display_type = 'SOLID'
     _preparar_fios(o for o in bpy.context.scene.objects if o.visible_get(viewport=espaco))
-    # Snap NATIVO de vertice enquanto durar a vista: o G encaixa quina com
-    # quina sem Ctrl; B escolhe o vertice de origem. Devolvido ao sair.
+    # Use NATIVE vertex snapping during this view: G aligns corners
+    # without Ctrl; B selects the source vertex. Restore on exit.
     _guardar_snap(bpy.context.scene)
 
 
 def _guardar_snap(cena):
-    # O anterior fica NA CENA: o undo restaura tool_settings do snapshot
-    # e a marca volta junto, para o timer devolver o snap do usuario.
+    # Keep the previous state ON THE SCENE: undo restores tool_settings from the snapshot
+    # along with the marker, so the timer can restore the user's snap settings.
     ajustes = cena.tool_settings
     cena[CHAVE_SNAP] = {k: ','.join(sorted(getattr(ajustes, k))) if k == 'snap_elements'
                         else getattr(ajustes, k) for k in SNAP_DA_VISTA}
@@ -355,19 +354,19 @@ def _restaurar_visual(area, s):
 
 def iniciar(context, obj, face=None, recortar=False):
     if _eventos._desfazendo[0]:
-        return 'Aguarde o processamento de desfazer/refazer'
+        return "Wait for undo/redo processing"
     face = face if face is not None else face_do_objeto(context, obj)
     area = viewport(context)
     if face is None or area is None:
-        return 'Selecione uma face plana vertical voltada para a vista'
+        return "Select a planar vertical face facing the view"
     ponto, normal, regiao = face
     n, u = _paredes.eixos_da_parede(normal)
-    # A primeira versao nao projeta paredes inclinadas como se fossem verticais.
-    # Recusar ANTES de encerrar: a sessao atual nao some por uma face errada.
+    # The initial version does not project sloped walls as vertical ones.
+    # Reject BEFORE ending the session: a wrong face must not discard the current session.
     if abs(normal.z) > 0.001:
-        return 'A edicao 2D exige uma face vertical'
+        return "2D editing requires a vertical face"
     encerrar()
-    # depois de encerrar: trocando de parede, a vista ja' voltou a' do usuario
+    # After ending the session: switching walls has already restored the user's view.
     perspectiva_anterior = area.spaces.active.region_3d.view_perspective
     _sequencia[0] = time.monotonic_ns()
     _sessao[0] = {
@@ -468,9 +467,9 @@ def encerrar(perspectiva=False):
         if area and area.type == 'VIEW_3D' and area.spaces.active.local_view:
             cena = bpy.data.scenes.get(s['cena']) or janela.scene
             camada = cena.view_layers.get(s['camada']) or cena.view_layers[0]
-            # Local View consulta a cena REAL da janela em C. Override
-            # apenas de scene/view_layer deixa Bases de cenas diferentes
-            # e derruba 4.2/5.2. Restaurar na janela real, sem redesenho.
+            # Local View queries the window's REAL scene in C. Overriding
+            # only scene/view_layer mixes Bases from different scenes
+            # and crashes 4.2/5.2. Restore in the actual window without redrawing.
             janela.scene = cena
             janela.view_layer = camada
             with bpy.context.temp_override(window=janela, area=area, region=regiao):
@@ -479,8 +478,8 @@ def encerrar(perspectiva=False):
                     for obj in cena.objects:
                         obj.local_view_set(area.spaces.active, obj.name in membros)
                 else:
-                    # O Blender restaura o ponto de vista anterior ao sair do Local
-                    # View. Conservar a vista atual deixa o gesto de orbita continuar.
+                    # Blender restores the previous viewpoint when leaving Local
+                    # View. Keeping the current view lets the orbit gesture continue.
                     rv = area.spaces.active.region_3d
                     vista = (rv.view_rotation.copy(), rv.view_location.copy(),
                              rv.view_distance, rv.view_perspective)
@@ -518,8 +517,8 @@ def verificar(atualizar_previa=True):
     if not ativa():
         _paredes_selecao.limpar_exibicoes()
         _restaurar_fios()
-        # Undo/redo pode restaurar a aparencia temporaria gravada no
-        # snapshot. A marca identifica so' o que o modo 2D alterou.
+        # Undo/redo may restore the temporary appearance stored in the
+        # snapshot. The marker identifies only changes made by 2D mode.
         guias = False
         for obj in bpy.context.scene.objects:
             if CHAVE_VISUAL in obj:
@@ -571,8 +570,8 @@ def verificar(atualizar_previa=True):
 
 
 def _enquadrar(context, s):
-    # A projecao nativa so' se atualiza no redraw. Ajustar no tique
-    # seguinte considera lente, proporcao e tamanho REAL da regiao.
+    # The native projection updates only on redraw. Adjusting on the next tick
+    # accounts for the lens, aspect ratio, and ACTUAL region size.
     u, ponto = Vector(s['u']), Vector(s['ponto'])
     s0, s1, z0, z1 = s['regiao']['retangulo']
     projetados = []
@@ -595,7 +594,7 @@ def _enquadrar(context, s):
 
 
 def navegacao_de_saida(context, event):
-    """Consulta o keymap do usuario: inclui Walk/Fly antes do primeiro passo."""
+    """Query the user's keymap, including Walk/Fly before the first movement."""
     if event.value not in {'PRESS', 'ANY', 'NOTHING'}:
         return False
     operadores = {'view3d.walk', 'view3d.fly', 'view3d.rotate', 'view3d.view_axis',
@@ -622,24 +621,24 @@ def widgets(context, itens, x, topo, w, compacto=False):
     s_faces = _ambientes._edicao_faces[0]
     if s_faces and s_faces.get('classificar'):
         return topo
-    topo = _gaveta._titulo_secao(itens, x, topo + 26, w, 'Alvenaria')
+    topo = _gaveta._titulo_secao(itens, x, topo + 26, w, "Masonry")
     def botao(rotulo, operador, altura=28):
         nonlocal topo
         topo -= altura
         itens.append((x, topo, w, altura, rotulo, ('operador', operador)))
         topo -= 6
-    # Entrar/sair: botao laranja de 30 px como o "Criar Prateleiras"
+    # Enter/exit: a 30 px orange button like "Create Shelves"
     # (`_gaveta.OPERADORES_DESTAQUE`).
     if not ativa(context):
         if context.mode=='EDIT_MESH':
             return _ambientes.widgets(context,itens,obj,x,topo,w)
         topo-=30
         metade=(w-6)/2
-        itens.append((x,topo,metade,30,'Editar em 2D',('operador','object.cabinet_editar_parede')))
-        itens.append((x+metade+6,topo,metade,30,'Editar categorias',('operador','object.cabinet_editar_ambientes')))
+        itens.append((x,topo,metade,30,"Edit in 2D",('operador','object.cabinet_editar_parede')))
+        itens.append((x+metade+6,topo,metade,30,"Edit categories",('operador','object.cabinet_editar_ambientes')))
         topo-=6
         topo-=30
-        itens.append((x,topo,w,30,'Desagregar Alvenaria',('operador','object.cabinet_definir_alvenaria',False,'desagregar')))
+        itens.append((x,topo,w,30,"Disassemble Masonry",('operador','object.cabinet_definir_alvenaria',False,'desagregar')))
         topo-=6
         if _aviso[0]:
             itens.append((x, topo - 20, w, 20, _aviso[0], None))
@@ -648,63 +647,63 @@ def widgets(context, itens, x, topo, w, compacto=False):
     s = _sessao[0]
     if s.get('categorias'):
         return _ambientes.widgets(context,itens,obj,x,topo,w)
-    botao('Sair da edicao da parede', 'object.cabinet_sair_parede', 30)
-    botao('Editar categorias','object.cabinet_editar_ambientes')
+    botao("Exit wall editing", 'object.cabinet_sair_parede', 30)
+    botao("Edit categories",'object.cabinet_editar_ambientes')
     topo = _paredes_composicao.widgets(context, itens, x, topo - 12, w)
     topo = _paredes_composicao.widgets_guias(context, itens, x, topo, w)
-    itens.append((x, topo - 37, w, 37, 'Ajuste maximo: %s' % _opcoes._texto_medida(s['ajuste_maximo']),
-                  ('medida', 'paredes', 'ajuste_maximo', 'Ajuste maximo', s['ajuste_maximo'])))
+    itens.append((x, topo - 37, w, 37, "Maximum adjustment: %s" % _opcoes._texto_medida(s['ajuste_maximo']),
+                  ('medida', 'paredes', 'ajuste_maximo', "Maximum adjustment", s['ajuste_maximo'])))
     topo -= 45
-    # Folgas Esquerda/Direita/Espacamento sairam do menu (pedido do usuario);
-    # a distribuicao segue usando os valores da sessao.
+    # Left/Right/Spacing gaps were removed from the menu at the user's request;
+    # distribution still uses the session values.
     if s['modelo'] is None:
-        mensagem = 'Escolha o novo modelo na biblioteca' if s.get('substituir') else 'Escolha um modulo na biblioteca'
+        mensagem = "Choose the new model from the library" if s.get('substituir') else "Choose a cabinet from the library"
         itens.append((x, topo - 20, w, 20, mensagem, None))
         return topo - 58
     itens.append((x, topo - 20, w, 20, s['modelo']['nome'], None))
     topo -= 28
     if s.get('substituir'):
-        itens.append((x, topo - 20, w, 20, 'Mantem posicao, tamanho e associacao', None))
+        itens.append((x, topo - 20, w, 20, "Keeps position, size and attachment", None))
         topo -= 26
-        botao('Substituir modulo', 'object.cabinet_distribuir_parede')
-        botao('Cancelar previa', 'object.cabinet_cancelar_previa_parede')
+        botao("Replace cabinet", 'object.cabinet_distribuir_parede')
+        botao("Cancel preview", 'object.cabinet_cancelar_previa_parede')
         return topo - 58
     campos = []
-    for nome, rotulo in (('instalacao', 'Instalacao'), ('altura', 'Altura'),
-                         ('profundidade', 'Profundidade')):
+    for nome, rotulo in (('instalacao', "Installation"), ('altura', "Height"),
+                         ('profundidade', "Depth")):
         campos.append(('%s: %s' % (rotulo, _opcoes._texto_medida(s[nome])),
                        ('medida', 'paredes', nome, rotulo, s[nome])))
     campos.append((str(s['quantidade']),
                   ('contador', ALVO_QUANTIDADE, s['quantidade'], 1, 100,
-                   '', 'Quantidade')))
+                   '', "Quantity")))
     topo = _gaveta._campos_em_linhas(context, itens, x, topo, w, campos)
-    botao('Clique no vao na viewport' if s['escolhendo'] else 'Escolher vao na parede',
+    botao("Click the opening in the viewport" if s['escolhendo'] else "Choose opening on wall",
           'object.cabinet_escolher_vao_parede')
-    plano = _plano[0] or {'erro': 'Calculando previa...'}
-    mensagem = plano.get('erro') or 'Largura por modulo: %s' % _opcoes._texto_medida(plano['largura'] * 1000)
+    plano = _plano[0] or {'erro': "Calculating preview..."}
+    mensagem = plano.get('erro') or "Width per cabinet: %s" % _opcoes._texto_medida(plano['largura'] * 1000)
     itens.append((x, topo - 20, w, 20, mensagem, None))
     topo -= 26
-    botao('Substituir modulo' if s.get('substituir') else 'Criar modulos', 'object.cabinet_distribuir_parede')
-    botao('Cancelar previa', 'object.cabinet_cancelar_previa_parede')
+    botao("Replace cabinet" if s.get('substituir') else "Create cabinets", 'object.cabinet_distribuir_parede')
+    botao("Cancel preview", 'object.cabinet_cancelar_previa_parede')
     return topo - 58
 
 
 def editar_parametro(nome, valor):
     s = _sessao[0]
     if s is None:
-        return 'A edicao da parede terminou'
+        return "Wall editing has ended"
     if nome == 'quantidade':
         if not 1 <= valor <= 100 or int(valor) != valor:
-            return 'Quantidade deve ser um inteiro entre 1 e 100'
+            return "Quantity must be an integer between 1 and 100"
         s[nome] = int(valor)
     elif nome in ('instalacao', 'altura', 'profundidade', 'esquerda', 'direita', 'espacamento', 'ajuste_maximo'):
         if not math.isfinite(valor) or valor < 0:
-            return 'A medida deve ser positiva ou zero'
+            return "The dimension must be positive or zero"
         s[nome] = valor
         if nome == 'ajuste_maximo':
             bpy.context.scene['parede_ajuste_maximo_mm'] = valor
     else:
-        return 'Parametro de parede desconhecido'
+        return "Unknown wall parameter"
     _redesenhar()
     _plano[0] = None
     return None
@@ -725,7 +724,7 @@ def _limpar_tentativa(antes):
 
 
 def ponto_no_evento(context, event):
-    """Consulta somente a parede editada pelo raycast nativo, inclusive aberturas."""
+    """Query only the edited wall using native raycasting, including openings."""
     if not ativa(context):
         return None
     janela, area, regiao = _janela_da_sessao()
@@ -748,13 +747,13 @@ def ponto_no_evento(context, event):
 
 
 def posicao_do_modelo(context, modulo, ponto=None, caixa=None):
-    """Posiciona pelo cursor ou a' direita do ultimo, sem redimensionar a malha."""
+    """Place at the cursor or to the right of the last cabinet, without resizing its mesh."""
     s = _sessao[0]
     if not ativa(context):
-        return None, 'A edicao da parede terminou'
+        return None, "Wall editing has ended"
     caixa = caixa or _paredes.caixa_do_modulo(modulo)
     if caixa is None:
-        return None, 'O modelo precisa conter um modulo completo'
+        return None, "The model must contain a complete cabinet"
     alvo = _alvo_do_modelo(context, modulo, ponto, caixa)
     return encaixar_na_face(context, modulo, alvo, s, caixa)
 
@@ -797,7 +796,7 @@ def encaixe_do_modelo(context, modulo, ponto=None, caixa=None, cache=None):
 
 
 def _objetos_vigentes_do_modelo(modulo, novos=None):
-    # O resize pode remover/recriar ferragens: a lista do append nao e' mais a montagem.
+    # Resizing can remove/recreate hardware: the appended list no longer represents the assembly.
     objetos = [modulo, *modulo.children_recursive]
     if isinstance(novos, list):
         novos[:] = objetos
@@ -805,11 +804,11 @@ def _objetos_vigentes_do_modelo(modulo, novos=None):
 
 
 def registrar_posicionado(context, modulo, novos=()):
-    """Inclui a instancia no isolamento e guarda apenas o nome do ultimo modulo."""
+    """Include the instance in isolation and store only the last cabinet's name."""
     if modulo is None or _paredes.parede_do_modulo(modulo) is None:
         return
     _ambientes.atribuir(context,modulo)
-    # A ordem persiste ao sair do 2D ou reabrir o arquivo, sem guardar IDs globais.
+    # The order survives leaving 2D or reopening the file without retaining global IDs.
     modulo[CHAVE_ORDEM] = time.time()
     objetos = _objetos_vigentes_do_modelo(modulo, novos)
     if not ativa(context):
@@ -854,7 +853,7 @@ def aplicar_ajuste_do_modelo(modulo, caixa, novos=None):
     try:
         return _redimensionar_modelo(modulo, caixa)
     finally:
-        # Tambem na falha: o cancelamento deve remover a geracao atual.
+        # Also on failure: cancellation must remove the current generated objects.
         _objetos_vigentes_do_modelo(modulo, novos)
 
 
@@ -866,16 +865,16 @@ def _redimensionar_modelo(modulo, caixa):
         try:
             _modulos.redimensionar_orientado(modulo, _paredes.medidas_na_parede(modulo, medidas))
         except (ValueError, RuntimeError) as erro:
-            return 'Nao foi possivel ajustar o modulo: %s' % erro
-        # O dominio pode recusar um minimo fisico; nunca confirmar uma caixa ficticia.
+            return "Could not adjust the cabinet: %s" % erro
+        # The domain may reject a physical minimum; never confirm a fictitious bounding box.
         real = _paredes.caixa_do_modulo(modulo)
         if real is None or any(abs((real[1] - real[0])[i] - (caixa[1] - caixa[0])[i]) > .00005 for i in range(3)):
-            return 'O ajuste ultrapassa o minimo fisico das chapas do modulo'
+            return "The adjustment exceeds the physical minimum dimensions of the cabinet panels"
     return None
 
 
 def inserir_modelo(context, pasta, arquivo, tipo):
-    """Insercao imediata reutiliza o append; distribuir continua sendo explicito."""
+    """Immediate insertion reuses append; distribution remains explicit."""
     if _sessao[0].get('substituir'):
         return preparar_modelo(context, pasta, arquivo, tipo)
     antes = _dados_antes()
@@ -887,7 +886,7 @@ def inserir_modelo(context, pasta, arquivo, tipo):
             raise ValueError(erro)
         modulos = [o for o in raizes if _chapas.MARCA_CONJUNTO in o]
         if tipo != 'modulo' or len(modulos) != 1 or len(raizes) != 1:
-            raise ValueError('Escolha um unico modulo completo')
+            raise ValueError("Choose a single complete cabinet")
         erro = posicionar_modelo(context, modulos[0], novos=novos)
         if erro:
             raise ValueError(erro)
@@ -905,9 +904,9 @@ def inserir_modelo(context, pasta, arquivo, tipo):
 
 def preparar_modelo(context, pasta, arquivo, tipo):
     if not ativa(context):
-        return 'Entre na edicao de uma parede'
+        return "Enter wall editing"
     if tipo != 'modulo':
-        return 'Escolha um modulo completo na biblioteca'
+        return "Choose a complete cabinet from the library"
     antes = _dados_antes()
     selecao = [o.name for o in context.selected_objects]
     ativo = context.object.name if context.object else ''
@@ -917,11 +916,11 @@ def preparar_modelo(context, pasta, arquivo, tipo):
             return erro
         modulos = [o for o in novos if _chapas.MARCA_CONJUNTO in o]
         if len(modulos) != 1 or any(o != modulos[0] for o in raizes):
-            return 'O modelo precisa conter um unico modulo completo'
+            return "The model must contain a single complete cabinet"
         modulo = modulos[0]
         medidas = _modulos.medir_conjunto(modulo)
         if not medidas or min(medidas) <= 0:
-            return 'O modelo nao tem dimensoes validas'
+            return "The model has no valid dimensions"
         medidas = _paredes.medidas_na_parede(modulo, medidas)
         s = _sessao[0]
         s.update(modelo={'pasta': pasta, 'arquivo': arquivo, 'tipo': tipo,
@@ -931,7 +930,7 @@ def preparar_modelo(context, pasta, arquivo, tipo):
         if s.get('substituir'):
             alvo = bpy.data.objects.get(s['substituir'])
             if alvo is None:
-                return 'O modulo que seria substituido foi removido'
+                return "The cabinet to be replaced was removed"
             atual = _paredes_composicao.ficha(alvo, s)
             s.update(altura=atual['altura'] * 1000, profundidade=atual['profundidade'] * 1000,
                      instalacao=atual['base'] * 1000, quantidade=1, escolhendo=False)
@@ -953,7 +952,7 @@ def preparar_modelo(context, pasta, arquivo, tipo):
 
 
 def _contorno_em_lote(regiao):
-    """Contorno como numpy (k, 2, 3), guardado na propria regiao."""
+    """Outline as a numpy (k, 2, 3) array, stored on the region itself."""
     lote = regiao.get('_contorno_np')
     if lote is None:
         lote = np.array([(tuple(a), tuple(b)) for a, b in regiao['contorno']],
@@ -968,15 +967,15 @@ def _intersectar_faixas(faixas, outras):
 
 
 def faixas_da_face(regiao, u, base, topo):
-    """Corta o contorno real: buracos e lados inclinados nao viram area util."""
+    """Clip to the actual outline: holes and sloped sides are not usable area."""
     s0, s1, z0, z1 = regiao['retangulo']
     if base < z0 - 1e-6 or topo > z1 + 1e-6 or topo <= base:
         return []
-    # Coordenadas float do modulo encostado podem passar micrometros da
-    # borda. Amostrar fora do contorno anularia um encaixe ja' tolerado.
+    # A cabinet touching the edge may extend micrometers beyond it due to floating point
+    # coordinates. Sampling outside the outline would invalidate an already tolerated fit.
     base, topo = max(z0, base), min(z1, topo)
-    # Em lote: a parede de uma casa real tem centenas de arestas no
-    # contorno, e o laco em Python pesava a cada passo do mouse (v321).
+    # Batch the queries: a real house wall has hundreds of outline edges,
+    # and the Python loop was costly on every mouse movement (v321).
     lote = _contorno_em_lote(regiao)
     az, bz = lote[:, 0, 2], lote[:, 1, 2]
     u = np.array(tuple(u), dtype=np.float64)
@@ -996,7 +995,7 @@ def faixas_da_face(regiao, u, base, topo):
 
 
 def faixas_livres(context, s, base, topo, profundidade, excluir=()):
-    """A mesma area livre para inserir, arrastar, editar e distribuir."""
+    """The same free area for insertion, dragging, editing, and distribution."""
     faixas = faixas_da_face(s['regiao'], Vector(s['u']), base, topo)
     for a, b in obstaculos(context, s, base, topo, profundidade, excluir):
         faixas = [(c, d) for c0, d0 in faixas for c, d in
@@ -1005,7 +1004,7 @@ def faixas_livres(context, s, base, topo, profundidade, excluir=()):
 
 
 def _alturas_para_ajuste(context, s, profundidade, excluir):
-    """Apoios reais pelo mesmo BVH/recorte usado para verificar colisoes."""
+    """Actual supports from the same BVH/clipping used for collision checks."""
     z0, z1 = s['regiao']['retangulo'][2:]
     alturas = [z0, z1]
     ponto, n, u = (Vector(s[k]) for k in ('ponto', 'normal', 'u'))
@@ -1028,11 +1027,11 @@ def _alturas_para_ajuste(context, s, profundidade, excluir):
 
 
 def _regiao_acima_do_apoio(context, s):
-    """A base visivel e das cotas nao pode ficar enterrada no piso real."""
+    """The visible base and dimension reference must not be buried in the actual floor."""
     regiao = s['regiao']
     s0, s1, z0, z1 = regiao['retangulo']
-    # So' a faixa de contato com a parede define o piso; moveis mais a'
-    # frente continuam obstaculos locais, sem levantar a parede inteira.
+    # Only the wall contact strip defines the floor; furniture farther
+    # forward remains a local obstacle without raising the entire wall.
     profundidade = _paredes.TOLERANCIA_PLANO_M
     parede = bpy.data.objects.get(s['parede'])
     ponto, n, u = (Vector(s[k]) for k in ('ponto', 'normal', 'u'))
@@ -1056,9 +1055,9 @@ def _regiao_acima_do_apoio(context, s):
 
 
 def ajustar_na_face(context, modulo, ponto, s, caixa, cache=None):
-    """Reduz L/A dentro do limite; o resize da madeira so' acontece na confirmacao."""
+    """Reduce width/height within the limit; resize the wood only on confirmation."""
     limite = context.scene.get('parede_ajuste_maximo_mm', 10.0) / 1000
-    erro = 'Sem vao livre dentro do ajuste maximo de %.1f mm' % (limite * 1000)
+    erro = "No clear opening within the maximum adjustment of %.1f mm" % (limite * 1000)
     if not math.isfinite(limite) or limite <= 0:
         return None, caixa, erro
     escala = _paredes.escala_no_referencial(modulo)
@@ -1081,7 +1080,7 @@ def ajustar_na_face(context, modulo, ponto, s, caixa, cache=None):
     for base in bases:
         for topo in [min(z1, base + altura), *alturas]:
             a = topo - base
-            # O vao continua sob o cursor: nao saltar para uma outra fileira.
+            # Keep the opening under the cursor; do not jump to another row.
             if minima_a - 1e-6 <= a <= altura + 1e-6 and base - 1e-6 <= ponto.z <= topo + 1e-6:
                 opcoes.add((base, min(altura, a)))
     melhor = None
@@ -1090,7 +1089,7 @@ def ajustar_na_face(context, modulo, ponto, s, caixa, cache=None):
         if melhor is not None and altura - a > melhor[0] + 1e-6:
             break
         faixa = ('faixas', base, a, prof)
-        # Cache numerico pertence ao arraste; confirmar refaz a consulta.
+        # The numeric cache belongs to the drag; confirmation repeats the query.
         if faixa not in cache:
             cache[faixa] = faixas_livres(context, s, base, base + a, prof, (modulo.name,))
         for inicio, fim in cache[faixa]:
@@ -1114,26 +1113,25 @@ def ajustar_na_face(context, modulo, ponto, s, caixa, cache=None):
 
 
 def encaixar_na_face(context, modulo, ponto, s, caixa=None, tolerancia=0):
-    """Limita o volume inteiro e escolhe o vao valido mais proximo do alvo.
+    """Constrain the entire volume and choose the valid opening nearest the target.
 
-    Recebe tambem uma face fora da edicao 2D: o arraste direito usa as
-    mesmas restricoes, sem duplicar um posicionador ou redimensionar pecas.
-    """
+    Also accept a face outside 2D editing: right drag uses the same
+    constraints without duplicating a placement tool or resizing components."""
     if _paredes.alvenaria_definida(bpy.data.objects.get(s['parede'])):
         p=_paredes.ponto_livre_na_face(modulo,ponto,s,caixa,tolerancia)
-        return p, None if p is not None else 'O modelo precisa conter um modulo completo'
+        return p, None if p is not None else "The model must contain a complete cabinet"
     caixa = caixa or _paredes.caixa_do_modulo(modulo)
     if caixa is None:
-        return None, 'O modelo precisa conter um modulo completo'
+        return None, "The model must contain a complete cabinet"
     lo, hi = caixa
     escala = _paredes.escala_no_referencial(modulo)
     largura, altura, profundidade = (abs((hi[i] - lo[i]) * escala[i]) for i in (0, 2, 1))
     s0, s1, z0, z1 = s['regiao']['retangulo']
     esquerda, direita = s0 + s.get('esquerda', 0) / 1000, s1 - s.get('direita', 0) / 1000
     if min(largura, altura, profundidade) <= 0:
-        return None, 'O modelo nao tem dimensoes validas'
+        return None, "The model has no valid dimensions"
     if largura > direita - esquerda + .00005 or altura > z1 - z0 + .00005:
-        return None, 'O tamanho original do modelo nao cabe na parede'
+        return None, "The original model size does not fit on the wall"
     u, plano = Vector(s['u']), Vector(s['ponto'])
     centro, base = ponto.dot(u), ponto.z - altura / 2
     if tolerancia:
@@ -1147,7 +1145,7 @@ def encaixar_na_face(context, modulo, ponto, s, caixa=None, tolerancia=0):
         if b - a >= largura - .00005:
             candidatos.append(max(a + largura / 2, min(b - largura / 2, centro)))
     if not candidatos:
-        return None, 'Nao ha vao livre sem sobrepor outro modulo ou ultrapassar a parede'
+        return None, "No clear opening without overlapping another cabinet or extending beyond the wall"
     centro = min(candidatos, key=lambda c: abs(c - centro))
     costas = plano + u * (centro - plano.dot(u))
     costas.z = base
@@ -1162,7 +1160,7 @@ def _caixa_no_referencial(obj, u, n, plano):
 
 
 def _recortar_poligono(pontos, eixo, limite, sinal):
-    """Recorta apenas as faces candidatas que a BVH nativa encontrou."""
+    """Clip only candidate faces found by the native BVH."""
     saida = []
     for a, b in zip(pontos, pontos[1:] + pontos[:1]):
         da, db = sinal * (a[eixo] - limite), sinal * (b[eixo] - limite)
@@ -1174,14 +1172,14 @@ def _recortar_poligono(pontos, eixo, limite, sinal):
 
 
 def _faces_no_volume(obj, avaliado, dep, s, base, topo, profundidade, alturas=False):
-    """Consulta espacial nativa, sem varrer vertices da cena no gesto."""
+    """Native spatial query without scanning scene vertices during the gesture."""
     u, n, ponto = (Vector(s[k]) for k in ('u', 'normal', 'ponto'))
     s0, s1 = s['regiao']['retangulo'][:2]
     centro = ponto + u * ((s0 + s1) / 2 - ponto.dot(u)) + n * profundidade / 2
     centro.z = (base + topo) / 2
     raio = Vector(((s1 - s0) / 2, (topo - base) / 2, profundidade / 2)).length
     inversa = obj.matrix_world.inverted_safe()
-    # Limite conservador para escala nao uniforme/shear do objeto.
+    # Conservative bound for object nonuniform scale/shear.
     raio *= sum(inversa.to_3x3().col[i].length for i in range(3))
     arvore = BVHTree.FromObject(obj, dep)
     if arvore is None:
@@ -1223,8 +1221,8 @@ def obstaculos(context, s, base, topo, profundidade, excluir=()):
                   for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
         if min(p.z for p in pontos) < topo - 1e-6 and max(p.z for p in pontos) > base + 1e-6:
             resultado.append((min(p.dot(u) for p in pontos), max(p.dot(u) for p in pontos)))
-    # As paredes vizinhas sao consultadas pela malha avaliada. Raycast e'
-    # nativo; a caixa e' apenas o descarte inicial, nunca o limite final.
+    # Query neighboring walls through the evaluated mesh. Raycasting is
+    # native; the box is only an initial rejection test, never the final boundary.
     dep = context.evaluated_depsgraph_get()
     for obj in context.scene.objects:
         if not superficie(obj):
@@ -1234,8 +1232,8 @@ def obstaculos(context, s, base, topo, profundidade, excluir=()):
         if cx[3] <= base + 1e-6 or cx[2] >= topo - 1e-6 or cx[5] <= 1e-5 or cx[4] >= profundidade:
             continue
         resultado.extend(_faces_no_volume(obj, avaliado, dep, s, base, topo, profundidade))
-        # Eixos horizontais de paredes adjacentes: amostras nas duas
-        # extremidades e no meio do volume evitam ignorar retorno em L.
+        # Horizontal axes of adjacent walls: samples at both ends
+        # and the middle of the volume avoid missing an L-shaped return.
         inversa = obj.matrix_world.inverted_safe()
         direcao = (inversa.to_3x3() @ u).normalized()
         for z in (base + 1e-5, (base + topo) / 2, topo - 1e-5):
@@ -1263,24 +1261,24 @@ def obstaculos(context, s, base, topo, profundidade, excluir=()):
 def planejar(context, s=None):
     s = s or _sessao[0]
     if s is None or s.get('modelo') is None:
-        return {'erro': 'Escolha um modulo na biblioteca'}
+        return {'erro': "Choose a cabinet from the library"}
     if s.get('substituir'):
         return _paredes_composicao.planejar_troca(context, s)
     quantidade = s['quantidade']
     base, altura, profundidade = (s[k] / 1000.0 for k in ('instalacao', 'altura', 'profundidade'))
     if quantidade < 1 or min(altura, profundidade) < 0.02:
-        return {'erro': 'Quantidade ou dimensoes invalidas'}
+        return {'erro': "Invalid quantity or dimensions"}
     u = Vector(s['u'])
     faixas = faixas_livres(context, s, base, base + altura, profundidade)
     faixa = next(((a, b) for a, b in faixas if a - 1e-6 <= s['s'] <= b + 1e-6), None)
     if faixa is None:
-        return {'erro': 'Escolha um vao livre compativel com a altura'}
+        return {'erro': "Choose a clear opening compatible with the height"}
     inicio = faixa[0] + s['esquerda'] / 1000
     fim = faixa[1] - s['direita'] / 1000
     espaco = s['espacamento'] / 1000
     largura = (fim - inicio - (quantidade - 1) * espaco) / quantidade
     if largura < 0.02:
-        return {'erro': 'Nao ha espaco para a quantidade e as folgas'}
+        return {'erro': "Not enough space for the quantity and clearances"}
     return {'largura': largura, 'altura': altura, 'profundidade': profundidade,
             'base': base, 'inicios': [inicio + i * (largura + espaco) for i in range(quantidade)],
             'faixa': faixa}
@@ -1291,13 +1289,13 @@ def criar_modulos(context):
     if s and s.get('substituir'):
         return _paredes_composicao.substituir(context)
     if s and s['escolhendo']:
-        return 'Clique no vao da parede antes de criar os modulos'
+        return "Click the wall opening before creating cabinets"
     plano = planejar(context, s)
     if plano.get('erro'):
         return plano['erro']
     parede = bpy.data.objects.get(s['parede'])
     if parede is None:
-        return 'Parede nao encontrada'
+        return "Wall not found"
     antes = _dados_antes()
     selecionados = [o.name for o in context.selected_objects]
     ativo = context.object.name if context.object else ''
@@ -1311,9 +1309,9 @@ def criar_modulos(context):
                 raise ValueError(erro)
             conjuntos = [o for o in novos if _chapas.MARCA_CONJUNTO in o]
             if len(conjuntos) != 1:
-                raise ValueError('O modelo deixou de conter um unico modulo')
+                raise ValueError("The model no longer contains a single cabinet")
             conj = conjuntos[0]
-            # o plano esta' nos eixos da parede; o modulo pode estar girado
+            # The plane uses wall axes; the cabinet may be rotated.
             largura, altura, profundidade = _paredes.medidas_na_parede(
                 conj, (plano['largura'], plano['altura'], plano['profundidade']))
             ocupado = _chapas._ocupado[0]
@@ -1327,7 +1325,7 @@ def criar_modulos(context):
             _modulos.redimensionar_conjunto(conj)
             real = _paredes.medidas_na_parede(conj, _modulos.medir_conjunto(conj))
             if any(abs(a / 1000 - plano[k]) > 0.00005 for a, k in zip(real, ('largura', 'altura', 'profundidade'))):
-                raise ValueError('O modelo nao permite estas dimensoes sem perder seus encaixes')
+                raise ValueError("The model cannot accommodate these dimensions while preserving its joints")
             u, n, ponto = (Vector(s[k]) for k in ('u', 'normal', 'ponto'))
             costas = ponto + u * (inicio + plano['largura'] / 2 - ponto.dot(u))
             costas.z = plano['base']
@@ -1440,16 +1438,16 @@ def encerrar_escolha():
 
 def preparar_escolha(context,obj):
     if _eventos._desfazendo[0]:
-        return 'Aguarde o processamento de desfazer/refazer'
+        return "Wait for undo/redo processing"
     if not superficie(obj) or context.mode!='OBJECT':
-        return 'Selecione a malha da planta ou da parede'
+        return "Select the floor plan or wall mesh"
     encerrar()
     area=viewport(context)
     if area is None:
-        return 'Sem viewport 3D para escolher a parede'
+        return "No 3D viewport to choose the wall"
     regiao=next((r for r in area.regions if r.type=='WINDOW'),None)
     if regiao is None:
-        return 'Sem regiao 3D para escolher a parede'
+        return "No 3D region to choose the wall"
     _paredes_selecao.limpar_exibicoes()
     e=dict(objeto=obj.name,cena=context.scene.name,janela=context.window.as_pointer(),
            area=area.as_pointer(),regiao=regiao.as_pointer(),metodo=context.scene.get('parede_metodo_selecao','AUTO'),
@@ -1460,7 +1458,7 @@ def preparar_escolha(context,obj):
         e['handler']=bpy.types.SpaceView3D.draw_handler_add(_desenhar_escolha,(),'WINDOW','POST_PIXEL')
         e['timer']=context.window_manager.event_timer_add(.1,window=context.window)
         context.window.cursor_modal_set('CROSSHAIR')
-        area.header_text_set('Escolher parede: clique confirma | Enter aceita | Direito/Esc cancela')
+        area.header_text_set("Choose wall: click confirms | Enter accepts | Right-click/Esc cancels")
     except Exception:
         encerrar_escolha()
         raise
@@ -1470,7 +1468,7 @@ def preparar_escolha(context,obj):
 
 def definir_metodo(context,metodo):
     if metodo not in dict(METODOS_AREA):
-        raise ValueError('Metodo de selecao de parede invalido')
+        raise ValueError("Invalid wall selection method")
     context.scene['parede_metodo_selecao']=metodo
     e=_escolha_area[0]
     if e:
@@ -1479,7 +1477,7 @@ def definir_metodo(context,metodo):
 
 
 def raio_da_escolha(context, regiao, rv, xy):
-    # A parede ja' foi escolhida: nem teto nem outros objetos participam.
+    # The wall is already chosen: neither the ceiling nor other objects participate.
     e = _escolha_area[0]
     obj = bpy.data.objects.get(e['objeto']) if e else None
     if obj is None:
@@ -1501,7 +1499,7 @@ def raio_da_escolha(context, regiao, rv, xy):
         costas_ocultas = culling or material is not None and material.use_backface_culling
         if abs(normal.z) <= .001 and (not costas_ocultas or normal.dot(direcao) < 0):
             return obj, ponto, normal, face
-        # Plantas monoliticas tambem podem conter o teto na mesma malha.
+        # Monolithic floor plans may also contain the ceiling in the same mesh.
         inicio = ponto + direcao * 1e-5
 
 
@@ -1514,8 +1512,8 @@ def preparar_snap_area(context):
         e['base'] = base
     _gavetas.iniciar_cursor_nativo(context, _snap_area, {}, Vector(e['cursor']),
                                   lambda obj: obj.name != e['objeto'])
-    # O helper compartilhado filtra Mesh; curvas/textos tambem podem
-    # fornecer pontos ao snap nativo e devem ficar fora desta escolha.
+    # The shared helper filters Mesh objects; curves/text can also
+    # supply native snap points and must be excluded from this choice.
     for obj in context.visible_objects:
         if obj.type != 'MESH' and obj.name != e['objeto']:
             _snap_area[0]['bloqueados'].append((obj.name, obj.hide_select))
@@ -1542,7 +1540,7 @@ def acompanhar_snap_area(context):
 
 class OBJECT_OT_confirmar_ponto_parede(Operator):
     bl_idname = 'object.cabinet_confirmar_ponto_parede'
-    bl_label = 'Confirmar Ponto da Parede'
+    bl_label = "Confirm Wall Point"
     bl_options = {'INTERNAL'}
 
     def execute(self, context):
@@ -1559,7 +1557,7 @@ class OBJECT_OT_confirmar_ponto_parede(Operator):
 
 class OBJECT_OT_marcar_ponto_parede(Macro):
     bl_idname = 'object.cabinet_marcar_ponto_parede'
-    bl_label = 'Marcar Ponto da Parede'
+    bl_label = "Mark Wall Point"
     bl_options = {'INTERNAL'}
 
 
@@ -1622,11 +1620,11 @@ def acao_escolha(context,acao):
         return 'RUNNING_MODAL'
     base=e['base'] if e['metodo']=='PONTOS' else e['candidata']
     if base is None:
-        e['erro']='Aponte para a parede desejada'
+        e['erro']="Point to the desired wall"
         return 'RUNNING_MODAL'
     obj=bpy.data.objects.get(base['objeto'])
     if obj is None or ('matriz' in base and base['matriz']!=_paredes._assinatura(obj.matrix_world)):
-        e['erro']='A parede mudou; remova os pontos e selecione a area novamente'
+        e['erro']="The wall changed; remove the points and select the area again"
         return 'RUNNING_MODAL'
     try:
         regiao=(_paredes_selecao.recortar(base['regiao'],e['pontos'],Vector(base['normal']))
@@ -1643,7 +1641,7 @@ def acao_escolha(context,acao):
             selecionado.select_set(False)
         obj.select_set(True)
         context.view_layer.objects.active=obj
-    erro=iniciar(context,obj,face=face,recortar=True) if obj is not None else 'A parede nao existe mais'
+    erro=iniciar(context,obj,face=face,recortar=True) if obj is not None else "The wall no longer exists"
     _aviso[0]=erro or ''
     return 'CANCELLED' if erro else 'FINISHED'
 
@@ -1688,13 +1686,13 @@ def entrar_por_vertices(context,obj,somente_faces=False,aceitar_ilhas=False):
 
 class OBJECT_OT_editar_parede(Operator):
     bl_idname = 'object.cabinet_editar_parede'
-    bl_label = 'Editar parede'
+    bl_label = "Edit wall"
     objeto: StringProperty(options={'SKIP_SAVE'})
 
     def invoke(self,context,event):
         obj=bpy.data.objects.get(self.objeto) if self.objeto else context.object
         if not _paredes.alvenaria_definida(obj):
-            self.report({'WARNING'},'Selecione a malha e use Definir Alvenaria')
+            self.report({'WARNING'},"Select the mesh and use Define Masonry")
             return {'CANCELLED'}
         if _ambientes._retorno[0] and _ambientes._retorno[0]['objeto']==obj.name:
             erro=_ambientes.retomar_parede(context)
@@ -1770,7 +1768,7 @@ class OBJECT_OT_editar_parede(Operator):
 
 class OBJECT_OT_sair_parede(Operator):
     bl_idname = 'object.cabinet_sair_parede'
-    bl_label = 'Sair da edicao da parede'
+    bl_label = "Exit wall editing"
 
     def execute(self, context):
         encerrar()
@@ -1792,25 +1790,25 @@ class AcaoDaArea:
 
 class OBJECT_OT_confirmar_area_parede(AcaoDaArea,Operator):
     bl_idname='object.cabinet_area_parede_confirmar'
-    bl_label='Confirmar area da parede'
+    bl_label="Confirm wall area"
     ACAO='CONFIRMAR'
 
 
 class OBJECT_OT_voltar_area_parede(AcaoDaArea,Operator):
     bl_idname='object.cabinet_area_parede_voltar'
-    bl_label='Remover ultimo ponto'
+    bl_label="Remove last point"
     ACAO='VOLTAR'
 
 
 class OBJECT_OT_cancelar_area_parede(AcaoDaArea,Operator):
     bl_idname='object.cabinet_area_parede_cancelar'
-    bl_label='Cancelar selecao da parede'
+    bl_label="Cancel wall selection"
     ACAO='CANCELAR'
 
 
 class OBJECT_OT_escolher_vao_parede(Operator):
     bl_idname = 'object.cabinet_escolher_vao_parede'
-    bl_label = 'Escolher vao na parede'
+    bl_label = "Choose opening on wall"
 
     def execute(self, context):
         if not ativa(context):
@@ -1821,7 +1819,7 @@ class OBJECT_OT_escolher_vao_parede(Operator):
 
 class OBJECT_OT_cancelar_previa_parede(Operator):
     bl_idname = 'object.cabinet_cancelar_previa_parede'
-    bl_label = 'Cancelar previa'
+    bl_label = "Cancel preview"
 
     def execute(self, context):
         if ativa(context):
@@ -1834,7 +1832,7 @@ class OBJECT_OT_cancelar_previa_parede(Operator):
 
 class OBJECT_OT_distribuir_parede(Operator):
     bl_idname = 'object.cabinet_distribuir_parede'
-    bl_label = 'Criar modulos na parede'
+    bl_label = "Create cabinets on wall"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -1849,7 +1847,7 @@ class OBJECT_OT_distribuir_parede(Operator):
 
 class OBJECT_OT_observar_parede(Operator):
     bl_idname = 'object.cabinet_observar_parede'
-    bl_label = 'Observar navegacao da parede'
+    bl_label = "Observe wall navigation"
     bl_options = {'INTERNAL'}
 
     def invoke(self, context, event):
@@ -1896,21 +1894,21 @@ class OBJECT_OT_observar_parede(Operator):
                             objeto=cota[4], propriedade=cota[5])
                         return {'RUNNING_MODAL'}
                 if event.type == 'MOUSEMOVE' and not s['escolhendo']:
-                    # o circulo da quina perto do mouse (snap de quina)
+                    # The corner circle near the mouse (corner snapping).
                     _paredes_composicao.atualizar_quina_hover(event, regiao, context.region_data)
                     _paredes_composicao.atualizar_guia_hover(event.mouse_x - regiao.x,
                                                              event.mouse_y - regiao.y)
                 if (not s['escolhendo'] and event.type == 'LEFTMOUSE' and event.value == 'PRESS'
                         and _hud._acertar_hud(context, (event.mouse_x - regiao.x,
                                                         event.mouse_y - regiao.y))):
-                    # Ponto da face ou seta da quina: o gizmo da HUD edita a geometria.
+                    # Face point or corner arrow: the HUD gizmo edits geometry.
                     return {'PASS_THROUGH'}
                 modulo = None if s['escolhendo'] else modulo_para_mover(context, event, regiao)
                 if modulo is not None:
                     arrastar = event.type == 'LEFTMOUSE'
                     bpy.ops.object.cabinet_mover_na_parede('INVOKE_DEFAULT', modulo=modulo,
                                                            arrastar=arrastar)
-                    # O clique segue para a selecao; o G e' todo daqui.
+                    # Pass the click through to selection; G is handled entirely here.
                     return {'PASS_THROUGH'} if arrastar else {'RUNNING_MODAL'}
                 if s['escolhendo']:
                     if event.type == 'ESC' and event.value == 'PRESS':
@@ -1937,7 +1935,7 @@ class OBJECT_OT_observar_parede(Operator):
                     return {'RUNNING_MODAL'}
         else:
             if _paredes_composicao._quina_hover[0] is not None:
-                _paredes_composicao._quina_hover[0] = None      # o mouse saiu da vista
+                _paredes_composicao._quina_hover[0] = None      # The mouse left the view.
                 _redesenhar()
             _paredes_composicao.atualizar_guia_hover(None, None)
         verificar(atualizar_previa=False)
@@ -1949,7 +1947,7 @@ class VIEW3D_MT_parede_cabinet(Menu):
     bl_label = 'Archy Builder'
 
     def draw(self, context):
-        op = self.layout.operator('object.cabinet_editar_parede', text='Editar parede')
+        op = self.layout.operator('object.cabinet_editar_parede', text="Edit wall")
         op.objeto = _alvo_contexto[0] or ''
 
 

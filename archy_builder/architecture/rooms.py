@@ -1,4 +1,4 @@
-"""Ambientes por faces nativas da Alvenaria; cores so' durante a definicao."""
+"""Rooms defined by native masonry faces; colors appear only during assignment."""
 import bpy, bmesh, colorsys, uuid, math
 from contextlib import contextmanager
 import numpy as np
@@ -22,11 +22,11 @@ _cache = [{}]
 _handler = [None]
 _retorno = [None]
 _edicao_faces = [None]
-_faces_nativas = [{}]  # Wrappers BMesh so' no Edit Mode; soltar antes do undo.
+_faces_nativas = [{}]  # BMesh wrappers exist only in Edit Mode; release them before undo.
 
 
 def acompanhar_faces(context=None,verificar=True):
-    """Preserva faces nativas existentes; faces criadas nao herdam a categoria."""
+    """Preserve existing native faces; newly created faces do not inherit the category."""
     if _eventos._desfazendo[0]:return
     context=context or bpy.context
     objetos=context.objects_in_mode_unique_data if context.mode=='EDIT_MESH' else ()
@@ -38,7 +38,7 @@ def acompanhar_faces(context=None,verificar=True):
         bm=bmesh.from_edit_mesh(obj.data);anterior=_faces_nativas[0].get(obj.data.name)
         if anterior and anterior['bmesh'] is bm and not verificar:
             atuais[obj.data.name]=anterior;continue
-        # Reter os wrappers impede reuso de id durante a comparacao de identidades.
+        # Retaining wrappers prevents ID reuse while comparing identities.
         faces={id(f):f for f in bm.faces}
         atuais[obj.data.name]=dict(bmesh=bm,faces=faces)
         camada=bm.faces.layers.int.get(ATR_FACE)
@@ -49,7 +49,7 @@ def acompanhar_faces(context=None,verificar=True):
                     face[camada]=0;mudou=True
             if mudou:
                 _sujo[0]=True
-                # Publica a nova identidade antes do update que notifica o depsgraph.
+                # Publish the new identity before the update that notifies the depsgraph.
                 _faces_nativas[0][obj.data.name]=atuais[obj.data.name]
                 bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
     _faces_nativas[0]=atuais
@@ -73,7 +73,7 @@ def encerrar_selecao():
 
 @contextmanager
 def alvo_nativo_visivel(context,obj):
-    """Operadores de malha ignoram objetos fora do Local View, mesmo ativos."""
+    """Mesh operators ignore objects outside Local View, even when active."""
     espaco=context.space_data
     local=bool(espaco and espaco.type=='VIEW_3D' and espaco.local_view)
     incluir=local and not _paredes_edicao.esta_na_vista(obj,espaco,context)
@@ -90,10 +90,10 @@ def alvo_nativo_visivel(context,obj):
 
 
 def preparar_selecao(context,obj,parede_2d=False,classificar=None):
-    if not classificar and not _paredes.alvenaria_definida(obj):raise ValueError('Selecione a Alvenaria')
+    if not classificar and not _paredes.alvenaria_definida(obj):raise ValueError("Select the Masonry")
     encerrar_selecao()
     area=_paredes_edicao.viewport(context)
-    if area is None:raise ValueError('Sem viewport 3D para editar a Alvenaria')
+    if area is None:raise ValueError("No 3D viewport to edit the Masonry")
     regiao=next(r for r in area.regions if r.type=='WINDOW')
     anterior=tuple(context.scene.tool_settings.mesh_select_mode)
     with context.temp_override(area=area,region=regiao),alvo_nativo_visivel(context,obj):
@@ -102,7 +102,7 @@ def preparar_selecao(context,obj,parede_2d=False,classificar=None):
             obj.select_set(True);context.view_layer.objects.active=obj
             bpy.ops.object.mode_set(mode='EDIT')
         if context.edit_object!=obj or len(context.objects_in_mode_unique_data)>1:
-            raise ValueError('Edite uma unica Alvenaria')
+            raise ValueError("Edit a single Masonry object")
         context.scene.tool_settings.mesh_select_mode=(False,False,True)
         bpy.ops.mesh.select_all(action='DESELECT')
     s=dict(objeto=obj.name,cena=context.scene.name,area=area.as_pointer(),regiao=regiao.as_pointer(),
@@ -119,9 +119,9 @@ def preparar_selecao(context,obj,parede_2d=False,classificar=None):
     try:atualizar_selecao(obj)
     except Exception:
         encerrar_selecao();raise
-    instrucao = ('Enter: classificar' if classificar else 'Enter: vista 2D' if parede_2d
-                 else 'Clique no nome da categoria')
-    area.header_text_set('Clique: area | Shift: face | Ctrl: percurso | Shift+Ctrl: area | ' + instrucao + ' | Esc sai')
+    instrucao = ("Enter: classify" if classificar else "Enter: 2D view" if parede_2d
+                 else "Click the category name")
+    area.header_text_set("Click: area | Shift: face | Ctrl: path | Shift+Ctrl: area | " + instrucao + " | Esc exits")
     return id(s)
 
 
@@ -286,7 +286,7 @@ def _selecionar_face_visivel(context,obj,indice,manual,percurso,area):
         if percurso and ativa is not None and ativa.select and ativa is not face:
             bm.faces.index_update()
             bm.select_history.add(ativa)
-            # O operador usa indice global BMesh: vertices, arestas e depois faces.
+            # The operator uses global BMesh indices: vertices, then edges, then faces.
             bpy.ops.mesh.shortest_path_pick(index=len(bm.verts)+len(bm.edges)+face.index,use_fill=area)
         else:
             if not manual:bpy.ops.mesh.select_all(action='DESELECT')
@@ -326,7 +326,7 @@ def evento_selecao(context,event,token):
             try:
                 _alvenaria.confirmar(context)
             except ValueError as erro:
-                area.header_text_set(str(erro) + ' | Enter confirma | Esc sai')
+                area.header_text_set(str(erro) + " | Enter confirms | Esc exits")
                 return {'RUNNING_MODAL'}
         return {'FINISHED'}
     if event.type=='TIMER':
@@ -436,14 +436,14 @@ def registro(obj,nome,criar=False):
 
 def definir(context,obj,nome,alternar=False,limpar=False):
     if not _paredes.alvenaria_definida(obj) or obj.mode!='EDIT':
-        raise ValueError('Selecione faces da Alvenaria no modo de edicao')
+        raise ValueError("Select Masonry faces in Edit Mode")
     nome=_orcamento._limpar_nome_comodo(nome) if not limpar else ''
-    if not nome and not limpar: raise ValueError('Informe o nome do ambiente')
+    if not nome and not limpar: raise ValueError("Enter the room name")
     acompanhar_faces(context)
     bm=bmesh.from_edit_mesh(obj.data)
     permitidas=faces_da_area_2d(obj,bm)
     selecionadas={i for i,f in enumerate(bm.faces) if f.select and (permitidas is None or i in permitidas)}
-    if not selecionadas: raise ValueError('Selecione faces dentro da area ativa')
+    if not selecionadas: raise ValueError("Select faces within the active area")
     if obj.data.users>1:
         bm=None
         bpy.ops.object.mode_set(mode='OBJECT');obj.data=obj.data.copy();bpy.ops.object.mode_set(mode='EDIT')
@@ -453,7 +453,7 @@ def definir(context,obj,nome,alternar=False,limpar=False):
     if camada is None and limpar:return
     if camada is None:
         camada=bm.faces.layers.int.new(ATR_FACE)
-        # Criar CustomData realoca as faces nativas, sem criar novas superficies.
+        # Creating CustomData reallocates native faces without creating new surfaces.
         _faces_nativas[0].pop(obj.data.name,None)
         acompanhar_faces(context)
     remover=alternar and all(f[camada]==indice for i,f in enumerate(bm.faces) if i in selecionadas)
@@ -466,7 +466,7 @@ def definir(context,obj,nome,alternar=False,limpar=False):
 
 class OBJECT_OT_definir_ambiente(Operator):
     bl_idname='object.cabinet_definir_ambiente'
-    bl_label='Definir ambiente nas faces'
+    bl_label="Assign room to faces"
     bl_options={'REGISTER','UNDO'}
     nome:StringProperty(options={'SKIP_SAVE'})
     limpar:BoolProperty(options={'SKIP_SAVE'})
@@ -476,7 +476,7 @@ class OBJECT_OT_definir_ambiente(Operator):
         return context.mode=='EDIT_MESH' and _paredes.alvenaria_definida(context.edit_object)
 
     def execute(self,context):
-        try: definir(context,context.edit_object,self.nome or context.scene.get(CHAVE_NOME,'Cozinha'),
+        try: definir(context,context.edit_object,self.nome or context.scene.get(CHAVE_NOME,"Kitchen"),
                      alternar=True,limpar=self.limpar)
         except ValueError as erro:
             self.report({'WARNING'},str(erro));return {'CANCELLED'}
@@ -485,10 +485,10 @@ class OBJECT_OT_definir_ambiente(Operator):
 
 def retomar_parede(context):
     retorno=_retorno[0]
-    if retorno is None or retorno['cena']!=context.scene.name:return 'A parede anterior nao esta disponivel'
+    if retorno is None or retorno['cena']!=context.scene.name:return "The previous wall is unavailable"
     obj=context.view_layer.objects.get(retorno['objeto'])
     _retorno[0]=None
-    if obj is None:return 'A parede anterior nao esta disponivel'
+    if obj is None:return "The previous wall is unavailable"
     if context.mode=='EDIT_MESH':bpy.ops.object.mode_set(mode='OBJECT')
     return _paredes_edicao.iniciar(context,obj,
         face=(Vector(retorno['ponto']),Vector(retorno['normal']),retorno['regiao']),
@@ -497,7 +497,7 @@ def retomar_parede(context):
 
 class OBJECT_OT_editar_ambientes(Operator):
     bl_idname='object.cabinet_editar_ambientes'
-    bl_label='Editar categorias da Alvenaria'
+    bl_label="Edit Masonry categories"
 
     @classmethod
     def poll(cls,context):
@@ -557,11 +557,11 @@ class OBJECT_OT_editar_ambientes(Operator):
 
 class OBJECT_OT_cor_ambiente(Operator):
     bl_idname='object.cabinet_cor_ambiente'
-    bl_label='Cor do ambiente'
+    bl_label="Room color"
     bl_options={'REGISTER','UNDO'}
     nome:StringProperty(options={'SKIP_SAVE'})
     objeto:StringProperty(options={'SKIP_SAVE'})
-    cor:FloatVectorProperty(name='Cor',subtype='COLOR',size=3,min=0,max=1,options={'SKIP_SAVE'})
+    cor:FloatVectorProperty(name="Color",subtype='COLOR',size=3,min=0,max=1,options={'SKIP_SAVE'})
 
     def invoke(self,context,event):
         obj=context.edit_object
@@ -613,22 +613,22 @@ def atribuir(context,conj,parede=None,ponto=None,normal=None):
 
 
 def widgets(context,itens,obj,x,y,w):
-    nome=context.scene.get(CHAVE_NOME,'Cozinha')
+    nome=context.scene.get(CHAVE_NOME,"Kitchen")
     if _edicao_faces[0] and _edicao_faces[0]['parede_2d'] and _paredes_edicao._aviso[0]:
         y-=24;itens.append((x,y,w,22,_paredes_edicao._aviso[0],None))
     y-=30
     escolha_2d=bool(_edicao_faces[0] and _edicao_faces[0]['parede_2d'])
     na_parede=bool(_paredes_edicao._sessao[0] and _paredes_edicao._sessao[0].get('categorias'))
-    rotulo=('Cancelar selecao 2D' if escolha_2d else
-            'Voltar a edicao da parede' if _retorno[0] else 'Sair da edicao de categorias')
+    rotulo=("Cancel 2D selection" if escolha_2d else
+            "Return to wall editing" if _retorno[0] else "Exit category editing")
     itens.append((x,y,w if escolha_2d else w-34,28,rotulo,
                   ('operador','object.cabinet_editar_ambientes' if _retorno[0] or na_parede else 'object.editmode_toggle')))
     if escolha_2d:return y-12
     visivel=bool(context.scene.get(CHAVE_CORES,True))
     itens.append((x+w-28,y,28,28,'',('escolha','ambiente_visivel',visivel,visivel,True,ALVO)))
     y-=32
-    itens.append((x,y,w,23,'Categorias',None));y-=29
-    itens.append((x,y,w,24,'Sem categoria',('escolha','ambiente_nome','',not nome,True,ALVO)))
+    itens.append((x,y,w,23,"Categories",None));y-=29
+    itens.append((x,y,w,24,"Uncategorized",('escolha','ambiente_nome','',not nome,True,ALVO)))
     y-=28
     for n in _orcamento._comodos_da_lista(context.scene):
         i,r=registro(obj,n);cor=r['cor'] if r else _cor_padrao(n)
@@ -685,7 +685,7 @@ def atualizar(context=None):
                        for i,ps in grupos.items()]
                 cache[obj.name]=dict(malha=obj.data.name,grupos=[(i,np.asarray(ps,dtype=np.float32)) for i,ps in grupos.items()],faces=faces)
                 continue
-            # Dissolve so' no cache: faces coplanares do mesmo ambiente viram uma legenda.
+            # Dissolve only in the cache: coplanar faces of one room share one label.
             arestas=[e for e in bm.edges if len(e.link_faces)==2
                      and e.link_faces[0][camada]==e.link_faces[1][camada]]
             bmesh.ops.dissolve_limit(bm,angle_limit=.001,verts=[],edges=arestas)
@@ -702,7 +702,7 @@ def atualizar(context=None):
 
 
 def rotulo_cabe(triangulos,largura,altura):
-    """O retangulo inteiro deve ficar dentro da face, inclusive em contorno concavo."""
+    """The entire rectangle must lie inside the face, including concave outlines."""
     area=0
     for k in range(0,len(triangulos),3):
         ps=[Vector((p[0],p[1],0)) for p in triangulos[k:k+3]]
@@ -747,7 +747,7 @@ def desenhar():
         gpu.state.blend_set('ALPHA');gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(False)
         shader=gpu.shader.from_builtin('UNIFORM_COLOR');mapa=obj.get(CHAVE_MAPA,{})
         with gpu.matrix.push_pop_projection(),gpu.matrix.push_pop():
-            # A cor coplanar precisa de prioridade no depth, sem mover a malha.
+            # Coplanar color needs depth priority without moving the mesh.
             projecao=gpu.matrix.get_projection_matrix()
             projecao[2]=projecao[2]-projecao[3]*1e-6
             gpu.matrix.load_projection_matrix(projecao)
@@ -765,6 +765,6 @@ def desenhar():
 def esquecer():
     _faces_nativas[0]={}
     encerrar_selecao()
-    # Restaurar a selecao pode notificar novamente o depsgraph.
+    # Restoring selection may notify the depsgraph again.
     _faces_nativas[0]={}
     _cache[0]={};_sujo[0]=True;_retorno[0]=None

@@ -1,16 +1,10 @@
-"""Trava a ESTRUTURA do addon contra alteracao acidental.
+"""Protect the add-on's structure from accidental changes.
 
-Execute: blender --background --factory-startup --python-exit-code 1 \
-    --python tests/test_structure_blender.py
+Run: blender --background --factory-startup --python-exit-code 1 --python tests/test_structure_blender.py
 
-Os outros arquivos de teste checam COMPORTAMENTO (a gaveta responde,
-a porta encaixa). Este aqui checa DECISOES DE ARQUITETURA: coisas que
-funcionam hoje e que uma refatoracao bem-intencionada quebraria sem
-perceber. Cada falha aqui deve ser lida como "isto era de proposito;
-confirme com o dono antes de mudar", nunca como "conserte o teste".
+Other tests check behavior, such as a responsive sidebar or a fitting door. These check architectural decisions that work today but could be broken by a well-intentioned refactor. Read failures as intentional design requiring owner agreement before changing it, never as an instruction to weaken the test.
 
-Ver DESIGN.md para o porque de cada decisao travada aqui.
-"""
+See DESIGN.md for the reasoning behind each protected decision."""
 import inspect
 import re
 import os
@@ -24,10 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import archy_builder as addon
 
 
-# Vocabulario fechado das acoes de widget. `_widgets_gaveta` devolve
-# tuplas (x, y, w, h, rotulo, acao) e `acao[0]` e' o verbo que
-# `OBJECT_OT_interagir_gaveta` despacha. Verbo novo que nao esteja aqui
-# e' quase sempre duplicata de um existente com outro nome.
+# Closed vocabulary of widget actions. _widgets_gaveta returns tuples
+# (x, y, w, h, rotulo, acao); acao[0] is the verb dispatched by
+# OBJECT_OT_interagir_gaveta. A new verb absent here is almost always
+# an existing action duplicated under another name.
 VERBOS = frozenset({
     'aba', 'auto', 'biblioteca', 'chapa', 'medida', 'modo',
     'navegar', 'nome_objeto', 'operador', 'portas', 'preset',
@@ -36,9 +30,9 @@ VERBOS = frozenset({
     'divisa', 'pergunta', 'resposta', 'nivel', 'rolagem', 'rotulo',
 })
 
-# Classes definidas no modulo que NAO entram em CLASSES de proposito.
-# VIEW3D_PT_archy_builder e' o painel N legado: a gaveta o substituiu,
-# mas ele ficou no arquivo como referencia. Nao registre sem pedir.
+# Classes intentionally defined in the module but excluded from CLASSES.
+# VIEW3D_PT_archy_builder is the legacy N panel, replaced by the sidebar
+# but retained as a reference. Do not register it without asking.
 NAO_REGISTRADAS = frozenset({'VIEW3D_PT_archy_builder'})
 
 
@@ -52,13 +46,13 @@ def classes_do_modulo():
 
 
 class TestArquiteturaDaGaveta(unittest.TestCase):
-    """A gaveta e' uma AREA, nao um overlay na viewport principal."""
+    """The sidebar is an area, not an overlay in the main viewport."""
 
     def test_gaveta_abre_como_area_dividida(self):
-        # Migrar para overlay foi avaliado e RECUSADO: dividiria a
-        # pilha de eventos, o estado de GPU e o canto superior esquerdo
-        # com addons que tambem desenham na viewport (BlenderKit).
-        # A area propria e' imune aos tres.
+        # Migration to an overlay was evaluated and rejected: it would share event
+        # handling, GPU state and the upper-left corner with other viewport-drawing
+        # add-ons such as BlenderKit.
+        # A dedicated area avoids all three conflicts.
         fonte = (inspect.getsource(addon.biblioteca_faixa.configurar_pendentes)
                  + inspect.getsource(addon.biblioteca_faixa.fechar))
         self.assertIn('screen.area_split', fonte)
@@ -66,8 +60,8 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         self.assertEqual(addon.gaveta._CHAVE_GAVETA, 'cabinet_gaveta_area')
 
     def test_area_e_localizada_por_identidade_nativa_com_migracao_do_ponteiro(self):
-        # A migracao pedida na 365 conserva o ponteiro apenas para o legado;
-        # o subtipo salvo no .blend impede capturar uma viewport do usuario.
+        # The v365 migration retains the pointer only for legacy data; the subtype
+        # saved in the .blend prevents capturing a user's viewport.
         self.assertTrue(callable(addon.gaveta._area_gaveta))
         self.assertTrue(callable(addon.gaveta._reconectar_gavetas))
         fonte = inspect.getsource(addon.gaveta._area_gaveta)
@@ -76,17 +70,17 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
         self.assertIsNone(addon.gaveta._area_gaveta(bpy.context.screen))
 
     def test_largura_e_corrigida_por_timer_nunca_por_modal(self):
-        # Area.width e' somente leitura. O timer corrige a divisoria
-        # DEPOIS do resize e pula janelas com modal ativo, para nunca
-        # disputar evento com um operador do usuario.
+        # Area.width is read-only. The timer adjusts the divider after resize and skips
+        # windows with an active modal operator, avoiding event competition
+        # with the user's operator.
         fonte = inspect.getsource(addon.gaveta._limitar_largura_gaveta)
         self.assertIn('modal_operators', fonte)
         self.assertIn('screen.area_move', fonte)
         self.assertEqual(addon.gaveta._LARGURA_MAX_GAVETA, 564)
 
     def test_gaveta_abre_na_menor_largura_com_medidas_em_linha(self):
-        # Pedido do usuario: abrir no MINIMO em que Largura, Altura e
-        # Profundidade ficam na mesma linha -- nem menos, nem mais.
+        # User request: open at exactly the minimum width fitting Width, Height
+        # and Depth on one row, neither narrower nor wider.
         self.assertEqual(addon.gaveta._LARGURA_PADRAO_GAVETA,
                          addon.gaveta.LARGURA_MEDIDAS_EM_LINHA)
         fonte = inspect.getsource(addon.biblioteca_faixa.configurar_pendentes)
@@ -111,7 +105,7 @@ class TestArquiteturaDaGaveta(unittest.TestCase):
 
 
 class TestAlca(unittest.TestCase):
-    """A alca e' um Gizmo com hit-test proprio, sem operador modal."""
+    """The handle is a gizmo with its own hit-test and no modal operator."""
 
     def test_alca_e_gizmo_com_test_select(self):
         self.assertTrue(issubclass(addon.gaveta_eventos.VIEW3D_GT_alca_gaveta,
@@ -123,21 +117,21 @@ class TestAlca(unittest.TestCase):
             addon.gaveta_eventos.VIEW3D_GT_alca_gaveta.test_select(None, ctx, (300, 300)), -1)
 
     def test_alca_nao_desenha_pelo_gizmo(self):
-        # O desenho e' unico, no callback POST_PIXEL. Se o Gizmo voltar
-        # a desenhar (BACKDROP/OUTLINE de GIZMO_GT_button_2d), a alca
-        # aparece duas vezes, uma por cima da outra.
+        # Only the POST_PIXEL callback draws it. If the gizmo draws again through
+        # GIZMO_GT_button_2d BACKDROP/OUTLINE, the handle appears twice,
+        # one image over the other.
         fonte = inspect.getsource(addon.gaveta_eventos.VIEW3D_GT_alca_gaveta.draw)
         self.assertIn('pass', fonte)
         self.assertNotIn('draw_options', fonte)
 
     def test_alternar_gaveta_nao_e_modal(self):
-        # Alca via modal roubaria evento de outros addons na viewport.
+        # A modal handle would steal viewport events from other add-ons.
         self.assertFalse(hasattr(addon.gaveta_eventos.OBJECT_OT_alternar_gaveta, 'modal'))
 
     def test_geometria_da_alca_bate_com_o_desenho(self):
-        # test_select e o retangulo desenhado no POST_PIXEL sao dois
-        # trechos separados: se um mudar sem o outro, a alca fica com
-        # area clicavel deslocada do que se ve.
+        # test_select and the POST_PIXEL rectangle are separate code paths;
+        # changing one without the other offsets the clickable area
+        # from what is drawn.
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertIn('max(48, context.region.height * 0.12)', fonte)
         hit = inspect.getsource(addon.gaveta_eventos.VIEW3D_GT_alca_gaveta.test_select)
@@ -148,20 +142,20 @@ class TestAlca(unittest.TestCase):
 
 class TestHigieneDeGPU(unittest.TestCase):
     def test_blend_sempre_desligado_no_fim(self):
-        # Estado de GPU vaza para quem desenhar depois -- inclusive
-        # para outros addons, se um dia a gaveta dividir area com eles.
-        # Nao da' para contar ALPHA e NONE (o ALPHA e' religado dentro
-        # do laco de widgets); o que importa e' que TODO caminho de
-        # saida desligue. Hoje sao dois: a alca e a gaveta.
+        # GPU state leaks into subsequent drawing, including other add-ons
+        # if the sidebar ever shares their area.
+        # Counting ALPHA and NONE is insufficient because ALPHA is reenabled inside
+        # the widget loop. Every exit path must disable it;
+        # currently those paths are the handle and sidebar.
         chamadas = re.findall(r"blend_set\('(\w+)'\)",
                               inspect.getsource(addon.gaveta_desenho._desenhar_gaveta))
         self.assertEqual(chamadas[-1], 'NONE')
         self.assertEqual(chamadas.count('NONE'), 2,
-                         'caminho de saida novo tem que fechar o blend')
+                         "New exit path must disable blending")
 
 
 class TestGridDeMedidas(unittest.TestCase):
-    """A caixa na cena e o eixo que cada campo acende."""
+    """The scene box and the axis highlighted by each field."""
 
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
@@ -169,35 +163,35 @@ class TestGridDeMedidas(unittest.TestCase):
         addon.hud._realce_medida[0] = None
 
     def test_tabela_de_eixos_cobre_todos_os_rotulos(self):
-        # Rotulo sem eixo nao acende nada e o usuario fica sem saber o
-        # que vai mudar -- exatamente o problema que a grid resolve.
-        # Espessura de modulo e' a unica ausencia proposital: nao e'
-        # aresta da caixa.
+        # A label without an axis highlights nothing and obscures what will change;
+        # this is precisely what the grid resolves.
+        # Cabinet thickness is the only intentional omission because it is not
+        # a box edge.
         bpy.ops.mesh.primitive_cube_add()
-        for modo, esperados in (('LIVRE', {'Largura', 'Altura',
-                                           'Profundidade'}),
-                                ('INDIVIDUAL', {'Largura', 'Altura',
-                                                'Espessura'}),
-                                ('GRUPO', {'Largura', 'Altura',
-                                           'Profundidade'})):
+        for modo, esperados in (('LIVRE', {"Width", "Height",
+                                           "Depth"}),
+                                ('INDIVIDUAL', {"Width", "Height",
+                                                "Thickness"}),
+                                ('GRUPO', {"Width", "Height",
+                                           "Depth"})):
             self.assertTrue(
                 esperados <= set(addon.hud.EIXOS_MEDIDA[modo]), modo)
-        self.assertNotIn('Profundidade', addon.hud.EIXOS_MEDIDA['INDIVIDUAL'])
-        self.assertNotIn('Espessura', addon.hud.EIXOS_MEDIDA['GRUPO'])
+        self.assertNotIn("Depth", addon.hud.EIXOS_MEDIDA['INDIVIDUAL'])
+        self.assertNotIn("Thickness", addon.hud.EIXOS_MEDIDA['GRUPO'])
 
     def test_eixos_seguem_a_convencao_do_addon(self):
-        # Modulo e objeto livre: Largura=X, Altura=Z, Profundidade=Y.
+        # Cabinet and free object: Width = X, Height = Z, Depth = Y.
         for modo in ('GRUPO', 'LIVRE'):
-            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]['Largura'], 0)
-            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]['Altura'], 2)
-            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]['Profundidade'], 1)
-        # Chapa: eixos LOCAIS, com a espessura no Z dela.
+            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]["Width"], 0)
+            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]["Height"], 2)
+            self.assertEqual(addon.hud.EIXOS_MEDIDA[modo]["Depth"], 1)
+        # Panel: local axes, with thickness on local Z.
         self.assertEqual(addon.hud.EIXOS_MEDIDA['INDIVIDUAL'],
-                         {'Largura': 0, 'Altura': 1, 'Espessura': 2})
+                         {"Width": 0, "Height": 1, "Thickness": 2})
 
     def test_arestas_batem_com_a_indexacao_por_bits(self):
-        # Cada eixo tem 4 arestas, e os dois cantos de uma aresta do
-        # eixo `a` diferem exatamente no bit de `a`.
+        # Each axis has four edges; the two corners of an edge along axis a
+        # differ in exactly bit a.
         vistos = set()
         for a, arestas in enumerate(addon.hud.ARESTAS_EIXO):
             self.assertEqual(len(arestas), 4)
@@ -215,14 +209,14 @@ class TestGridDeMedidas(unittest.TestCase):
         for a, esperado in enumerate((4.0, -1.0, -1.0)):
             self.assertAlmostEqual(min(c[a] for c in cantos), esperado,
                                    places=5)
-        # a aresta do eixo 0 mede a largura
+        # An edge of axis 0 measures width.
         i, j = addon.hud.ARESTAS_EIXO[0][0]
         self.assertAlmostEqual((cantos[j] - cantos[i]).length, 2.0, places=5)
 
     def test_caixa_da_chapa_acompanha_a_rotacao(self):
-        # Chapa girada: a Espessura continua sendo a aresta LOCAL Z,
-        # nao a vertical do mundo. Caixa alinhada ao mundo acenderia
-        # a aresta errada.
+        # Rotated panel: thickness remains the local Z edge, not world vertical.
+        # A world-aligned box would highlight
+        # the wrong edge.
         obj = addon.chapas.nova_chapa('Girada', 600.0, 400.0, 18.0,
                                (0.0, 0.0, 0.0), (0.0, 90.0, 0.0),
                                bpy.context)
@@ -230,31 +224,31 @@ class TestGridDeMedidas(unittest.TestCase):
         bpy.context.view_layer.objects.active = obj
         bpy.context.view_layer.update()
         cantos = addon.hud._caixa_da_medida(bpy.context, 'INDIVIDUAL')
-        eixo = addon.hud.EIXOS_MEDIDA['INDIVIDUAL']['Espessura']
+        eixo = addon.hud.EIXOS_MEDIDA['INDIVIDUAL']["Thickness"]
         i, j = addon.hud.ARESTAS_EIXO[eixo][0]
         aresta = cantos[j] - cantos[i]
         self.assertAlmostEqual(aresta.length, 0.018, places=5)
-        # girada 90 graus em Y, a espessura deitou no eixo X do mundo
+        # Rotated 90 degrees around Y, thickness lies along world X.
         self.assertAlmostEqual(abs(aresta.normalized().x), 1.0, places=4)
         self.assertEqual(obj.chapa_espessura_mm, 18.0)
 
     def test_sem_realce_nao_desenha(self):
-        # A caixa so' aparece com o mouse num campo ou com ele em
-        # edicao; fora disso a viewport fica limpa.
+        # The box appears only while hovering over or editing a field;
+        # otherwise the viewport remains clear.
         self.assertIsNone(addon.hud._realce_medida[0])
-        addon.hud._desenhar_grid_medidas()   # nao pode levantar
+        addon.hud._desenhar_grid_medidas()   # Must not raise.
 
     def test_handler_do_grid_e_post_view(self):
-        # POST_PIXEL desenharia em coordenada de tela, e a caixa vive
-        # em coordenada de mundo, junto da cena.
+        # POST_PIXEL would draw in screen coordinates, but the box belongs
+        # in world coordinates with the scene.
         self.assertIsNotNone(addon.hud._handler_grid[0])
         fonte = inspect.getsource(addon.register)
         self.assertIn("_desenhar_grid_medidas, (), 'WINDOW', 'POST_VIEW'",
                       fonte)
 
     def test_campo_e_gizmo_sem_modal(self):
-        # Mesmo motivo da alca: hover e clique por Gizmo, nunca por
-        # operador modal persistente.
+        # Same reason as the handle: hover and click use a gizmo,
+        # never a persistent modal operator.
         self.assertTrue(issubclass(addon.gaveta_desenho.VIEW3D_GT_campo_gaveta,
                                    bpy.types.Gizmo))
         self.assertIn(addon.gaveta_desenho.VIEW3D_GT_campo_gaveta, addon.CLASSES)
@@ -262,42 +256,42 @@ class TestGridDeMedidas(unittest.TestCase):
                       inspect.getsource(addon.gaveta_desenho.VIEW3D_GT_campo_gaveta.draw))
 
     def test_glow_e_o_mesmo_da_alca(self):
-        # "Glow igual o da alca": tem que ser a MESMA funcao, nao uma
-        # copia que diverge na primeira alteracao.
+        # Glow matching the handle must use the same function, not a copy
+        # that diverges on the first change.
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertGreaterEqual(fonte.count('_glow_gaveta('), 2)
         halo = inspect.getsource(addon.gaveta._glow_gaveta)
         self.assertIn('((6, 0.025), (4, 0.045), (2, 0.07))', halo)
 
     def test_glow_liga_o_proprio_blend(self):
-        # REGRESSAO: blf.draw deixa o estado de blend alterado, entao
-        # o halo do SEGUNDO widget em diante saia opaco -- um bloco
-        # branco por cima do texto (visto em Altura e Profundidade).
-        # O halo nao pode depender de quem desenhou antes dele.
+        # Regression: blf.draw changes blend state, making the second and later widgets'
+        # halos opaque white blocks over text, observed on Height
+        # and Depth.
+        # The halo must not depend on what drew before it.
         halo = inspect.getsource(addon.gaveta._glow_gaveta)
         self.assertIn("blend_set('ALPHA')", halo)
         self.assertLess(halo.index("blend_set('ALPHA')"),
                         halo.index('for margem'))
 
     def test_glow_vai_antes_do_corpo_do_botao(self):
-        # Por cima, o halo lava o texto em vez de circundar o widget.
+        # Drawing on top washes out text instead of surrounding the widget.
         fonte = inspect.getsource(addon.gaveta_desenho._desenhar_gaveta)
         self.assertLess(fonte.index('_glow_gaveta(x, y, w, h, 4'),
                         fonte.index('_botao_gaveta(x, y, w, h, ativo=ativo'))
 
     def test_todo_botao_tem_chave_de_realce(self):
-        # O glow vale para QUALQUER botao: todo verbo clicavel precisa
-        # de uma chave, e so' a decoracao pode ficar sem.
+        # Glow applies to every button: each clickable verb needs a key;
+        # only decoration may omit one.
         bpy.ops.mesh.primitive_cube_add()
         cena = bpy.context.scene
         cena.cabinet_aba = 'MODULOS'
         cena.chapa_bib_aberta = True
-        cena.chapa_n1 = 'Armarios'
+        cena.chapa_n1 = "Cabinets"
         sem_chave = set()
         for largura in (190, 320, 564):
             for _x, _y, _w, _h, _r, acao in addon.gaveta._widgets_gaveta(
                     bpy.context, largura, 1200):
-                # A faixa 387 permanece sem selecao; botoes desabilitados nao acendem.
+                # The v387 strip remains without selection; disabled buttons do not highlight.
                 if addon.visibilidade.eh_acao(acao) and addon.gaveta_eventos._operador_apagado(acao):
                     continue
                 if acao and addon.gaveta_desenho._chave_widget(acao) is None:
@@ -306,20 +300,20 @@ class TestGridDeMedidas(unittest.TestCase):
                                         'nome_objeto', 'slider', 'rotulo'}, set())
 
     def test_chaves_de_realce_nao_colidem(self):
-        # Duas chaves iguais acenderiam os dois widgets juntos.
+        # Two identical keys would highlight both widgets together.
         bpy.ops.mesh.primitive_cube_add()
         cena = bpy.context.scene
         cena.cabinet_aba = 'MODULOS'
         cena.chapa_bib_aberta = True
-        cena.chapa_n1 = 'Armarios'
+        cena.chapa_n1 = "Cabinets"
         chaves = [addon.gaveta_desenho._chave_widget(v[5]) for v in addon.gaveta._widgets_gaveta(
             bpy.context, 320, 1200) if addon.gaveta_desenho._chave_widget(v[5])]
         self.assertEqual(len(chaves), len(set(chaves)))
 
     def test_hit_test_poupa_o_disco_do_icone(self):
-        # O gizmo do icone precisa continuar ganhando o pick em cima
-        # dele, senao o tooltip some. O glow cobre os dois porque soma
-        # os dois is_highlight.
+        # The icon gizmo must still win picking over its own area or its tooltip
+        # disappears. Glow covers both targets by combining
+        # their is_highlight states.
         teste = addon.gaveta_desenho.VIEW3D_GT_campo_gaveta.test_select
         giz = type('G', (), {'as_pointer': lambda self: 4242})()
         addon.hud._campos_gaveta[4242] = (10, 10, 200, 40, (110, 30, 13))
@@ -332,9 +326,7 @@ class TestGridDeMedidas(unittest.TestCase):
 
 
 class TestListaSuspensaDaCascata(unittest.TestCase):
-    """Biblioteca DENTRO do menu: cada nivel da cascata e' um campo
-    suspenso e a lista abre flutuando, como no Promob (pedido do usuario;
-    substituiu o carrossel deslizante). A faixa superior tem as filas dela."""
+    """Library inside the menu: each cascade level is a dropdown field with a floating list, like Promob, as requested. This replaces the sliding carousel; the top strip retains its own rows."""
 
     NOME = 'cabinet_carrossel_1'
 
@@ -367,7 +359,7 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
         B = addon.biblioteca
         esperado = sorted(B.filhos_de(B.indice_completo() + B.itens_de_fabrica(), ()), key=str.casefold)
         self.assertEqual(list(campos[0][5][4]), esperado)
-        self.assertEqual(campos[0][4], 'Escolha...')
+        self.assertEqual(campos[0][4], "Choose...")
         self.assertFalse([v for v in itens if v[5] and v[5][0] in ('navegar', 'rolar_nivel')])
 
     def test_lista_flutua_embaixo_do_campo_e_cobre_o_conteudo(self):
@@ -388,7 +380,7 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
                 continue
             self.assertFalse(v[0] < fx + fw and fx < v[0] + v[2]
                              and v[1] < fy + fh and fy < v[1] + v[3], v)
-        # Fechada, a lista some e o campo volta a ser o unico do nivel.
+        # When collapsed, hide the list and leave only that level's field.
         bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = ''
         self.assertFalse([v for v in self.widgets() if v[5] and v[5][0] == 'nivel'])
 
@@ -409,11 +401,11 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
             for b in linhas[i + 1:]:
                 self.assertFalse(a[0] < b[0] + b[2] and b[0] < a[0] + a[2]
                                  and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
-        # Campo cortado pela rolagem: nada flutua solto pela tela.
+        # A field clipped by scrolling must not leave floating content detached on screen.
         self.assertEqual(lista(30, 40, 600, 5), [])
 
     def test_cada_linha_acende_sozinha(self):
-        # Sem identidade propria, o hover de uma linha acenderia a lista toda.
+        # Without an identity per row, hovering one would highlight the whole list.
         bpy.context.screen[addon.gaveta._CHAVE_SUSPENSO] = self.NOME
         linhas = [v for v in self.widgets() if v[5] and v[5][0] == 'nivel']
         chaves = [addon.gaveta_desenho._chave_widget(v[5]) for v in linhas]
@@ -421,7 +413,7 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
         self.assertEqual(len(set(chaves)), len(chaves))
 
     def test_materiais_tem_lista_propria(self):
-        # Presets e materiais tem cascatas distintas: abrir uma nao abre a outra.
+        # Preset and material cascades are distinct; opening one must not open the other.
         cena = bpy.context.scene
         cena.cabinet_bib_modo = 'MATERIAIS'
         try:
@@ -460,7 +452,7 @@ class TestListaSuspensaDaCascata(unittest.TestCase):
 
 
 class TestContratoDosWidgets(unittest.TestCase):
-    """_widgets_gaveta e' a fronteira entre layout e desenho."""
+    """_widgets_gaveta is the boundary between layout and drawing."""
 
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
@@ -469,12 +461,12 @@ class TestContratoDosWidgets(unittest.TestCase):
         cena = bpy.context.scene
         cena.cabinet_aba = 'MODULOS'
         cena.chapa_bib_aberta = True
-        cena.chapa_n1 = 'Armarios'
-        cena.chapa_n2 = 'Sala'
-        cena.chapa_n3 = 'Inferiores'
+        cena.chapa_n1 = "Cabinets"
+        cena.chapa_n2 = "Living Room"
+        cena.chapa_n3 = "Base Cabinets"
 
     def todos(self):
-        """Widgets de varios estados e larguras, achatados."""
+        """Return flattened widgets across multiple states and widths."""
         saida = []
         cena = bpy.context.scene
         for aba in ('MODULOS', 'PORTAS'):
@@ -500,8 +492,7 @@ class TestContratoDosWidgets(unittest.TestCase):
         bpy.ops.object.cabinet_marcar()
         usados = {w[5][0] for w in marcado + self.todos() if w[5]}
         novos = usados - VERBOS
-        self.assertFalse(novos, 'verbo de widget novo: %s -- confirme que '
-                                'nao e duplicata e acrescente a VERBOS' % novos)
+        self.assertFalse(novos, "New widget verb: %s -- confirm it is not a duplicate and add it to VERBOS" % novos)
 
     def test_nada_desenha_fora_da_gaveta(self):
         for largura in (190, 320, 564, 2056):
@@ -513,15 +504,15 @@ class TestContratoDosWidgets(unittest.TestCase):
                 self.assertGreaterEqual(h, 0)
 
     def test_largura_maxima_respeitada_em_tela_larga(self):
-        # A gaveta para de crescer em 564 px: texto em coluna muito
-        # larga fica ilegivel e a miniatura vira faixa.
+        # The sidebar stops growing at 564 px: overly wide text columns become
+        # unreadable and thumbnails become strips.
         larguras = {w[0] + w[2] for w in
                     addon.gaveta._widgets_gaveta(bpy.context, 2056, 1200)}
         self.assertLessEqual(max(larguras), addon.gaveta._LARGURA_MAX_GAVETA - 12)
 
 
 class TestEstruturaDaChapa(unittest.TestCase):
-    """Invariantes do modulo basico. Quebrar isto invalida a biblioteca."""
+    """Basic-module invariants; breaking these invalidates the library."""
 
     def setUp(self):
         bpy.ops.object.select_all(action='SELECT')
@@ -533,9 +524,9 @@ class TestEstruturaDaChapa(unittest.TestCase):
                                 bpy.context)
 
     def test_marcadores_sao_id_props_e_nao_rna(self):
-        # `MARCA_CHAPA in obj` so' funciona com ID prop. Se alguem
-        # trocar por bpy.props, o teste `in` passa a dar False sempre
-        # e a biblioteca inteira para de ser reconhecida.
+        # MARCA_CHAPA in obj works only for ID properties. Replacing them with bpy.props
+        # would make membership always return False and prevent recognition
+        # of the entire library.
         obj = self.chapa()
         self.assertIn(addon.chapas.MARCA_CHAPA, obj)
         rna = {p.identifier for p in obj.bl_rna.properties}
@@ -544,7 +535,7 @@ class TestEstruturaDaChapa(unittest.TestCase):
             self.assertNotIn(marca, rna)
 
     def test_nomes_gravados_nos_presets_nao_mudam(self):
-        # Estes literais estao dentro dos .blend da biblioteca.
+        # These literals are stored inside library .blend files.
         self.assertEqual(addon.chapas.MARCA_CHAPA, 'eh_chapa')
         self.assertEqual(addon.chapas.MARCA_CONJUNTO, 'eh_conjunto_chapa')
         self.assertEqual(addon.chapas.MARCA_PORTAS, 'eh_grupo_portas')
@@ -568,9 +559,9 @@ class TestEstruturaDaChapa(unittest.TestCase):
             self.assertAlmostEqual(eixo, 1.0, places=5)
 
     def test_espessura_livre_e_alerta_acima_de_60(self):
-        # Pedido do usuario: a espessura NAO e' limitada as convencionais
-        # (que so' sobram como opcoes/padrao); acima de 60 mm a gaveta
-        # pinta nome e valor do campo de vermelho.
+        # User request: thickness is not restricted to conventional values,
+        # which remain only choices/defaults. Above 60 mm, the sidebar paints
+        # both field name and value red.
         self.assertEqual(addon.chapas.ESPESSURAS_PERMITIDAS, [15.0, 18.0, 20.0, 30.0])
         self.assertEqual(addon.chapas.ESPESSURA_ALERTA_MM, 60.0)
         obj = self.chapa()
@@ -579,18 +570,18 @@ class TestEstruturaDaChapa(unittest.TestCase):
             self.assertAlmostEqual(obj.chapa_espessura_mm, pedido, places=3)
             self.assertAlmostEqual(obj.dimensions.z, pedido / 1000, places=5)
         for valor, alerta in ((18.0, False), (60.0, False), (60.5, True)):
-            acao = ('medida', 'objeto', 'ui_chapa_espessura', 'Espessura',
+            acao = ('medida', 'objeto', 'ui_chapa_espessura', "Thickness",
                     valor)
             self.assertEqual(addon.gaveta_desenho._medida_em_alerta(acao), alerta, valor)
-        # so' a Espessura: uma largura de 600 nao acende nada
+        # Thickness only: a width of 600 must not highlight anything.
         self.assertFalse(addon.gaveta_desenho._medida_em_alerta(
-            ('medida', 'objeto', 'ui_chapa_largura', 'Largura', 600.0)))
+            ('medida', 'objeto', 'ui_chapa_largura', "Width", 600.0)))
         r, g, b, a = addon.gaveta_desenho._cor_alerta_gaveta()
         self.assertGreater(r, max(g, b))
 
     def test_vizinhanca_gravada_por_uid(self):
-        # Preset inserido ganha sufixo .001; por nome a adjacencia
-        # apontaria para o objeto errado.
+        # Inserted presets gain .001 suffixes; name-based adjacency would point
+        # to the wrong object.
         a = self.chapa()
         b = addon.chapas.nova_chapa('Vizinha', 600.0, 400.0, 18.0,
                              (600.0, 0.0, 0.0), (0.0, 0.0, 0.0),
@@ -598,31 +589,31 @@ class TestEstruturaDaChapa(unittest.TestCase):
         bpy.context.view_layer.update()
         self.assertGreater(addon.chapas.detectar_adjacencia([a, b]), 0)
         self.assertEqual(a['adj_x_pos_uid'], b['chapa_uid'])
-        # Regra 359: a unica aresta conserva tambem o encaixe reverso,
-        # sem duplicar o registro nem perder a identidade por UID.
+        # Rule v359: the single edge also preserves reverse fitting without duplicating
+        # the record or losing UID identity.
         self.assertIsNone(addon.solda._vizinho_da_ponta(b, 'x_neg'))
         reversa = addon.solda.restricoes_adjacencia([b])[b]['x_neg']
         self.assertIs(reversa[0], a)
-        # o nome tambem e' gravado, mas so' como pista para o log
+        # The name is also stored, but only as a log hint.
         self.assertEqual(a['adj_x_pos'], b.name)
         b.name = 'Vizinha renomeada.001'
         self.assertIs(addon.solda._vizinho_da_ponta(a, 'x_pos'), b)
         self.assertNotEqual(addon.chapas._garantir_uid(a), addon.chapas._garantir_uid(b))
-        # e' estavel: chamar de novo nao gera outro uid
+        # Stable: another call does not generate a new UID.
         self.assertEqual(addon.chapas._garantir_uid(a), a['chapa_uid'])
 
     def test_guarda_de_reentrancia_existe(self):
         self.assertEqual(addon.chapas._ocupado, [False])
 
     def test_malha_modelada_nunca_e_substituida(self):
-        # Sem "Auto-regenerar" (usuario): mudar a medida de uma chapa
-        # MODELADA estica a malha; recorte/furo ficam, com o mesmo
-        # tamanho e a mesma distancia ate' a borda mais proxima.
+        # Without auto-regeneration, as requested, dimension changes on a modeled panel
+        # stretch its mesh while preserving cutouts and holes at the same size
+        # and distance from the nearest edge.
         obj = self.chapa(600.0, 400.0, 18.0)
         self.assertTrue(addon.chapas._malha_e_caixa(obj.data))
         bm = bmesh.new()
         bm.from_mesh(obj.data)
-        # um "corte" a 50 mm da borda +X: loop que divide a largura
+        # A cut 50 mm from edge +X: a loop splitting the width.
         bmesh.ops.bisect_plane(
             bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
             plane_co=(0.25, 0, 0), plane_no=(1, 0, 0))
@@ -631,15 +622,15 @@ class TestEstruturaDaChapa(unittest.TestCase):
         n = len(obj.data.vertices)
         self.assertGreater(n, 8)
         self.assertFalse(addon.chapas._malha_e_caixa(obj.data))
-        obj.chapa_largura_mm = 1000.0          # +400: 200 de cada lado
+        obj.chapa_largura_mm = 1000.0          # +400: 200 on each side.
         xs = sorted({round(v.co.x, 6) for v in obj.data.vertices})
-        self.assertEqual(len(obj.data.vertices), n)      # nada apagado
-        self.assertEqual(xs, [-0.5, 0.45, 0.5])          # corte a 50 mm
+        self.assertEqual(len(obj.data.vertices), n)      # Nothing deleted.
+        self.assertEqual(xs, [-0.5, 0.45, 0.5])          # Cut at 50 mm.
         self.assertAlmostEqual(obj.dimensions.x, 1.0, places=5)
-        obj.chapa_espessura_mm = 70.0          # espessura livre, idem
+        obj.chapa_espessura_mm = 70.0          # The same applies to free thickness.
         self.assertAlmostEqual(obj.dimensions.z, 0.070, places=5)
         self.assertEqual(len(obj.data.vertices), n)
-        # a caixa padrao continua sendo refeita normalmente
+        # The default box is still rebuilt normally.
         caixa = self.chapa(600.0, 400.0, 18.0)
         caixa.chapa_largura_mm = 800.0
         self.assertTrue(addon.chapas._malha_e_caixa(caixa.data))
@@ -652,7 +643,7 @@ class TestEstruturaDaChapa(unittest.TestCase):
         bmesh.ops.bisect_plane(
             bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
             plane_co=(0.1, 0, 0), plane_no=(1, 0, 0))
-        for v in bm.verts:             # e estica o lado +X em 100 mm
+        for v in bm.verts:             # And stretches side +X by 100 mm.
             if v.co.x > 0.2:
                 v.co.x += 0.1
         bm.to_mesh(obj.data)
@@ -661,22 +652,22 @@ class TestEstruturaDaChapa(unittest.TestCase):
         addon.chapas._chapas_em_edicao.add(obj.name)
         addon.chapas.absorver_edicoes_de_malha()
         self.assertAlmostEqual(obj.chapa_largura_mm, 700.0, places=3)
-        self.assertEqual(len(obj.data.vertices), n)      # o corte ficou
+        self.assertEqual(len(obj.data.vertices), n)      # The cut remains.
 
     def test_sair_do_modo_edicao_atualiza_as_medidas(self):
-        # Print do usuario: um lado esticado no Modo Edicao e o contorno
-        # da HUD (que le as PROPS) seguia com a medida velha.
+        # User screenshot: one side was stretched in Edit Mode, but the HUD outline,
+        # which reads properties, retained the old dimension.
         obj = addon.chapas.nova_chapa('Esticada', 600.0, 400.0, 18.0,
                                (1000.0, 0.0, 0.0), (0.0, 0.0, 90.0),
                                bpy.context)
         intocada = self.chapa()
         bpy.context.view_layer.update()
         esquerda = min(addon.chapas._cantos(obj), key=lambda p: p.y)
-        # "Modo Edicao": so' o lado +X local anda 200 mm
+        # Edit Mode: only local side +X moves 200 mm.
         for v in obj.data.vertices:
             if v.co.x > 0:
                 v.co.x += 0.2
-        for v in intocada.data.vertices:     # mexida, mas sem transicao
+        for v in intocada.data.vertices:     # Changed, but without a transition.
             v.co.x += 0.1
         addon.chapas._chapas_em_edicao.add(obj.name)
         addon.chapas.absorver_edicoes_de_malha()
@@ -684,15 +675,15 @@ class TestEstruturaDaChapa(unittest.TestCase):
         self.assertAlmostEqual(obj.chapa_largura_mm, 800.0, places=3)
         self.assertAlmostEqual(obj.chapa_comprimento_mm, 400.0, places=3)
         self.assertAlmostEqual(obj.chapa_espessura_mm, 18.0, places=3)
-        # a peca nao saiu do lugar: o lado parado continua parado e a
-        # origem voltou ao centro da caixa (malha simetrica de novo)
+        # The part stays in place: the fixed side remains fixed, and the origin returns
+        # to the box center, making the mesh symmetric again.
         xs = [v.co.x for v in obj.data.vertices]
         self.assertAlmostEqual(min(xs), -max(xs), places=5)
         cantos = addon.chapas._cantos(obj)
         self.assertAlmostEqual(min(p.y for p in cantos), esquerda.y, places=5)
         self.assertAlmostEqual(max(p.y for p in cantos),
                                esquerda.y + 0.8, places=5)
-        # sem transicao, nada muda (importado fora do centro fica quieto)
+        # No transition means no change; off-center imports stay untouched.
         self.assertAlmostEqual(intocada.chapa_largura_mm, 600.0, places=3)
         self.assertEqual(addon.chapas._chapas_em_edicao, set())
 
@@ -701,9 +692,7 @@ class TestRegistro(unittest.TestCase):
     def test_toda_classe_bpy_entra_em_classes(self):
         registradas = {c.__name__ for c in addon.CLASSES}
         faltando = set(classes_do_modulo()) - registradas - NAO_REGISTRADAS
-        self.assertFalse(faltando, 'classe fora de CLASSES: %s -- todo '
-                                   'Operator/Gizmo/Panel novo precisa entrar '
-                                   'na tupla' % faltando)
+        self.assertFalse(faltando, "Class missing from CLASSES: %s -- every new Operator/Gizmo/Panel must be included in the tuple" % faltando)
 
     def test_classes_sem_duplicata(self):
         nomes = [c.__name__ for c in addon.CLASSES]
@@ -713,7 +702,7 @@ class TestRegistro(unittest.TestCase):
         for classe in addon.CLASSES:
             if issubclass(classe, bpy.types.Operator):
                 self.assertTrue(classe.bl_idname.startswith('object.cabinet_'),
-                                '%s: bl_idname deve ser object.cabinet_<acao>'
+                                "%s: bl_idname must be object.cabinet_<acao>"
                                 % classe.__name__)
 
     def test_unregister_desfaz_tudo(self):
@@ -727,7 +716,7 @@ class TestRegistro(unittest.TestCase):
                           addon.gaveta._animar_realces,
                           addon.eventos.verificar_periodicamente):
                 self.assertFalse(bpy.app.timers.is_registered(timer),
-                                 '%s continuou registrado' % timer.__name__)
+                                 "%s remained registered" % timer.__name__)
             self.assertNotIn(addon.chapas.ao_atualizar_depsgraph,
                              bpy.app.handlers.depsgraph_update_post)
         finally:
@@ -735,8 +724,7 @@ class TestRegistro(unittest.TestCase):
 
 
 class TestPacote(unittest.TestCase):
-    """O add-on e' um PACOTE, um modulo por area (pedido do usuario: o
-    arquivo unico de 19 mil linhas pesava a cada mudanca)."""
+    """The add-on is a package with one module per area, as requested: a single 19,000-line file made every change cumbersome."""
 
     def test_todo_modulo_esta_na_ordem_de_carga(self):
         pasta = os.path.dirname(addon.__file__)
@@ -764,8 +752,8 @@ class TestPacote(unittest.TestCase):
         self.assertEqual({p.name for p in raiz.glob('*.py')}, {'__init__.py'})
 
     def test_apelidos_entre_modulos_estao_ligados(self):
-        # `_portas.x`: o apelido usado so' ao rodar e' ligado pelo
-        # `_ligar_modulos`; um None esquecido quebraria so' na hora do uso
+        # _portas.x uses an alias linked at runtime by _ligar_modulos;
+        # a forgotten None would fail only when called.
         nomes = {'_' + nome: m for nome, m in addon._MODULE_ALIASES.items()}
         for modulo in addon._MODULOS:
             for apelido, alvo in nomes.items():
@@ -774,8 +762,8 @@ class TestPacote(unittest.TestCase):
                                   '%s.%s' % (modulo.__name__, apelido))
 
     def test_modulo_nao_importa_nome_solto_de_outro(self):
-        # `from .portas import x` copia o nome: trocar `addon.portas.x` num
-        # teste (ou recarregar) nao chegaria ao outro modulo
+        # from .portas import x copies the name: patching addon.portas.x in a test
+        # or reloading would not reach the other module.
         import ast
         for modulo in addon._MODULOS:
             with open(modulo.__file__, encoding='utf-8') as f:
@@ -796,4 +784,4 @@ suite = unittest.TestSuite([carregar(c) for c in (
 resultado = unittest.TextTestRunner(verbosity=2).run(suite)
 addon.unregister()
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes de estrutura')
+    raise RuntimeError("Structure tests failed")

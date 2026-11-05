@@ -1,7 +1,7 @@
-"""Biblioteca de presets: pastas, catalogos, indice, inserir/arrastar
-preset, miniaturas, foto clicavel, barra de tamanho, bloquear e salvar,
-Asset Browser e prateleira. Mora aqui tambem o wireframe das medidas
-(usado pela gaveta e pelo painel N)."""
+"""Preset library: folders, catalogs, index, preset insertion/dragging,
+thumbnails, clickable photos, size bar, locking, saving, Asset Browser,
+and shelf. Also owns the dimension wireframe used by the sidebar
+and N-panel."""
 
 import bpy, math, os, uuid, json, gpu, time, blf
 _frentes = None
@@ -12,8 +12,8 @@ from mathutils.geometry import intersect_line_plane
 from bpy_extras import view3d_utils
 from bpy.types import Operator
 
-# usados so' ao RODAR (import circular): o __init__ liga estes
-# apelidos depois de carregar todos (`_ligar_modulos`)
+# Used only at RUNTIME (circular imports): __init__ wires these
+# aliases after loading all modules (`_ligar_modulos`).
 _chapas = _modulos = _opcoes = _selecao = _gaveta = None
 _portas = _puxadores = _ferragens = _promob = None
 _biblioteca_faixa = None
@@ -22,45 +22,44 @@ _paredes_edicao = None
 _paredes = None
 _esquadrias = None
 
-# ================================================== BIBLIOTECA / ASSETS
-# Salva chapas e modulos na biblioteca de assets do Blender, para
-# reaproveitar via Asset Browser (arrastar para a cena).
+# ================================================== LIBRARY / ASSETS
+# Save panels and cabinets in Blender's asset library for
+# reuse through the Asset Browser by dragging into the scene.
 #
-# Cada preset vira um .blend proprio dentro da pasta da biblioteca.
-# Um arquivo por preset evita ter que reabrir e mesclar um .blend
-# compartilhado a cada gravacao.
-# Nome da pasta auxiliar para novos dados da biblioteca.
+# Each preset gets its own .blend in the library folder.
+# One file per preset avoids reopening and merging a shared .blend
+# on every save.
+# Auxiliary folder name for new library data.
 SUBPASTA_BIB = "Archy Builder"
-# Raiz UNICA dos catalogos do Asset Browser. Trocar o CAMINHO de um
-# catalogo e' seguro desde que o UUID nao mude: o .blend guarda o UUID,
-# e e' por ele que o Blender reencontra o asset. Por isso as raizes
-# antigas sao RENOMEADAS (mesmo UUID), nunca recriadas.
+# SINGLE Asset Browser catalog root. Changing a catalog PATH is safe
+# as long as its UUID stays unchanged: the .blend stores that UUID,
+# which Blender uses to find the asset. Therefore old roots
+# are RENAMED with the same UUID, never recreated.
 CAT_RAIZ = "Archy Builder"
 RAIZES_ANTIGAS = ("Cabinet Creator", "Chapa G3")
 
-# Uma unica biblioteca de assets. Os nomes abaixo sao os que o addon ja'
-# registrou em versoes anteriores e agora precisa recolher.
+# One asset library. These names were registered by earlier add-on
+# versions and must now be cleaned up.
 NOME_BIBLIOTECA = "Archy Builder"
 BIBLIOTECAS_ANTIGAS = (
     "Chapa G3 (fabrica)", "Chapa G3 (equipe)",
     "Cabinet Creator", "Cabinet Creator (fabrica)", "Cabinet Creator (equipe)",
 )
-CAT_CHAPAS = CAT_RAIZ + "/Chapas"
-CAT_MODULOS = CAT_RAIZ + "/Modulos"
+CAT_CHAPAS = CAT_RAIZ + "/Panels"
+CAT_MODULOS = CAT_RAIZ + "/Modules"
 
 
 def pasta_biblioteca():
-    """A UNICA biblioteca: a da empresa, que mora dentro do addon.
+    """The ONLY library: the company library inside the add-on.
 
-    Nao ha' mais separacao fabrica/equipe -- era ela que produzia duas
-    entradas no seletor do Asset Browser. Quem quiser a biblioteca numa
-    pasta de rede aponta `pasta_biblioteca` nas Preferencias.
+    The factory/team split no longer exists; it caused duplicate entries
+    in the Asset Browser selector. To use a network folder, set
+    `pasta_biblioteca` in Preferences.
 
-    ATENCAO: gravar dentro do addon so' e' seguro porque a pasta e' o
-    repositorio da empresa (junction feita por vincular_blender.py).
-    Numa instalacao por .zip, uma atualizacao sobrescreve a pasta --
-    nesse caso configure a pasta de rede nas Preferencias.
-    """
+    WARNING: writing inside the add-on is safe only because the folder
+    is the company repository (junction created by vincular_blender.py).
+    For ZIP installations, an update overwrites the folder; configure
+    the network folder in Preferences in that case."""
     p = _opcoes._prefs()
     if p and getattr(p, "pasta_biblioteca", ""):
         destino = bpy.path.abspath(p.pasta_biblioteca)
@@ -69,29 +68,29 @@ def pasta_biblioteca():
     try:
         os.makedirs(destino, exist_ok=True)
     except Exception as e:
-        print("[Archy Builder] biblioteca:", e)
+        print("[Archy Builder] library:", e)
     return destino
 
 
 def registrar_bibliotecas(silencioso=True):
-    """Registra a pasta da biblioteca como biblioteca de assets do Blender,
-    sem duplicar caso ja' estejam registradas."""
+    """Register the library folder as a Blender asset library
+    without duplicating an existing registration."""
     registradas = []
     libs = bpy.context.preferences.filepaths.asset_libraries
     caminho = pasta_biblioteca()
     alvo = os.path.normcase(os.path.normpath(caminho))
 
-    # A limpeza vem ANTES do registro. Uma entrada antiga podia apontar
-    # para ESTA mesma pasta: removendo depois, o registro era pulado por
-    # "ja' existe" e em seguida a entrada sumia -- o usuario ficava sem
-    # biblioteca nenhuma ate' a proxima execucao.
+    # Cleanup comes BEFORE registration. An old entry could point to THIS
+    # same folder: removing it afterward skipped registration because it
+    # already existed, then removed the entry, leaving the user with no
+    # library until the next run.
     for i in range(len(libs) - 1, -1, -1):
         if libs[i].name in BIBLIOTECAS_ANTIGAS:
             try:
                 libs.remove(libs[i])
             except Exception as e:
                 if not silencioso:
-                    print("[Archy Builder] remover biblioteca antiga:", e)
+                    print("[Archy Builder] remove old library:", e)
 
     ja = any(os.path.normcase(os.path.normpath(bpy.path.abspath(l.path))) == alvo
              for l in libs if l.path)
@@ -102,34 +101,32 @@ def registrar_bibliotecas(silencioso=True):
             registradas.append(NOME_BIBLIOTECA)
         except Exception as e:
             if not silencioso:
-                print("[Archy Builder] registro falhou:", e)
+                print("[Archy Builder] registration failed:", e)
 
-    # a cascata tem de existir ANTES do primeiro save, senao o Asset
-    # Browser abre sem nenhuma pasta
+    # The hierarchy must exist BEFORE the first save, otherwise the Asset
+    # Browser opens without folders.
     try:
         _garantir_catalogos(caminho)
     except Exception as e:
         if not silencioso:
-            print("[Archy Builder] catalogos:", e)
+            print("[Archy Builder] catalogs:", e)
     return registradas
 
 
 
 
 def caminhos_catalogo():
-    """Toda a ARVORE como caminhos de catalogo, em cascata.
+    """The entire ARVORE as hierarchical catalog paths.
 
-    Cada nivel ganha a SUA propria linha: o Blender ate' desenha os pais
-    implicitos, mas so' da' para ARQUIVAR um asset num nivel que exista
-    como catalogo de verdade -- e a ideia e' poder arquivar em qualquer
-    altura da cascata.
-    """
+    Each level gets ITS OWN line: Blender displays implicit parents,
+    but an asset can only be FILED at a level that exists as a real
+    catalog. Assets must be fileable at any depth in the hierarchy."""
     caminhos = [CAT_RAIZ]
     arvores = [ARVORE]
     try:
         arvores.append(_niveis_do_indice())
     except Exception as e:
-        print("[Archy Builder] niveis do indice:", e)
+        print("[Archy Builder] index levels:", e)
     for arv in arvores:
         for n1, filhos in arv.items():
             caminhos.append("%s/%s" % (CAT_RAIZ, n1))
@@ -137,21 +134,20 @@ def caminhos_catalogo():
                 caminhos.append("%s/%s/%s" % (CAT_RAIZ, n1, n2))
                 for n3 in netos:
                     caminhos.append("%s/%s/%s/%s" % (CAT_RAIZ, n1, n2, n3))
-    # e os niveis mais fundos dos presets (a biblioteca nao tem limite de
-    # niveis: Armarios > Cozinha > Altos > Despenseiros)
+    # Include deeper preset levels too (the library has unlimited
+    # depth: Armarios > Cozinha > Altos > Despenseiros).
     try:
         for it in indice_completo():
             trilha = caminho_de(it)
             for k in range(1, len(trilha) + 1):
                 caminhos.append(catalogo_de(*trilha[:k]))
     except Exception as e:
-        print("[Archy Builder] niveis do indice:", e)
+        print("[Archy Builder] index levels:", e)
     return list(dict.fromkeys(caminhos))
 
 
 def catalogo_de(*niveis):
-    """Caminho de catalogo mais fundo para os niveis escolhidos (quantos
-    forem)."""
+    """Deepest catalog path for the chosen levels, of any depth."""
     partes = [x for x in niveis if x]
     if not partes:
         return ""
@@ -159,7 +155,7 @@ def catalogo_de(*niveis):
 
 
 def _migrar_raiz(caminho):
-    """Troca uma raiz antiga pela atual, preservando o resto do caminho."""
+    """Replace an old root with the current one, preserving the remaining path."""
     for velha in RAIZES_ANTIGAS:
         if caminho == velha:
             return CAT_RAIZ
@@ -169,12 +165,11 @@ def _migrar_raiz(caminho):
 
 
 def _garantir_catalogos(raiz, extras=()):
-    """Cria/atualiza o blender_assets.cats.txt com a cascata do addon.
+    """Create/update blender_assets.cats.txt with the add-on hierarchy.
 
-    Linhas ja' existentes sao PRESERVADAS com o mesmo UUID: os presets
-    guardam o UUID do catalogo dentro do .blend, entao gerar um novo
-    faria o asset sumir da arvore do Asset Browser.
-    """
+    PRESERVE existing lines with the same UUID: presets store the catalog
+    UUID inside the .blend, so generating a new one would make the asset
+    disappear from the Asset Browser tree."""
     arq = os.path.join(raiz, "blender_assets.cats.txt")
     existentes = {}
     if os.path.exists(arq):
@@ -184,12 +179,12 @@ def _garantir_catalogos(raiz, extras=()):
                 continue
             partes = linha.split(":")
             if len(partes) >= 2:
-                # raiz antiga vira a nova MANTENDO o UUID: assim o asset
-                # continua achando o catalogo e nao sobra arvore dupla
+                # Rename an old root to the new one WHILE KEEPING its UUID, so the asset
+                # still finds its catalog and no duplicate tree remains.
                 existentes.setdefault(_migrar_raiz(partes[1]), partes[0])
     for cam in list(caminhos_catalogo()) + [x for x in extras if x]:
         existentes.setdefault(cam, str(uuid.uuid4()))
-    # nome simples = caminho com tracos, convencao do Blender
+    # Simple name = hyphenated path, following Blender's convention.
     texto = "VERSION 1\n\n" + "".join(
         "%s:%s:%s\n" % (existentes[cam], cam, cam.replace("/", "-"))
         for cam in sorted(existentes))
@@ -198,16 +193,15 @@ def _garantir_catalogos(raiz, extras=()):
 
 
 def _gravar_se_mudou(arq, texto):
-    """Grava `texto` em `arq` so' se mudou, e de forma ATOMICA.
+    """Write `texto` to `arq` ATOMICALLY, only if changed.
 
-    Todo registro do add-on passa por aqui. Antes o arquivo era reaberto
-    com "w" (zera e regrava) a cada vez: com dois Blenders registrando
-    juntos (o harness roda suites em paralelo; o usuario pode abrir dois),
-    um lia o arquivo ja' zerado pelo outro e gerava UUID NOVO para todos
-    os catalogos -- os presets perdiam a categoria (visto em 2026-10-09).
-    Temporario + os.replace nunca mostra o arquivo pela metade. newline
-    explicito: o .gitattributes forca LF (sem ele o Windows grava CRLF).
-    """
+    Every add-on registration passes here. Previously the file was reopened
+    with "w" (truncate and rewrite) each time. With two Blenders registering
+    concurrently (parallel harness suites or two user instances), one could
+    read the other's truncated file and generate NEW UUIDs for all catalogs,
+    losing preset categories (observed 2026-10-09). A temporary file plus
+    os.replace never exposes a partial file. Explicit newline: .gitattributes
+    requires LF; otherwise Windows writes CRLF."""
     try:
         with open(arq, encoding="utf-8", newline="") as f:
             if f.read() == texto:
@@ -222,31 +216,30 @@ def _gravar_se_mudou(arq, texto):
             os.replace(temporario, arq)
             return True
         except PermissionError:
-            # o Windows recusa a troca enquanto outro processo le
+            # Windows refuses replacement while another process is reading.
             time.sleep(0.05)
     try:
         os.remove(temporario)
     except OSError:
         pass
-    # False ja' significa "nao mudou": falha calada deixava o chamador
-    # usar um UUID de catalogo que nunca chegou ao disco.
-    raise OSError("nao consegui gravar " + arq)
+    # False already means "unchanged": silent failure let the caller use
+    # a catalog UUID that was never written to disk.
+    raise OSError("could not write " + arq)
 
 
 def refiliar_preset(caminho, niveis):
-    """Reassina o catalogo de um preset JA' gravado no disco.
+    """Reassign the catalog of a preset ALREADY saved on disk.
 
-    O catalogo mora dentro do .blend (`asset_data.catalog_id`), nao no
-    indice.json -- entao a unica forma de mover um preset de categoria
-    e' carregar o datablock do asset, trocar o id e regravar o arquivo.
+    The catalog lives inside the .blend (`asset_data.catalog_id`), not in
+    indice.json, so moving a preset between categories requires loading
+    the asset datablock, changing its ID, and rewriting the file.
 
-    Devolve (ok, mensagem).
-    """
+    Return (ok, message)."""
     cam = catalogo_de(*niveis)
     if not cam:
-        return False, "item sem categoria no indice"
+        return False, "item has no category in the index"
     if not os.path.exists(caminho):
-        return False, "arquivo nao encontrado"
+        return False, "file not found"
     ids = _garantir_catalogos(os.path.dirname(caminho), extras=(cam,))
 
     antes_col = set(bpy.data.collections)
@@ -272,9 +265,9 @@ def refiliar_preset(caminho, niveis):
     alvos = [d for d in list(novas_col) + list(novos_obj) if d.asset_data]
     if not alvos:
         limpar()
-        return False, "nenhum asset dentro do arquivo"
+        return False, "no assets in the file"
 
-    # so' o catalog_id e' gravavel: o Blender deriva o nome simples
+    # Only catalog_id is writable; Blender derives the simple name.
     for d in alvos:
         d.asset_data.catalog_id = ids[cam]
 
@@ -297,12 +290,12 @@ LADO_PREVIEW = 128
 
 
 def _pixels_png(caminho, lado=LADO_PREVIEW):
-    """Le um PNG e devolve os pixels prontos para uma ImagePreview."""
+    """Read a PNG and return pixels ready for an ImagePreview."""
     img = None
     try:
         img = bpy.data.images.load(caminho)
-        # 'Raw' evita a conversao de espaco de cor: a preview guarda os
-        # mesmos valores que o PNG, sem ganhar nem perder gama
+        # 'Raw' avoids color-space conversion: the preview retains the
+        # PNG's values without changing gamma.
         try:
             img.colorspace_settings.name = 'Raw'
         except Exception:
@@ -322,21 +315,20 @@ def _pixels_png(caminho, lado=LADO_PREVIEW):
 
 
 def aplicar_preview_png(caminho_blend, caminho_png):
-    """Grava a foto do preset DENTRO do .blend, como preview do asset.
+    """Write the preset photo INSIDE the .blend as the asset preview.
 
-    `asset_generate_preview()` NAO serve: ele so' enfileira um job
-    assincrono de render, e o arquivo e' gravado antes de o job
-    terminar -- por isso os presets chegavam ao Asset Browser com a
-    preview vazia (128x128 zerada) e apareciam com o icone generico.
-    Escrever os pixels a mao e' sincrono e sobrevive a gravacao.
-    """
+    `asset_generate_preview()` is unsuitable: it only queues an asynchronous
+    render job, and the file is saved before the job finishes. Presets
+    therefore reached the Asset Browser with an empty zeroed 128x128
+    preview and appeared with a generic icon. Writing pixels directly
+    is synchronous and survives saving."""
     if not os.path.exists(caminho_blend):
-        return False, "blend nao encontrado"
+        return False, "blend file not found"
     if not os.path.exists(caminho_png):
-        return False, "sem foto (.png) ao lado do preset"
+        return False, "no photo (.png) next to the preset"
     pixels = _pixels_png(caminho_png)
     if not pixels:
-        return False, "nao consegui ler a foto"
+        return False, "could not read the photo"
 
     antes_col = set(bpy.data.collections)
     antes_obj = set(bpy.data.objects)
@@ -361,7 +353,7 @@ def aplicar_preview_png(caminho_blend, caminho_png):
     alvos = [d for d in list(novas_col) + list(novos_obj) if d.asset_data]
     if not alvos:
         limpar()
-        return False, "nenhum asset dentro do arquivo"
+        return False, "no assets in the file"
 
     lado = (LADO_PREVIEW, LADO_PREVIEW)
     for d in alvos:
@@ -374,7 +366,7 @@ def aplicar_preview_png(caminho_blend, caminho_png):
             continue
         pv.image_size = lado
         pv.image_pixels_float = pixels
-        # sem o nivel de icone o Asset Browser cai no icone generico
+        # Without the icon size, the Asset Browser falls back to a generic icon.
         pv.icon_size = lado
         pv.icon_pixels_float = pixels
 
@@ -394,10 +386,10 @@ def aplicar_preview_png(caminho_blend, caminho_png):
 
 
 class OBJECT_OT_regerar_previews(Operator):
-    """Regrava as fotos dos presets dentro dos .blend, para o Asset
-    Browser deixar de mostrar o icone generico"""
+    """Rewrite preset photos inside .blend files so the Asset Browser
+    no longer shows the generic icon."""
     bl_idname = "object.cabinet_regerar_previews"
-    bl_label = "Regerar Previews da Biblioteca"
+    bl_label = "Regenerate Library Previews"
     bl_options = {'REGISTER'}
 
     def invoke(self, context, event):
@@ -418,18 +410,17 @@ class OBJECT_OT_regerar_previews(Operator):
             print("[Archy Builder] preview:", f)
         if falhas:
             self.report({'WARNING'},
-                        "%d preview(s) gravada(s), %d sem foto -- salve o "
-                        "preset de novo" % (feitos, len(falhas)))
+                        "%d preview(s) saved, %d without photos -- save the preset again" % (feitos, len(falhas)))
         else:
-            self.report({'INFO'}, "%d preview(s) gravada(s)" % feitos)
+            self.report({'INFO'}, "%d preview(s) saved" % feitos)
         return {'FINISHED'}
 
 
 class OBJECT_OT_refiliar_catalogos(Operator):
-    """Arquiva os presets da equipe nos catalogos da cascata, conforme a
-    categoria de cada um no indice"""
+    """File team presets in hierarchical catalogs according to each
+    preset's category in the index."""
     bl_idname = "object.cabinet_refiliar"
-    bl_label = "Reorganizar Catalogos"
+    bl_label = "Reorganize Catalogs"
     bl_options = {'REGISTER'}
 
     def invoke(self, context, event):
@@ -445,13 +436,13 @@ class OBJECT_OT_refiliar_catalogos(Operator):
             else:
                 falhas.append("%s: %s" % (it.get("nome", "?"), msg))
         for f in falhas:
-            print("[Archy Builder] refiliar:", f)
+            print("[Archy Builder] reassign catalog:", f)
         if falhas:
             self.report({'WARNING'},
-                        "%d movido(s), %d falha(s) -- ver console"
+                        "%d moved, %d failed -- see console"
                         % (feitos, len(falhas)))
         else:
-            self.report({'INFO'}, "%d preset(s) reorganizado(s)" % feitos)
+            self.report({'INFO'}, "%d preset(s) reorganized" % feitos)
         return {'FINISHED'}
 
 
@@ -461,20 +452,19 @@ def _nome_arquivo_seguro(nome):
 
 
 def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
-    """Grava os objetos num .blend da biblioteca.
+    """Write objects to a library .blend.
 
-    como_colecao=True agrupa tudo numa Collection e marca a COLLECTION
-    como asset -- necessario para modulos, porque arrastar um objeto
-    traz so' aquele objeto, enquanto arrastar uma colecao traz o
-    conjunto inteiro.
+    como_colecao=True groups everything in a Collection and marks the
+    COLLECTION as an asset. Cabinets require this: dragging an object
+    imports only that object, while dragging a collection imports the
+    whole assembly.
 
-    `niveis` = (n1, n2, n3): arquiva o asset no catalogo da CATEGORIA,
-    que e' o que o Asset Browser mostra na cascata a esquerda. Sem
-    niveis cai no catalogo por tipo (Chapas/Modulos), como antes.
-    """
+    `niveis` = (n1, n2, n3): file the asset in its CATEGORY catalog, shown
+    in the left Asset Browser hierarchy. Without levels, use the type
+    catalog (Chapas/Modulos), as before."""
     raiz = destino = pasta_biblioteca()
-    # sem niveis cai no catalogo por tipo; ele entra como extra para
-    # existir no .cats.txt sem sujar o nivel 1 da cascata
+    # Without levels, fall back to the type catalog; include it as an extra
+    # so it exists in .cats.txt without cluttering hierarchy level 1.
     cam_cat = (catalogo_de(*niveis) if niveis else "") or (
         CAT_MODULOS if como_colecao else CAT_CHAPAS)
     ids_cat = _garantir_catalogos(raiz, extras=(cam_cat,))
@@ -487,7 +477,7 @@ def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
         col.asset_mark()
         if col.asset_data:
             col.asset_data.catalog_id = ids_cat[cam_cat]
-            col.asset_data.description = "Modulo Archy Builder - %d peca(s)" % len(objs)
+            col.asset_data.description = "Archy Builder Cabinet - %d component(s)" % len(objs)
             col.asset_data.tags.new("chapa-g3")
         blocos.add(col)
     else:
@@ -501,46 +491,46 @@ def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
         if o.data:
             blocos.add(o.data)
 
-    # A preview do Asset Browser NAO e' gerada aqui: `asset_generate_preview`
-    # e' assincrono e nunca chega a tempo da gravacao. Quem a grava e'
-    # `aplicar_preview_png`, depois que a foto do preset existe.
+    # The Asset Browser preview is NOT generated here: `asset_generate_preview`
+    # is asynchronous and never finishes before saving. `aplicar_preview_png`
+    # writes it after the preset photo exists.
 
     arquivo = os.path.join(destino, _nome_arquivo_seguro(nome) + ".blend")
     bpy.data.libraries.write(arquivo, blocos, fake_user=True, compress=True)
 
     if como_colecao:
-        # a colecao foi criada so' para empacotar o asset
+        # The collection was created only to package the asset.
         bpy.data.collections.remove(col)
     return arquivo
 
 
-# ======================================= ARVORE DA BIBLIOTECA
-# Cascata horizontal: nivel 1 no topo, cada nivel escolhido abre o de baixo.
-# A ARVORE e' so' o MODELO de 3 niveis para salvar; os presets podem ir
-# mais fundo (pedido do usuario: sem limite de niveis) -- o caminho inteiro
-# mora em `niveis` no indice (`caminho_de`).
-AMBIENTES = ["Sala", "Cozinha", "Varanda", "Quarto", "Banheiro", "Externo"]
+# ======================================= LIBRARY TREE
+# Horizontal hierarchy: level 1 at the top; each chosen level opens the next below.
+# ARVORE is only the three-level saving TEMPLATE; presets may go
+# deeper (unlimited levels requested by the user). The entire path
+# is stored in `niveis` in the index (`caminho_de`).
+AMBIENTES = ["Living Room", "Kitchen", "Veranda", "Bedroom", "Bathroom", "Outdoor"]
 
 ARVORE = {
-    "Armarios": {
-        "Sala":     ["Inferiores", "Superiores", "Cantos", "Estantes"],
-        "Cozinha":  ["Inferiores", "Superiores", "Cantos", "Torres"],
-        "Varanda":  ["Inferiores", "Superiores", "Bancadas"],
-        "Quarto":   ["Inferiores", "Superiores", "Closets", "Gaveteiros"],
-        "Banheiro": ["Gabinetes", "Espelheiras", "Nichos"],
-        "Externo":  ["Inferiores", "Superiores", "Bancadas"],
+    "Cabinets": {
+        "Living Room":     ["Base Cabinets", "Wall Cabinets", "Corners", "Bookcases"],
+        "Kitchen":  ["Base Cabinets", "Wall Cabinets", "Corners", "Tower Cabinets"],
+        "Veranda":  ["Base Cabinets", "Wall Cabinets", "Countertops"],
+        "Bedroom":   ["Base Cabinets", "Wall Cabinets", "Closets", "Drawer Units"],
+        "Bathroom": ["Vanity Cabinets", "Mirror Cabinets", "Niches"],
+        "Outdoor":  ["Base Cabinets", "Wall Cabinets", "Countertops"],
     },
-    "Chapas":     {"Avulsas": []},
-    "Portas":     {"Abrir": [], "Correr": [], "Basculante": []},
-    "Puxadores":  {"Perfil": [], "Alca": [], "Borda": [], "Cava": []},
-    "Dobradicas": {"Comuns": [], "Amortecidas": [], "Especiais": []},
+    "Panels":     {"Loose Panels": []},
+    "Doors":     {"Hinged": [], "Sliding": [], "Lift-up": []},
+    "Handles":  {"Profile": [], "Pull": [], "Edge": [], "Recessed": []},
+    "Hinges": {"Standard": [], "Soft-Close": [], "Specials": []},
 }
 
 
 def _niveis_de(it):
-    """Le os 3 PRIMEIROS niveis de um item do indice, aceitando o formato
-    antigo (categoria/subcategoria) para nao invalidar indices ja' gravados.
-    O caminho inteiro (qualquer profundidade) e' `caminho_de`."""
+    """Read the FIRST three levels of an index item, accepting the old
+    format (categoria/subcategoria) to keep saved indices valid.
+    The full path at any depth is `caminho_de`."""
     if it.get("niveis"):
         trilha = list(caminho_de(it)) + ["", "", ""]
         return trilha[0], trilha[1], trilha[2]
@@ -549,13 +539,13 @@ def _niveis_de(it):
         return n1, it.get("n2", ""), it.get("n3", "")
     cat, sub = it.get("categoria", ""), it.get("subcategoria", "")
     if cat in AMBIENTES:
-        return "Armarios", cat, sub
+        return "Cabinets", cat, sub
     return cat, sub, ""
 
 
 def caminho_de(it):
-    """TODOS os niveis do item, sem os vazios: ('Armarios', 'Cozinha',
-    'Altos', 'Despenseiros'). Sem `niveis` gravado, os 3 de sempre."""
+    """ALL nonempty item levels: ('Armarios', 'Cozinha', 'Altos', 'Despenseiros').
+    Without stored `niveis`, use the usual three."""
     if it.get("niveis"):
         return tuple(str(n) for n in it["niveis"] if n)
     n1 = it.get("n1")
@@ -563,14 +553,14 @@ def caminho_de(it):
         trilha = (n1, it.get("n2", ""), it.get("n3", ""))
     else:
         cat, sub = it.get("categoria", ""), it.get("subcategoria", "")
-        trilha = ("Armarios", cat, sub) if cat in AMBIENTES else (cat, sub)
+        trilha = ("Cabinets", cat, sub) if cat in AMBIENTES else (cat, sub)
     return tuple(n for n in trilha if n)
 
 
 def filhos_de(itens, pai):
-    """Os nomes do nivel logo abaixo de `pai` (tupla) que TEM preset em
-    `itens` -- a cascata nao mostra ramo vazio (sem a contagem, ele seria
-    um botao que nao leva a nada). Ordem: a da ARVORE, depois a do indice."""
+    """Names immediately below `pai` (tuple) that HAVE presets in `itens`.
+    The hierarchy hides empty branches, which would otherwise be buttons
+    leading nowhere. Order: ARVORE first, then index order."""
     pai = tuple(pai)
     modelo = []
     if len(pai) == 0:
@@ -590,14 +580,14 @@ def filhos_de(itens, pai):
 
 
 def itens_em(itens, trilha):
-    """Os presets que moram EXATAMENTE neste caminho."""
+    """Presets located EXACTLY at this path."""
     trilha = tuple(trilha)
     return [it for it in itens if caminho_de(it) == trilha]
 
 
 def trilha_da_cena(s, prefixo='chapa_n'):
-    """O caminho escolhido na cascata: os 3 niveis da cena e o resto em
-    `<prefixo>_mais` (separado por '/')."""
+    """Chosen hierarchy path: the scene's three levels and the remainder
+    in `<prefixo>_mais`, separated by '/'."""
     trilha = [getattr(s, prefixo + str(i), '') for i in (1, 2, 3)]
     trilha += (getattr(s, prefixo + '_mais', '') or '').split('/')
     saida = []
@@ -617,11 +607,10 @@ def definir_trilha(s, trilha, prefixo='chapa_n'):
 
 
 def _niveis_do_indice():
-    """Categorias que EXISTEM nos presets salvos, alem das da ARVORE.
+    """Categories that EXIST in saved presets, in addition to ARVORE.
 
-    E' o que integra as duas pontas: uma subcategoria digitada no "+"
-    do painel N passa a aparecer na cascata e tambem vira catalogo.
-    """
+    This connects both interfaces: a subcategory typed through "+" in
+    the N-panel appears in the hierarchy and also becomes a catalog."""
     extra = {}
     for it in indice_completo():
         a, b, c = _niveis_de(it)
@@ -669,12 +658,12 @@ NOME_INDICE = "indice.json"
 
 
 def _ler_indice(pasta, estrito=False):
-    """Indice em JSON ao lado dos .blend. Existe para o painel listar os
-    presets sem precisar abrir cada arquivo -- abrir .blend so' para
-    montar a lista deixaria a interface travada.
+    """JSON index beside the .blend files, allowing the panel to list presets
+    without opening each file; doing that merely to build a list would
+    freeze the interface.
 
-    `estrito`: quem vai REGRAVAR o indice nao pode tratar arquivo ilegivel
-    como vazio, senao grava so' o item novo por cima de todos os outros."""
+    `estrito`: callers REWRITING the index must not treat unreadable files
+    as empty, or they would overwrite all existing items with just the new one."""
     arq = os.path.join(pasta, NOME_INDICE)
     if not os.path.exists(arq):
         return []
@@ -684,7 +673,7 @@ def _ler_indice(pasta, estrito=False):
     except Exception as e:
         if estrito:
             raise
-        print("[Archy Builder] indice ilegivel:", e)
+        print("[Archy Builder] unreadable index:", e)
         return []
 
 
@@ -694,11 +683,11 @@ def _gravar_indice(pasta, itens):
                          json.dumps(itens, ensure_ascii=False, indent=1) + "\n")
         _biblioteca_faixa.invalidar()
     except Exception as e:
-        print("[Archy Builder] nao gravei o indice:", e)
+        print("[Archy Builder] index not saved:", e)
 
 
 def indice_completo():
-    """Le o indice da biblioteca da empresa."""
+    """Read the company library index."""
     pasta = pasta_biblioteca()
     itens = []
     for it in _ler_indice(pasta):
@@ -710,9 +699,10 @@ def indice_completo():
 
 
 def registrar_no_indice(pasta, nome, arquivo, *niveis_e_tipo):
-    """`niveis_e_tipo` = os niveis (QUANTOS forem) e, por ultimo, o tipo:
-    (n1, n2, n3, tipo) como sempre, ou (n1, n2, n3, n4, ..., tipo). Mais
-    de 3 niveis vao inteiros em `niveis`; n1/n2/n3 ficam (indice antigo)."""
+    """`niveis_e_tipo` = levels of ANY depth, followed by the type:
+    (n1, n2, n3, tipo) as before, or (n1, n2, n3, n4, ..., tipo).
+    For more than three levels, store the full path in `niveis`; retain
+    n1/n2/n3 for the old index format."""
     *niveis, tipo = niveis_e_tipo
     niveis = [n for n in niveis if n]
     itens = [i for i in _ler_indice(pasta, estrito=True)
@@ -727,10 +717,10 @@ def registrar_no_indice(pasta, nome, arquivo, *niveis_e_tipo):
 
 
 def itens_de_fabrica():
-    """Os modelos de FABRICA do criador de puxadores e das dobradicas, na
-    cascata da biblioteca (pedido do usuario): TRAVADOS -- moram no add-on,
-    fora do indice, entao nem o "Edit." nem o cadeado os alcancam. O
-    usuario edita os DELE (categoria Puxadores) e o criador acompanha."""
+    """FACTORY handle-creator and hinge models in the library hierarchy,
+    as requested by the user: LOCKED, stored in the add-on outside the
+    index, so neither "Edit" nor the lock affects them. Users edit THEIR
+    models in the Puxadores category, and the creator follows those changes."""
     itens = []
     for tipo in _puxadores.MODELOS_PADRAO:
         nome = _puxadores.MODELOS_PUXADOR[tipo][0]
@@ -741,7 +731,7 @@ def itens_de_fabrica():
         itens.append(it)
     for tipo, nome in _portas.NOME_DOBRADICA.items():
         it = foto_padrao('dobradica_' + tipo)
-        it.update(nome=nome, n1='Dobradicas', n2='Comuns', n3='',
+        it.update(nome=nome, n1="Hinges", n2="Standard", n3='',
                   tipo='objeto', bloqueado=True, fabrica='dobradica',
                   valor=tipo)
         itens.append(it)
@@ -749,15 +739,13 @@ def itens_de_fabrica():
 
 
 def inserir_preset(context, pasta, arquivo, tipo, destino=None):
-    """Carrega o .blend do preset na cena e seleciona o que veio.
+    """Load the preset .blend into the scene and select the imported objects.
 
-    Devolve (novos, raizes, erro). `destino` e' o deslocamento aplicado
-    as raizes; sem ele o preset vai para o cursor 3D em vez de ser
-    despejado na origem.
-    """
+    Return (new objects, roots, error). `destino` is the offset applied
+    to roots; without it, insert at the 3D cursor rather than the origin."""
     caminho = os.path.join(pasta, arquivo)
     if not os.path.exists(caminho):
-        return [], [], "Arquivo nao encontrado: " + caminho
+        return [], [], "File not found: " + caminho
     antes = set(bpy.data.objects)
     colecoes_antes = set(bpy.data.collections)
     ocupado = _chapas._ocupado[0]
@@ -771,8 +759,8 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
         novos = set(bpy.data.objects) - antes
         novas_cols = set(bpy.data.collections) - colecoes_antes
         filhas = {f for c in novas_cols for f in c.children}
-        # Relacionamentos ja' vieram pelo append nativo. Religar tambem
-        # cada subcolecao na raiz duplica caminhos na camada e no depsgraph.
+        # Native append already brought the relationships. Linking every
+        # subcollection to the root too duplicates layer and depsgraph paths.
         for c in novas_cols - filhas:
             context.scene.collection.children.link(c)
         ligados = {o for c in novas_cols for o in c.all_objects}
@@ -787,7 +775,7 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
         for o in novos:
             try:o.select_set(True)
             except RuntimeError:pass
-        # hide_set e' da camada, nao vem gravado no preset.
+        # hide_set belongs to the layer and is not saved in the preset.
         _ferragens.ocultar_pecas_do_rig(novos)
     finally:
         _chapas._ocupado[0] = ocupado
@@ -806,10 +794,10 @@ def inserir_preset(context, pasta, arquivo, tipo, destino=None):
     return novos, raizes, ""
 
 
-# Caixa do preset no indice (pedido do usuario, v321): o arraste mostra so'
-# o wireframe e carrega o .blend ao SOLTAR, como o BlenderKit -- numa cena
-# real, carregar no comeco do arraste prendia a tela. Sem a caixa, o 1o
-# arraste carrega como antes e a grava para os proximos.
+# Preset box in the index (user request, v321): dragging shows only the
+# wireframe and loads the .blend on RELEASE, like BlenderKit. Loading
+# at drag start froze the screen in real scenes. Without a cached box,
+# the first drag loads as before and stores it for subsequent drags.
 CHAVE_CAIXA = 'caixa'
 
 
@@ -818,7 +806,7 @@ def _arredondar(valores):
 
 
 def medir_caixa(context, novos, raizes):
-    """(lo, hi) da caixa avaliada do preset recem-inserido, em mundo."""
+    """Evaluated box (lo, hi) of the newly inserted preset, in world space."""
     context.view_layer.update()
     try:
         dep = context.evaluated_depsgraph_get()
@@ -831,14 +819,14 @@ def medir_caixa(context, novos, raizes):
     if not pontos:
         pontos = [o.matrix_world.translation.copy() for o in raizes]
     if not pontos:
-        raise RuntimeError("preset sem geometria")
+        raise RuntimeError("preset has no geometry")
     return (Vector(tuple(min(p[i] for p in pontos) for i in range(3))),
             Vector(tuple(max(p[i] for p in pontos) for i in range(3))))
 
 
 def registro_da_caixa(caminho, lo, hi, modulo=None):
-    """O que o arraste le do preset sem carrega-lo. `bytes` invalida o
-    registro quando o .blend muda (a data muda no git; o tamanho, nao)."""
+    """Data read from a preset during dragging without loading it. `bytes`
+    invalidates the record when the .blend changes (Git changes dates, not sizes)."""
     registro = {'bytes': os.path.getsize(caminho), 'lo': _arredondar(lo),
                 'hi': _arredondar(hi)}
     caixa = _paredes.caixa_local_do_modulo(modulo) if modulo is not None else None
@@ -846,18 +834,18 @@ def registro_da_caixa(caminho, lo, hi, modulo=None):
         registro['modulo'] = {'lo': _arredondar(caixa[0]), 'hi': _arredondar(caixa[1]),
                               'matriz': _arredondar(v for linha in modulo.matrix_world
                                                     for v in linha),
-                              # lado que vai contra a parede (oposto a' porta)
+                              # Side placed against the wall (opposite the door).
                               'costas': _paredes.lado_das_costas(modulo, caixa)}
     return registro
 
 
 def caixa_do_preset(pasta, arquivo):
-    """O registro gravado no indice, se ainda vale para o arquivo."""
+    """Record stored in the index, if still valid for the file."""
     item = next((i for i in _ler_indice(pasta) if i.get('arquivo') == arquivo), None)
     registro = item.get(CHAVE_CAIXA) if item else None
     try:
         if registro and registro.get('modulo') and 'costas' not in registro['modulo']:
-            return None         # registro de antes de `costas`: mede de novo
+            return None         # Record predates `costas`: measure again.
         if registro and registro.get('bytes') == os.path.getsize(os.path.join(pasta, arquivo)):
             return registro
     except OSError:
@@ -870,9 +858,9 @@ def _matriz_do_registro(valores):
 
 
 class _PresetPrevisto:
-    """O preset ainda NAO carregado: o que o posicionamento le da raiz
-    (matriz, location, nome vazio, as ID props dadas). Ao soltar, a raiz
-    real recebe a matriz/deslocamento e as props dele."""
+    """Preset NOT yet loaded: root data read by placement (matrix, location,
+    empty name, specified ID properties). On release, the real root
+    receives its matrix/offset and properties."""
 
     def __init__(self, matriz, props=None):
         self.name = ''
@@ -903,9 +891,9 @@ class _PresetPrevisto:
 
 
 class OBJECT_OT_inserir_preset(Operator):
-    """Traz o preset da biblioteca para o cursor 3D"""
+    """Insert the library preset at the 3D cursor."""
     bl_idname = "object.cabinet_inserir_preset"
-    bl_label = "Inserir"
+    bl_label = "Insert"
     bl_options = {'REGISTER', 'UNDO'}
 
     pasta: bpy.props.StringProperty()
@@ -923,22 +911,22 @@ class OBJECT_OT_inserir_preset(Operator):
         if erro:
             self.report({'ERROR'}, erro)
             return {'CANCELLED'}
-        self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(novos))
+        self.report({'INFO'}, "%d object(s) inserted" % len(novos))
         return {'FINISHED'}
 
 
-# O segundo clique do duplo na foto pode tremer um pouco
+# The second photo double click may move slightly.
 RAIO_DUPLO_CLIQUE_PX = 8
 
 
 class OBJECT_OT_arrastar_preset(Operator):
-    """Arrasta com mira e caixa exata antes de inserir na cena"""
+    """Drag with a crosshair and exact box before inserting into the scene."""
     bl_idname = "object.cabinet_arrastar_preset"
-    bl_label = "Arrastar para a Cena"
+    bl_label = "Drag into Scene"
     bl_options = {'REGISTER', 'UNDO'}
 
-    # SKIP_SAVE: as props do operador persistem entre execucoes no
-    # Blender, e o arraste precisa descobri-las de novo a cada vez
+    # SKIP_SAVE: Blender persists operator properties between executions,
+    # but dragging must discover them again each time.
     pasta: bpy.props.StringProperty(options={'SKIP_SAVE'})
     arquivo: bpy.props.StringProperty(options={'SKIP_SAVE'})
     tipo: bpy.props.StringProperty(default="modulo", options={'SKIP_SAVE'})
@@ -954,21 +942,21 @@ class OBJECT_OT_arrastar_preset(Operator):
             if erro:
                 self.report({'WARNING'}, erro)
             return {'CANCELLED'} if erro else {'FINISHED'}
-        # Sem preset nas props, o arraste comecou sobre a grade: o bloco
-        # sob o cursor e' lido em context.button_operator, que entrega as
-        # propriedades do botao apontado (o mesmo recurso que o Blender
-        # usa para "Atribuir Atalho" no menu de contexto de um botao).
+        # Without a preset in the properties, dragging started over the grid:
+        # read the tile under the cursor from context.button_operator, which
+        # supplies the pointed button's properties, the same facility Blender
+        # uses for "Assign Shortcut" in a button's context menu.
         if not self.arquivo:
             alvo = getattr(context, "button_operator", None)
-            # O botao de importacao, o cadeado e o lapis tambem carregam
-            # `arquivo`: so' miniatura e nome (este proprio operador)
-            # valem como pega do arraste.
+            # Import, lock, and pencil buttons also carry `arquivo`:
+            # only the thumbnail and name (this operator)
+            # are valid drag handles.
             origem = getattr(getattr(alvo, "bl_rna", None), "identifier", "")
             arquivo = (getattr(alvo, "arquivo", "")
                        if origem.endswith("cabinet_arrastar_preset") else "")
             if not arquivo:
-                # arraste em qualquer outro lugar da sidebar: devolve o
-                # evento para o Blender, senao sliders parariam de andar
+                # Dragging elsewhere in the sidebar: return the event
+                # to Blender, otherwise sliders would stop moving.
                 return {'PASS_THROUGH'}
             self.pasta = getattr(alvo, "pasta", "")
             self.arquivo = arquivo
@@ -981,10 +969,10 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._mouse_inicio = (event.mouse_x, event.mouse_y)
             self._moveu = not self._arrastando
 
-        # relogio do 1o clique: o duplo na foto e' medido a partir dele
+        # First-click timestamp: measure the photo double click from it.
         self._instante_inicio = time.monotonic()
-        # a grade vive na sidebar, entao a regiao do evento NAO e' a
-        # viewport: a janela de desenho tem de ser procurada na area
+        # The grid lives in the sidebar, so the event region is NOT
+        # the viewport: find the drawing window within the area.
         self._area_preview = context.area
         if _gaveta._eh_area_gaveta(context):
             self._area_preview = _biblioteca_faixa.viewport(context.screen)
@@ -994,10 +982,10 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._rv3d = getattr(self._area_preview.spaces.active, "region_3d", None
                              ) if self._area_preview else None
         if self._regiao is None or self._rv3d is None:
-            self.report({'ERROR'}, "Sem viewport 3D para posicionar")
+            self.report({'ERROR'}, "No 3D viewport for placement")
             return {'CANCELLED'}
-        # O draw handler pode ser chamado no primeiro redraw logo depois de
-        # registrado; deixe o filtro de regiao pronto antes desse momento.
+        # The draw handler may run on the first redraw after registration;
+        # prepare the region filter before that moment.
         self._regiao_ptr = self._regiao.as_pointer()
 
         self._selecionados_antes = list(context.selected_objects)
@@ -1011,14 +999,14 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._carregando = False
         self._handler_aviso = self._tique = None
         if self._previa is not None:
-            # So' o wireframe; o .blend carrega ao soltar (`_carregar`).
+            # Wireframe only; load the .blend on release (`_carregar`).
             modulo = self._previa.get('modulo')
             self._raizes = [_PresetPrevisto(_matriz_do_registro(modulo['matriz']),
                                             {_paredes.CHAVE_COSTAS: modulo['costas']})
                             if modulo else _PresetPrevisto(Matrix.Identity(4))]
         else:
-            # O preset entra oculto como staging. So' se torna visivel
-            # quando o usuario solta dentro da viewport; cancelar apaga.
+            # Load the preset hidden as staging. It becomes visible only
+            # when released inside the viewport; cancellation deletes it.
             novos, raizes, erro = inserir_preset(
                 context, self.pasta, self.arquivo, self.tipo,
                 destino=Vector((0.0, 0.0, 0.0)))
@@ -1034,7 +1022,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             if not self._novos:
                 self._apagar()
                 self._restaurar_selecao(context)
-                self.report({'WARNING'}, "O preset nao trouxe nenhum objeto")
+                self.report({'WARNING'}, "The preset contained no objects")
                 return {'CANCELLED'}
 
         self._base = {o: o.location.copy() for o in self._raizes}
@@ -1046,7 +1034,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         if self._sessao_parede and not self._modulo_unico:
             self._apagar()
             self._restaurar_selecao(context)
-            self.report({'WARNING'}, 'Escolha um unico modulo completo')
+            self.report({'WARNING'}, "Choose a single complete cabinet")
             return {'CANCELLED'}
         self._na_parede = None
         self._caixa_parede_base = self._caixa_local = None
@@ -1079,18 +1067,18 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
                 self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
         except Exception as e:
-            print("[Archy Builder] preview do arraste:", e)
+            print("[Archy Builder] drag preview:", e)
             self._encerrar_visual(context)
             self._apagar()
             self._restaurar_selecao(context)
-            self.report({'ERROR'}, "Nao consegui preparar o preview")
+            self.report({'ERROR'}, "Could not prepare the preview")
             return {'CANCELLED'}
 
         item = next((i for i in _ler_indice(self.pasta) if i.get('arquivo') == self.arquivo), None)
         self._nome = item.get("nome", self.arquivo) if item else self.arquivo
         try:
             context.workspace.status_text_set(
-                "Arrastando %s | Solte: inserir | Botao direito: cancelar"
+                "Dragging %s | Release: insert | Right click: cancel"
                 % self._nome)
         except Exception:
             pass
@@ -1099,8 +1087,8 @@ class OBJECT_OT_arrastar_preset(Operator):
         return {'RUNNING_MODAL'}
 
     def _preparar_bbox(self, context):
-        """Mede o staging avaliado (ou le a caixa gravada) e define a
-        ancora no centro da base."""
+        """Measure evaluated staging (or read the stored box) and anchor
+        at the base center."""
         if getattr(self, '_previa', None) is not None:
             lo, hi = Vector(self._previa['lo']), Vector(self._previa['hi'])
         else:
@@ -1113,8 +1101,8 @@ class OBJECT_OT_arrastar_preset(Operator):
             Vector((hi.x, hi.y, hi.z)), Vector((lo.x, hi.y, hi.z)),
         )
         if getattr(self, '_sessao_parede', 0):
-            # A caixa do staging inteiro inclui puxadores/folhas abertas e
-            # pode estar girada. A previa deve usar o envelope validado.
+            # The whole staging box includes handles/open leaves and may be
+            # rotated. The preview must use the validated envelope.
             lo, hi = self._caixa_local
             matriz = self._matriz_parede_base
             self._bbox_base = tuple(matriz @ Vector((x, y, z)) for z in (lo.z, hi.z)
@@ -1125,8 +1113,8 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._tamanho_mira = max(0.04, min(diagonal * 0.08, 0.35))
 
     def _gravar_caixa(self, lo, hi):
-        """1o arraste de um preset sem caixa no indice: grava-a, e os
-        proximos arrastes so' carregam ao soltar."""
+        """First drag of a preset without an indexed box: store it so
+        subsequent drags load only on release."""
         try:
             if not any(i.get('arquivo') == self.arquivo for i in _ler_indice(self.pasta)):
                 return
@@ -1134,15 +1122,15 @@ class OBJECT_OT_arrastar_preset(Operator):
                                          self._raizes[0] if self._modulo_unico else None)
             _atualizar_item(self.pasta, self.arquivo, {CHAVE_CAIXA: registro})
         except Exception as e:
-            print("[Archy Builder] caixa do preset nao gravada:", e)
+            print("[Archy Builder] preset box not saved:", e)
 
     def _esperar_carga(self, context):
-        """Solto: o wireframe fica parado com "Carregando..." e o .blend
-        carrega no proximo tique, DEPOIS de a tela mostrar o aviso (o
-        carregamento prende a interface enquanto dura)."""
+        """On release, keep the wireframe still with "Loading..." and load the
+        .blend on the next tick, AFTER the message appears onscreen
+        (loading blocks the interface until it finishes)."""
         self._carregando = True
         try:
-            context.workspace.status_text_set("Carregando %s..." % self._nome)
+            context.workspace.status_text_set("Loading %s..." % self._nome)
         except Exception:
             pass
         if self._handler_aviso is None:
@@ -1161,7 +1149,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._handler_aviso = None
 
     def _carregar(self, context):
-        """Carrega o .blend e leva a raiz real para onde o wireframe ficou."""
+        """Load the .blend and move the actual root to the wireframe position."""
         self._encerrar_carga(context)
         self._carregando = False
         previsto = self._raizes[0]
@@ -1173,13 +1161,13 @@ class OBJECT_OT_arrastar_preset(Operator):
         modulo_ok = not self._modulo_unico or (
             len(raizes) == 1 and _chapas.MARCA_CONJUNTO in raizes[0])
         if erro or not self._novos or not modulo_ok:
-            self.report({'ERROR'}, erro or "O preset mudou; arraste de novo")
+            self.report({'ERROR'}, erro or "The preset changed; drag again")
             return self._cancelar(context)
         self._previa = None
         self._raizes = list(raizes)
         if self._modulo_unico and (self._na_parede is not None or self._sessao_parede):
             self._raizes[0].matrix_world = previsto.matrix_world
-            # a face escolhida na roda (ou a gravada no indice)
+            # Face selected with the wheel (or stored in the index).
             if _paredes.CHAVE_COSTAS in previsto:
                 self._raizes[0][_paredes.CHAVE_COSTAS] = previsto[_paredes.CHAVE_COSTAS]
         else:
@@ -1191,7 +1179,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         return self._confirmar(context)
 
     def _desenhar_aviso(self):
-        """Carregamento ou restricao junto a' previa, sem abrir pop-up."""
+        """Show loading status or a constraint beside the preview, without a popup."""
         try:
             erro = getattr(self, '_erro_posicionamento', '') or getattr(self, '_aviso_ajuste', '')
             if not self._carregando and not erro:
@@ -1205,7 +1193,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             if xy is None:
                 return
             escala = bpy.context.preferences.system.ui_scale
-            texto = "Carregando %s..." % self._nome if self._carregando else erro
+            texto = "Loading %s..." % self._nome if self._carregando else erro
             blf.size(0, 13 * escala)
             largura, altura = blf.dimensions(0, texto)
             folga = 6 * escala
@@ -1222,12 +1210,12 @@ class OBJECT_OT_arrastar_preset(Operator):
             _gaveta._texto_cabivel_gaveta(x, y, texto, largura,
                                          tamanho=13 * escala, cor=(1, 1, 1, 1))
         except Exception as e:
-            print("[Archy Builder] aviso de posicionamento:", e)
+            print("[Archy Builder] placement warning:", e)
         finally:
             gpu.state.blend_set('NONE')
 
     def _ocultar_staging(self, context):
-        """Esconde a geometria real para deixar somente o preview GPU."""
+        """Hide actual geometry so only the GPU preview remains."""
         self._visibilidade = []
         for obj in self._novos:
             self._visibilidade.append(
@@ -1278,7 +1266,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._area_preview.tag_redraw()
 
     def _desenhar_preview(self):
-        """Desenha box e mira sobre a viewport sem criar geometria."""
+        """Draw a box and crosshair over the viewport without creating geometry."""
         if not self._bbox_atual:
             return
         regiao = getattr(bpy.context, "region", None)
@@ -1323,7 +1311,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             batch_for_shader(
                 shader, 'LINES', {"pos": linhas_mira}).draw(shader)
         except Exception as e:
-            print("[Archy Builder] desenho do preview:", e)
+            print("[Archy Builder] preview drawing:", e)
         finally:
             try:
                 gpu.state.line_width_set(1.0)
@@ -1333,13 +1321,13 @@ class OBJECT_OT_arrastar_preset(Operator):
                 pass
 
     def _na_viewport(self, event):
-        """O solte so' vale dentro da viewport, como no arraste nativo."""
+        """Release is valid only inside the viewport, like native dragging."""
         dx = event.mouse_x - self._regiao.x
         dy = event.mouse_y - self._regiao.y
         return 0 <= dx < self._regiao.width and 0 <= dy < self._regiao.height
 
     def _mover(self, context, event):
-        """Usa raycast na cena e plano do cursor como contingencia."""
+        """Raycast the scene, falling back to the cursor plane."""
         self._erro_posicionamento = ''
         self._aviso_ajuste = ''
         self._caixa_prevista = None
@@ -1375,13 +1363,13 @@ class OBJECT_OT_arrastar_preset(Operator):
                 normal = normal_hit.copy()
                 self._em_superficie = True
         except Exception as e:
-            print("[Archy Builder] raycast do arraste:", e)
+            print("[Archy Builder] drag raycast:", e)
         if alvo is None:
             alvo = intersect_line_plane(
                 origem, origem + direcao * 1000.0,
                 Vector((0.0, 0.0, self._altura)),
                 Vector((0.0, 0.0, 1.0)))
-        if alvo is None:        # raio paralelo ao plano: nada a fazer
+        if alvo is None:        # Ray parallel to the plane: nothing to do.
             self._valido = False
             self._area_preview.tag_redraw()
             return
@@ -1397,9 +1385,9 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._area_preview.tag_redraw()
 
     def _girar_caixa(self):
-        """A caixa no referencial da parede, pelo lado das costas da raiz.
-        O lado fica gravado na raiz: deduzi-lo da porta a cada movimento
-        do mouse varreria as chapas."""
+        """Box in the wall frame, using the root's back side.
+        Store that side on the root: inferring it from the door on every mouse
+        movement would scan panels."""
         if self._caixa_local is None:
             self._caixa_parede_base = None
             return
@@ -1409,25 +1397,25 @@ class OBJECT_OT_arrastar_preset(Operator):
                                                        raiz[_paredes.CHAVE_COSTAS])
 
     def _trocar_face(self, context, event):
-        """Roda do mouse sobre a parede: a face seguinte vai contra ela."""
+        """Mouse wheel over the wall: place the next face against it."""
         _paredes.girar_costas(self._raizes[0], _paredes.passos_da_roda(event))
         self._girar_caixa()
         self._mover(context, event)
         return {'RUNNING_MODAL'}
 
     def _largar_parede(self):
-        """Saiu da parede: o modulo volta a' rotacao do preset."""
+        """Off the wall: restore the preset's cabinet rotation."""
         if getattr(self, '_na_parede', None) is not None:
             self._raizes[0].matrix_world = self._matriz_parede_base
             self._na_parede = None
-            self._status(bpy.context, "Solte: inserir")
+            self._status(bpy.context, "Release: insert")
 
     def _mover_contra_parede(self, context, origem, direcao):
-        """Modulo solto numa parede fora da edicao 2D: costas nela, como
-        no arraste com o botao direito. Antes o centro da BASE ia ao ponto
-        do raio sem girar e o armario ficava de lado (relato do usuario).
-        O cursor e' o centro do modulo; pontas, piso e teto grudam e o
-        vizinho nao e' sobreposto (`encaixar_na_face`)."""
+        """Cabinet released on a wall outside 2D editing: back against the wall,
+        as with right dragging. Previously the BASE center went to the ray
+        point without rotating, leaving the cabinet sideways (user report).
+        The cursor is the cabinet center; ends, floor, and ceiling snap, and
+        neighbors are not overlapped (`encaixar_na_face`)."""
         if not getattr(self, '_modulo_unico', False) or self._caixa_parede_base is None:
             return False
         acerto = _paredes.raio_ate_parede(context, origem, direcao,
@@ -1463,7 +1451,7 @@ class OBJECT_OT_arrastar_preset(Operator):
 
     def _status(self, context, texto):
         try:
-            context.workspace.status_text_set(texto + " | Roda: trocar a face | Botao direito: cancelar")
+            context.workspace.status_text_set(texto + " | Wheel: change face | Right click: cancel")
         except Exception:
             pass
 
@@ -1472,7 +1460,7 @@ class OBJECT_OT_arrastar_preset(Operator):
         lo, hi = self._caixa_prevista or self._caixa_parede_base
         altura = abs((hi.z - lo.z) * _paredes.escala_no_referencial(modulo).z)
         if erro:
-            # A recusa deve continuar visivel, sem permitir inserir ou esticar.
+            # Keep the rejection visible without allowing insertion or stretching.
             costas = ponto - Vector((0, 0, altura / 2))
         modulo.matrix_world = _paredes.matriz_na_parede(modulo, costas, normal, u,
                                                        caixa=self._caixa_prevista or self._caixa_parede_base)
@@ -1487,22 +1475,22 @@ class OBJECT_OT_arrastar_preset(Operator):
         self._normal = normal.copy()
         self._em_superficie = True
         self._valido = not erro
-        self._erro_posicionamento = ('A: %.1f mm | %s' % (altura * 1000, erro)) if erro else ''
+        self._erro_posicionamento = ("H: %.1f mm | %s" % (altura * 1000, erro)) if erro else ''
         original = self._caixa_parede_base[1] - self._caixa_parede_base[0]
         if not erro and any(abs((hi - lo)[i] - original[i]) > 1e-7 for i in range(3)):
             escala = _paredes.escala_no_referencial(modulo)
-            self._aviso_ajuste = 'Ajustado: %.1f x %.1f mm | Solte para inserir' % (
+            self._aviso_ajuste = "Adjusted: %.1f x %.1f mm | Release to insert" % (
                 abs((hi.x - lo.x) * escala.x) * 1000, altura * 1000)
         interferencia = not erro and _esquadrias.colisao(context, modulo, caixa=(lo, hi))
         self._status(context, self._erro_posicionamento or (_esquadrias.AVISO if interferencia else
-                     self._aviso_ajuste or 'Solte para inserir na parede'))
+                     self._aviso_ajuste or "Release to insert on wall"))
 
     def _mover_na_parede(self, context, event):
         self._valido = False
         ponto = _paredes_edicao.ponto_no_evento(context, event)
         if ponto is not None:
-            # Objetos ocultos nao atualizam os filhos no depsgraph. A previa
-            # usa a caixa medida antes de ocultar, nunca uma caixa defasada.
+            # Hidden objects do not update their children in the depsgraph. The preview
+            # uses the box measured before hiding, never a stale box.
             costas, self._caixa_prevista, erro = _paredes_edicao.encaixe_do_modelo(
                 context, self._raizes[0], ponto, self._caixa_parede_base, self._cache_ajuste)
             s = _paredes_edicao._sessao[0]
@@ -1532,15 +1520,14 @@ class OBJECT_OT_arrastar_preset(Operator):
         return {'CANCELLED'}
 
     def _duplo_clique_na_foto(self, context, event):
-        """Segundo clique, rapido e no mesmo lugar do que abriu o
-        posicionador, fora da viewport.
+        """A quick second click at the same position that opened the placement
+        tool, outside the viewport.
 
-        Medido AQUI, pelo relogio: o Blender entrega esse segundo clique
-        como PRESS, nao DOUBLE_CLICK (confirmado no log do usuario --
-        PRESS 67 ms depois do RELEASE), porque o primeiro foi consumido
-        pela gaveta. Esperando so' DOUBLE_CLICK, o PRESS caia no "clique
-        fora da viewport" e cancelava a insercao.
-        """
+        Measure HERE by the clock: Blender delivers the second click as PRESS,
+        not DOUBLE_CLICK (confirmed in the user's log: PRESS 67 ms after RELEASE),
+        because the sidebar consumed the first click. Waiting only for
+        DOUBLE_CLICK treated PRESS as a click outside the viewport and canceled
+        insertion."""
         if (event.type != 'LEFTMOUSE'
                 or event.value not in {'PRESS', 'DOUBLE_CLICK'}
                 or self._na_viewport(event)):
@@ -1557,7 +1544,7 @@ class OBJECT_OT_arrastar_preset(Operator):
                 and dx * dx + dy * dy <= RAIO_DUPLO_CLIQUE_PX ** 2)
 
     def _no_cursor(self, context):
-        """Centro da base do preset no cursor 3D, e confirma."""
+        """Center the preset base on the 3D cursor and confirm."""
         if getattr(self, '_sessao_parede', 0):
             self._raizes[0].matrix_world = self._matriz_parede_base
             context.view_layer.update()
@@ -1614,12 +1601,12 @@ class OBJECT_OT_arrastar_preset(Operator):
         if self._raizes and _esquadrias.avisar(context, self._raizes[0]):
             self.report({'WARNING'}, _esquadrias.AVISO)
         else:
-            self.report({'INFO'}, "%d objeto(s) inserido(s)" % len(self._novos))
+            self.report({'INFO'}, "%d object(s) inserted" % len(self._novos))
         return {'FINISHED'}
 
     def modal(self, context, event):
         if getattr(self, '_carregando', False):
-            # solto: so' espera o tique que carrega o .blend
+            # Released: wait only for the tick that loads the .blend.
             return self._carregar(context) if event.type == 'TIMER' else {'RUNNING_MODAL'}
         if getattr(self, '_sessao_parede', 0) and (not _paredes_edicao.ativa(context)
                 or _paredes_edicao._sessao[0]['id'] != self._sessao_parede):
@@ -1628,8 +1615,8 @@ class OBJECT_OT_arrastar_preset(Operator):
             if self._arrastando and not self._moveu:
                 dx = event.mouse_x - self._mouse_inicio[0]
                 dy = event.mouse_y - self._mouse_inicio[1]
-                # O limiar evita transformar um clique com pequena
-                # oscilacao involuntaria em arraste.
+                # The threshold prevents a click with slight involuntary
+                # movement from becoming a drag.
                 self._moveu = (dx * dx + dy * dy) >= 36
             self._mover(context, event)
             return {'RUNNING_MODAL'}
@@ -1638,37 +1625,36 @@ class OBJECT_OT_arrastar_preset(Operator):
             return self._trocar_face(context, event)
 
         if self._duplo_clique_na_foto(context, event):
-            # Duplo clique na FOTO (o primeiro clique abriu este
-            # posicionador): entra direto no cursor 3D, sem mirar.
+            # Double click on the PHOTO (the first click opened this placement
+            # tool): insert directly at the 3D cursor without aiming.
             return self._no_cursor(context)
         if event.type == 'LEFTMOUSE':
             confirma = 'RELEASE' if self._arrastando else 'PRESS'
             if event.value == confirma:
                 if self._arrastando and not self._moveu:
-                    # O clique sem arraste ativa o mesmo posicionador. Esse
-                    # fallback e' indispensavel porque algumas versoes/temas
-                    # do Blender retêm o drag do botao da interface.
+                    # A click without dragging activates the same placement tool. This
+                    # fallback is essential because some Blender versions/themes
+                    # retain the UI button's drag event.
                     self._arrastando = False
                     try:
                         context.workspace.status_text_set(
-                            "Posicionamento ativo | Clique na viewport: "
-                            "inserir | Botao direito: cancelar")
+                            "Placement active | Click in viewport: insert | Right click: cancel")
                     except Exception:
                         pass
                     return {'RUNNING_MODAL'}
                 if not self._na_viewport(event):
                     return self._cancelar(context)
-                # O RELEASE pode chegar sem MOUSEMOVE na coordenada final.
+                # RELEASE can arrive without MOUSEMOVE at the final position.
                 if getattr(self, '_sessao_parede', 0):
                     self._mover(context, event)
                 if not self._valido:
-                    self.report({'WARNING'}, self._erro_posicionamento or "Posicione dentro da viewport")
+                    self.report({'WARNING'}, self._erro_posicionamento or "Position inside the viewport")
                     return self._cancelar(context)
                 return self._confirmar(context)
         if (event.type in {'RET', 'NUMPAD_ENTER'} and
                 event.value == 'PRESS'):
             if not self._valido:
-                self.report({'WARNING'}, self._erro_posicionamento or "Posicione dentro da viewport")
+                self.report({'WARNING'}, self._erro_posicionamento or "Position inside the viewport")
                 return {'RUNNING_MODAL'}
             return self._confirmar(context)
         if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
@@ -1682,32 +1668,32 @@ class OBJECT_OT_arrastar_preset(Operator):
 
 
 class OBJECT_OT_navegar(Operator):
-    """Seleciona um nivel da cascata"""
+    """Select a hierarchy level."""
     bl_idname = "object.cabinet_navegar"
-    bl_label = "Navegar"
+    bl_label = "Browse"
 
     nivel: bpy.props.IntProperty(default=1, min=1)
     valor: bpy.props.StringProperty()
 
     def execute(self, context):
         s = context.scene
-        # a cascata e' a da biblioteca que esta' aberta: presets ou materiais
+        # Use the hierarchy of the open library: presets or materials.
         prefixo = ('cabinet_mat_n' if getattr(s, 'cabinet_bib_modo', '') == 'MATERIAIS'
                    else 'chapa_n')
         atual = trilha_da_cena(s, prefixo)
         trilha = list(atual[:self.nivel - 1])
         if not (len(atual) >= self.nivel and atual[self.nivel - 1] == self.valor):
-            trilha.append(self.valor)       # o mesmo de novo = fecha o nivel
+            trilha.append(self.valor)       # Same level again = close it.
         definir_trilha(s, trilha, prefixo)
         return {'FINISHED'}
 
 
-# ======================================= MINIATURAS E WIREFRAME DE MEDIDAS
+# ======================================= THUMBNAILS AND DIMENSION WIREFRAME
 _previews = [None]
 
-# O canvas e o scale do template sao fixos de proposito: alargar a sidebar
-# nao deve ampliar a representacao. Cada proporcao e' normalizada para ocupar
-# a area util maxima sem deformar ou ultrapassar as margens internas.
+# Canvas and template scale are deliberately fixed: widening the sidebar
+# must not enlarge the representation. Normalize each proportion to fill
+# the usable area without distortion or crossing the inner margins.
 WIREFRAME_LARGURA_PX = 160
 WIREFRAME_ALTURA_PX = 160
 WIREFRAME_MARGEM_ESQUERDA_PX = 14.0
@@ -1726,15 +1712,15 @@ MINIMO_ESPESSURA_WIREFRAME = 0.07
 WIREFRAME_PREFIXO = "wireframe:v15:"
 _wireframe_ordem = []
 
-# Vertices: frente (0, 1, 5, 4), fundo (2, 3, 7, 6) e ligacoes.
+# Vertices: front (0, 1, 5, 4), back (2, 3, 7, 6), and connections.
 _ARESTAS_WIREFRAME = (
     (0, 1), (1, 5), (5, 4), (4, 0),
     (2, 3), (3, 7), (7, 6), (6, 2),
     (0, 2), (1, 3), (5, 7), (4, 6),
 )
 
-# Fonte minima 5x7. Os indicadores fazem parte do buffer procedural e nao
-# dependem de fontes instaladas no sistema.
+# Minimal 5x7 font. Indicators are part of the procedural buffer
+# and do not depend on installed system fonts.
 _FONTE_WIREFRAME = {
     'A': ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
     'E': ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
@@ -1750,7 +1736,7 @@ def _colecao_previews():
 
 
 def _cor_wireframe(context):
-    """Cor de texto do tema, para contrastar em temas claros e escuros."""
+    """Theme text color for contrast in light and dark themes."""
     try:
         cor = context.preferences.themes[0].user_interface.wcol_regular.text
         return tuple(max(0.0, min(1.0, float(v))) for v in cor[:3])
@@ -1759,12 +1745,11 @@ def _cor_wireframe(context):
 
 
 def _caixas_das_folhas(largura, altura, profundidade, folhas):
-    """Vertices das folhas na face frontal, nos eixos da caixa.
+    """Leaf vertices on the front face, along box axes.
 
-    Proporcoes de DESENHO, nao medidas: o preview e' um esquema. A
-    folha recua 4% das bordas e avanca 8% da profundidade, que e' o que
-    deixa a blocagem legivel em 160 px.
-    """
+    DRAWING proportions, not measurements: the preview is schematic. Leaves
+    are inset 4% from the edges and project 8% of the depth, making
+    the placeholder readable at 160 px."""
     if folhas <= 0:
         return []
     recuo = min(largura, altura) * 0.04
@@ -1787,12 +1772,11 @@ def _caixas_das_folhas(largura, altura, profundidade, folhas):
 
 
 def _pontos_wireframe(largura, altura, profundidade, extras=()):
-    """Projeta a 45 graus e ajusta a proporcao a area util do canvas.
+    """Project at 45 degrees and fit proportions to the usable canvas area.
 
-    `extras` sao vertices nos MESMOS eixos da caixa (por exemplo as
-    folhas); voltam projetados logo apos os 8 cantos, para que nada
-    saia com escala diferente da caixa.
-    """
+    `extras` are vertices in the SAME box axes (for example, leaves);
+    return them projected after the eight corners so everything uses
+    the same scale as the box."""
     medidas = (float(largura), float(altura), float(profundidade))
     if not all(math.isfinite(v) and v > 0.0 for v in medidas):
         return None
@@ -1806,8 +1790,8 @@ def _pontos_wireframe(largura, altura, profundidade, extras=()):
     diagonal = math.sqrt(0.5)  # cos(45) == sin(45)
     projetados = [(x - y * diagonal, z + y * diagonal)
                   for x, y, z in vertices]
-    # Os limites saem dos 8 cantos da CAIXA: incluir as folhas mudaria
-    # a escala e o modulo apareceria menor do que e'.
+    # Derive bounds from the eight BOX corners: including leaves would
+    # change the scale and make the cabinet look smaller than it is.
     caixa = projetados[:8]
     min_x = min(p[0] for p in caixa)
     max_x = max(p[0] for p in caixa)
@@ -1831,7 +1815,7 @@ def _pontos_wireframe(largura, altura, profundidade, extras=()):
 
 
 def _desenhar_segmento(buffer, p0, p1, cor):
-    """Rasteriza um segmento antialias somente dentro de sua caixa local."""
+    """Rasterize an antialiased segment only inside its local box."""
     largura = WIREFRAME_LARGURA_PX
     altura = WIREFRAME_ALTURA_PX
     x0, y0 = p0
@@ -1860,8 +1844,8 @@ def _desenhar_segmento(buffer, p0, p1, cor):
             cobertura = max(0.0, min(1.0, raio + 0.75 - distancia))
             if cobertura <= 0.0:
                 continue
-            # ImagePreview usa a origem embaixo; os pontos tambem usam Y para
-            # cima, portanto nao e' preciso inverter a linha neste buffer.
+            # ImagePreview uses a bottom origin; points also use Y up,
+            # so this buffer needs no row inversion.
             i = (y * largura + x) * 4
             if cobertura > buffer[i + 3]:
                 buffer[i] = cr
@@ -1871,7 +1855,7 @@ def _desenhar_segmento(buffer, p0, p1, cor):
 
 
 def _desenhar_indicador(buffer, letra, x, y, cor, escala=2):
-    """Desenha uma letra 5x7 centralizada em (x, y)."""
+    """Draw a 5x7 letter centered at (x, y)."""
     glifo = _FONTE_WIREFRAME.get(letra)
     if glifo is None:
         return
@@ -1904,18 +1888,16 @@ def _meio_wireframe(p0, p1):
 
 
 def _desenhar_indicadores(buffer, pontos, cor, modo, trocado=False):
-    """Identifica as direcoes sem adicionar cotas ou linhas auxiliares.
+    """Identify directions without adding dimensions or auxiliary lines.
 
-    'INDIVIDUAL' (chapa): L, A e E. Na chapa a aresta VERTICAL do
-        desenho e' a espessura -- `_visual_wireframe` (`painel_legado`)
-        passa a espessura na posicao da altura -- e a aresta que recua
-        e' a altura da peca.
-    'GRUPO' (modulo de chapas): L, A, P e mais o E na quina inferior
-        direita. A espessura nao tem aresta propria no modulo, mas e'
-        medida dele e precisa aparecer.
-    'LIVRE' (objeto sem assinatura do addon): so' L, A e P. Sem chapas
-        no meio, nao existe espessura para anunciar.
-    """
+    'INDIVIDUAL' (panel): L, A, E. The drawing's VERTICAL panel edge
+    represents thickness: `_visual_wireframe` (`painel_legado`) passes
+    thickness in the height slot; the receding edge is the component height.
+    'GRUPO' (panel cabinet): L, A, P, plus E at the lower-right corner.
+    Thickness has no dedicated cabinet edge but is still a measurement
+    that must be displayed.
+    'LIVRE' (object without the add-on signature): only L, A, P.
+    Without panels, there is no thickness to display."""
     topo = _meio_wireframe(pontos[6], pontos[7])
     fundo = _meio_wireframe(pontos[0], pontos[2])
     vertical = _meio_wireframe(pontos[2], pontos[6])
@@ -1941,9 +1923,9 @@ def _desenhar_indicadores(buffer, pontos, cor, modo, trocado=False):
     _desenhar_indicador(
         buffer, 'L' if trocado else 'P', fundo[0] - 9.0, fundo[1] - 8.0, cor)
     if modo == 'GRUPO':
-        # Canto inferior direito da projecao. A letra desce para a
-        # margem de baixo em vez de sair pela direita: a margem lateral
-        # e' de poucos pixels e `_desenhar_indicador` corta calado.
+        # Lower-right projection corner. Move the letter down into
+        # the bottom margin rather than right: the side margin is
+        # only a few pixels and `_desenhar_indicador` silently clips it.
         quina = pontos[1]
         _desenhar_indicador(
             buffer, 'E', quina[0] - 8.0, quina[1] - 9.0, cor)
@@ -1951,7 +1933,7 @@ def _desenhar_indicadores(buffer, pontos, cor, modo, trocado=False):
 
 def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO',
                          folhas=0, trocado=False):
-    """Pixels RGBA das 12 arestas do box, mais as folhas na frente."""
+    """RGBA pixels of the box's 12 edges, plus front leaves."""
     caixas = _caixas_das_folhas(largura, altura, profundidade, folhas)
     extras = [v for caixa in caixas for v in caixa]
     pontos = _pontos_wireframe(largura, altura, profundidade, extras)
@@ -1970,7 +1952,7 @@ def _rasterizar_wireframe(largura, altura, profundidade, cor, modo='GRUPO',
 
 
 def _centralizar_wireframe(buffer):
-    """Centraliza o conteudo VISIVEL, incluindo as letras L/A/P/E."""
+    """Center VISIBLE content, including the L/A/P/E letters."""
     largura, altura = WIREFRAME_LARGURA_PX, WIREFRAME_ALTURA_PX
     ocupados = [i // 4 for i in range(0, len(buffer), 4)
                 if buffer[i + 3] > 0.0]
@@ -1993,30 +1975,29 @@ def _centralizar_wireframe(buffer):
     return centralizado
 
 
-# ==================================== BARRA DE TAMANHO (estilo volume)
-# O bpy nao tem slider de trilho fino com knob redondo: o `slider=True`
-# nativo pinta a barra inteira e escreve o valor por cima. Esta aqui e'
-# rasterizada -- mesma tecnica do wireframe -- e fica clicavel porque e'
-# montada em FATIAS: cada fatia e' um botao de operador que grava o seu
-# proprio valor, e o clique cai na fatia certa sem precisar adivinhar
-# coordenada nenhuma (o bpy nao informa onde o botao foi desenhado).
+# ==================================== SIZE BAR (volume style)
+# bpy has no thin-track slider with a round knob: native `slider=True`
+# fills the entire bar and writes its value over it. This bar is
+# rasterized with the wireframe technique and made clickable by
+# assembling SLICES: each slice is an operator button writing its own
+# value, so the click reaches the correct slice without guessing
+# coordinates (bpy does not report where a button was drawn).
 BARRA_PREFIXO = "barra:v2:"
-BARRA_PX = 40               # lado da fatia rasterizada, em pixels
-PX_FATIA_BARRA = 18.0       # largura que o icone ocupa ao ser desenhado
-PX_BOTAO_BIBLIOTECA = 34.0  # o botao do Asset Browser, ao lado da barra
-BARRA_TRILHO = 0.14         # espessura do trilho, fracao do lado
-BARRA_KNOB = 0.62           # diametro do knob, fracao do lado
-AMOSTRAS_BARRA = 4          # supersampling por pixel (4x4)
+BARRA_PX = 40               # Rasterized slice side length, in pixels.
+PX_FATIA_BARRA = 18.0       # Width occupied by the icon when drawn.
+PX_BOTAO_BIBLIOTECA = 34.0  # Asset Browser button beside the bar.
+BARRA_TRILHO = 0.14         # Track thickness as a fraction of the side length.
+BARRA_KNOB = 0.62           # Knob diameter as a fraction of the side length.
+AMOSTRAS_BARRA = 4          # Supersampling per pixel (4x4).
 COR_BARRA_VAZIA = (0.322, 0.298, 0.290)
 COR_BARRA_CHEIA = (1.0, 1.0, 1.0)
 
 
 def _cobertura_disco(x, y, cx, cy, raio, amostras=AMOSTRAS_BARRA):
-    """Quanto do pixel (x, y) o disco cobre, de 0 a 1.
+    """Fraction of pixel (x, y) covered by the disk, from 0 to 1.
 
-    Supersampling na marra: o icone e' reduzido pelo Blender na hora de
-    desenhar, e um circulo cru vira losango depois dessa reducao.
-    """
+    Manual supersampling: Blender downsamples the icon when drawing,
+    and a raw circle becomes a diamond after that reduction."""
     dentro = 0
     passo = 1.0 / amostras
     for sy in range(amostras):
@@ -2029,11 +2010,10 @@ def _cobertura_disco(x, y, cx, cy, raio, amostras=AMOSTRAS_BARRA):
 
 
 def _fatia_barra(indice, ativo, ultimo):
-    """Pixels RGBA de UMA fatia: trecho do trilho + knob se for a ativa.
+    """RGBA pixels for ONE slice: track segment + knob if active.
 
-    O trilho vem cheio ate' a fatia ativa e vazio depois dela, que e' a
-    leitura imediata de "quanto esta' ligado".
-    """
+    The track is filled through the active slice and empty afterward,
+    giving an immediate indication of how much is enabled."""
     lado = BARRA_PX
     buffer = [0.0] * (lado * lado * 4)
     meio = (lado - 1) / 2.0
@@ -2045,19 +2025,19 @@ def _fatia_barra(indice, ativo, ultimo):
         dy = abs(y - meio)
         for x in range(lado):
             alfa, c = 0.0, cor
-            # trilho: faixa horizontal, bordas suavizadas
+            # Track: horizontal strip with smoothed edges.
             if dy <= meia_esp - 0.5:
                 alfa = 1.0
             elif dy <= meia_esp + 0.5:
                 alfa = meia_esp + 0.5 - dy
-            # pontas arredondadas so' nas fatias das extremidades
+            # Rounded ends only on the outermost slices.
             if indice == 0 and x < meia_esp:
                 alfa = min(alfa, _cobertura_disco(x, y, meia_esp, meio,
                                                   meia_esp))
             if indice == ultimo and x > lado - 1 - meia_esp:
                 alfa = min(alfa, _cobertura_disco(
                     x, y, lado - 1 - meia_esp, meio, meia_esp))
-            # knob por cima, sempre branco
+            # Knob on top, always white.
             if indice == ativo:
                 cob = _cobertura_disco(x, y, meio, meio, raio)
                 if cob > 0.0:
@@ -2075,7 +2055,7 @@ def _fatia_barra(indice, ativo, ultimo):
 
 
 def _icone_fatia_barra(indice, ativo, ultimo):
-    """icon_id de uma fatia, reaproveitado pelo cache de previews."""
+    """Slice icon_id, reused through the preview cache."""
     chave = BARRA_PREFIXO + "%d:%d:%d" % (indice, ativo, ultimo)
     colecao = _colecao_previews()
     if chave not in colecao:
@@ -2088,7 +2068,7 @@ def _icone_fatia_barra(indice, ativo, ultimo):
             preview.image_size = tamanho
             preview.image_pixels_float = pixels
         except Exception as e:
-            print("[Archy Builder] barra:", e)
+            print("[Archy Builder] bar:", e)
             return 0
     try:
         return colecao[chave].icon_id
@@ -2097,81 +2077,77 @@ def _icone_fatia_barra(indice, ativo, ultimo):
 
 
 def _metrica_barra(context, disponivel=None):
-    """(fatias, largura logica da celula, compressao) da barra.
+    """(slices, logical cell width, compression) for the bar.
 
-    Um lugar so' porque o DESENHO e o ARRASTE precisam concordar: se a
-    celula medir diferente dos dois lados, o knob anda fora do dedo.
-    """
+    Keep this in one place because DRAWING and DRAGGING must agree:
+    if their cell sizes differ, the knob drifts away from the pointer."""
     prop = bpy.types.Scene.bl_rna.properties["chapa_tam_bloco"]
     fatias = prop.hard_max - prop.hard_min + 1
     if disponivel is None:
         disponivel = max(1.0, PX_FATIA_BARRA * fatias)
     disponivel = max(1.0, disponivel)
-    # scale_x encolhe a celula ate' o tamanho do icone; acima de 1.0 nao
-    # adianta (o icone nao estica), entao a celula fica menor que o alvo
+    # scale_x shrinks the cell to icon size; above 1.0 it has no effect
+    # (the icon does not stretch), so the cell becomes smaller than the target.
     compressao = min(1.0, PX_FATIA_BARRA * fatias / disponivel)
     celula = min(PX_FATIA_BARRA, disponivel / fatias)
     return fatias, celula, compressao
 
 
-# ====================================== FOTO CLICAVEL (fatiada)
-# `template_icon` amplia a foto mas NAO recebe evento, e o icone de um
-# botao de operador nao passa de ~16 px por mais que se aumente
-# scale_x/scale_y (medido). Para a foto inteira ficar clicavel ela e'
-# cortada em ladrilhos, cada um o icone de um botao: o mosaico parece
-# uma imagem so' e qualquer ponto dela aciona o posicionador.
+# ====================================== CLICKABLE PHOTO (sliced)
+# `template_icon` enlarges the photo but receives NO events, and an operator
+# button's icon never exceeds about 16 px regardless of increases to
+# scale_x/scale_y (measured). To make the whole photo clickable, split it
+# into tiles, each used as a button icon: the mosaic looks like one image
+# and any point activates the placement tool.
 FOTO_PREFIXO = "foto:v2:"
-# Rasterizar em 24 e desenhar em 16 obrigava o Blender a reamostrar
-# cada ladrilho (1,5x) e aparecia bandeamento nas faces lisas. Os
-# dois tamanhos precisam ser IGUAIS: assim o desenho e' 1:1.
+# Rasterizing at 24 and drawing at 16 forced Blender to resample every
+# tile (1.5x), causing banding on smooth faces. Both sizes must
+# be EQUAL so drawing is 1:1.
 FOTO_TILE_PX = 16
-# 16 px e' a largura REAL com que o Blender desenha o icone de um
-# botao; 18 deixava 2 px de fresta e o mosaico virava xadrez.
+# 16 px is the ACTUAL width at which Blender draws a button icon;
+# 18 left a 2 px gap, turning the mosaic into a checkerboard.
 PX_TILE_FOTO = 16.0
-# Alvo da CELULA, de proposito menor que o icone: mirar nos 16 px
-# exige acertar a largura do bloco na mosca, e ela e' estimada --
-# qualquer desvio abre fresta e a foto fica picotada. Com folga, a
-# celula fica sempre abaixo do icone em qualquer largura.
+# CELL target deliberately smaller than the icon: targeting 16 px
+# requires an exact tile width, but that width is estimated; any
+# deviation opens gaps and fragments the photo. With clearance,
+# the cell always remains smaller than the icon at any width.
 PX_ALVO_CELULA = 16.0
 
 
-# Folgas medidas por captura: o box da lista come' um tanto da
-# largura do painel, e cada bloco tem a sua propria margem interna.
+# Gaps measured from captures: the list box consumes some panel
+# width, and each tile has its own inner margin.
 PADDING_GRADE = 34.0
 PADDING_BLOCO = 12.0
 
 
 def _metrica_blocos(context, tamanho):
-    """(colunas, largura de cada bloco) da grade de presets.
+    """(columns, width of each tile) for the preset grid.
 
-    As colunas precisam ser EXPLICITAS. Com `columns=0` quem decide a
-    largura do bloco e' o bpy, e a foto clicavel -- um mosaico de
-    icones de 16 px -- so' fica sem fresta quando essa largura e'
-    conhecida: `ui_units_x` e' ignorado dentro do grid_flow (medido) e
-    `scale_x` encolhe o proprio icone, deformando a imagem.
-    """
+    Columns must be EXPLICIT. With `columns=0`, bpy chooses tile width,
+    and a clickable photo, made of 16 px icons, is gap-free only when
+    that width is known. `ui_units_x` is ignored inside grid_flow
+    (measured), while `scale_x` shrinks the icon itself, distorting the image."""
     util = max(1.0, _gaveta._largura_painel(context) - PADDING_GRADE)
-    # O mosaico da foto so' fica sem listras quando a celula
-    # (largura_do_bloco / ladrilhos) cai perto dos 16 px do icone.
-    # Blocos largos demais fazem a conta desviar e aparecem bandas;
-    # 20 px por grau de tamanho mantem o bloco na faixa que fecha.
+    # The photo mosaic has no stripes only when the cell width
+    # (tile width / tile count) is close to the icon's 16 px.
+    # Overwide tiles make the calculation drift and produce bands;
+    # 20 px per size increment keeps the tile in the gap-free range.
     alvo = max(64.0, float(tamanho) * 20.0)
     colunas = max(1, min(6, int(util // alvo)))
     return colunas, util / colunas
 
 
 def _foto_clicavel_ligada():
-    """Preferencia: foto clicavel (mosaico) ou foto perfeita."""
+    """Preference: clickable photo (mosaic) or perfect photo."""
     p = _opcoes._prefs()
     return bool(p and getattr(p, "foto_clicavel", False))
 
 
 def _tiles_foto(pasta, png, lado):
-    """icon_id de cada ladrilho da foto, em grade `lado` x `lado`.
+    """icon_id for each photo tile in a `lado` x `lado` grid.
 
-    Devolve as linhas de CIMA para BAIXO, que e' a ordem em que a UI
-    desenha -- os pixels do Blender vem de baixo para cima.
-    """
+    Return rows from TOP to BOTTOM, the UI drawing order; Blender's
+    pixels run bottom to top."""
     colecao = _colecao_previews()
     base = FOTO_PREFIXO + "%s|%s:%d:" % (pasta, png, lado)
     if (base + "0:0") not in colecao:
@@ -2189,7 +2165,7 @@ def _tiles_foto(pasta, png, lado):
                 try:
                     pv = colecao.new(base + "%d:%d" % (i, j))
                 except Exception as e:
-                    print("[Archy Builder] foto:", e)
+                    print("[Archy Builder] photo:", e)
                     return None
                 tam = (FOTO_TILE_PX, FOTO_TILE_PX)
                 pv.icon_size = tam
@@ -2201,23 +2177,21 @@ def _tiles_foto(pasta, png, lado):
                  for i in range(lado)]
                 for j in range(lado - 1, -1, -1)]
     except Exception as e:
-        print("[Archy Builder] foto:", e)
+        print("[Archy Builder] photo:", e)
         return None
 
 
 class OBJECT_OT_definir_tamanho(Operator):
-    """Tamanho das miniaturas da biblioteca.
+    """Library thumbnail size.
 
-    A barra responde a CLIQUE, nao a arraste, e isso nao tem conserto
-    pela API: o bpy nao permite criar um tipo de widget novo. Um botao
-    de painel e' tratado pelo handler de UI, que consome o PRESS antes
-    de qualquer keymap -- nem `head=True` no keymap "User Interface"
-    passa na frente. O que se desenha (imagem, icone) nao recebe
-    evento; o que recebe evento (botao) nao se desenha do nosso jeito.
-    Ja' foi tentado: keymap PRESS e CLICK_DRAG + modal relativo.
-    """
+    The bar responds to CLICKS, not dragging, and the API cannot fix this:
+    bpy does not allow a new widget type. A panel button's UI handler
+    consumes PRESS before any keymap, even `head=True` in the "User Interface"
+    keymap. Drawn images/icons receive no events; buttons that receive events
+    cannot use our custom drawing. Previously tried: PRESS and CLICK_DRAG
+    keymaps with a relative modal."""
     bl_idname = "object.cabinet_tamanho"
-    bl_label = "Tamanho dos Blocos"
+    bl_label = "Block Size"
 
     valor: bpy.props.IntProperty(default=5)
 
@@ -2249,7 +2223,7 @@ def _registrar_uso_wireframe(chave, colecao):
 
 
 def _icone_wireframe(context, modo, largura, altura, profundidade, folhas=0):
-    """Cria ou reutiliza o icon_id horizontal para estas medidas."""
+    """Create or reuse the horizontal icon_id for these dimensions."""
     cor = _cor_wireframe(context)
     chave = _chave_wireframe(modo, largura, altura, profundidade, cor, folhas)
     colecao = _colecao_previews()
@@ -2261,8 +2235,8 @@ def _icone_wireframe(context, modo, largura, altura, profundidade, folhas=0):
         try:
             preview = colecao.new(chave)
             tamanho = (WIREFRAME_LARGURA_PX, WIREFRAME_ALTURA_PX)
-            # Preenche ambos porque a versao do Blender decide qual nivel
-            # usar conforme a escala pedida por template_icon.
+            # Populate both because Blender's version chooses the level
+            # according to the scale requested by template_icon.
             preview.icon_size = tamanho
             preview.icon_pixels_float = pixels
             preview.image_size = tamanho
@@ -2284,7 +2258,7 @@ def _chave_preview(pasta, arquivo):
 
 
 def icone_do_item(it):
-    """icon_value da foto do preset, ou 0 se nao houver."""
+    """Preset photo icon_value, or 0 if unavailable."""
     png = it.get("foto") or (os.path.splitext(it["arquivo"])[0] + ".png")
     caminho = os.path.join(it["pasta"], png)
     if not os.path.exists(caminho):
@@ -2300,14 +2274,14 @@ def icone_do_item(it):
 
 
 def _ocupacao_alpha_png(caminho):
-    """Maior fracao ocupada pelo alfa, em X ou Y, ou zero se vazio."""
+    """Largest alpha occupancy fraction along X or Y, or zero if empty."""
     imagem = None
     try:
         imagem = bpy.data.images.load(caminho, check_existing=False)
         largura, altura = imagem.size
         if largura <= 0 or altura <= 0:
             return 0.0
-        # Blender 4.2 nao aceita `step` diretamente no bpy_prop_array.
+        # Blender 4.2 does not accept `step` directly on bpy_prop_array.
         alpha = list(imagem.pixels)[3::4]
         min_x, min_y = largura, altura
         max_x = max_y = -1
@@ -2323,7 +2297,7 @@ def _ocupacao_alpha_png(caminho):
         return max((max_x - min_x + 1) / largura,
                    (max_y - min_y + 1) / altura)
     except Exception as e:
-        print("[Archy Builder] leitura do alfa:", e)
+        print("[Archy Builder] alpha reading:", e)
         return 0.0
     finally:
         if imagem is not None:
@@ -2333,34 +2307,34 @@ def _ocupacao_alpha_png(caminho):
                 pass
 
 
-# Fotos dos modelos de FABRICA (puxadores, aberturas, dobradicas): PNGs
-# que viajam com o add-on, feitos por `gerar_fotos_padrao.py` na mesma
-# vista das fotos da biblioteca. Ficam fora dela: sao protegidos.
-PASTA_FOTOS_PADRAO = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'fotos')
+# FACTORY model photos (handles, opening mechanisms, hinges): PNGs bundled
+# with the add-on, made by `gerar_fotos_padrao.py` using the same view
+# as library photos. They stay outside the library and are protected.
+PASTA_FOTOS_PADRAO = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets/previews")
 
 
-# Modelos ainda sem peca propria mostram a foto de outro (pedido do
-# usuario): tire daqui quando o modelo da Curva/Super Curva existir.
+# Models without their own component still show another model's photo,
+# as requested by the user; remove these entries when Curva/Super Curva models exist.
 FOTOS_PENDENTES = {'dobradica_CURVA': 'dobradica_RETA',
                    'dobradica_SUPER_CURVA': 'dobradica_RETA'}
 
 
 def foto_padrao(nome):
-    """Retrato de fabrica (`puxador_ALCA`, `abertura_GIRO`...) no formato
-    de item que o desenho da gaveta le."""
+    """Factory portrait (`puxador_ALCA`, `abertura_GIRO`, etc.) in the
+    item format read by sidebar drawing."""
     nome = FOTOS_PENDENTES.get(nome, nome)
     return {'pasta': PASTA_FOTOS_PADRAO, 'arquivo': nome + '.png',
             'foto': nome + '.png'}
 
 
-# Foto "a 45 graus" (pedido do usuario): de frente-direita, um pouco de
-# cima -- a mesma vista para todo modelo de puxador, porta e dobradica.
+# "45-degree" photo, requested by the user: front-right, slightly from
+# above; the same view for every handle, door, and hinge model.
 VISTA_FOTO = Euler((math.radians(60.0), 0.0, math.radians(45.0)),
                    'XYZ').to_quaternion()
 
 
 def _arestas_da_foto(obj):
-    """Bordas e quinas reais: triangulos coplanares nao viram riscos na foto."""
+    """Actual edges and corners: coplanar triangles must not become lines in the photo."""
     normais = {}
     for face in obj.data.polygons:
         for chave in face.edge_keys:
@@ -2372,9 +2346,9 @@ def _arestas_da_foto(obj):
 
 
 def _contornos_da_foto(objetos, raio):
-    """Linhas temporarias no render: espessura legivel ao reduzir a miniatura,
-    com ocultacao pela propria geometria (nao desenhar atraves do movel)."""
-    dados = bpy.data.curves.new('Contorno Foto Preset', 'CURVE')
+    """Temporary render lines, thick enough to remain readable in thumbnails,
+    occluded by the geometry itself rather than drawn through the furniture."""
+    dados = bpy.data.curves.new("Preset Photo Outline", 'CURVE')
     dados.dimensions = '3D'
     dados.bevel_depth = raio
     dados.bevel_resolution = 0
@@ -2387,17 +2361,17 @@ def _contornos_da_foto(objetos, raio):
             for ponto, indice in zip(linha.points, (a, b)):
                 co = obj.matrix_world @ obj.data.vertices[indice].co
                 ponto.co = (*co, 1)
-    contorno = bpy.data.objects.new('Contorno Foto Preset', dados)
+    contorno = bpy.data.objects.new("Preset Photo Outline", dados)
     bpy.context.scene.collection.objects.link(contorno)
     contorno.color = (.045, .045, .045, 1)
     return contorno
 
 
 def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
-    """Foto do preset SEM janela: camera ortografica na vista da foto,
-    render Workbench solido com fundo transparente (a viewport de
-    `capturar_viewport` nao existe em --background; o gerador dos armarios
-    nativos roda assim). So' `objetos` aparecem; o resto volta como era."""
+    """Preset photo WITHOUT a window: orthographic camera in photo view,
+    solid Workbench render on a transparent background (`capturar_viewport`
+    has no viewport in --background; the native cabinet generator runs
+    that way). Show only `objetos`; restore everything else afterward."""
     cena = bpy.context.scene
     sombreamento = cena.display.shading
     antes = (cena.render.engine, cena.render.filepath,
@@ -2410,8 +2384,8 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
     manter = {o.name for o in objetos}
     escondidos = [o for o in cena.objects
                   if o.name not in manter and not o.hide_render]
-    dados = bpy.data.cameras.new('Foto Preset')
-    camera = bpy.data.objects.new('Foto Preset', dados)
+    dados = bpy.data.cameras.new("Preset Photo")
+    camera = bpy.data.objects.new("Preset Photo", dados)
     cena.collection.objects.link(camera)
     contorno = None
     cores = [(o, tuple(o.color)) for o in objetos]
@@ -2422,10 +2396,10 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
         pontos = [o.matrix_world @ Vector(c) for o in objetos
                   if o.type == 'MESH' and not o.hide_render for c in o.bound_box]
         if not pontos:
-            return False, 'nada para fotografar'
+            return False, "nothing to photograph"
         centro = sum(pontos, Vector()) / len(pontos)
         rot = rotacao.to_matrix()
-        # enquadra pela caixa VISTA da camera (eixos x/y dela)
+        # Frame using the box AS SEEN by the camera (its x/y axes).
         locais = [rot.transposed() @ (p - centro) for p in pontos]
         largura = max(p.x for p in locais) - min(p.x for p in locais)
         altura = max(p.y for p in locais) - min(p.y for p in locais)
@@ -2452,7 +2426,7 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
         sombreamento.color_type = 'OBJECT'
         for obj, _cor in cores:
             obj.color = (.55, .55, .55, 1)
-        sombreamento.single_color = (0.55, 0.55, 0.55)  # o cinza das fotos
+        sombreamento.single_color = (0.55, 0.55, 0.55)  # Photo gray.
         sombreamento.show_object_outline = True
         bpy.ops.render.render(write_still=True)
         return os.path.isfile(destino_png), destino_png
@@ -2481,29 +2455,29 @@ def fotografar_com_camera(destino_png, objetos, rotacao=VISTA_FOTO, lado=512):
         bpy.data.cameras.remove(dados)
 
 
-# Armarios NATIVOS de fabrica (pedido do usuario): so' chapas do add-on,
-# caixa + fundo de 5 mm em canal, chapa de 18 mm, COM PORTA (Reta,
-# cobrindo a frente). Medidas EXTERNAS da caixa (mm), as de mercado:
-# balcao 720 de caixa (bancada a ~900 com rodape), aereo 330 de fundo,
-# torre e roupeiro de altura inteira. Porta de giro: 1 folha ate' 500 mm
-# de largura, 2 acima; o aereo tem tambem a versao basculante.
+# Factory NATIVE cabinets, requested by the user: add-on panels only,
+# box + 5 mm back in a groove, 18 mm panels, WITH A DOOR (straight,
+# covering the front). Standard EXTERNAL box dimensions in mm:
+# base cabinet with a 720 mm body (countertop about 900 mm with plinth),
+# wall cabinet 330 mm deep, full-height tall cabinets and wardrobes. Hinged
+# doors: one leaf up to 500 mm wide, two above; wall cabinets also have a lift-up version.
 LARGURA_MAX_UMA_FOLHA_MM = 500
-ABERTURA_FOTO = 0.0            # biblioteca: todas as folhas fechadas
+ABERTURA_FOTO = 0.0            # Library: all leaves closed.
 
 
 def preparar_abertura_foto(context, conj):
-    """Pose fechada da FOTO, sem alterar lado, vao ou ferragens."""
+    """Closed PHOTO pose without changing side, opening, or hardware."""
     for grupo in _portas._portas_do_conjunto(conj):
         for folha in _portas._folhas_portas(grupo):
             _ferragens._definir_abertura(context, folha, ABERTURA_FOTO)
     context.view_layer.update()
-# Puxador padrao dos nativos = PERFIL (pedido do usuario), na borda da
-# pratica de cozinha planejada: balcao/gabinete em cima, aereo embaixo,
-# torre na horizontal perto da mao; so' o roupeiro na vertical (pedido do usuario)
-# Modulo de bancada (pedido do usuario): topo ABERTO, duas travessas
-TOPO_POR_TIPO = {'Balcao': 'TRAVESSAS', 'Gabinete': 'TRAVESSAS'}
-PERFIL_POR_TIPO = {'Balcao': 'CIMA', 'Gabinete': 'CIMA', 'Aereo': 'BAIXO',
-                   'Torre': 'ALTURA', 'Roupeiro': 'LADO'}
+# Default native handle = PROFILE, as requested by the user, positioned
+# according to fitted kitchen practice: top on base/sink cabinets, bottom
+# on wall cabinets, horizontal at hand height on tall cabinets; only wardrobes use vertical.
+# Countertop cabinet, requested by the user: OPEN top, two rails.
+TOPO_POR_TIPO = {"Base Cabinet": 'TRAVESSAS', "Vanity Cabinet": 'TRAVESSAS'}
+PERFIL_POR_TIPO = {"Base Cabinet": 'CIMA', "Vanity Cabinet": 'CIMA', "Wall Cabinet": 'BAIXO',
+                   "Tall Cabinet": 'ALTURA', "Wardrobe": 'LADO'}
 
 
 def _giro(L):
@@ -2511,37 +2485,37 @@ def _giro(L):
 
 
 ARMARIOS_NATIVOS = (
-    [("Balcao", L, 720, 550, ("Armarios", "Cozinha", "Inferiores"), _giro(L))
+    [("Base Cabinet", L, 720, 550, ("Cabinets", "Kitchen", "Base Cabinets"), _giro(L))
      for L in (300, 400, 450, 500, 600, 800, 900, 1000, 1200)]
-    + [("Aereo", L, 700, 330, ("Armarios", "Cozinha", "Superiores"), _giro(L))
+    + [("Wall Cabinet", L, 700, 330, ("Cabinets", "Kitchen", "Wall Cabinets"), _giro(L))
        for L in (300, 400, 450, 500, 600, 800, 900, 1000, 1200)]
-    + [("Aereo", L, 700, 330, ("Armarios", "Cozinha", "Superiores"),
+    + [("Wall Cabinet", L, 700, 330, ("Cabinets", "Kitchen", "Wall Cabinets"),
         ('BASCULANTE', 1)) for L in (400, 450, 500, 600, 800, 900, 1000, 1200)]
-    + [("Torre", L, 2200, 550, ("Armarios", "Cozinha", "Torres"), _giro(L))
+    + [("Tall Cabinet", L, 2200, 550, ("Cabinets", "Kitchen", "Tower Cabinets"), _giro(L))
        for L in (600, 700)]
-    + [("Roupeiro", L, 2400, 550, ("Armarios", "Quarto", "Closets"), _giro(L))
+    + [("Wardrobe", L, 2400, 550, ("Cabinets", "Bedroom", "Closets"), _giro(L))
        for L in (450, 500, 600, 800, 900, 1000)]
-    + [("Gabinete", L, 600, 450, ("Armarios", "Banheiro", "Gabinetes"), _giro(L))
+    + [("Vanity Cabinet", L, 600, 450, ("Cabinets", "Bathroom", "Vanity Cabinets"), _giro(L))
        for L in (400, 500, 600, 800, 1000)]
 )
 
 
 def nome_armario_nativo(tipo, L, A, P, portas=None):
-    """"Balcao 2 Portas 800x720x550", "Aereo Basculante 600x700x330"."""
+    """"Balcao 2 Portas 800x720x550", "Aereo Basculante 600x700x330" (preset names)."""
     if portas is None:
         variante = ""
     elif portas[0] == 'BASCULANTE':
-        variante = " Basculante"
+        variante = " Lift-up"
     else:
-        variante = " %d Porta%s" % (portas[1], "s" if portas[1] > 1 else "")
+        variante = " %d Door%s" % (portas[1], "s" if portas[1] > 1 else "")
     return "%s%s %dx%dx%d" % (tipo, variante, L, A, P)
 
 
 def gerar_armario_nativo(context, tipo, L, A, P, niveis, portas=None, E=18.0):
-    """Monta o armario (com a porta de `portas`: ('GIRO', folhas) ou
-    ('BASCULANTE', 1)), grava o .blend na biblioteca (`pasta_biblioteca`),
-    tira a foto sem janela, poe a preview no asset e registra no indice.
-    A cena volta a ficar sem ele. Devolve o caminho do .blend."""
+    """Build the cabinet with `portas` = ('GIRO', leaf count) or
+    ('BASCULANTE', 1), save its .blend to `pasta_biblioteca`, capture a
+    headless photo, apply the asset preview, and register it in the index.
+    Remove it from the scene again. Return the .blend path."""
     nome = nome_armario_nativo(tipo, L, A, P, portas)
     conj = _modulos.criar_armario(context, nome, L, A, P, E,
                                   topo=TOPO_POR_TIPO.get(tipo, 'TAMPO'))
@@ -2552,15 +2526,15 @@ def gerar_armario_nativo(context, tipo, L, A, P, niveis, portas=None, E=18.0):
 
 
 def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
-    """Grava o modulo da cena como preset (`pasta_biblioteca`): .blend,
-    foto sem janela (porta fechada), preview do asset e indice. O
-    modulo SAI da cena. Devolve o caminho do .blend."""
+    """Save the scene cabinet as a preset in `pasta_biblioteca`: .blend,
+    headless photo (door closed), asset preview, and index. REMOVE the
+    cabinet from the scene. Return the .blend path."""
     pecas = [conj] + list(conj.children_recursive)
     colecao = _modulos._colecao_do_modulo(conj)
     if colecao is not None:
-        # a Collection do ASSET leva o nome: a da montagem sai do caminho
-        # (senao o asset gravado viraria "<nome>.001")
-        colecao.name = nome + " (montagem)"
+        # The ASSET Collection takes the name; move the assembly Collection aside
+        # so the saved asset does not become "<name>.001".
+        colecao.name = nome + " (assembly)"
     removido = [False]
 
     def remover_da_cena():
@@ -2578,20 +2552,20 @@ def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
         arq = salvar_na_biblioteca(pecas, nome, True, niveis=niveis)
         png = os.path.join(pasta_biblioteca(),
                            os.path.splitext(os.path.basename(arq))[0] + ".png")
-        # A foto segue a pose fechada pedida para toda a biblioteca.
+        # The photo uses the closed pose required throughout the library.
         preparar_abertura_foto(context, conj)
         pecas = [conj, *conj.children_recursive]
         context.view_layer.update()
         ok, msg = fotografar_com_camera(png, pecas)
         if not ok:
-            raise RuntimeError("foto do preset: " + msg)
-        # `aplicar_preview_png` recarrega e REGRAVA o .blend: com as pecas
-        # ainda na cena, tudo voltava como ".001" (bug aberto da suite da
-        # biblioteca); fora dela, os nomes do arquivo ficam limpos
+            raise RuntimeError("preset photo: " + msg)
+        # `aplicar_preview_png` reloads and REWRITES the .blend: with components
+        # still in the scene, everything returned as ".001" (open library-suite
+        # bug); removing them keeps the file's names clean.
         remover_da_cena()
         ok, msg = aplicar_preview_png(arq, png)
         if not ok:
-            raise RuntimeError("preview do preset: " + msg)
+            raise RuntimeError("preset preview: " + msg)
         registrar_no_indice(pasta_biblioteca(), nome, arq, *niveis, "modulo")
         return arq
     finally:
@@ -2599,33 +2573,29 @@ def gravar_modulo_na_biblioteca(context, conj, nome, niveis):
 
 
 def capturar_viewport(destino_png, camera=None, isolar=None, rotacao=None):
-    """Foto do modelo a partir da viewport.
+    """Model photo from the viewport.
 
-    NAO renderiza: usa render OpenGL, ou seja, as cores da propria
-    viewport. Overlays desligados removem grade, eixos, gizmos e icones.
-    O PNG sai em RGBA transparente e, sem camera explicita, o alvo e'
-    enquadrado automaticamente para ocupar a miniatura.
+    Use OpenGL rendering, preserving viewport colors. Disable overlays
+    to remove the grid, axes, gizmos, and icons. Output a transparent RGBA
+    PNG; without an explicit camera, frame the target automatically
+    to fill the thumbnail.
 
-    camera  -- se informada, usa a vista dela. Se nao, e a viewport ja'
-               estiver em vista de camera, mantem essa vista; caso
-               contrario usa o enquadramento atual da viewport.
-    isolar  -- lista de objetos que devem aparecer. Todo o resto da cena
-               e' ocultado durante a captura e restaurado depois, para
-               que um modulo dentro de uma composicao maior saia sozinho
-               na foto.
-    rotacao -- vista fixa (quaternion, ex.: `VISTA_FOTO`) no lugar da
-               orientacao atual da viewport.
-    """
+    camera -- use its view if supplied. Otherwise preserve an existing
+    camera view, or use the current viewport framing.
+    isolar -- objects to show. Hide the rest of the scene during capture
+    and restore it afterward, so a cabinet in a larger layout appears alone.
+    rotacao -- fixed view quaternion (e.g. `VISTA_FOTO`) instead of the
+    current viewport orientation."""
     cena = bpy.context.scene
     ant = (cena.render.filepath, cena.render.image_settings.file_format,
            cena.render.image_settings.color_mode,
            cena.render.resolution_x, cena.render.resolution_y,
            cena.render.resolution_percentage, cena.render.film_transparent)
-    # a gaveta tambem e' VIEW_3D: a foto sai da viewport de verdade
+    # The sidebar is also VIEW_3D: capture the actual viewport.
     area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'
                  and not _gaveta._eh_area_gaveta_bruto(a)), None)
     if area is None:
-        return False, "Nenhuma viewport 3D visivel"
+        return False, "No visible 3D viewport"
 
     espaco = area.spaces.active
     r3d = espaco.region_3d
@@ -2668,15 +2638,15 @@ def capturar_viewport(destino_png, camera=None, isolar=None, rotacao=None):
             r3d.view_perspective = 'CAMERA'
         elif rotacao is not None:
             r3d.view_rotation = rotacao
-        # Sem camera preserva a orientacao escolhida pelo usuario, mas
-        # ajusta centro e distancia para o alvo ocupar a miniatura.
+        # Without a camera, preserve the user's orientation but adjust
+        # center and distance so the target fills the thumbnail.
 
         regiao = next((r for r in area.regions if r.type == 'WINDOW'), None)
         with bpy.context.temp_override(area=area, region=regiao):
             if camera is None and enquadrar:
-                # A captura quadrada nao tem a mesma proporcao da viewport
-                # larga. ORTHO preserva o angulo, mantem o centro e evita
-                # o deslocamento lateral que a perspectiva produziria.
+                # The square capture has a different aspect ratio from the wide
+                # viewport. ORTHO preserves the angle and center, avoiding the
+                # sideways shift that perspective would produce.
                 r3d.view_perspective = 'ORTHO'
                 for o in bpy.context.selected_objects:
                     o.select_set(False)
@@ -2687,14 +2657,14 @@ def capturar_viewport(destino_png, camera=None, isolar=None, rotacao=None):
                         pass
                 bpy.context.view_layer.objects.active = enquadrar[0]
                 bpy.ops.view3d.view_selected(use_all_regions=False)
-                # Uma pequena folga evita cortar antialiasing e objetos
-                # muito largos/altos junto ao limite do PNG.
+                # A small margin avoids clipping antialiasing and very wide/tall
+                # objects near the PNG boundary.
                 r3d.view_distance *= 1.12
             bpy.ops.render.opengl(write_still=True, view_context=True)
             if camera is None and enquadrar:
-                # `view_selected` enquadra usando a proporcao da viewport,
-                # mas o PNG e' quadrado. Mede o alfa real e faz uma segunda
-                # passagem para ocupar o mesmo espaco em qualquer sidebar.
+                # `view_selected` frames using the viewport aspect ratio, but the PNG
+                # is square. Measure actual alpha and make a second pass
+                # to occupy the same space at any sidebar width.
                 ocupacao = _ocupacao_alpha_png(destino_png)
                 if ocupacao > 0.01:
                     fator = max(0.25, min(2.0, ocupacao / 0.82))
@@ -2738,7 +2708,7 @@ def _achar_item(pasta, arquivo):
     return None
 
 
-# ========================================== BLOQUEIO E RENOMEAR DOS BLOCOS
+# ========================================== TILE LOCKING AND RENAMING
 def _atualizar_item(pasta, arquivo, mudancas):
     itens = _ler_indice(pasta, estrito=True)
     for i in itens:
@@ -2748,15 +2718,15 @@ def _atualizar_item(pasta, arquivo, mudancas):
 
 
 def item_bloqueado(it):
-    """Com uma biblioteca so', o cadeado e' por item: nao ha' mais uma
-    origem "de fabrica" que force o bloqueio."""
+    """With one library, locking is per item: there is no longer a
+    factory origin that forces locking."""
     return bool(it.get("bloqueado", False))
 
 
 class OBJECT_OT_alternar_bloqueio(Operator):
-    """Bloqueia ou desbloqueia a edicao deste bloco"""
+    """Lock or unlock editing of this tile."""
     bl_idname = "object.cabinet_bloqueio"
-    bl_label = "Bloquear/Desbloquear"
+    bl_label = "Lock/Unlock"
 
     pasta: bpy.props.StringProperty()
     arquivo: bpy.props.StringProperty()
@@ -2771,23 +2741,23 @@ class OBJECT_OT_alternar_bloqueio(Operator):
 
 
 class OBJECT_OT_editar_modelo(Operator):
-    """Editar nome, categoria e foto do modelo"""
+    """Edit model name, category, and photo."""
     bl_idname = "object.cabinet_editar_modelo"
-    bl_label = "Editar Modelo"
+    bl_label = "Edit Model"
     bl_options = {'REGISTER'}
 
     pasta: bpy.props.StringProperty()
     arquivo: bpy.props.StringProperty()
-    nome: bpy.props.StringProperty(name="Nome")
-    n1: bpy.props.EnumProperty(name="Categoria",
+    nome: bpy.props.StringProperty(name="Name")
+    n1: bpy.props.EnumProperty(name="Category",
                                items=lambda s, c: [(k, k, "") for k in ARVORE.keys()])
-    n2: bpy.props.StringProperty(name="Subcategoria")
-    n3: bpy.props.StringProperty(name="Tipo")
+    n2: bpy.props.StringProperty(name="Subcategory")
+    n3: bpy.props.StringProperty(name="Type")
     mais: bpy.props.StringProperty(
-        name="Mais niveis", description="Niveis abaixo do Tipo, separados por /")
+        name="More Levels", description="Levels below Type, separated by /")
     tirar_foto: bpy.props.BoolProperty(
-        name="Capturar foto da viewport", default=False,
-        description="Salva o enquadramento atual da viewport 3D como foto do modelo")
+        name="Capture Viewport Photo", default=False,
+        description="Save the current 3D viewport framing as the model photo")
 
     def invoke(self, context, event):
         it = _achar_item(self.pasta, self.arquivo)
@@ -2795,7 +2765,7 @@ class OBJECT_OT_editar_modelo(Operator):
             self.nome = it.get("nome", "")
             a, b, c = _niveis_de(it)
             try:
-                self.n1 = a or "Armarios"
+                self.n1 = a or "Cabinets"
             except Exception:
                 pass
             self.n2, self.n3 = b, c
@@ -2813,20 +2783,20 @@ class OBJECT_OT_editar_modelo(Operator):
         it = _achar_item(self.pasta, self.arquivo)
         icone = icone_do_item(it) if it else 0
         cx = lay.box()
-        cx.label(text="Foto do modelo")
+        cx.label(text="Model Photo")
         if icone:
             cx.template_icon(icon_value=icone, scale=6.0)
         else:
-            cx.label(text="sem foto", icon='IMAGE_DATA')
+            cx.label(text="no photo", icon='IMAGE_DATA')
         cx.prop(self, "tirar_foto")
 
     def execute(self, context):
         it = _achar_item(self.pasta, self.arquivo)
         if it is None:
-            self.report({'ERROR'}, "Preset nao encontrado no indice")
+            self.report({'ERROR'}, "Preset not found in index")
             return {'CANCELLED'}
         if item_bloqueado(it):
-            self.report({'WARNING'}, "Bloco bloqueado: destrave o cadeado")
+            self.report({'WARNING'}, "Tile locked: unlock the padlock")
             return {'CANCELLED'}
 
         png = os.path.splitext(self.arquivo)[0] + ".png"
@@ -2836,7 +2806,7 @@ class OBJECT_OT_editar_modelo(Operator):
             ok, msg = capturar_viewport(os.path.join(self.pasta, png), cam,
                                         isolar=alvo or None)
             if not ok:
-                self.report({'WARNING'}, "Foto falhou: " + msg)
+                self.report({'WARNING'}, "Photo failed: " + msg)
             else:
                 chave = _chave_preview(self.pasta, png)
                 col = _colecao_previews()
@@ -2860,28 +2830,27 @@ class OBJECT_OT_editar_modelo(Operator):
                 i.pop("subcategoria", None)
                 i["foto"] = png
         _gravar_indice(self.pasta, itens)
-        self.report({'INFO'}, "Modelo atualizado")
+        self.report({'INFO'}, "Model updated")
         return {'FINISHED'}
 
 
 class OBJECT_OT_salvar_biblioteca(Operator):
-    """Salva a selecao na biblioteca de assets do Blender"""
+    """Save selection to Blender's asset library."""
     bl_idname = "object.cabinet_salvar_biblioteca"
-    bl_label = "Salvar na Biblioteca"
+    bl_label = "Save to Library"
     bl_options = {'REGISTER'}
 
-    nome: bpy.props.StringProperty(name="Nome do preset", default="Preset")
-    n1: bpy.props.EnumProperty(name="Categoria",
+    nome: bpy.props.StringProperty(name="Preset Name", default="Preset")
+    n1: bpy.props.EnumProperty(name="Category",
                                items=lambda s, c: [(k, k, "") for k in ARVORE.keys()])
-    n2: bpy.props.StringProperty(name="Subcategoria", default="")
-    n3: bpy.props.StringProperty(name="Tipo", default="")
+    n2: bpy.props.StringProperty(name="Subcategory", default="")
+    n3: bpy.props.StringProperty(name="Type", default="")
     mais: bpy.props.StringProperty(
-        name="Mais niveis", default="",
-        description="Niveis abaixo do Tipo, separados por / (sem limite)")
+        name="More Levels", default="",
+        description="Levels below Type, separated by / (unlimited)")
     como_modulo: bpy.props.BoolProperty(
-        name="Como modulo (varias pecas)", default=True,
-        description="Ligado: salva como Collection (arrasta o conjunto inteiro). "
-                    "Desligado: salva cada chapa como objeto separado")
+        name="As Cabinet (Multiple Components)", default=True,
+        description="On: save as a Collection (drag the entire assembly). Off: save each panel as a separate object")
 
     def invoke(self, context, event):
         sel = [o for o in context.selected_objects]
@@ -2889,22 +2858,22 @@ class OBJECT_OT_salvar_biblioteca(Operator):
             self.como_modulo = False
             self.nome = sel[0].name
         elif sel:
-            self.nome = "Modulo"
+            self.nome = "Cabinet"
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         sel = [o for o in context.selected_objects]
         if not sel:
-            self.report({'WARNING'}, "Nada selecionado")
+            self.report({'WARNING'}, "Nothing selected")
             return {'CANCELLED'}
-        # inclui filhos dos Empties de conjunto selecionados
+        # Include children of selected assembly Empties.
         completos = list(sel)
         for o in sel:
             if _chapas.MARCA_CONJUNTO in o:
                 completos += [f for f in bpy.data.objects if f.parent == o]
         completos = list(dict.fromkeys(completos))
-        # os niveis sao resolvidos ANTES de gravar: e' deles que sai o
-        # catalogo em que o asset vai ser arquivado
+        # Resolve levels BEFORE saving: they determine the catalog
+        # in which the asset will be filed.
         n2 = self.n2 or (_filhos_n2(self.n1) or [""])[0]
         n3 = self.n3 or (_filhos_n3(self.n1, n2) or [""])[0]
         niveis = [self.n1, n2, n3] + [n for n in self.mais.split("/") if n.strip()]
@@ -2912,43 +2881,41 @@ class OBJECT_OT_salvar_biblioteca(Operator):
             arq = salvar_na_biblioteca(completos, self.nome, self.como_modulo,
                                        niveis=niveis)
             png = os.path.splitext(os.path.basename(arq))[0] + ".png"
-            # Todo preset precisa nascer com representacao visual. Nao e'
-            # uma preferencia do usuario nem pode ser desativada no dialogo.
+            # Every preset must have a visual representation from creation.
+            # This is not a user preference and cannot be disabled in the dialog.
             cam = next((o for o in sel if o.type == 'CAMERA'), None)
             alvo = [o for o in completos if o.type != 'CAMERA']
             okf, msg = capturar_viewport(
                 os.path.join(pasta_biblioteca(), png), cam,
                 isolar=alvo or None)
             if not okf:
-                self.report({'ERROR'}, "Foto obrigatoria falhou: " + msg)
+                self.report({'ERROR'}, "Required photo failed: " + msg)
                 return {'CANCELLED'}
-            # a mesma foto vira a preview do asset dentro do .blend
+            # The same photo becomes the asset preview inside the .blend.
             okp, msgp = aplicar_preview_png(
                 arq, os.path.join(pasta_biblioteca(), png))
             if not okp:
-                print("[Archy Builder] preview do asset:", msgp)
+                print("[Archy Builder] asset preview:", msgp)
             registrar_no_indice(pasta_biblioteca(), self.nome, arq, *niveis,
                                 "modulo" if self.como_modulo else "objeto")
         except Exception as e:
-            self.report({'ERROR'}, "Falha ao salvar: %s" % e)
+            self.report({'ERROR'}, "Failed to save: %s" % e)
             return {'CANCELLED'}
-        self.report({'INFO'}, "Salvo em %s" % arq)
+        self.report({'INFO'}, "Saved to %s" % arq)
         return {'FINISHED'}
 
 
-# Fracao da altura da viewport que sobra para a viewport ao abrir a
-# biblioteca embaixo dela.
+# Fraction of viewport height left for the viewport when opening
+# the library beneath it.
 FRACAO_ASSET_BROWSER = 0.35
 
 
 def _apontar_asset_browser():
-    """Aponta o Asset Browser recem-aberto para a biblioteca do addon.
+    """Point the newly opened Asset Browser at the add-on library.
 
-    Roda adiado porque `params` do SpaceFileBrowser so' passa a existir
-    depois que a area e' desenhada pela primeira vez. As areas sao
-    relidas do window_manager a cada chamada -- guardar a referencia
-    arriscaria usar um ponteiro morto se a area fosse fechada antes.
-    """
+    Defer because SpaceFileBrowser `params` exists only after the area's
+    first draw. Reread areas from window_manager on every call: retaining
+    a reference risks a dead pointer if the area closes first."""
     try:
         for janela in bpy.context.window_manager.windows:
             for area in janela.screen.areas:
@@ -2957,15 +2924,15 @@ def _apontar_asset_browser():
                 params = getattr(area.spaces.active, "params", None)
                 if params is None:
                     continue
-                # so' mexe em quem ainda esta' no padrao ("All
-                # Libraries"): um browser que o usuario ja' apontou para
-                # outra biblioteca nao pode ser sequestrado
+                # Change only browsers still at the default "All
+                # Libraries": do not hijack a browser the user has already
+                # pointed at another library.
                 atual = getattr(params, "asset_library_reference", "")
                 if atual in ("", "ALL"):
                     try:
                         params.asset_library_reference = NOME_BIBLIOTECA
                     except Exception as e:
-                        print("[Archy Builder] biblioteca:", e)
+                        print("[Archy Builder] library:", e)
                 area.tag_redraw()
     except Exception as e:
         print("[Archy Builder] asset browser:", e)
@@ -2980,10 +2947,10 @@ def _area_asset_browser(tela):
 
 
 class OBJECT_OT_abrir_asset_browser(Operator):
-    """Abre a biblioteca do Blender embaixo da viewport; clique de novo
-    para fechar"""
+    """Open Blender's library below the viewport; click again
+    to close it."""
     bl_idname = "object.cabinet_asset_browser"
-    bl_label = "Abrir no Asset Browser"
+    bl_label = "Open in Asset Browser"
 
     @classmethod
     def poll(cls, context):
@@ -2993,7 +2960,7 @@ class OBJECT_OT_abrir_asset_browser(Operator):
         registrar_bibliotecas()
         tela = context.window.screen
 
-        # ja' aberto: o mesmo botao fecha
+        # Already open: the same button closes it.
         aberto = _area_asset_browser(tela)
         if aberto is not None:
             alvo = next((r for r in aberto.regions if r.type == 'WINDOW'),
@@ -3003,14 +2970,14 @@ class OBJECT_OT_abrir_asset_browser(Operator):
                     bpy.ops.screen.area_close()
                 return {'FINISHED'}
             except Exception as e:
-                print("[Archy Builder] fechar browser:", e)
-                self.report({'WARNING'}, "Feche a area a mao")
+                print("[Archy Builder] close browser:", e)
+                self.report({'WARNING'}, "Close the area manually")
                 return {'CANCELLED'}
 
-        # Uma JANELA nova nao serve: `Window.width/height` sao somente
-        # leitura e nenhum operador aceita tamanho, entao ela nasceria
-        # quase do tamanho da tela e esconderia o trabalho. Dividir a
-        # viewport da uma area pequena, com o modelo sempre a' vista.
+        # A new WINDOW is unsuitable: `Window.width/height` are read-only,
+        # and no operator accepts a size, so it would open almost
+        # fullscreen and hide the work. Splitting the viewport provides
+        # a small area while keeping the model visible.
         area = context.area
         janela = next((r for r in area.regions if r.type == 'WINDOW'), None)
         antes = {a.as_pointer() for a in tela.areas}
@@ -3019,31 +2986,31 @@ class OBJECT_OT_abrir_asset_browser(Operator):
                 bpy.ops.screen.area_split(direction='HORIZONTAL',
                                           factor=FRACAO_ASSET_BROWSER)
         except Exception as e:
-            print("[Archy Builder] dividir area:", e)
-            self.report({'WARNING'}, "Nao consegui abrir a biblioteca")
+            print("[Archy Builder] split area:", e)
+            self.report({'WARNING'}, "Could not open the library")
             return {'CANCELLED'}
 
         nova = next((a for a in tela.areas if a.as_pointer() not in antes),
                     None)
         if nova is None:
-            self.report({'WARNING'}, "Nao consegui abrir a biblioteca")
+            self.report({'WARNING'}, "Could not open the library")
             return {'CANCELLED'}
         try:
             nova.type = 'FILE_BROWSER'
             nova.ui_type = 'ASSETS'
         except Exception as e:
             print("[Archy Builder] asset browser:", e)
-            self.report({'WARNING'}, "Troque o editor para Asset Browser")
+            self.report({'WARNING'}, "Switch the editor to Asset Browser")
             return {'CANCELLED'}
-        # params so' nasce depois do primeiro desenho da area
+        # params exists only after the area's first draw.
         bpy.app.timers.register(_apontar_asset_browser, first_interval=0.2)
         return {'FINISHED'}
 
 
 class OBJECT_OT_abrir_pasta_biblioteca(Operator):
-    """Mostra o caminho da biblioteca no Explorer"""
+    """Show the library path in Explorer."""
     bl_idname = "object.cabinet_abrir_biblioteca"
-    bl_label = "Abrir Pasta da Biblioteca"
+    bl_label = "Open Library Folder"
 
     def execute(self, context):
         destino = pasta_biblioteca()
@@ -3052,30 +3019,30 @@ class OBJECT_OT_abrir_pasta_biblioteca(Operator):
         return {'FINISHED'}
 
 
-# ========================================== PRATELEIRA DE ASSETS
-# O arrastar-e-soltar de verdade -- o MESMO do Asset Browser do Blender
-# -- so' existe em editores nativos. `UILayout` nao expoe nada que
-# inicie um arraste, e o `template_asset_view`, que os paineis usavam
-# para isso, foi removido (nao existe mais no 5.x, junto com
-# `bpy.types.AssetHandle`). Ou seja: a grade da sidebar nao tem como
-# iniciar um arraste, por construcao da API.
+# ========================================== ASSET SHELF
+# True drag-and-drop, the SAME behavior as Blender's Asset Browser,
+# exists only in native editors. `UILayout` exposes nothing to
+# initiate dragging, and `template_asset_view`, formerly used by panels
+# for that purpose, was removed in 5.x along with
+# `bpy.types.AssetHandle`. Thus the sidebar grid cannot initiate
+# native dragging due to the API design.
 #
-# A AssetShelf, porem, E' registravel em Python e fica dentro da propria
-# viewport. O arraste nativo vem LIGADO de fabrica: os pinceis do
-# Blender e' que pedem 'NO_ASSET_DRAG' para desliga-lo. Nao pedindo
-# nada, o item e' arrastavel e o solte cai no dropbox nativo da
-# viewport, identico ao do Asset Browser. O botao "Assets" que a
-# mostrava foi descontinuado (pedido do usuario, 330): ela continua no
-# menu Ver do Blender.
+# AssetShelf, however, CAN be registered in Python and lives inside
+# the viewport. Native dragging is ENABLED by default: Blender's
+# brushes request 'NO_ASSET_DRAG' to disable it. With no such request,
+# the item is draggable and drops into the viewport's native dropbox,
+# exactly like the Asset Browser. The "Assets" button that showed it
+# was retired at the user's request in version 330; it remains
+# available from Blender's View menu.
 
 
 class VIEW3D_AST_archy_builder(bpy.types.AssetShelf):
-    """Prateleira com os presets: arraste o modulo direto para a cena."""
+    """Preset shelf: drag a cabinet directly into the scene."""
     bl_idname = "VIEW3D_AST_archy_builder"
     bl_space_type = 'VIEW_3D'
     bl_options = {'STORE_ENABLED_CATALOGS_IN_PREFERENCES'}
     bl_default_preview_size = 96
-    # allowlist: so' o que faz sentido soltar na cena
+    # Allowlist: only items suitable for dropping into the scene.
     filter_object = True
     filter_group = True
 
@@ -3089,14 +3056,14 @@ class VIEW3D_AST_archy_builder(bpy.types.AssetShelf):
 
 
 class OBJECT_OT_registrar_bibliotecas(Operator):
-    """Registra a pasta da biblioteca como biblioteca de assets"""
+    """Register the library folder as an asset library."""
     bl_idname = "object.cabinet_registrar_bibliotecas"
-    bl_label = "Registrar Bibliotecas no Blender"
+    bl_label = "Register Libraries in Blender"
 
     def execute(self, context):
         novas = registrar_bibliotecas(silencioso=False)
         if novas:
-            self.report({'INFO'}, "Registrada(s): " + ", ".join(novas))
+            self.report({'INFO'}, "Registered: " + ", ".join(novas))
         else:
-            self.report({'INFO'}, "Bibliotecas ja estavam registradas")
+            self.report({'INFO'}, "Libraries were already registered")
         return {'FINISHED'}
