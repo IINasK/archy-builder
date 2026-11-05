@@ -1,264 +1,128 @@
-# Cabinet Creator
+<p align="center">
+  <img src="docs/boas-vindas.svg" alt="Cabinet Creator - moveis planejados dentro do Blender" width="100%">
+</p>
 
-Add-on de Blender para gerar armarios de moveis planejados na G3.
+<p align="center">
+  <img src="https://img.shields.io/badge/status-em_desenvolvimento-f28c28" alt="Em desenvolvimento">
+  <img src="https://img.shields.io/badge/preco-gratuito-26966f" alt="Gratuito">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licenca-CC0_1.0-4269d0" alt="CC0 1.0 Universal"></a>
+  <img src="https://img.shields.io/badge/Blender-testes_4.2_e_5.2-e87d0d" alt="Testado em Blender 4.2 e 5.2">
+</p>
 
-## O que resolve
+<p align="center">
+  <a href="#comece-aqui">Comece aqui</a> &nbsp; | &nbsp;
+  <a href="#o-que-voce-pode-criar">Recursos</a> &nbsp; | &nbsp;
+  <a href="https://github.com/IINasK/cabinet-creator/issues">Relatar um problema</a> &nbsp; | &nbsp;
+  <a href="CONTRIBUIR.md">Contribuir</a>
+</p>
 
-Chapas (paineis de madeira) com **espessura livre positiva** que
-permanece imune a qualquer escala — propria, herdada de um pai, ou aplicada
-em selecao multipla. A malha e' real (bmesh), entao continua editavel em
-Edit Mode.
+# Bem-vindo ao Cabinet Creator
 
-## Estrutura
+Um add-on para criar e organizar **moveis planejados no Blender**: armarios,
+chapas, portas, gavetas, prateleiras e a relacao desses elementos com o ambiente.
 
-Vaos de prateleiras (379): clique na cota do espaco vazio e use scroll para inserir/retirar novas prateleiras apenas ali; Enter confirma e Esc descarta a previa. Apoios e vizinhos permanecem. Segmentos da mesma blocagem exibem todas as cotas de prateleiras; selecionar divisorias troca a orientacao das cotas. A moldura comum e' visual; as cotas internas editam o segmento correspondente.
+**O projeto e' completamente gratuito e esta' em desenvolvimento ativo.**
+Voce pode estudar, copiar, modificar, redistribuir e usar o conteudo autoral
+do projeto, inclusive comercialmente, sem pagar licenca e sem pedir permissao.
+A dedicacao [CC0 1.0 Universal](LICENSE) formaliza essa liberdade, no limite
+permitido por lei. Veja o [escopo e os creditos](NOTICE).
 
-Edicao interna (378): navegue entre os pontos do volume por MMB, zoom ou Shift+` e WASD; o snap nativo trabalha enquanto marca cada ponto e termina ao soltar. Para enxergar o interior, selecione uma peca da porta e use Shift+G -> Grupo da porta -> H, ou Esconder porta e agregados no menu Portas. Alt+H revela novamente. Definir por volume usa o destaque laranja do botao Criar.
+> **Versao de desenvolvimento.** Recursos, interface e formatos internos
+> podem mudar; ainda existem bugs. Experimente em uma copia do seu projeto
+> e mantenha seus arquivos originais salvos.
 
-Snap de criacao (377): selecione o modulo antes de Criar Gavetas, Prateleiras ou Divisorias para restringir todos os pontos as pecas dele. Tetos, paredes, curvas e outros modulos nao capturam o snap. Sem selecao, o primeiro ponto valido fixa o modulo. A mesma restricao vale ao posicionar/ajustar um volume livre associado; bloqueios temporarios sao restaurados ao terminar.
+## O que voce pode criar
 
-Na criacao 3D (376), marque tres pontos em qualquer ordem: os limites minimos e maximos formam uma caixa retangular nos eixos do modulo. Clique na face que sera a frente e prossiga para a quantidade. Aplicar um volume livre tambem pede essa escolha; Backspace volta, Esc cancela. Portas e fundos conservam seus planos 2D.
+| Area | O que oferece |
+| --- | --- |
+| **Armarios e chapas** | Modulos editaveis, malhas reais e controle de espessura das chapas. |
+| **Portas e ferragens** | Folhas, tipos de abertura, puxadores e dobradicas associados. |
+| **Gavetas e internos** | Gavetas, prateleiras, divisorias e fundos com medidas e espacamentos. |
+| **Biblioteca** | Presets, materiais, categorias e insercao por arraste. |
+| **Alvenaria** | Identificacao de paredes, piso e teto, ambientes e edicao em vista 2D. |
+| **Instalacoes blocadas** | Portas, janelas, spots, pendente, eletrica e rebaixo de teto em desenvolvimento. |
+| **Trabalho no Blender** | Selecao por conjunto ou peca, cotas editaveis e integracao com ferramentas nativas. |
 
-Internos (375): aba Prateleiras / Divisorias. Escolha o tipo, marque por
-pontos ou ajuste o volume; depois continue com o outro tipo na mesma area
-ou saia. Divisoria menor pode recortar a prateleira sem exigir profundidades
-iguais; escolha manter o vao ou preencher pela esquerda/direita.
+As instalacoes arquitetonicas ainda sao representacoes simplificadas.
+O add-on nao substitui a verificacao tecnica de um projeto executivo.
 
-Puxadores por folha (374): duplo clique isola a folha antes de Criar Puxador;
-o raio nativo prioriza essa folha, mesmo com outra sobreposta. GIRO/CORRER
-adapta os puxadores laterais parametricos sem trocar o dono. Folhas ocultas
-ou bloqueadas devem ser reveladas/desbloqueadas no Outliner para inserir.
+## Comece aqui
 
-Rolagem do menu (373): controles e biblioteca possuem barras verticais
-independentes quando o conteudo nao cabe. Use roda/touchpad ou arraste a
-alca. A coluna da barra reserva espaco dos campos; abas e rodape ficam fixos.
+### 1. Obtenha o projeto
 
-Area livre (372): Definir por volume em gavetas/prateleiras/divisorias;
-Definir por plano em portas/fundos. Um clique posiciona a referencia;
-faces, cotas e G/R/S ajustam uma caixa retangular (plano com quatro cantos).
-Aplicar um volume pede a frente; planos seguem para as opcoes do sistema.
-A captura por pontos usa o fluxo 3D acima, preservando a caixa escolhida.
+Use **Code -> Download ZIP** no GitHub e extraia o arquivo, ou clone:
 
-Selecao de parede (371): consulta apenas a malha escolhida, mesmo com teto
-ou outros objetos na frente. Por pontos usa snap nativo de vertice so'
-nesse objeto. Modulos parciais nao editaveis aparecem recortados em cinza;
-a permissao de edicao dos demais permanece ate' sair da sessao.
-
-Dobradicas e Delete (370): observador de exclusoes sobrevive ao reabrir
-o .blend. Apagar uma folha remove as ferragens dela, preservando a outra.
-Clique nas ferragens usa selecao nativa para permitir Delete; Shift,
-edicao no menu e duplo clique conservam suas funcoes.
-
-Exclusao e selecao (369): clique, Shift e Tab usam a View Layer nativa;
-IDs apagados da cena nao entram na selecao pelo parentesco. Delete com
-referencias ainda agenda a limpeza das dobradicas, mesmo conservando a
-quantidade de IDs. Colecoes excluidas da camada e folhas em outras cenas
-sao preservadas; grupo de portas vazio deixa de ressuscitar a montagem.
-
-Indicadores na parede (368): A1 largura, A2 altura e A3 profundidade
-permanecem no modulo selecionado. A3 Prof. aparece junto a' quina com
-valor clicavel, separado do afastamento. Durante resize, somem apenas
-as distancias aos vizinhos; indicadores conservam os mesmos alvos do menu.
-
-Base da parede (367): ao entrar na edicao, o apoio continuo junto a'
-parede define a base utilizavel. A faixa enterrada no piso sai do desenho;
-Inferior = 0 encosta no apoio real. Cotas, guias e arraste usam essa mesma
-regiao. Apoios parciais continuam obstaculos locais; madeira fica intacta.
-
-Cotas da parede (366): distancias digitadas aceitam zero; dimensoes
-continuam validadas pelo dominio. Encaixe na borda tolera ruido numerico
-sem liberar colisoes. Se um piso ocupar parte da regiao selecionada,
-zerar a distancia ate' essa regiao continua recusado quando invade o piso.
-
-Editor proprio (365): o menu usa o subtipo nativo Cabinet Creator do
-Editor de Nos, disponivel no seletor de editores. Sua identidade e'
-salva no .blend; layouts antigos sao convertidos sem mover a vista da
-cena. Biblioteca superior opcional tambem tem editor proprio. Overlays
-de VIEW_3D nao desenham sobre o menu. Layout, campos e arraste continuam
-os mesmos; comandos de modelagem sao enviados a' viewport 3D real.
-
-Importacao na parede (364): resize sincroniza a lista do append com a
-hierarquia atual do modulo, inclusive se recriar ferragens. Local View,
-selecao e cancelamento usam a geracao viva, sem referencias removidas.
-
-Arraste (363): o modulo reduz largura/altura para caber no vao real, ate o
-Ajuste maximo configurado na parede (padrao 10 mm por dimensao; zero desliga).
-Previa informa o tamanho; confirmar aplica resize preservando E. Acima do
-limite, caixa vermelha/aviso mostram a restricao sem inserir ou alterar o preset.
-
-Menu (362): as sete abas viram uma lista suspensa com nomes completos
-quando nem as abreviacoes cabem. Alargar a area restaura a linha de abas,
-preservando a categoria selecionada.
-
-Paredes (361): Editar parede aceita vertices conectados em Edit Mode ou,
-em Object Mode, hover Automatico e delimitacao Por pontos (3+ cantos).
-Enter confirma, Backspace remove e direito/Esc cancela; mesmas acoes no
-menu. A vista isola a regiao e os moveis associados sem alterar a planta.
-
-Fundos (360): nova aba com criacao por dois cantos e snap nativo. Oferece
-canal recuado (6/9 mm, recorte booleano nos apoios), sobreposto pregado e
-interno rente (15 mm). Gavetas e prateleiras vinculadas acompanham a face
-interna; Desassociar fundo usa o icone de alfinete solto e conserva medidas.
-Os fundos existentes conservam a modelagem e o comportamento legado.
-
-Soldas (359): cada par de objetos tem uma unica conexao e um par de
-vertices. Solda manual respeita o destino escolhido; arquivos antigos
-preservam o gap cadastrado. A migracao da biblioteca usa os vertices
-reais mais proximos sem mudar a modelagem.
-Biblioteca revisada: 328 presets auditados, 265 atualizados; 407 registros
-redundantes removidos, conservando todos os pares, geometria e materiais.
-
-Selecao mista (358): somar com Shift um objeto comum ao modulo devolve
-o contorno nativo do Blender para identificar a origem do material.
-Retirar esse objeto retoma o contorno do add-on.
-
-Edicao nativa do grupo (357): reduzir a altura pelo Tab/G conserva a
-malha dos puxadores editados junto com as chapas. Ferragens atualizam em
-lote, sem recalcular a cena inteira para cada dobradica.
-
-Materiais nativos (356): selecione o modulo de destino e, com Shift,
-clique na chapa de origem por ultimo. Ctrl+L > Vincular materiais usa
-a malha clicada como mestre, mantendo as pecas dos grupos selecionadas.
-Para copiar somente de uma chapa pertencente a outro modulo, use
-Shift+duplo clique nela. A transferencia e o undo usam o comando nativo
-do Blender. Em Solid, Cor > Material exibe o material vinculado.
-
-Posicionamento em parede (301): biblioteca, duplo clique e arraste direito
-usam a mesma area livre. O volume completo para na borda e nos vizinhos
-da mesma face/altura; sem espaco, a insercao e' recusada e o reposicionamento
-e' cancelado. Nao redimensiona para caber. A caixa da previa usa o envelope
-do modulo e a mira fica no centro aceito, inclusive junto a quinas.
-Cotas usam traco duplo contrastante, setas e numeros maiores sobre fundo;
-a cota do item ativo acompanha o realce escolhido para a HUD.
-
-Orcamento (300): em Opcoes > Gerar orcamento, o .txt no padrao existente
-recebe automaticamente medidas gerais do corpo/moldura (largura x altura x
-profundidade, em mm), portas por abertura, tipos de dobradica, gavetas internas,
-prateleiras, divisorias, puxadores e materiais efetivamente utilizados.
-A ficha e' lida do modelo a cada exportacao; exclusoes e edicoes nao dependem
-das contagens antigas do preset. Modulo girado conserva seus eixos; abrir
-portas/gavetas nao aumenta a medida. Material misto e' listado sem incluir
-ferragens; falta de material ou identificacao de dobradica gera pendencia.
-Comodos continuam sendo as pastas marcadas no Outliner.
-
-Edicao de parede (299): selecione uma malha vertical e use Paredes >
-Editar parede no menu esquerdo, ou Cabinet Creator > Editar parede no
-botao direito. A vista ortografica isola a face e seus modulos pelo Local
-View nativo. Orbitar ou iniciar Walk/Fly sai; zoom e pan permanecem.
-Arraste da biblioteca e solte na parede, ou use o botao direito para
-reposicionar um modulo existente. O ponto de soltura determina a posicao,
-conservando as dimensoes originais. Duplo clique na foto insere a' direita
-do ultimo modulo posicionado; sem espaco a' direita, volta ao centro da
-parede. Sem modulo anterior, tambem comeca no centro. Nao estica para preencher.
-Na composicao existente, clique nas cotas da elevacao para digitar ou use
-os campos do modulo no menu. Livre/Fixa controla quais larguras recebem
-o espaco restante em Redistribuir composicao. G e exclusao recalculam os
-vaos, preservando os vizinhos. Trocar modelo pede uma escolha na biblioteca
-e so' substitui ao confirmar, mantendo tamanho/posicao/associacao.
-Parede nao mostra nem aceita medidas pelo menu; sua modelagem usa as
-ferramentas nativas do Blender. Parede e modulos usam superficies solidas com contornos pretos,
-sem origens ou linhas de parentesco. Ao orbitar, volta a' perspectiva;
-as demais configuracoes visuais anteriores sao restauradas ao sair.
-Nesta vista, clique numa porta seleciona o modulo; duplo isola a folha.
-O interior aparece em arestas reais cinza semitransparentes atras das frentes.
-Cotas ficam junto da peca selecionada; a representacao nao altera malhas.
-
-```
-cabinet_creator/
-  __init__.py        # carga, ligacao e registro
-  chapas/            # malha e espessura da peca
-  modulos/           # corpo, envelope e dependentes
-  portas/            # vao, cobertura e folhas
-  gavetas/           # gavetas do movel e assistente compartilhado
-  prateleiras/       # unidades e espacamentos
-  divisorias/        # chapas verticais e segmentacao de sistemas
-  gaveta*.py         # MENU: layout, desenho e eventos
-  hud.py             # cotas e interacao na viewport
-  promob.py          # integracao de objetos importados
-  paredes_edicao.py  # vista local de parede e distribuicao de presets
-  paredes_composicao.py # cotas, larguras fixas e troca de modelo na parede
-  biblioteca/        # presets de fabrica (viajam com o add-on)
-    *.blend
-    indice.json      # catalogo dos presets (niveis sem limite)
-build.py             # gera dist/cabinet_creator.zip
-vincular_blender.py  # liga a pasta do projeto ao Blender (junction)
+```sh
+git clone https://github.com/IINasK/cabinet-creator.git
+cd cabinet-creator
 ```
 
-Para desenvolvimento, comece pelo [mapa de setores](ARQUITETURA.md):
-tarefa, arquivo dono, guia local e suite de testes. Os seis pacotes conservam
-os nomes publicos anteriores; cada um possui instrucoes AGENTS.md/CLAUDE.md.
+### 2. Gere o arquivo instalavel
 
-## Desenvolvimento
+Com Python 3 disponivel, execute na pasta do projeto:
 
-1. `python vincular_blender.py` — cria um junction de `cabinet_creator/` para a
-   pasta de add-ons do Blender. A partir dai, editar o codigo aqui altera
-   o add-on carregado.
-2. No Blender, recarregue o add-on (desabilitar/habilitar em Preferences,
-   ou reiniciar).
-3. `python build.py` — empacota `dist/cabinet_creator.zip` para instalar em outras
-   maquinas.
+```sh
+python build.py
+```
 
-## Conceitos centrais
+O comando cria **`dist/cabinet_creator.zip`**, incluindo a biblioteca e a licenca.
+Esse e' o ZIP instalavel; o ZIP de codigo-fonte do GitHub precisa ser extraido
+e empacotado antes.
 
-- **Eixos locais da chapa:** X = largura, Y = comprimento, **Z = espessura**.
-  Para orientar uma peca use rotacao, nunca escala.
-- **Normalizacao:** apos o `S` terminar, a escala acumulada vira medida em mm
-  e o componente Z e' descartado — e' o que torna a espessura imune.
-- **Adjacencia:** cada ponta memoriza o vizinho e a folga, para fechar as
-  juntas depois de redimensionar.
-- **Espaco de mundo:** toda a geometria usa `matrix_world`. Usar `location`
-  local quebra assim que o Empty pai sai da origem.
-
-## Interface e portas
-
-O menu esquerdo e' uma area VIEW_3D propria desenhada por GPU, com as abas
-Modulos, Portas, Gavetas, Prateleiras, Divisorias e Puxadores. A biblioteca
-fica numa faixa separada no topo. Selecao e contexto determinam os campos
-exibidos; desenho e recusas de interface estao em [DESIGN.md](DESIGN.md).
-
-Para criar uma porta em Object Mode:
-
-1. Na aba Portas, clique em Criar Portas.
-2. Marque dois cantos opostos nos limites desejados da porta. O solver
-   normaliza o vao e calcula a cobertura: inteira no canto externo, meia
-   no meio da espessura, embutida no canto interno. A dobradica e' automatica.
-3. Escolha folhas/abertura e confirme as etapas de ferragens aplicaveis.
-   A gaveta mostra as mesmas etapas da viewport. Esc cancela; direito volta.
-4. Depois, clique na porta para editar o conjunto; duplo clique isola a
-   folha. Reposicionar tambem usa dois cantos. O Tab continua nativo.
-
-Aberturas: giro, basculante, correr e zigzag. Correr pode ser embutida ou
-com moldura; os limites mistos pedem a escolha. Valores e opcoes vivem
-nas propriedades existentes, sem um segundo modelo de dados para a UI.
-Os campos permitem arrastar ou clicar para digitar; Enter confirma e Esc
-restaura. As malhas modeladas e os materiais devem ser preservados.
-
-Para trabalhar no codigo: [guia de portas](cabinet_creator/portas/AGENTS.md),
-[guia de interface](planejamento/setores/interface/AGENTS.md) e
-[mapa completo](ARQUITETURA.md).
-
-### Testes no Blender
+No Windows, se nao houver Python no PATH, pode usar o Python do Blender:
 
 ```powershell
-& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_portas_blender.py
-& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python-exit-code 1 --python tests/test_gaveta_blender.py
+& 'C:\Program Files\Blender Foundation\Blender 5.2\5.2\python\bin\python.exe' build.py
 ```
 
-Executa os testes em uma cena descartavel: coberturas, recuos, limites de
-folhas, colisao entre planos, selecao BMesh conjunta, transformacoes do pai,
-malhas fechadas, edicao e preservacao de materiais. Nao execute esse script
-na cena de trabalho: ele limpa a cena de testes.
+### 3. Instale no Blender
 
-## Limitacoes conhecidas
+Abra **Edit -> Preferences** e escolha **Install from Disk** nas opcoes
+de complementos/extensoes da sua versao. Selecione `cabinet_creator.zip`
+e habilite **Cabinet Creator**.
 
-- No Blender 4.2, redo de lote na parede pode restaurar a segunda Collection
-  sem religar a cena; o teste continua ativo. Ocorre tambem sem desenho interno.
+Os testes automatizados cobrem **Blender 4.2 e 5.2**. Os presets salvos
+no Blender 5.x podem nao abrir no 4.2; a compatibilidade do codigo e da
+biblioteca e' verificada separadamente.
 
-- A gaveta e' uma area separada da viewport; a largura e' ajustada pelo
-  usuario arrastando a divisoria entre as duas areas. Ao soltar, o limite
-  de 564 px e' reaplicado por `screen.area_move` quando ha' uma viewport
-  adjacente. Nao e' uma trava durante o gesto: `Area.width` e' somente leitura.
-- O arraste de presets entre a gaveta e a viewport usa um operador modal
-  proprio; o fluxo completo depende de teste interativo no Blender.
-- Blender 5.2 tem um bug que impede escrever inputs de modificador Geometry
-  Nodes via Python (issue #160038) — por isso a malha e' gerada com bmesh.
+### 4. Experimente
+
+Abra o editor **Cabinet Creator** pelo seletor de editores do Blender.
+Explore as abas de modulos, portas, fundos, gavetas, prateleiras/divisorias,
+puxadores e alvenaria. A selecao determina os controles apresentados.
+
+## Participe do desenvolvimento
+
+Voce e' bem-vindo para testar, sugerir melhorias ou enviar alteracoes.
+
+- **Encontrou um bug?** Abra uma [issue](https://github.com/IINasK/cabinet-creator/issues/new)
+  com a versao do Blender, os passos para reproduzir e o resultado esperado.
+- **Quer melhorar o codigo?** Leia [CONTRIBUIR.md](CONTRIBUIR.md) e o
+  [mapa de arquitetura](ARQUITETURA.md), depois envie um pull request.
+- **Vai corrigir um bug?** Inclua um teste de regressao e registre o cenario
+  em [FUNCIONALIDADES.md](tests/FUNCIONALIDADES.md).
+
+Os testes usam cenas descartaveis. Nunca execute uma suite sobre seu arquivo
+de trabalho aberto. Instrucoes completas em [tests/AGENTS.md](tests/AGENTS.md).
+
+## Documentacao do projeto
+
+| Para quem | Onde comecar |
+| --- | --- |
+| Quer contribuir | [Guia de contribuicao](CONTRIBUIR.md) |
+| Quer encontrar uma funcao | [Arquitetura e setores](ARQUITETURA.md) |
+| Vai alterar a interface do add-on | [Padrao de design](DESIGN.md) |
+| Quer conferir cenarios e testes | [Funcionalidades verificadas](tests/FUNCIONALIDADES.md) |
+| Quer consultar etapas anteriores | [Historico preservado](docs/HISTORICO.md) |
+
+## Liberdade de uso
+
+**Sem cobranca e sem exclusividade sobre o conteudo autoral disponibilizado
+sob CC0.** Faca seu fork, adapte o projeto e compartilhe suas melhorias.
+Creditos sao bem-vindos, mas nao sao exigidos pela CC0.
+
+A dedicacao nao altera licencas ou direitos de terceiros, nem direitos
+sobre marcas e patentes. O Blender e' um projeto independente e mantem
+sua propria licenca. O Cabinet Creator e' fornecido sem garantias.
+
+[Texto integral CC0](LICENSE) &nbsp; | &nbsp; [Escopo e creditos](NOTICE)

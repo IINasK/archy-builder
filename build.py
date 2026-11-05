@@ -12,6 +12,8 @@ def main():
     if os.path.exists(destino):
         os.remove(destino)
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
+        for nome in ("LICENSE", "NOTICE"):
+            z.write(os.path.join(RAIZ, nome), "cabinet_creator/" + nome)
         for base, dirs, arquivos in os.walk(PKG):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for a in arquivos:

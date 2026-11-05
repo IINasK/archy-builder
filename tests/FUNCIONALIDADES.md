@@ -1,5 +1,15 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Apresentacao publica e CC0 (405): README com boas-vindas, aviso de
+desenvolvimento, instalacao e contribuicao; historico anterior preservado.
+LICENSE usa o texto oficial CC0 1.0 e NOTICE delimita os direitos autorais
+do projeto. O ZIP instalavel inclui ambos. Suite empacotamento (2) usa
+pasta temporaria: confere licenca/creditos integrais, exclusao de backups,
+cache e temporarios, e reconstrucao sem sobras da versao anterior.
+Harness completo 4.2/5.2: 3414 testes em 80 execucoes OK
+(dist/publicacao405-completo.log); pacote 405 confere LICENSE/NOTICE
+integrais. Links locais e XML do banner de boas-vindas verificados.
+
 Biblioteca de Alvenaria e vinculo reversivel (404): Editar primeiro,
 laranja; olho nativo a' direita de Teto mostra/esconde os tres tipos,
 contornos e nomes. Edicao independe desse olho. Cache numerico em copia
