@@ -1,11 +1,13 @@
 """Montagens, recortes e posicionador das instalacoes da alvenaria."""
 import math
 import uuid
+import os
 
 import bmesh
+import blf
 import bpy
 import numpy as np
-from bpy.props import BoolProperty, StringProperty
+from bpy.props import BoolProperty, StringProperty, IntProperty, FloatVectorProperty
 from bpy.types import Operator
 from bpy_extras import view3d_utils
 from mathutils import Matrix, Vector
@@ -14,6 +16,7 @@ from mathutils.bvhtree import BVHTree
 _alvenaria = _esquadrias = _paredes = _paredes_selecao = _paredes_edicao = None
 _gaveta = _opcoes = _hud = _eventos = None
 _iluminacao = None
+_biblioteca = None
 
 DONO = 'cabinet_instalacao_dono'
 IDENTIDADE = 'cabinet_instalacao_uid'
@@ -22,6 +25,14 @@ FILTRO = 'Cabinet Creator - Superficie '
 ATR_CORTE = 'cabinet_face_do_cortador'
 ALVO = '@instalacao'
 CHAVE_TIPO_MENU = 'cabinet_instalacoes_tipo'
+CHAVE_CATEGORIA = 'cabinet_instalacoes_caminho'
+CATEGORIAS = {
+    'PORTA': ('Esquadrias', 'Portas'), 'SACADA': ('Esquadrias', 'Portas'),
+    'JANELA': ('Esquadrias', 'Janelas'),
+    'TOMADA': ('Eletrica', 'Tomadas'), 'INTERRUPTOR': ('Eletrica', 'Interruptores'),
+    'SPOT_EMBUTIDO': ('Iluminacao', 'Spots'), 'SPOT_SOBREPOSTO': ('Iluminacao', 'Spots'),
+    'PENDENTE': ('Iluminacao', 'Pendentes'), 'REBAIXO': ('Tetos', 'Rebaixos'),
+}
 _previa = [None]
 _poses = [{}]
 
@@ -275,7 +286,83 @@ def modelos():
 
 
 def tipos_de_apoio(modelo):
-    return ('PAREDE',) if modelo in _esquadrias.MODELOS else _iluminacao.tipos_de_apoio(modelo)
+    return _alvenaria.TIPOS if modelo in _esquadrias.MODELOS else _iluminacao.tipos_de_apoio(modelo)
+
+
+def reassociar(context, obj, apoio, indice, matriz):
+    """Valida antes de mudar o apoio; o gesto conserva o original ate' confirmar."""
+    modelo = obj[_alvenaria.MARCA]
+    tipo = _alvenaria.superficie(apoio, indice, matriz.to_3x3().col[2])
+    if tipo not in tipos_de_apoio(modelo) or modelo == 'REBAIXO':
+        raise ValueError('Escolha uma superficie compativel com a instalacao')
+    perfura = modelo in _esquadrias.MODELOS or modelo == 'SPOT_EMBUTIDO'
+    profundidade = _medir_corte(apoio, matriz, indice, tuple(obj[_alvenaria.MEDIDAS])) if perfura else None
+    anterior = _alvenaria.apoio_de(obj)
+    vinculo = obj[_alvenaria.CHAVE_VINCULO].to_dict()
+    origem = obj.get(_iluminacao.FONTE)
+    origem = origem.to_dict() if origem else None
+    pose = obj.matrix_world.copy()
+    sem_apoio = bool(obj.get(_alvenaria.CHAVE_SEM_APOIO))
+    bases = {o.name: o.matrix_basis.copy() for o in obj.children}
+    modificadores = {m.name for m in apoio.modifiers}
+    malha = apoio.data
+    camada = malha.attributes.get(_alvenaria.ATR_FACE)
+    ids = [f.value for f in camada.data] if camada else None
+    chaves = (_alvenaria.ATR_FACE, _paredes.CHAVE_UID_PAREDE)
+    propriedades = {chave: apoio[chave] for chave in chaves if chave in apoio}
+    try:
+        _alvenaria.vincular(obj, apoio, indice, matriz, tipo)
+        if modelo == 'PENDENTE':
+            _iluminacao.posar_pendente(obj, matriz)
+        if perfura:
+            _recorte(obj, apoio, profundidade)
+        _iluminacao.guardar_origem(obj, apoio, matriz)
+    except Exception:
+        obj[_alvenaria.CHAVE_VINCULO] = vinculo
+        obj.matrix_world = pose
+        if sem_apoio:
+            obj[_alvenaria.CHAVE_SEM_APOIO] = True
+        if origem is None:
+            obj.pop(_iluminacao.FONTE, None)
+        else:
+            obj[_iluminacao.FONTE] = origem
+        for peca in tuple(obj.children):
+            if peca.name in bases:
+                peca.matrix_basis = bases[peca.name]
+            else:
+                remover_peca(peca)
+        for mod in tuple(apoio.modifiers):
+            if mod.name not in modificadores and mod.name.endswith(obj[IDENTIDADE]):
+                apoio.modifiers.remove(mod)
+        if apoio.data != malha:
+            copia = apoio.data
+            apoio.data = malha
+            if copia.users == 0:
+                bpy.data.meshes.remove(copia)
+        else:
+            camada = malha.attributes.get(_alvenaria.ATR_FACE)
+            if ids is None and camada is not None:
+                malha.attributes.remove(camada)
+            elif camada is not None:
+                camada.data.foreach_set('value', ids)
+        for chave in chaves:
+            if chave in propriedades:
+                apoio[chave] = propriedades[chave]
+            else:
+                apoio.pop(chave, None)
+        _alvenaria.esquecer()
+        raise
+    if anterior is not None and anterior != apoio:
+        for prefixo in (CORTE, FILTRO):
+            mod = anterior.modifiers.get(prefixo + obj[IDENTIDADE])
+            if mod:
+                anterior.modifiers.remove(mod)
+    if perfura and profundidade is None:
+        for peca in tuple(obj.children):
+            if peca.get(_alvenaria.PECA) == 'Recorte':
+                remover_peca(peca)
+    _poses[0].pop(obj.name, None)
+    _alvenaria.esquecer()
 
 
 def montar(obj):
@@ -396,7 +483,12 @@ def esquecer():
 def desenhar_previa(context, tela):
     previa = _previa[0]
     if previa and previa['regiao'] == context.region.as_pointer():
+        cor = _alvenaria.CORES[previa['tipo']]
+        _paredes._desenhar_face_alvo(previa['face_visual'], tela, cor, context.region, context.region_data)
         _paredes._desenhar_face_alvo(previa, tela, _hud._cor_realce_hud(), context.region, context.region_data)
+        ponto = tela(previa['centro_face'])
+        if ponto is not None:
+            _gaveta._texto_gaveta(ponto.x, ponto.y, _alvenaria.ROTULOS[previa['tipo']], 14, (*cor, 1))
 
 
 class OBJECT_OT_instalar(Operator):
@@ -406,6 +498,31 @@ class OBJECT_OT_instalar(Operator):
 
     modelo: StringProperty(options={'SKIP_SAVE'})
     arrastar: BoolProperty(options={'SKIP_SAVE'})
+    origem: StringProperty(options={'SKIP_SAVE'})
+    direito: BoolProperty(options={'SKIP_SAVE'})
+    apoio_destino: StringProperty(options={'SKIP_SAVE'})
+    face_destino: IntProperty(options={'SKIP_SAVE'})
+    ponto_destino: FloatVectorProperty(size=3, options={'SKIP_SAVE'})
+    normal_destino: FloatVectorProperty(size=3, default=(0,0,1), options={'SKIP_SAVE'})
+
+    def execute(self, context):
+        apoio = context.scene.objects.get(self.apoio_destino)
+        if (not _paredes.alvenaria_definida(apoio) or apoio.data.is_editmode
+                or not 0 <= self.face_destino < len(apoio.data.polygons)):
+            return {'CANCELLED'}
+        matriz = _alvenaria.referencial(self.ponto_destino, self.normal_destino)
+        origem = context.scene.objects.get(self.origem) if self.origem else None
+        if (self.origem and origem is None) or (not self.origem and self.modelo not in modelos()):
+            return {'CANCELLED'}
+        try:
+            if origem is not None:
+                reassociar(context, origem, apoio, self.face_destino, matriz)
+            else:
+                instalar(context, self.modelo, apoio, self.face_destino, matriz)
+        except ValueError as erro:
+            self.report({'WARNING'}, str(erro))
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
     def invoke(self, context, event):
         area = _paredes_edicao.viewport(context)
@@ -419,6 +536,8 @@ class OBJECT_OT_instalar(Operator):
         self.arvore = None
         self.referencia = None
         self.regiao_forro = None
+        obj = context.scene.objects.get(self.origem) if self.origem else None
+        self.ignorados = {obj.name, *(o.name for o in obj.children_recursive)} if obj else set()
         apoio = _paredes_edicao.contexto_painel(context)
         if _paredes.alvenaria_definida(apoio) and self.modelo in _esquadrias.MODELOS:
             face = _paredes_edicao.face_do_objeto(context, apoio)
@@ -438,12 +557,8 @@ class OBJECT_OT_instalar(Operator):
         origem = view3d_utils.region_2d_to_origin_3d(regiao, rv, xy)
         direcao = view3d_utils.region_2d_to_vector_3d(regiao, rv, xy)
         with context.temp_override(area=area, region=regiao):
-            atingido = _hud._raio_cru(context, xy)
-        if atingido:
-            apoio, _, _, _, _ = atingido
-            apoio = _paredes_selecao.fonte_da_exibicao(apoio) or apoio
-        else:
-            apoio = None
+            atingido = _paredes.raio_ate_parede(context, origem, direcao, self.ignorados)
+        apoio = atingido[0] if atingido else None
         if not _paredes.alvenaria_definida(apoio) and self.referencia:
             apoio = bpy.data.objects.get(self.referencia[0])
         if not _paredes.alvenaria_definida(apoio) or apoio.data.is_editmode:
@@ -469,22 +584,25 @@ class OBJECT_OT_instalar(Operator):
         normal = _paredes._normal_no_mundo(apoio, n)
         if _alvenaria.superficie(apoio, indice, normal) not in tipos_de_apoio(self.modelo):
             return
-        medidas = modelos()[self.modelo][1]
+        obj = context.scene.objects.get(self.origem) if self.origem else None
+        if self.origem and obj is None:
+            return
+        medidas = tuple(obj[_alvenaria.MEDIDAS]) if obj else modelos()[self.modelo][1]
         ponto = apoio.matrix_world @ local
         self.referencia = apoio.name, tuple(ponto), tuple(normal)
         matriz = _alvenaria.referencial(ponto, normal)
         if self.modelo in _esquadrias.MODELOS:
-            if self.modelo == 'SACADA':
+            if self.modelo == 'SACADA' and obj is None and _paredes.tipo_superficie(normal) == 'PAREDE':
                 medidas = _sugerir_sacada(context, ponto, normal, medidas)
             matriz.translation += matriz.to_3x3().col[1] * medidas[1] / 2
+        cache = self.regiao_forro
+        if cache is None or cache[0] != apoio.name or indice not in cache[1]['faces']:
+            limites = _alvenaria.regiao(apoio, indice, matriz)
+            if limites is None:
+                return
+            self.regiao_forro = apoio.name, limites
+        limites = self.regiao_forro[1]
         if self.modelo == 'REBAIXO':
-            cache = self.regiao_forro
-            if cache is None or cache[0] != apoio.name or indice not in cache[1]['faces']:
-                limites = _alvenaria.regiao(apoio, indice, matriz)
-                if limites is None:
-                    return
-                self.regiao_forro = apoio.name, limites
-            limites = self.regiao_forro[1]
             deslocamento = Vector((0, 0, -medidas[2]))
             visual = dict(contorno=[(a+deslocamento,b+deslocamento) for a,b in limites['contorno']],
                           triangulos=limites['triangulos']+np.array(deslocamento))
@@ -492,7 +610,10 @@ class OBJECT_OT_instalar(Operator):
             ps = _retangulo(matriz, medidas)
             visual = dict(contorno=list(zip(ps, ps[1:]+ps[:1])),
                           triangulos=np.array([ps[i] for i in (0,1,2,0,2,3)]))
-        _previa[0] = dict(visual, regiao=regiao.as_pointer())
+        tipo = _alvenaria.superficie(apoio, indice, normal)
+        pontos = np.asarray(limites['triangulos']).reshape(-1,3)
+        _previa[0] = dict(visual, regiao=regiao.as_pointer(), tipo=tipo,
+                         face_visual=limites, centro_face=Vector(pontos.mean(axis=0)))
         self.alvo = (apoio.name, indice, matriz, medidas)
 
     def modal(self, context, event):
@@ -500,16 +621,21 @@ class OBJECT_OT_instalar(Operator):
         if area is None or context.scene.name != self.cena or _eventos._desfazendo[0]:
             self.cancel(context)
             return {'CANCELLED'}
-        if event.type in {'ESC', 'RIGHTMOUSE'}:
+        if event.type == 'ESC' or event.type == 'RIGHTMOUSE' and not self.direito:
             self.cancel(context)
             return {'CANCELLED'}
         regiao = next(r for r in area.regions if r.type == 'WINDOW')
         if event.type == 'MOUSEMOVE':
             self._mover(context, area, regiao, event)
             area.tag_redraw()
-        if event.type == 'LEFTMOUSE' and event.value == ('RELEASE' if self.arrastar else 'PRESS'):
+        if event.type == ('RIGHTMOUSE' if self.direito else 'LEFTMOUSE') and event.value == ('RELEASE' if self.arrastar else 'PRESS'):
             self._mover(context, area, regiao, event)
             if self.arrastar and math.dist(self.inicio, (event.mouse_x, event.mouse_y)) < 6:
+                if self.direito:
+                    self.cancel(context)
+                    with context.temp_override(area=area, region=regiao):
+                        bpy.ops.wm.call_menu('INVOKE_DEFAULT', name='VIEW3D_MT_object_context_menu')
+                    return {'CANCELLED'}
                 self.arrastar = False
                 return {'RUNNING_MODAL'}
             if self.alvo is None:
@@ -519,7 +645,14 @@ class OBJECT_OT_instalar(Operator):
             apoio = bpy.data.objects.get(nome)
             try:
                 with context.temp_override(area=area, region=regiao):
-                    obj = instalar(context, self.modelo, apoio, indice, matriz, medidas)
+                    obj = context.scene.objects.get(self.origem) if self.origem else None
+                    if obj is not None:
+                        reassociar(context, obj, apoio, indice, matriz)
+                    elif not self.origem:
+                        obj = instalar(context, self.modelo, apoio, indice, matriz, medidas)
+                    else:
+                        self.cancel(context)
+                        return {'CANCELLED'}
                     if area.spaces.active.local_view:
                         for peca in (obj, *obj.children):
                             if not peca.hide_select:
@@ -583,11 +716,18 @@ def _sugerir_sacada(context, ponto, normal, medidas):
 
 def widgets_seletor(context, itens, x, y, w):
     tipo = context.screen.get(CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
-    coluna = (w-12)/3
+    blf.size(0,12)
+    pesos = [blf.dimensions(0, rotulo.capitalize())[0]+18 for rotulo in _alvenaria.TIPOS]
+    larguras = [(w-46)*p/sum(pesos) for p in pesos] if w < 240 else [(w-46)/3]*3
     y -= 25
-    for i, rotulo in enumerate(_alvenaria.TIPOS):
-        itens.append((x+i*(coluna+6), y, coluna, 25, rotulo.capitalize(),
+    inicio = x
+    for rotulo, coluna in zip(_alvenaria.TIPOS, larguras):
+        itens.append((inicio, y, coluna, 25, rotulo.capitalize(),
                       ('escolha', 'tipo_instalacao', rotulo, tipo == rotulo, True, ALVO)))
+        inicio += coluna+6
+    visivel = bool(context.scene.get(_alvenaria.CHAVE_VISUAL, False))
+    itens.append((x+w-28, y, 28, 25, '',
+                  ('escolha', 'alvenaria_visual', visivel, visivel, True, _alvenaria.ALVO_TIPO)))
     return y-6
 
 
@@ -599,15 +739,40 @@ def widgets_tipos(context, itens, x, y, w):
 
 def widgets_modelos(context, itens, x, y, w, apoio, excluir=()):
     y = _gaveta._titulo_secao(itens, x, y, w, 'Instalacoes')
-    modelos_validos = [modelo for modelo in modelos()
-                       if apoio in tipos_de_apoio(modelo) and modelo not in excluir]
-    colunas = min(3, _gaveta._colunas_medidas(context, w+24, 3))
-    coluna = (w - (colunas - 1)*6) / colunas
-    for i, modelo in enumerate(modelos_validos):
-        nome, _ = modelos()[modelo]
-        itens.append((x + i % colunas * (coluna+6), y - 68 - i//colunas*74,
-                      coluna, 68, nome, ('escolha', 'modelo_instalacao', modelo, False, True, ALVO)))
-    return y - math.ceil(len(modelos_validos)/colunas)*74 - 6
+    y -= 25
+    indice = catalogo()
+    trilha = tuple(context.screen.get(CHAVE_CATEGORIA, '').split('/'))
+    trilha = tuple(p for p in trilha if p)
+    for nivel in range(1, len(trilha)+2):
+        filhos = _biblioteca.filhos_de(indice, trilha[:nivel-1])
+        if not filhos:
+            break
+        y = _gaveta._linha_cascata_gaveta(itens, x, y, w, ['Todos']+filhos, nivel,
+                trilha[nivel-1] if len(trilha)>=nivel else 'Todos', prefixo='cabinet_instalacoes')
+        v = itens[-1];acao = v[5]
+        itens[-1] = v[:5]+(acao[:3]+((ALVO, nivel),)+acao[4:],)
+    daqui = [it for it in indice if tuple(it['niveis'][:len(trilha)]) == trilha and it['modelo'] not in excluir]
+    bloco, colunas, altura = _gaveta._grade_biblioteca(context.scene, w)
+    for i, it in enumerate(daqui):
+        itens.append((x+i%colunas*(bloco+8), y-altura-i//colunas*(altura+8), bloco, altura,
+                      it['nome'], ('escolha', 'modelo_instalacao', it['modelo'], False, True, ALVO)))
+    return y - math.ceil(len(daqui)/colunas)*(altura+8) - 6
+
+
+def catalogo():
+    return [item_do_modelo(modelo) for modelo in modelos()]
+
+
+def item_do_modelo(modelo):
+    return dict(modelo=modelo, nome=modelos()[modelo][0], niveis=CATEGORIAS[modelo],
+                pasta=os.path.join(os.path.dirname(__file__), 'fotos', 'instalacoes'), foto=modelo+'.png')
+
+
+def definir_categoria(context, nivel, valor):
+    trilha = [p for p in context.screen.get(CHAVE_CATEGORIA, '').split('/') if p][:nivel-1]
+    if valor != 'Todos' and valor in _biblioteca.filhos_de(catalogo(), trilha):
+        trilha.append(valor)
+    context.screen[CHAVE_CATEGORIA] = '/'.join(trilha)
 
 
 def widgets(context, itens, x, y, w, obj):

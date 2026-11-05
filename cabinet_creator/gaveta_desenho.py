@@ -22,6 +22,7 @@ _solda = None
 _portas = None
 _materiais = None
 _biblioteca_faixa = None
+_instalacoes = None
 
 def _eh_campo_contador(acao):
     """Contador com rotulo (7o campo): o "Folhas" da porta, desenhado
@@ -473,13 +474,9 @@ def _desenhar_gaveta(tela=False):
             continue
         if acao and acao[:2] == ('escolha', 'modelo_instalacao'):
             _gaveta._botao_gaveta(x, y, w, h)
-            largura_icone = min(w-16, {'PORTA': 20, 'JANELA': 46, 'SACADA': 32}.get(acao[2], 34))
-            altura_icone = 25 if acao[2] == 'JANELA' else 36
-            ix, iy = x + (w-largura_icone)/2, y+23
-            _gaveta._retangulo_gaveta(ix, iy, largura_icone, altura_icone, tuple(cores.outline))
-            _gaveta._retangulo_gaveta(ix+3, iy+3, largura_icone-6, altura_icone-6, tuple(cores.inner_sel))
-            if acao[2] in {'JANELA', 'SACADA'}:
-                _gaveta._retangulo_gaveta(ix+largura_icone/2-1, iy, 2, altura_icone, tuple(cores.outline))
+            it = _instalacoes.item_do_modelo(acao[2])
+            gpu.state.blend_set('ALPHA')
+            _gaveta._desenhar_foto_gaveta(it, x+5, y+22, w-10, h-27)
             _gaveta._texto_cabivel_gaveta(x+6, y+5, rotulo, w-12, 11)
             continue
         if acao and acao[:2] == ('slider', 'instalacao'):
@@ -582,7 +579,7 @@ def _desenhar_gaveta(tela=False):
             cor = _gaveta.COR_CRIAR_PORTAS_ATIVO if acao[2] else _gaveta.COR_CRIAR_PORTAS
         elif acao and acao[:2]==('operador','object.cabinet_definir_alvenaria') and len(acao)>3 and acao[3]=='desagregar' and not apagado:
             cor = _cor_alerta_gaveta()
-        elif acao and acao[:2] == ('escolha', 'criar_alvenaria'):
+        elif acao and acao[0] == 'escolha' and acao[1] in {'criar_alvenaria', 'editar_alvenaria'}:
             cor = _gaveta.COR_CRIAR_PORTAS
         elif destaque and not apagado:
             cor = (_gaveta.COR_CRIAR_PORTAS_ATIVO if acao[1] == _gaveta.OPERADOR_DESTAQUE_ATIVO
@@ -622,7 +619,7 @@ def _desenhar_gaveta(tela=False):
                 x + (w - largura_texto) / 2, y + (h - 12) / 2, rotulo, w - 18,
                 cor=(*cores.text[:3], 0.4) if apagado else (1.0, 1.0, 1.0, 1.0))
         elif acao and acao[0] == 'escolha' and acao[1] in {
-                'criar_alvenaria', 'tipo_alvenaria', 'tipo_instalacao'}:
+                'criar_alvenaria', 'editar_alvenaria', 'tipo_alvenaria', 'tipo_instalacao'}:
             blf.size(0, 12)
             largura_texto = min(blf.dimensions(0, rotulo)[0], w-8)
             _gaveta._texto_cabivel_gaveta(x+(w-largura_texto)/2, y+(h-12)/2,

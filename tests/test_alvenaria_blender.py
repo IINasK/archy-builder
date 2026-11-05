@@ -245,7 +245,10 @@ class TestAlvenaria(unittest.TestCase):
                 self.assertIn('Instalacoes', nomes)
                 self.assertNotIn('Editar em 2D', nomes)
                 tipos = next(i for i,v in enumerate(itens) if v[5] and v[5][:2] == ('escolha','tipo_instalacao'))
-                self.assertEqual(itens[tipos+3][4], 'Editar')
+                editar = next(i for i,v in enumerate(itens) if v[4] == 'Editar')
+                self.assertLess(editar, tipos)
+                olho = next(v for v in itens if v[5] and v[5][:2] == ('escolha','alvenaria_visual'))
+                self.assertEqual(olho[1], itens[tipos][1])
 
     def test_criar_aparece_primeiro_para_nao_cadastrada_e_some_apos_cadastro(self):
         for largura in (190, 320, 564):

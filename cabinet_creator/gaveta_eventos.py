@@ -574,7 +574,10 @@ class OBJECT_OT_interagir_gaveta(Operator):
                 # linha da lista suspensa da cascata (ja' fechada acima);
                 # a escolhida de novo nao fecha o nivel, como no Promob
                 if not acao[3]:
-                    bpy.ops.object.cabinet_navegar(nivel=acao[1], valor=acao[2])
+                    if isinstance(acao[1], tuple) and acao[1][0] == _instalacoes.ALVO:
+                        _instalacoes.definir_categoria(context, acao[1][1], acao[2])
+                    else:
+                        bpy.ops.object.cabinet_navegar(nivel=acao[1], valor=acao[2])
             elif acao[0] == 'modo':
                 pass        # indicador: um objeto = individual, mais = grupo
             elif acao[0] == 'medida':
@@ -619,11 +622,14 @@ class OBJECT_OT_interagir_gaveta(Operator):
                     if acao[1] == 'tipo_instalacao':
                         context.screen[_instalacoes.CHAVE_TIPO_MENU] = acao[2]
                     elif acao[1] == 'modelo_instalacao':
-                        _editor.executar(context, 'object.cabinet_instalar', modelo=acao[2], arrastar=True)
+                        # O arraste nasce no editor de origem, como o preset da biblioteca.
+                        bpy.ops.object.cabinet_instalar('INVOKE_DEFAULT', modelo=acao[2], arrastar=True)
                     elif acao[1] == 'acao_instalacao':
                         _editor.executar(context, 'object.cabinet_acao_instalacao', acao=acao[2])
                 elif len(acao)>5 and acao[5]==_alvenaria.ALVO_TIPO:
-                    if acao[1] == 'criar_alvenaria':
+                    if acao[1] == 'alvenaria_visual':
+                        _editor.executar(context, 'object.cabinet_visualizar_alvenaria', modo='EXEC_DEFAULT')
+                    elif acao[1] == 'criar_alvenaria':
                         context.screen[_alvenaria.CHAVE_ABRIR] = acao[2]
                         if acao[2]:
                             context.scene.cabinet_aba = 'ALVENARIA'
@@ -1223,7 +1229,7 @@ def _centro_icone(x, y, w, h, acao):
 def _icone_acao_gaveta(acao):
     if not acao:
         return None
-    if acao[:2]==('escolha','ambiente_visivel'):
+    if acao[0] == 'escolha' and acao[1] in {'ambiente_visivel', 'alvenaria_visual'}:
         return 'HIDE_OFF' if acao[2] else 'HIDE_ON'
     if acao[:2] == ('operador', 'object.cabinet_alternar_partes'):
         return 'HIDE_ON' if acao[2] else 'HIDE_OFF'

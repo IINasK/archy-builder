@@ -32,9 +32,7 @@ GESSO = .015
 
 
 def tipos_de_apoio(modelo):
-    if modelo in {'TOMADA', 'INTERRUPTOR'}:
-        return ('PAREDE',)
-    if modelo in {'PENDENTE', 'REBAIXO'}:
+    if modelo == 'REBAIXO':
         return ('TETO',)
     return _alvenaria.TIPOS
 

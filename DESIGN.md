@@ -725,6 +725,20 @@ permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
 **Alvenaria e paredes (como no Promob, pedido do usuario).**
+404: Editar e' a primeira acao, inteira/30 px/laranja. Abaixo, Parede,
+Piso e Teto com olho nativo de 28 px a' direita. O olho mostra os tres
+tipos, contornos e nomes; desligado limpa a exibicao, editar sempre mostra.
+Instalacoes usa a cascata flutuante e grade da biblioteca, com trilha
+propria, miniaturas das blocagens e cache de fotos existente. Lista no
+painel superior respeita a divisoria, sem navegar a biblioteca inferior.
+Arraste nasce na area de origem, como preset, sem ponte de comando 3D.
+Previa realca o apoio inteiro com a cor fixa do tipo e sua nomenclatura.
+Portas/luzes aceitam parede, piso ou teto (porta no piso fica deitada).
+Direito e arraste na montagem reaproveita o posicionador para trocar o
+apoio; so' confirma no soltar, sem remontar a peca nem mudar a anterior
+durante a previa. Clique direito simples conserva o menu nativo.
+Insercao, reassociacao e olho usam operadores UNDO; Esc descarta previa.
+
 403: aba Alvenaria concentra Parede/Piso/Teto e instalacoes. Criar Alvenaria
 e' a primeira acao para malha nao cadastrada; selecao mista atua somente
 na nova malha. Escolher um tipo inicia selecao nativa das faces; cores

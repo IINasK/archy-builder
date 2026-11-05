@@ -119,7 +119,7 @@ class TestEsquadrias(unittest.TestCase):
         for largura in (190, 320, 564):
             itens = []
             I.widgets_modelos(bpy.context, itens, 12, 500, largura-24, 'PAREDE')
-            cartoes = [v for v in itens if v[5]]
+            cartoes = [v for v in itens if v[5] and v[5][:2] == ('escolha', 'modelo_instalacao')]
             self.assertEqual([v[5][2] for v in cartoes[:3]], list(E.MODELOS))
             self.assertTrue(all(x+w <= largura-12+.001 for x,y,w,h,_,_ in cartoes))
         self.assertTrue(hasattr(bpy.ops.object, 'cabinet_instalar'))

@@ -1124,6 +1124,11 @@ class OBJECT_OT_arrastar_na_parede(Operator):
         _paredes_edicao.lembrar_face(context, (event.mouse_region_x, event.mouse_region_y), contexto=True)
         atingido = _hud._raio_cru(context, (event.mouse_region_x,
                                             event.mouse_region_y))
+        instalacao = _alvenaria.grupo_de(atingido[0]) if atingido else None
+        if instalacao is not None and instalacao.get(_alvenaria.MARCA) != 'REBAIXO':
+            bpy.ops.object.cabinet_instalar('INVOKE_DEFAULT', modelo=instalacao[_alvenaria.MARCA],
+                                          origem=instalacao.name, arrastar=True, direito=True)
+            return {'CANCELLED'}
         conj = modulo_de(atingido[0]) if atingido is not None else None
         if conj is None:
             return {'PASS_THROUGH'}         # o menu de contexto de sempre

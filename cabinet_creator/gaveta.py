@@ -1762,8 +1762,12 @@ def _widgets_gaveta(context, largura, altura, _rolagem=None,
         abas = {rotulo: aba for rotulo, _, aba in ABAS_GAVETA}
         lista = [lista[0]] + [v[:5] + (('aba', abas[v[4]]),) for v in lista[1:]]
     else:
-        lista = _lista_da_cascata(itens[n:], ALTURA_RODAPE_GAVETA,
-                                  divisa[1] if divisa else altura - 48)
+        cima, _, baixo = _paineis_gaveta(itens[n:])
+        lista = _lista_da_cascata(cima, divisa[1]+divisa[3] if divisa else ALTURA_RODAPE_GAVETA,
+                                  altura-48)
+        if not lista:
+            lista = _lista_da_cascata(baixo, ALTURA_RODAPE_GAVETA,
+                                      divisa[1] if divisa else altura-48)
     if lista:
         fx, fy, fw, fh = lista[0][:4]
         itens = itens[:n] + [

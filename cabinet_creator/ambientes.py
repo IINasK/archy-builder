@@ -736,6 +736,7 @@ def _rotulo(context,obj,f,nome):
 
 def desenhar():
     context=bpy.context
+    _alvenaria.desenhar_tipos(context)
     if _edicao_faces[0] and _edicao_faces[0].get('classificar'):return
     if not context.scene.get(CHAVE_CORES,True):return
     if context.mode!='EDIT_MESH' or _eventos._desfazendo[0] or _eventos._transformando(): return

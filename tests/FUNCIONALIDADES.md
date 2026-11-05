@@ -1,5 +1,39 @@
 # Funcionalidades do Cabinet Creator e o teste de cada uma
 
+Biblioteca de Alvenaria e vinculo reversivel (404): Editar primeiro,
+laranja; olho nativo a' direita de Teto mostra/esconde os tres tipos,
+contornos e nomes. Edicao independe desse olho. Cache numerico em copia
+BMesh no timer; undo invalida e o timer normal reconstrui. Miniaturas
+PNG das nove blocagens usam o cache de fotos existente; catalogo usa
+filhos_de, cascata/lista flutuante e grade compartilhados da biblioteca.
+Trilha e niveis independentes da biblioteca inferior. Parede/Piso/Teto
+nao filtram modelos: portas podem deitar como alcapao; spots e pendente
+associam-se aos tres tipos. Rebaixar teto conserva seu apoio especifico.
+Arraste inicia no editor de origem, como preset. Raio nativo compartilhado
+ignora a montagem e consulta Alvenaria; previa realca a face inteira com
+cor/nome do tipo. DIREITO na peca encaminha ao mesmo posicionador; soltar
+troca UID/face/pose e o corte. Original nao se move durante a previa.
+Reassociar conserva identidade, modelagem, abertura e energia das luzes;
+nao remonta componentes. Destino invalido ou excecao restaura o anterior.
+Suite instalacoes (21): layout 190/320/564, olho e edicao forcada,
+catalogo/fotos/cascata superior, modelos livres, porta no piso, luzes
+nos tres apoios, raio/previa, Esc, soltura esquerda/direita, mesmo objeto
+com faces diferentes, transferencia de recorte, rollback, conservacao de
+modelagem/energia, salvar/reabrir e undo/redo da criacao/troca/olho. Testes
+usam a pilha nativa e conferem o vinculo e os cortes depois de cada undo.
+Regressao visual: primeiro suspenso cobria o titulo Instalacoes. Prova
+falhou antes (dist/alvenaria404-titulo-antes.log); campo agora inicia
+abaixo do titulo e o teste confere o intervalo de 8 px.
+Auditoria GPU background 5.2, temas claro/escuro, tres larguras:
+dist/alvenaria404-*-modelos.png e *-categorias.png; callbacks do olho em
+dist/alvenaria404-faces-cima.png, *-baixo.png e *-ocultas.png.
+Icone nativo conferido pelos metadados HIDE_ON/HIDE_OFF (gizmo nao e'
+desenhado na prova offscreen). Sem gestos fisicos ou janela de teste;
+projeto aberto e biblioteca real preservados.
+Harness completo Blender 4.2/5.2: 3410 testes em 78 execucoes OK
+(dist/alvenaria404-completo-final.log). Sem alteracoes nos snapshots: os
+controles novos aparecem somente no contexto da Alvenaria.
+
 Tipos de Alvenaria (403): aba propria, com Parede/Piso/Teto e instalacoes;
 Modulos conserva edicao 2D/categorias. Criar Alvenaria vem primeiro e
 somente para malha nao cadastrada. Selecao mista ignora o apoio existente,

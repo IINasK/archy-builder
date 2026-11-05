@@ -22,6 +22,7 @@ ATR_TIPO = 'cabinet_tipo_superficie'
 ATR_FACE = 'cabinet_face_apoio'
 CHAVE_TIPADA = 'cabinet_alvenaria_tipificada'
 CHAVE_ABRIR = 'cabinet_menu_criar_alvenaria'
+CHAVE_VISUAL = 'cabinet_alvenaria_visual'
 ALVO_TIPO = '@tipo_alvenaria'
 MARCA = 'cabinet_instalacao'
 MEDIDAS = 'cabinet_instalacao_medidas'
@@ -31,6 +32,7 @@ CHAVE_SEM_APOIO = 'cabinet_instalacao_sem_apoio'
 _regioes = [{}]
 _cotas_menu = [{}]
 _guias = [{}]
+_visuais = [{}]
 
 
 def superficie(obj, indice, normal, malha=None):
@@ -228,35 +230,100 @@ def atualizar_visual(obj):
             elif s.get('substituir_tipo') and valor == tipo_atual and not face.hide:
                 valor = 0
             valores[face.index] = valor
-        visual = bm.faces.layers.int.new('tipo_visual')
-        for face in bm.faces:
-            face[visual] = valores[face.index]
-        arestas = [e for e in bm.edges if len(e.link_faces) == 2
-                   and e.link_faces[0][visual] == e.link_faces[1][visual]]
-        bmesh.ops.dissolve_limit(bm, angle_limit=.001, verts=[], edges=arestas)
-        bm.faces.index_update()
-        grupos, faces = {}, {}
-        for tri in bm.calc_loop_triangles():
-            face = tri[0].face
-            valor = face[visual]
-            if not 1 <= valor <= len(TIPOS) or face.hide:
-                continue
-            ps = [tuple(l.vert.co) for l in tri]
-            grupos.setdefault(valor, []).extend(ps)
-            ficha = faces.setdefault(face.index, dict(centro=tuple(face.calc_center_median()),
-                normal=tuple(face.normal), triangulos=[], tipo=TIPOS[valor-1]))
-            ficha['triangulos'].extend(ps)
-        s['visual_tipos'] = dict(grupos=grupos, faces=list(faces.values()))
+        s['visual_tipos'] = visual_da_malha(bm, valores)
         s['visual_sujo'] = False
     finally:
         bm.free()
 
 
-def desenhar_visual(context, obj):
-    s = _ambientes._edicao_faces[0]
-    if not s or not s.get('classificar') or not s.get('visual_tipos'):
+def visual_da_malha(bm, valores):
+    """A mesma copia numerica alimenta edicao, olho e contornos por tipo."""
+    visual = bm.faces.layers.int.new('tipo_visual')
+    for face in bm.faces:
+        face[visual] = valores[face.index]
+    arestas = [e for e in bm.edges if len(e.link_faces) == 2
+               and e.link_faces[0][visual] == e.link_faces[1][visual]]
+    bmesh.ops.dissolve_limit(bm, angle_limit=.001, verts=[], edges=arestas)
+    bm.faces.index_update()
+    grupos, faces, bordas = {}, {}, {}
+    for tri in bm.calc_loop_triangles():
+        face = tri[0].face
+        valor = face[visual]
+        if not 1 <= valor <= len(TIPOS) or face.hide:
+            continue
+        ps = [tuple(l.vert.co) for l in tri]
+        grupos.setdefault(valor, []).extend(ps)
+        ficha = faces.setdefault(face.index, dict(centro=tuple(face.calc_center_median()),
+            normal=tuple(face.normal), triangulos=[], tipo=TIPOS[valor-1]))
+        ficha['triangulos'].extend(ps)
+    for face in bm.faces:
+        valor = face[visual]
+        if 1 <= valor <= len(TIPOS) and not face.hide:
+            bordas.setdefault(valor, []).extend(tuple(v.co) for e in face.edges for v in e.verts)
+    return dict(grupos=grupos, faces=list(faces.values()), bordas=bordas)
+
+
+def atualizar_visuais(context):
+    if not context.scene.get(CHAVE_VISUAL, False):
+        _visuais[0].clear()
         return
-    visual = s['visual_tipos']
+    nomes = set()
+    for obj in context.scene.objects:
+        if not _paredes.alvenaria_definida(obj) or obj.data.is_editmode:
+            continue
+        nomes.add(obj.name)
+        if obj.name in _visuais[0]:
+            continue
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(obj.data)
+            bm.normal_update();bm.faces.index_update()
+            camada = bm.faces.layers.int.get(ATR_TIPO)
+            valores = {}
+            for face in bm.faces:
+                valor = face[camada] if camada else 0
+                if not valor and not obj.get(CHAVE_TIPADA):
+                    tipo = _paredes.tipo_superficie(_paredes._normal_no_mundo(obj, face.normal))
+                    valor = TIPOS.index(tipo)+1 if tipo in TIPOS else 0
+                valores[face.index] = valor
+            _visuais[0][obj.name] = visual_da_malha(bm, valores)
+        finally:
+            bm.free()
+    for nome in tuple(_visuais[0]):
+        if nome not in nomes:
+            del _visuais[0][nome]
+
+
+def desenhar_tipos(context):
+    if _eventos._desfazendo[0] or not context.scene.get(CHAVE_VISUAL, False):
+        return
+    s = _ambientes._edicao_faces[0]
+    if s and s.get('classificar'):
+        return
+    for nome, visual in _visuais[0].items():
+        obj = context.scene.objects.get(nome)
+        if obj is not None and obj.visible_get(viewport=context.space_data):
+            desenhar_visual(context, obj, visual)
+
+
+class OBJECT_OT_visualizar_alvenaria(Operator):
+    bl_idname = 'object.cabinet_visualizar_alvenaria'
+    bl_label = 'Mostrar tipos da Alvenaria'
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        context.scene[CHAVE_VISUAL] = not context.scene.get(CHAVE_VISUAL, False)
+        atualizar_visuais(context)
+        _paredes._redesenhar()
+        return {'FINISHED'}
+
+
+def desenhar_visual(context, obj, visual=None):
+    s = _ambientes._edicao_faces[0]
+    if visual is None:
+        if not s or not s.get('classificar') or not s.get('visual_tipos'):
+            return
+        visual = s['visual_tipos']
     anterior = gpu.state.blend_get(), gpu.state.depth_test_get(), gpu.state.depth_mask_get()
     try:
         gpu.state.blend_set('ALPHA')
@@ -270,8 +337,12 @@ def desenhar_visual(context, obj):
             shader = gpu.shader.from_builtin('UNIFORM_COLOR')
             for valor, ps in visual['grupos'].items():
                 shader.bind()
-                shader.uniform_float('color', (*CORES[TIPOS[valor-1]], .42))
+                shader.uniform_float('color', (*CORES[TIPOS[valor-1]], .24))
                 batch_for_shader(shader, 'TRIS', {'pos': ps}).draw(shader)
+            for valor, ps in visual.get('bordas', {}).items():
+                shader.bind()
+                shader.uniform_float('color', (*CORES[TIPOS[valor-1]], 1))
+                batch_for_shader(shader, 'LINES', {'pos': ps}).draw(shader)
         for face in visual['faces']:
             normal = _paredes._normal_no_mundo(obj, face['normal'])
             matriz = referencial((0, 0, 0), normal)
@@ -425,6 +496,7 @@ def editar_cota(obj, lado, valor):
 
 
 def verificar():
+    atualizar_visuais(bpy.context)
     cotas_menu = {}
     guias = {}
     for obj in bpy.context.scene.objects:
@@ -458,9 +530,11 @@ def invalidar(depsgraph):
            or isinstance(u.id, bpy.types.Object) and _paredes.alvenaria_definida(u.id)
            for u in depsgraph.updates):
         _regioes[0].clear()
+        _visuais[0].clear()
 
 
 def esquecer():
+    _visuais[0].clear()
     _regioes[0].clear()
     _cotas_menu[0].clear()
     _guias[0].clear()
@@ -528,12 +602,11 @@ def painel(context, itens, x, y, w):
     obj = contexto(context)
     if obj is None:
         return y
-    y = _instalacoes.widgets_seletor(context, itens, x, y-8, w)
     tipo = context.screen.get(_instalacoes.CHAVE_TIPO_MENU, 'PAREDE') if context.screen else 'PAREDE'
     y -= 30
     itens.append((x, y, w, 30, 'Editar',
                   ('escolha', 'editar_alvenaria', tipo, False, True, ALVO_TIPO)))
-    y -= 6
+    y = _instalacoes.widgets_seletor(context, itens, x, y-8, w)
     return _instalacoes.widgets_modelos(context, itens, x, y, w, tipo)
 
 

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Cabinet Creator",
     "author": "Douglas",
-    "version": (403, 0, 0),
+    "version": (404, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
     "doc_url": "",
@@ -219,6 +219,7 @@ CLASSES = (
     _paredes.OBJECT_OT_definir_alvenaria,
     _alvenaria.OBJECT_OT_classificar_alvenaria,
     _alvenaria.OBJECT_OT_confirmar_alvenaria,
+    _alvenaria.OBJECT_OT_visualizar_alvenaria,
     _instalacoes.OBJECT_OT_instalar,
     _instalacoes.OBJECT_OT_acao_instalacao,
     _iluminacao.OBJECT_OT_rebaixar_faces,
