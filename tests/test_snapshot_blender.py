@@ -8,7 +8,7 @@ ele MUDOU. Quebra oculta vira diff com o caminho exato do valor.
 
 Mudanca INTENCIONAL: regrave e revise o diff no git antes do commit:
 
-    blender ... --python tests/rodar_testes.py -- --atualizar
+    blender ... --python tests/run_tests.py -- --atualizar
     (ou CABINET_ATUALIZAR_SNAPSHOTS=1 ao rodar so' esta suite)
 """
 import json

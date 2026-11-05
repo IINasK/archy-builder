@@ -1,10 +1,10 @@
 <p align="center">
   <strong>Guia do usuario</strong> &nbsp; | &nbsp;
-  <a href="docs/DESENVOLVIMENTO.md">Desenvolvedores</a>
+  <a href="docs/DEVELOPMENT.md">Desenvolvedores</a>
 </p>
 
 <p align="center">
-  <img src="docs/boas-vindas.svg" alt="Archy Builder - moveis planejados, arquitetura e interiores no Blender" width="100%">
+  <img src="docs/welcome.svg" alt="Archy Builder - moveis planejados, arquitetura e interiores no Blender" width="100%">
 </p>
 
 <p align="center">
@@ -60,6 +60,8 @@ Install from Disk**, selecionando o mesmo ZIP.
 Em **Preferences -> Add-ons**, procure **Archy Builder** e confira se ele
 esta' ativado.
 
+Depois de instalar ou atualizar o add-on, salve seu trabalho e reinicie o Blender.
+
 **Versao recomendada: Blender 5.2**, para usar a biblioteca atual de modelos.
 Alguns modelos salvos no Blender 5.x podem nao abrir no Blender 4.2.
 
@@ -91,7 +93,7 @@ Encontrou um problema? Abra um relato na secao
 - O resultado esperado e o que apareceu na tela.
 - Uma imagem ou arquivo pequeno de exemplo, sem dados privados de clientes.
 
-Voce tambem pode sugerir melhorias. Veja [como enviar um relato](CONTRIBUIR.md).
+Voce tambem pode sugerir melhorias. Veja [como enviar um relato](CONTRIBUTING.md).
 
 ## Uso gratuito
 
@@ -100,7 +102,7 @@ acompanham o pacote de instalacao.
 
 O projeto tambem e' aberto para quem deseja modifica-lo. Preparacao do
 ambiente, empacotamento e contribuicoes ficam no
-[guia de desenvolvimento](docs/DESENVOLVIMENTO.md).
+[guia de desenvolvimento](docs/DEVELOPMENT.md).
 
 As instalacoes arquitetonicas ainda sao representacoes simplificadas e
 precisam de verificacao tecnica para uso em um projeto executivo.

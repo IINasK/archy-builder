@@ -1,0 +1,210 @@
+"""Harness unico: roda TODAS as suites em TODAS as versoes do Blender.
+
+Execute (so' o Blender e' necessario; o Python dele roda isto):
+
+    blender --background --factory-startup --python tests/run_tests.py
+    blender ... --python tests/run_tests.py -- --versoes 5.2 --suites hud
+    blender ... --python tests/run_tests.py -- --gui     (inclui GUI)
+
+Cada suite roda num Blender SEPARADO (`--factory-startup`), em paralelo:
+uma suite nao herda cena, preferencias nem estado de modulo de outra.
+O processo termina com codigo 1 se qualquer suite falhar, nao rodar ou
+rodar menos testes do que o piso gravado -- teste que some calado e'
+justamente a quebra oculta que este harness existe para pegar.
+
+Suites `tests/test_*_blender.py` sao headless. Suites `tests/gui_*.py`
+abrem uma janela de verdade (eventos simulados); so' rodam com --gui.
+"""
+import argparse
+import glob
+import os
+import re
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TESTES = os.path.join(RAIZ, 'tests')
+PASTA_BLENDER = r'C:\Program Files\Blender Foundation'
+# Piso de testes por suite: cair abaixo disto = teste apagado/pulado sem
+# querer. Subir o numero quando a suite crescer (nunca baixar calado).
+# v304: portas -1, gavetas -3, geometria -1 de proposito -- os testes do
+# ima em Python (`_alvos_do_ima`, `IndiceSnapGavetas`, rotulos) sairam com
+# ele; o snap agora e' o nativo do Blender.
+# v309: geometria -3 de proposito -- o detector de angulos (`pontos_notaveis`)
+# saiu a pedido do usuario; ficam os testes de area e do snap da curva.
+PISO = {
+    'packaging':2,
+    'installations':21,
+    'masonry':16,
+    'openings':7,
+    'lighting':8,
+    'rooms':61,
+    'measurements':21,
+    'visibility': 26,
+    'creation_areas': 58,
+    'editor': 21,
+    'wall_selection': 45,
+    'backs': 30,
+    'welding': 16,
+    'library_joints': 22,
+    'internal_repairs': 10,
+    'internal_audit': 9,
+    'wall_layout': 73,
+    'wall_editor': 86,
+    'organization': 11,
+    'partitions': 42,
+    'structure': 51, 'sidebar': 86, 'doors': 165, 'hud': 214,
+    'importing': 80, 'handles': 40, 'snapshot': 7, 'operators': 59, 'fronts': 29,
+    'library': 86, 'coverage': 4, 'gui_interaction': 63,
+    'estimates': 17, 'walls': 39, 'cabinets': 20, 'shapes': 62, 'drawers': 62,
+    'geometry': 5, 'shelves': 60, 'migrations': 14,
+    'library_strip': 31, 'gui_library_strip': 7,
+}
+LIMITE_SEGUNDOS = 300
+
+
+def _argumentos():
+    argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+    p = argparse.ArgumentParser(prog='rodar_testes')
+    p.add_argument('--versoes', nargs='*', default=None,
+                   help='ex.: 5.2 4.2 (padrao: todas as instaladas)')
+    p.add_argument('--suites', nargs='*', default=None,
+                   help='ex.: hud gaveta (padrao: todas)')
+    p.add_argument('--gui', action='store_true',
+                   help='inclui as suites que abrem janela (gui_*.py)')
+    p.add_argument('--sequencial', action='store_true')
+    p.add_argument('--atualizar', action='store_true',
+                   help='regrava os snapshots (mudanca INTENCIONAL; revise o diff)')
+    return p.parse_args(argv)
+
+
+def _blenders(pedidas):
+    achados = {}
+    for exe in glob.glob(os.path.join(PASTA_BLENDER, 'Blender *', 'blender.exe')):
+        versao = os.path.basename(os.path.dirname(exe)).split(' ', 1)[1]
+        achados[versao] = exe
+    if pedidas:
+        faltando = [v for v in pedidas if v not in achados]
+        if faltando:
+            raise SystemExit('Blender nao instalado: %s' % ', '.join(faltando))
+        return {v: achados[v] for v in pedidas}
+    return dict(sorted(achados.items(), reverse=True))
+
+
+SUITE_ALIASES = {'empacotamento': 'packaging', 'instalacoes': 'installations', 'alvenaria': 'masonry', 'esquadrias': 'openings', 'iluminacao': 'lighting', 'ambientes': 'rooms', 'medidas': 'measurements', 'visibilidade': 'visibility', 'areas_criacao': 'creation_areas', 'paredes_selecao': 'wall_selection', 'fundos': 'backs', 'solda': 'welding', 'soldas_biblioteca': 'library_joints', 'correcao_internos': 'internal_repairs', 'auditoria_internos': 'internal_audit', 'paredes_composicao': 'wall_layout', 'paredes_edicao': 'wall_editor', 'organizacao': 'organization', 'divisorias': 'partitions', 'estrutura': 'structure', 'gaveta': 'sidebar', 'portas': 'doors', 'importacao': 'importing', 'puxadores': 'handles', 'operadores': 'operators', 'frentes': 'fronts', 'biblioteca': 'library', 'cobertura': 'coverage', 'orcamento': 'estimates', 'paredes': 'walls', 'armarios': 'cabinets', 'formas': 'shapes', 'gavetas': 'drawers', 'geometria': 'geometry', 'prateleiras': 'shelves', 'migracoes': 'migrations', 'biblioteca_faixa': 'library_strip', 'gui_interacao': 'gui_interaction', 'gui_biblioteca_faixa': 'gui_library_strip'}
+
+
+def _suites(pedidas, gui):
+    if pedidas:
+        pedidas = [SUITE_ALIASES.get(nome, nome) for nome in pedidas]
+    nomes = {}
+    for caminho in sorted(glob.glob(os.path.join(TESTES, 'test_*_blender.py'))):
+        nome = re.match(r'test_(.+)_blender\.py', os.path.basename(caminho)).group(1)
+        nomes[nome] = (caminho, False)
+    if gui:
+        for caminho in sorted(glob.glob(os.path.join(TESTES, 'gui_*.py'))):
+            nome = os.path.splitext(os.path.basename(caminho))[0]
+            nomes[nome] = (caminho, True)
+    if pedidas:
+        return {n: c for n, c in nomes.items() if n in pedidas}
+    return nomes
+
+
+def _rodar(blender, suite, caminho, gui, atualizar=False):
+    comando = [blender, '--factory-startup', '--python-exit-code', '1']
+    if gui:
+        # janela de tamanho fixo (layout reproduzivel) e sem roubar o foco
+        comando += ['--enable-event-simulate', '--no-window-focus',
+                    '--window-geometry', '0', '0', '1600', '900']
+    else:
+        comando += ['--background']
+    comando += ['--python', caminho]
+    inicio = time.monotonic()
+    try:
+        ambiente = dict(os.environ)
+        if atualizar:
+            ambiente['CABINET_ATUALIZAR_SNAPSHOTS'] = '1'
+        saida = subprocess.run(comando, cwd=RAIZ, capture_output=True, env=ambiente,
+                               text=True, encoding='utf-8', errors='replace',
+                               # A biblioteca regrava a amostra e as miniaturas;
+                               # esse I/O excedeu 300 s com os presets reparados.
+                               timeout=600 if suite == 'biblioteca' else LIMITE_SEGUNDOS)
+        texto, codigo = saida.stdout + saida.stderr, saida.returncode
+    except subprocess.TimeoutExpired as e:
+        texto = (e.stdout or '') + (e.stderr or '') if isinstance(
+            e.stdout, str) else ''
+        codigo = 'TEMPO'
+    rodados = re.search(r'^Ran (\d+) tests?', texto, re.M)
+    rodados = int(rodados.group(1)) if rodados else 0
+    falhas = re.findall(r'^(?:FAIL|ERROR): (\S+)', texto, re.M)
+    ok = codigo == 0 and re.search(r'^OK\b', texto, re.M) is not None
+    piso = PISO.get(suite, 1)
+    if ok and rodados < piso:
+        ok = False
+        falhas.append('rodou %d testes, piso e\' %d (teste sumiu?)'
+                      % (rodados, piso))
+    return {'ok': ok, 'rodados': rodados, 'falhas': falhas, 'codigo': codigo,
+            'segundos': time.monotonic() - inicio, 'texto': texto}
+
+
+def main():
+    args = _argumentos()
+    blenders = _blenders(args.versoes)
+    suites = _suites(args.suites, args.gui)
+    if not blenders or not suites:
+        raise SystemExit('Nada para rodar (versoes=%s suites=%s)'
+                         % (list(blenders), list(suites)))
+    tarefas = [(v, exe, s, c, g) for v, exe in blenders.items()
+               for s, (c, g) in suites.items()]
+    # Suites de GUI disputam a tela: sempre uma de cada vez.
+    paralelas = [t for t in tarefas if not t[4]]
+    janelas = [t for t in tarefas if t[4]]
+    resultados = {}
+    trabalhadores = 1 if args.sequencial else min(6, os.cpu_count() or 2)
+    with ThreadPoolExecutor(trabalhadores) as pool:
+        # snapshot regravado por UMA versao so' (a primeira): duas
+        # gravando o mesmo arquivo em paralelo dariam corrida
+        primeira = next(iter(blenders))
+        futuros = {pool.submit(_rodar, exe, s, c, g,
+                               args.atualizar and v == primeira): (v, s)
+                   for v, exe, s, c, g in paralelas}
+        for futuro, chave in futuros.items():
+            resultados[chave] = futuro.result()
+    for v, exe, s, c, g in janelas:
+        resultados[(v, s)] = _rodar(exe, s, c, g)
+
+    print('\n' + '=' * 64)
+    print('%-8s %-14s %6s %8s  %s' % ('versao', 'suite', 'testes', 'tempo', 'resultado'))
+    print('-' * 64)
+    falhou = False
+    for (v, s), r in sorted(resultados.items()):
+        estado = 'OK' if r['ok'] else 'FALHOU'
+        falhou |= not r['ok']
+        print('%-8s %-14s %6d %7.1fs  %s' % (v, s, r['rodados'],
+                                            r['segundos'], estado))
+        if not r['ok']:
+            for f in r['falhas'][:10] or ['codigo de saida %s' % r['codigo']]:
+                print('           - %s' % f)
+    print('=' * 64)
+    total = sum(r['rodados'] for r in resultados.values())
+    print('%d testes em %d execucoes: %s' % (
+        total, len(resultados), 'FALHOU' if falhou else 'TUDO OK'))
+    if falhou:
+        # o primeiro texto de falha inteiro ajuda a diagnosticar sem rodar de novo
+        primeiro = next(r for r in resultados.values() if not r['ok'])
+        print('\n--- saida da primeira suite que falhou (final) ---')
+        print(primeiro['texto'][-4000:])
+    sys.stdout.flush()
+    if falhou:
+        # Sem --python-exit-code o Blender sai com 0 mesmo apos excecao.
+        os._exit(1)
+
+
+try:
+    main()
+except SystemExit as e:
+    # --python-exit-code so' vale para excecao; SystemExit(0) e' sucesso
+    if e.code not in (0, None):
+        raise RuntimeError('harness: %s' % e.code)

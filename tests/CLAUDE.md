@@ -1,121 +1,87 @@
-# CLAUDE.md -- tests/ (harness de seguranca)
+# Test harness and regression policy
 
-> Mesmo limite do raiz: maximo 200 linhas. Inventario de funcionalidades
-> e o teste de cada uma: `FUNCIONALIDADES.md` (nesta pasta).
+AGENTS.md and CLAUDE.md are exact mirrors, maximum 200 lines. Follow root
+instructions. Scenario inventory: SCENARIOS.md in this directory.
 
-## Rodar
+## Execute
 
 ```
-blender --background --factory-startup --python tests/rodar_testes.py
-blender ... --python tests/rodar_testes.py -- --gui        # + interface
-blender ... --python tests/rodar_testes.py -- --versoes 5.2 --suites hud
-blender ... --python tests/rodar_testes.py -- --atualizar  # regrava snapshots
+blender --background --factory-startup --python tests/run_tests.py
+blender ... --python tests/run_tests.py -- --versoes 5.2 --suites hud
+blender ... --python tests/run_tests.py -- --gui
+blender ... --python tests/run_tests.py -- --atualizar
 ```
 
-Unico requisito: o Blender (o Python dele roda o executor; o `python`
-do Windows nao existe nesta maquina). O executor acha todas as versoes
-em `C:\Program Files\Blender Foundation`, roda cada suite num Blender
-SEPARADO (`--factory-startup`, em paralelo; GUI uma por vez) e sai com
-codigo 1 se algo falhar. Sem GUI ~1 min (versoes em paralelo; as mais lentas: biblioteca
-e portas); durante o trabalho rode so' a suite da area. Biblioteca tem limite de
-600 s para refiliar/regravar a amostra e as miniaturas; demais suites, 300 s.
+Blender's bundled Python can run the harness without starting Blender itself.
+It discovers versions in C:/Program Files/Blender Foundation and starts each
+suite in a SEPARATE factory-startup background process. Suites run in parallel;
+GUI runs serially. A failure, missing suite, or count below PISO exits with 1.
+Library timeout is 600 seconds; other suites 300. Run relevant suites while
+working, then the COMPLETE harness before delivery in Blender 4.2 and 5.2.
+`--gui` opens a real window and requires the user releasing the PC NOW.
 
-**Antes de entregar: o executor inteiro, com `--gui` se a pessoa
-liberou janela (memoria `nao-abrir-janelas`).** Suite isolada nao basta.
+## Layers
 
-## Camadas (piramide de testes)
-
-| Camada | Arquivo | Pega |
+| Layer | Files | Detects |
 |---|---|---|
-| Unidade/integracao headless | `test_*_blender.py` | logica, dados, layout por tuplas |
-| Caracterizacao (golden master) | `test_snapshot_blender.py` + `snapshots/*.json` | QUALQUER mudanca de comportamento nao intencional |
-| Interface com eventos reais | `gui_*.py` (+ `harness_gui.py`) | keymap, gizmo/hover, modais, sequencia real de eventos |
-| Trava de cobertura | `test_cobertura_blender.py` | classe nova sem teste, teste apagado, snapshot orfao |
-| Piso por suite | `PISO` em `rodar_testes.py` | suite que roda MENOS testes que antes |
+| Headless unit/integration | test_*_blender.py | Geometry, data, tuple layouts |
+| Characterization | test_snapshot_blender.py + snapshots/*.json | Unintended behavior changes |
+| Real interaction | gui_*.py + interaction_harness.py | Keymaps, gizmos, hover, modal sequencing |
+| Coverage contract | test_coverage_blender.py | Registered classes without tests, orphan snapshots |
+| Count floors | PISO in run_tests.py | Silently removed or skipped tests |
 
-## Regras
+## Required scenarios
 
-Todo bug corrigido exige teste automatizado de regressao no mesmo commit:
-cenario reproduzivel que falhe antes da correcao e passe depois. Registrar
-em FUNCIONALIDADES.md; sem esse teste, a correcao nao esta' concluida.
-Cada melhoria exige cenario com parametros e resultados esperados. Criar
-cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
+Every bug fix requires an automated regression in the SAME commit: reproduce the
+bug, fail before the fix, pass after it. Every improvement needs explicit input
+parameters and expected outcomes. Record both in SCENARIOS.md. A fix is
+unfinished without this regression. Use temporary scenes and directories;
+never modify the open project or the actual library.
 
-1. **Funcionalidade nova = teste novo no mesmo commit.** A trava falha
-   se uma classe registrada nao e' citada por nenhum teste. Excecao so'
-   em `SEM_TESTE_ACEITO` (com motivo); a lista so' encolhe.
-2. **Piso so' sobe.** Suite cresceu: suba o numero em `PISO`. Baixar
-   exige motivo no commit (teste removido de proposito).
-3. **Snapshot mudou:** se foi de proposito, `--atualizar` e REVISE o
-   diff do json no git antes do commit. Se nao foi, achou uma quebra.
-   O snapshot ignora a biblioteca (depende dos presets, nao do codigo).
-4. **Bug achado por teste:** escreva o teste, marque
-   `@unittest.expectedFailure` com `# BUG:` em cima. Consertado, tire o
-   marcador e deixe um comentario "Regressao (era BUG, corrigido na N)".
-5. **Biblioteca real e' intocavel.** `test_biblioteca_blender.py` copia
-   4 fixtures pequenas nos testes de indice/operadores e uma AMOSTRA
-   (`TestPresetsDeFabrica`: 2 presets por categoria) para um
-   temporario e redireciona `pasta_biblioteca`/`_pasta_addon` ANTES do
-   register; no fim confere por sha1 que nenhum byte da real mudou. A
-   integridade de TODOS os presets reais e' lida direto da pasta real (so'
-   leitura). Copiar a biblioteca inteira (~190 presets) estourava 300 s.
-6. **Blender 4.2 nao le os .blend da biblioteca** (gravados pelo 5.x).
-   Teste que abre preset real: `skipTest` em `bpy.app.version < (5,)`.
-   GUI: `raise Pular(motivo)`. Nunca deixe falhar "por versao".
-7. Testes ASCII, em portugues, unittest; no fim do arquivo
-   `addon.register()` / roda / `addon.unregister()` / `raise RuntimeError`.
+1. Every new registered class is cited by a meaningful test. SEM_TESTE_ACEITO
+   requires a reason and may only shrink as coverage arrives.
+2. Floors only rise. Any intentional removal needs explicit justification;
+   never lower a floor just to make a refactor pass.
+3. Only intentionally update snapshots with --atualizar; REVIEW the JSON diff.
+4. Record discovered unfixed behavior as expectedFailure with a BUG comment.
+   Remove the marker when fixed, keeping the reproducible regression.
+5. Library tests redirect pasta_biblioteca and options._pasta_addon BEFORE
+   register. Copy small fixtures and a sample (two presets/category) to temp;
+   verify real-library hashes unchanged. Whole-library integrity reads only.
+6. Blender 4.2 cannot read presets saved by 5.x. Explicitly skip incompatible
+   preset reads; GUI uses Pular(reason). Do not hide code failures as version skips.
+7. Use unittest, ASCII, temporary data, register/run/unregister and raise on
+   failure. Patch the canonical owner module, never copied root functions.
+8. Architecture refactors must preserve native undo, module identity/reload,
+   modeled meshes, resource paths, operator IDs and saved data compatibility.
 
-Janela do `--background` nao tem `eventstate` inicializado: chamar
-`Window.event_simulate` ali, mesmo com `--enable-event-simulate`, derruba
-o 5.2. Para eventos reais, usar o harness GUI autorizado ou uma prova
-sem gestos na instancia aberta (operador INVOKE recebe Event real).
+## GUI harness constraints
 
-## Harness de interface (`harness_gui.py`)
+The official Blender ui_simulate/easy_keys pattern uses --enable-event-simulate
+(ignores real keyboard/mouse). Tests are generators advanced by a timer;
+each yield processes four event-loop ticks; esperar(seconds) waits on the clock.
+Mouse.mover/clicar/apertar/soltar/tecla/digitar use WINDOW coordinates (region.x+x).
+Use widget rectangles from _widgets_interativos, never fixed pixels; na_tela
+projects 3D points. Read GUI fixtures before changing an interaction test.
 
-Padrao oficial do Blender (`tests/python/ui_simulate`, `easy_keys`):
-`--enable-event-simulate` (ignora mouse/teclado REAIS), cada teste e'
-um GERADOR rodado por timer; cada `yield` = 4 tiques do loop (eventos
-processados + redesenho); `yield esperar(s)` espera relogio.
-`Mouse.mover/clicar/apertar/soltar/tecla/digitar`, coordenadas da
-JANELA (`regiao.x + x`). Widgets da gaveta: pegue o retangulo de
-`_widgets_interativos` (nunca coordenada fixa). Pontos 3D: `na_tela`.
+- Background Window.event_simulate crashes 5.2 because eventstate is uninitialized,
+  even with --enable-event-simulate. Use authorized GUI harness for gestures.
+- Simulation does not generate DOUBLE_CLICK (check_double_click=false). Modal
+  operators receive PRESS instead; photo double-click uses the clock.
+- Keymap double-click tests invoke the operator with _ENTRADAS_KEYMAP properties
+  in a real context. Windows delivery itself needs a physical mouse.
+- popup_menu in background crashes Blender. _abrir_pergunta records the pending
+  answer; tests call the response operator. GUI closes popup with ESC; moving
+  the mouse does not close it and leaves the next test's first click swallowed.
+- Blender only PRINTS draw/gizmo/timer exceptions. ErrosDeCallback captures stderr
+  and fails even if assertions pass. Timer failures terminate with os._exit(code).
+- Popup on PRESS consumes the same click's RELEASE as the first response. Sidebar
+  popup/modal actions, including gizmo icons, trigger on RELEASE.
+- bpy.ops from another operator receives current eventstate; esperar_soltar
+  conveys a press-started operation. Do not infer it from the RELEASE context.
+- Removing/rebinding menu gizmos during redraw crashes tooltip initialization.
+  Retain gizmo pools and change visibility/operator hints.
 
-Limites confirmados no fonte do Blender (4.2 e 5.2):
-- O simulador NAO gera DOUBLE_CLICK (`check_double_click = false`).
-- Operador MODAL nunca recebe DOUBLE_CLICK nem do mouse real
-  (`wm_event_modalkeymap_begin` converte em PRESS). Por isso o duplo
-  clique na foto e' medido pelo relogio (`_duplo_clique_na_foto`).
-- DOUBLE_CLICK de KEYMAP (selecao em 3 camadas): o teste chama o
-  operador com as props da entrada de `_ENTRADAS_KEYMAP`, no contexto
-  real. A entrega do evento pelo Windows so' com mouse fisico.
-- `popup_menu` em `--background` DERRUBA o Blender (access violation):
-  o add-on so' abre pop-up com janela (`_abrir_pergunta`) e grava a
-  resposta pendente; o teste responde chamando o operador da resposta.
-  Na GUI, feche o pop-up com `m.tecla('ESC')` -- mover o mouse nao
-  fecha, e o pop-up que sobra come o 1o clique do proximo teste.
-- Erro em CALLBACK (desenho, gizmo, timer) o Blender so' IMPRIME: o
-  harness troca o sys.stderr (`ErrosDeCallback`) e reprova o teste em
-  que um traceback aparecer, mesmo com os asserts passando.
-- Excecao num timer so' e' impressa: o harness captura tudo e sai com
-  `os._exit(codigo)`; o executor tem tempo-limite por suite.
-
-## Achados do harness (historico)
-
-- v120: 2o clique do duplo na foto chega como PRESS (modal) -> insercao
-  cancelava. Corrigido pelo relogio; coberto em `gui_interacao`.
-- v126: adjacencia em dois eixos relia matrix_world defasado; S no
-  Empty do modulo nao surtia efeito; timers sem remocao no unregister.
-- v132: botao da gaveta que abre pop-up disparava no PRESS (gizmo
-  incluso) e o RELEASE do mesmo clique respondia "Sim" sozinho.
-- v141: a gaveta sumia (abas, icones, fundo) e os 26 testes de interface
-  passavam: `acao[:2] in {set}` com o dict de um preset da biblioteca
-  quebrava o desenho. Nasceu o `ErrosDeCallback`.
-- v140: `bpy.ops` chamado de dentro de outro operador recebe o estado
-  da janela, que no clique simulado ja' traz o RELEASE: quem chama de um
-  PRESS avisa por prop (`esperar_soltar`), nao pelo `event`.
-- v139: modal aberto pelo GIZMO de um icone da gaveta prendia os cliques
-  dela (o "Confirmar" do pe' nao chegava). Botao que abre modal ou
-  pop-up entra em `OPERADORES_NO_SOLTAR`.
-- Abertos (expectedFailure em `test_biblioteca_blender.py`): .blend
-  orfao quando a foto falha; asset salvo/refiliado vira `.001`;
-  `editar_modelo` nao move o catalogo dentro do .blend.
+Known expected failures remain in library tests; never delete them merely to
+produce a green result. Record intermittent native undo results with logs and
+baseline comparison rather than weakening assertions.

@@ -4,7 +4,7 @@
 >
 > **LEIA ANTES DE:** criar tela, botao, campo, secao, icone ou
 > qualquer coisa visivel. Vale para humano e para IA. Travado por
-> `tests/test_estrutura_blender.py`: teste de la' que falha quer dizer
+> `tests/test_structure_blender.py`: teste de la' que falha quer dizer
 > "isto era de proposito, confirme antes de mudar", nunca "conserte o
 > teste".
 
@@ -86,7 +86,7 @@ nao tem contagem (pedido do usuario: ocupava espaco) nem limite de niveis:
 ramo sem preset nao aparece. LUGAR (pedido do usuario): faixa superior
 ou DENTRO do menu (padrao), embaixo da divisoria interativa (metade);
 botao `cabinet_lugar_biblioteca` no cabecalho da faixa e no pe' do menu,
-trocado no timer. No menu, cada nivel e' um campo SUSPENSO como no Promob
+trocado no timer. No menu, cada nivel e' um campo SUSPENSO como no DXF
 ("Escolha..."); a lista FLUTUA embaixo (em cima/colunas sem espaco),
 atende primeiro e tira do clique o que cobre. A faixa mantem suas filas.
 
@@ -173,7 +173,7 @@ biblioteca ficam na propria faixa. Materiais conservam clique simples
 sem pintar, duplo clique, arraste e pintura rapida com o direito.
 Fotos RGBA8 com cache LRU de 64 MiB; so' itens visiveis geram widgets e
 texturas. Catalogo cacheado por caminho/mtime; abrir .blend e' so' ao
-inserir/editar, nunca ao desenhar. Ver `PLANO_BIBLIOTECA.md`.
+inserir/editar, nunca ao desenhar. Ver `docs/planning/LIBRARY_PLAN.md`.
 
 ## 7. Icones vem do GizmoGroup, nao da GPU
 
@@ -272,7 +272,7 @@ Seta com teto fixo na tela (`COMPRIMENTO_SETA_HUD`), nunca maior que a aresta; l
 item fica menor que `FATOR_ROTULO_HUD` x o rotulo (so' a acesa fica).
 Letra = aresta do eixo mais FORA na tela, empurrada para longe do centro
 da peca (nunca sobre a face); letras que se encostam afastam-se mais.
-Modulo que nao e' caixa (canto em L, diagonal, curvo -- os do Promob): a
+Modulo que nao e' caixa (canto em L, diagonal, curvo -- os do DXF): a
 linha branca segue a PLANTA em baixo e em cima, nunca a caixa envolvente
 (pedido do usuario: no L a quina vazia tinha linha). L e P nos lados
 inteiros; P1/P2 nos lados que chegam no canto = profundidade de CADA braco
@@ -292,7 +292,7 @@ altura) e anda com ela: a gaveta aberta nunca o cobre. Na aba: Gavetas
 (L/A/P + contador), Frente (Sobreposta | Embutida, Espacamento frontal,
 Entre gavetas, Recuo, Espessura, Curva), Trilho e o carrossel do Puxador -- de
 UMA gaveta (duplo clique) ou de todas. Curva = flecha do arco da frente
-(0 = reta), a do gaveteiro de canto do Promob; as alturas desiguais que a
+(0 = reta), a do gaveteiro de canto do DXF; as alturas desiguais que a
 importacao traz somem ao mudar a quantidade. Borda de cada segmento ganha
 a seta de L/A/P (altura redistribui com a vizinha, preservando o total;
 extremidades ancoram o limite externo). Duplo clique mostra somente a
@@ -325,7 +325,7 @@ Detalhamento: grupo selecionado usa quantidade total e blocagem completa. Unidad
 
 **Porta de correr: a folha.** Na porta de correr selecionada, uma fila
 Chapa | Quadro de aluminio (depois do trilho, com ou sem moldura). Quadro =
-o perfil de aluminio do despenseiro do Promob em volta de um painel fino,
+o perfil de aluminio do despenseiro do DXF em volta de um painel fino,
 que tem material proprio (o vidro/espelho); o trilho continua o nosso.
 
 **Snap = o nativo do Blender (v304).** Assistentes, cantos e Ctrl da
@@ -343,7 +343,7 @@ o ultimo lugar valido e avisa no cabecalho nativo. Mais de um puxador na
 mesma chapa continua permitido em posicoes separadas ou na face oposta.
 Esc devolve a origem inclusive em cenas legadas com sobreposicao inicial.
 Puxador PERFIL = o modelo de aluminio do usuario (arquivo dele, extraido
-por `extrair_puxador.py`: malha, material e texturas como sao), na borda
+por `tools/hardware/extract_profile_handle.py`: malha, material e texturas como sao), na borda
 inteira, SEM deformar chanfro nem arredondado (pedido do usuario): na
 largura as PONTAS andam inteiras; na espessura, a escala antiga esticava
 os cantos das costas -- agora a secao se divide no maior vao sem vertice
@@ -351,13 +351,13 @@ os cantos das costas -- agora a secao se divide no maior vao sem vertice
 reto acomoda. Porta tao fina que o reto sumiria: volta a' escala. A
 frente, o labio e a cava sao os dele.
 Tira 34,81 mm da madeira (o J de caixas, sem o asset, tira 30).
-Puxador BORDA (v322) = o slim de aba do usuario (`extrair_puxador_borda.py`):
+Puxador BORDA (v322) = o slim de aba do usuario (`tools/hardware/extract_edge_handle.py`):
 tampo de 1,1 mm na borda, enrolado 20 mm a' frente, aba de 13,4 mm nas
 costas com 2 furos (~4,3 mm). Padrao comercial pesquisado: 80 mm, furos a
 64 (8 mm das pontas: 144 -> 128). Comprimento e espessura da porta so'
 andam trechos retos (vaos sem vertice); furo/chanfro/enrolado nunca
 escalam. Weighted Normal no objeto (faces planas sem degrade).
-PARAFUSO padrao (v323; v326 = foto do usuario, `gerar_parafuso.py`):
+PARAFUSO padrao (v323; v326 = foto do usuario, `tools/hardware/generate_screw.py`):
 chipboard 3,5 x 14 cabeca CHATA escareada Phillips, haste lisa curta,
 rosca e ponta, bicromatizado, tamanho real; cabeca de 5,78 que NAO afunda
 ate' o fim, topo 0,876 acima da peca (v329, refinamento do usuario na cena
@@ -507,7 +507,7 @@ ancora), na cor de realce e na espessura das linhas da HUD, raio-X
 ferragens que a porta monta (`_ferragens_da_porta`): a Reta e' o rig do
 usuario, desenhado pelo CONTORNO (vincos > 30 graus, sem a subdivisao:
 ~4 mil segmentos em vez de 190 mil) gravado no .json do asset por
-`extrair_arame_dobradica.py`, em lote na GPU peca a peca; caixas,
+`tools/hardware/extract_hinge_wireframe.py`, em lote na GPU peca a peca; caixas,
 canecos e pistoes pela forma deles. O pistao aberto ganha um fio branco.
 O posicionador do puxador mostra o puxador na linha sob o mouse.
 Aba Portas criando (blocagem do usuario): marcada a area, as medidas da
@@ -577,7 +577,7 @@ marcada e confirmada pelo usuario, vale como marcada. Correr: sem campo
 de sobreposicao -- com a largura da folha editavel ela e' consequencia
 (o usuario nao via a diferenca entre as duas).
 Dobradica RETA = o modelo e o rig do usuario (arquivo dele, extraido por
-`extrair_dobradica.py`), importados tal e qual -- nada refeito: a folha
+`tools/hardware/extract_hinge.py`), importados tal e qual -- nada refeito: a folha
 abre como a dele (gira E anda, 91,7 graus no fim) e o copo fura a folha
 (Boolean -- o cortador e' a unica peca refeita: o do modelo era um
 octogono menor que o copo e fora do centro, sobravam lascas da porta
@@ -724,7 +724,7 @@ nativos; somente o material recebe alvos filtrados. A selecao completa
 permanece para mover/ocultar/duplicar. Sem grupo, editar o material de uma
 ferragem individual continua nativo.
 
-**Alvenaria e paredes (como no Promob, pedido do usuario).**
+**Alvenaria e paredes (como no DXF, pedido do usuario).**
 404: Editar e' a primeira acao, inteira/30 px/laranja. Abaixo, Parede,
 Piso e Teto com olho nativo de 28 px a' direita. O olho mostra os tres
 tipos, contornos e nomes; desligado limpa a exibicao, editar sempre mostra.
@@ -868,7 +868,7 @@ F3 "Desassociar da Parede" (v338: a secao Composicao do menu so' tem a
 cruz de medidas do selecionado; Livre/Fixa, Redistribuir, Trocar modelo e
 Desassociar sairam do menu a pedido do usuario; tambem os campos de folga
 Esquerda/Direita/Espacamento -- a distribuicao usa os valores da sessao).
-Cotas do modulo na parede, como no Promob (v315): A1/A2/A3 e, em CRUZ,
+Cotas do modulo na parede, como no DXF (v315): A1/A2/A3 e, em CRUZ,
 Superior (cima), Anterior/Afastamento/Posterior (meio), Inferior (baixo);
 colunas de ate' 84 px (5 digitos), rotulos curtos abaixo de 76. Anterior/
 Posterior = vizinho na mesma altura ou ponta da face; Inferior/Superior =
@@ -887,7 +887,7 @@ nenhuma cota. Guias de movimento (v336, linhas azuis do usuario): cada
 distancia sai do MEIO da sua face (laterais na meia altura, inferior e
 superior no meio da largura). Ponta fora da tela ou sob toolbar/cabecalho/
 prateleira vem para a borda da area livre, inteira.
-Na vista 2D (Editar parede), GUIAS DE ALTURA como no Promob: linhas da
+Na vista 2D (Editar parede), GUIAS DE ALTURA como no DXF: linhas da
 face inteira, DISCRETAS (v340): pontilhadas (tracos de 10 mm a cada 40 mm
 da propria malha, o snap continua) e rotulo "150 - Rodape" em texto cinza
 na ponta esquerda; a caixa preta da HUD so' com o mouse em cima
@@ -970,7 +970,7 @@ menu foi substituido pela lista suspensa (v315, pedido do usuario).
 - **Estimar largura de texto.** Use `blf.dimensions()`.
 
 ## 12. Antes de entregar
-1. Rodar o harness inteiro: `tests/rodar_testes.py` (com `--gui` quando
+1. Rodar o harness inteiro: `tests/run_tests.py` (com `--gui` quando
    puder abrir janela). Mudou o layout de proposito? `--atualizar` e
    revise o diff dos snapshots (`tests/CLAUDE.md`).
 2. Conferir em **tres larguras** (190, 320, 564) e nos dois temas:

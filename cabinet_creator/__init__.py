@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Archy Builder",
     "author": "Douglas",
-    "version": (407, 0, 0),
+    "version": (408, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Archy Builder / View3D > gaveta esquerda",
     "doc_url": "https://github.com/IINasK/archy-builder",
@@ -11,7 +11,7 @@ bl_info = {
 
 """Archy Builder: moveis planejados, arquitetura e interiores no Blender.
 
-O add-on e' um PACOTE: cada area mora no seu modulo (mapa em ARQUITETURA.md).
+O add-on e' um PACOTE: cada area mora no seu modulo (mapa em ARCHITECTURE.md).
 Aqui ficam so' o bl_info, a ordem de carga, a ligacao entre os modulos e o
 registro. Um modulo chama outro pelo apelido `_nome` (ex.: `_portas.x`).
 """
@@ -22,6 +22,7 @@ if "_MODULOS" in locals():
     for _modulo in _MODULOS:
         importlib.reload(_modulo)
 
+import sys
 import bpy
 import bpy.utils.previews
 from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
@@ -29,50 +30,138 @@ from bpy.props import (FloatProperty, BoolProperty, EnumProperty,
 from bpy.types import Operator
 
 # Na ordem de CARGA: cada um so' usa, ao carregar, os que vem antes dele.
-from . import chapas as _chapas
-from . import modulos as _modulos
-from . import biblioteca as _biblioteca
-from . import materiais as _materiais
-from . import opcoes as _opcoes
-from . import eventos as _eventos
-from . import selecao as _selecao
-from . import portas as _portas
-from . import ferragens as _ferragens
-from . import assistente as _assistente
-from . import gaveta_eventos as _gaveta_eventos
-from . import importacao as _importacao
-from . import puxadores as _puxadores
-from . import arame as _arame
-from . import gaveta as _gaveta
-from . import biblioteca_faixa as _biblioteca_faixa
-from . import orcamento as _orcamento
-from . import hud as _hud
-from . import hud_volume as _hud_volume
-from . import solda as _solda
-from . import perguntas as _perguntas
-from . import portas_viewport as _portas_viewport
-from . import gaveta_desenho as _gaveta_desenho
-from . import paredes as _paredes
-from . import paredes_selecao as _paredes_selecao
-from . import paredes_edicao as _paredes_edicao
-from . import paredes_composicao as _paredes_composicao
-from . import formas as _formas
-from . import gavetas as _gavetas
-from . import prateleiras as _prateleiras
-from . import divisorias as _divisorias
-from . import fundos as _fundos
-from . import promob as _promob
-from . import geometria as _geometria
-from . import frentes as _frentes
-from . import painel_legado as _painel_legado
-from . import editor as _editor
-from . import areas_criacao as _areas_criacao
-from . import visibilidade as _visibilidade
-from . import ambientes as _ambientes
-from . import alvenaria as _alvenaria
-from . import instalacoes as _instalacoes
-from . import esquadrias as _esquadrias
-from . import iluminacao as _iluminacao
+from .cabinetry import panels as _chapas
+chapas = _chapas
+sys.modules[__name__ + ".chapas"] = _chapas
+from .cabinetry import cabinets as _modulos
+modulos = _modulos
+sys.modules[__name__ + ".modulos"] = _modulos
+from .integrations import library as _biblioteca
+biblioteca = _biblioteca
+sys.modules[__name__ + ".biblioteca"] = _biblioteca
+from .integrations import materials as _materiais
+materiais = _materiais
+sys.modules[__name__ + ".materiais"] = _materiais
+from .core import options as _opcoes
+opcoes = _opcoes
+sys.modules[__name__ + ".opcoes"] = _opcoes
+from .core import events as _eventos
+eventos = _eventos
+sys.modules[__name__ + ".eventos"] = _eventos
+from .ui import selection as _selecao
+selecao = _selecao
+sys.modules[__name__ + ".selecao"] = _selecao
+from .cabinetry import doors as _portas
+portas = _portas
+sys.modules[__name__ + ".portas"] = _portas
+from .cabinetry import hardware as _ferragens
+ferragens = _ferragens
+sys.modules[__name__ + ".ferragens"] = _ferragens
+from .cabinetry import door_assistant as _assistente
+assistente = _assistente
+sys.modules[__name__ + ".assistente"] = _assistente
+from .ui import sidebar_events as _gaveta_eventos
+gaveta_eventos = _gaveta_eventos
+sys.modules[__name__ + ".gaveta_eventos"] = _gaveta_eventos
+from .integrations import importing as _importacao
+importacao = _importacao
+sys.modules[__name__ + ".importacao"] = _importacao
+from .cabinetry import handles as _puxadores
+puxadores = _puxadores
+sys.modules[__name__ + ".puxadores"] = _puxadores
+from .ui import wireframe as _arame
+arame = _arame
+sys.modules[__name__ + ".arame"] = _arame
+from .ui import sidebar as _gaveta
+gaveta = _gaveta
+sys.modules[__name__ + ".gaveta"] = _gaveta
+from .ui import library_strip as _biblioteca_faixa
+biblioteca_faixa = _biblioteca_faixa
+sys.modules[__name__ + ".biblioteca_faixa"] = _biblioteca_faixa
+from .integrations import estimates as _orcamento
+orcamento = _orcamento
+sys.modules[__name__ + ".orcamento"] = _orcamento
+from .ui import hud as _hud
+hud = _hud
+sys.modules[__name__ + ".hud"] = _hud
+from .ui import volume_hud as _hud_volume
+hud_volume = _hud_volume
+sys.modules[__name__ + ".hud_volume"] = _hud_volume
+from .cabinetry import welding as _solda
+solda = _solda
+sys.modules[__name__ + ".solda"] = _solda
+from .ui import dialogs as _perguntas
+perguntas = _perguntas
+sys.modules[__name__ + ".perguntas"] = _perguntas
+from .ui import door_controls as _portas_viewport
+portas_viewport = _portas_viewport
+sys.modules[__name__ + ".portas_viewport"] = _portas_viewport
+from .ui import sidebar_drawing as _gaveta_desenho
+gaveta_desenho = _gaveta_desenho
+sys.modules[__name__ + ".gaveta_desenho"] = _gaveta_desenho
+from .architecture import walls as _paredes
+paredes = _paredes
+sys.modules[__name__ + ".paredes"] = _paredes
+from .architecture import wall_selection as _paredes_selecao
+paredes_selecao = _paredes_selecao
+sys.modules[__name__ + ".paredes_selecao"] = _paredes_selecao
+from .architecture import wall_editor as _paredes_edicao
+paredes_edicao = _paredes_edicao
+sys.modules[__name__ + ".paredes_edicao"] = _paredes_edicao
+from .architecture import wall_layout as _paredes_composicao
+paredes_composicao = _paredes_composicao
+sys.modules[__name__ + ".paredes_composicao"] = _paredes_composicao
+from .cabinetry import shapes as _formas
+formas = _formas
+sys.modules[__name__ + ".formas"] = _formas
+from .cabinetry import drawers as _gavetas
+gavetas = _gavetas
+sys.modules[__name__ + ".gavetas"] = _gavetas
+from .cabinetry import shelves as _prateleiras
+prateleiras = _prateleiras
+sys.modules[__name__ + ".prateleiras"] = _prateleiras
+from .cabinetry import partitions as _divisorias
+divisorias = _divisorias
+sys.modules[__name__ + ".divisorias"] = _divisorias
+from .cabinetry import backs as _fundos
+fundos = _fundos
+sys.modules[__name__ + ".fundos"] = _fundos
+from .integrations import native_conversion as _promob
+promob = _promob
+sys.modules[__name__ + ".promob"] = _promob
+from .core import geometry as _geometria
+geometria = _geometria
+sys.modules[__name__ + ".geometria"] = _geometria
+from .cabinetry import fronts as _frentes
+frentes = _frentes
+sys.modules[__name__ + ".frentes"] = _frentes
+from .ui import legacy_panel as _painel_legado
+painel_legado = _painel_legado
+sys.modules[__name__ + ".painel_legado"] = _painel_legado
+from .ui import editor as _editor
+editor = _editor
+sys.modules[__name__ + ".editor"] = _editor
+from .ui import creation_areas as _areas_criacao
+areas_criacao = _areas_criacao
+sys.modules[__name__ + ".areas_criacao"] = _areas_criacao
+from .ui import visibility as _visibilidade
+visibilidade = _visibilidade
+sys.modules[__name__ + ".visibilidade"] = _visibilidade
+from .architecture import rooms as _ambientes
+ambientes = _ambientes
+sys.modules[__name__ + ".ambientes"] = _ambientes
+from .architecture import masonry as _alvenaria
+alvenaria = _alvenaria
+sys.modules[__name__ + ".alvenaria"] = _alvenaria
+from .architecture import installations as _instalacoes
+instalacoes = _instalacoes
+sys.modules[__name__ + ".instalacoes"] = _instalacoes
+from .architecture import openings as _esquadrias
+esquadrias = _esquadrias
+sys.modules[__name__ + ".esquadrias"] = _esquadrias
+from .architecture import lighting as _iluminacao
+iluminacao = _iluminacao
+sys.modules[__name__ + ".iluminacao"] = _iluminacao
 
 _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _selecao,
             _portas, _ferragens, _assistente, _gaveta_eventos, _importacao,
@@ -83,15 +172,61 @@ _MODULOS = (_chapas, _modulos, _biblioteca, _materiais, _opcoes, _eventos, _sele
             _instalacoes, _esquadrias, _iluminacao)
 
 
+_MODULE_ALIASES = {
+    "opcoes": _opcoes,
+    "eventos": _eventos,
+    "geometria": _geometria,
+    "chapas": _chapas,
+    "modulos": _modulos,
+    "portas": _portas,
+    "gavetas": _gavetas,
+    "prateleiras": _prateleiras,
+    "divisorias": _divisorias,
+    "formas": _formas,
+    "frentes": _frentes,
+    "fundos": _fundos,
+    "solda": _solda,
+    "ferragens": _ferragens,
+    "puxadores": _puxadores,
+    "assistente": _assistente,
+    "gaveta": _gaveta,
+    "gaveta_desenho": _gaveta_desenho,
+    "gaveta_eventos": _gaveta_eventos,
+    "editor": _editor,
+    "selecao": _selecao,
+    "hud": _hud,
+    "hud_volume": _hud_volume,
+    "biblioteca_faixa": _biblioteca_faixa,
+    "arame": _arame,
+    "perguntas": _perguntas,
+    "painel_legado": _painel_legado,
+    "areas_criacao": _areas_criacao,
+    "visibilidade": _visibilidade,
+    "portas_viewport": _portas_viewport,
+    "alvenaria": _alvenaria,
+    "ambientes": _ambientes,
+    "paredes": _paredes,
+    "paredes_selecao": _paredes_selecao,
+    "paredes_edicao": _paredes_edicao,
+    "paredes_composicao": _paredes_composicao,
+    "instalacoes": _instalacoes,
+    "esquadrias": _esquadrias,
+    "iluminacao": _iluminacao,
+    "biblioteca": _biblioteca,
+    "materiais": _materiais,
+    "orcamento": _orcamento,
+    "importacao": _importacao,
+    "promob": _promob,
+}
+
+
 def _ligar_modulos():
-    """Liga os apelidos `_nome` de cada modulo aos modulos de verdade: as
-    chamadas entre areas sao circulares (a gaveta chama as portas, que
-    chamam a gaveta), entao so' se ligam depois de todos carregados."""
+    """Bind historical domain references to their single canonical module."""
     for modulo in _MODULOS:
-        for outro in _MODULOS:
-            nome = '_' + outro.__name__.rsplit('.', 1)[-1]
-            if hasattr(modulo, nome):
-                setattr(modulo, nome, outro)
+        for nome, outro in _MODULE_ALIASES.items():
+            apelido = "_" + nome
+            if hasattr(modulo, apelido):
+                setattr(modulo, apelido, outro)
 
 
 _ligar_modulos()
