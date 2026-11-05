@@ -1,12 +1,12 @@
 ---
 name: cabinet-design
-description: Desenha e valida controles, miniaturas, cotas e alertas no editor Cabinet Creator. Use ao mudar layout, interacao ou feedback visual do add-on.
+description: Desenha e valida controles, miniaturas, cotas e alertas no editor Archy Builder. Use ao mudar layout, interacao ou feedback visual do add-on.
 ---
 
-# Design do Cabinet Creator
+# Design do Archy Builder
 
 Leia primeiro o guia de interface e as secoes aplicaveis de [DESIGN.md](../../../DESIGN.md).
-Use o editor Cabinet Creator. Layout produz a tupla de seis campos; desenho e
+Use o editor Archy Builder. Layout produz a tupla de seis campos; desenho e
 hit-test leem a mesma tupla, e eventos chamam o dono da acao pela ponte do editor.
 Prefira o verbo, campo, botao, barra e gizmo que ja' representam a operacao.
 Use cores do tema e o realce semantico existente; icones sao gizmos nativos.

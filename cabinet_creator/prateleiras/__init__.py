@@ -741,7 +741,7 @@ def atualizar_do_conjunto(conj):
                 l,a=grupo[CHAVE_VAO]
                 grupo[CHAVE_ENCAIXE]['bloco_atual'] = repr(([float(l),float(p['profundidade_mm']),float(a)],p))
         except ValueError as erro:
-            print("[Cabinet Creator] prateleiras de %s: %s" % (conj.name, erro))
+            print("[Archy Builder] prateleiras de %s: %s" % (conj.name, erro))
 
 
 def _parametros_editados(grupo, nome, valor):
@@ -1257,7 +1257,7 @@ def restaurar(estado):
     try:
         montar(grupo)
     except ValueError as erro:
-        print("[Cabinet Creator] prateleiras:", erro)
+        print("[Archy Builder] prateleiras:", erro)
 
 
 # ------------------------------------------------------------ assistente

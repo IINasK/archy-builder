@@ -13,7 +13,7 @@ class VIEW3D_PT_cabinet_creator(Panel):
     bl_idname = "VIEW3D_PT_cabinet_creator"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Cabinet Creator"
+    bl_category = "Archy Builder"
     bl_options = {'HEADER_LAYOUT_EXPAND'}
 
     @classmethod

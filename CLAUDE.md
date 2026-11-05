@@ -1,4 +1,4 @@
-# Cabinet Creator - instrucoes globais
+# Archy Builder - instrucoes globais
 
 AGENTS.md e CLAUDE.md sao espelhos: mude os dois juntos. Maximo 200 linhas.
 Codigo, UI, commits e nomes em portugues ASCII. Comentario explica o porque.
@@ -16,7 +16,7 @@ Testes: [tests/AGENTS.md](tests/AGENTS.md). Assets: [biblioteca](cabinet_creator
 ## Projeto e extensao
 
 Add-on Blender (bl_info 4.0; testes 4.2 e 5.2). Chapas BMesh, modulo Empty +
-Collection. Gaveta = menu GPU no editor Cabinet Creator; gavetas = caixas do movel.
+Collection. Gaveta = menu GPU no editor Archy Builder; gavetas = caixas do movel.
 Seis dominios sao pacotes homonimos; UI/integracoes mantem arquivos atuais.
 O __init__ raiz carrega, liga e registra. Entre modulos, SEMPRE `_modulo.nome`
 (ligado por `_ligar_modulos`); `from . import`/`from .. import` so' ao carregar.
@@ -44,7 +44,7 @@ cenas/fixtures temporarias; nao modificar o projeto aberto nem a biblioteca.
 Falha em test_estrutura_blender.py significa decisao intencional: confirme
 antes de enfraquecer a regra. Mudanca arquitetural pedida preserva o contrato
 no teste atualizado. Testes nunca escrevem na biblioteca real.
-Cada entrega incrementa bl_info["version"] (atual 405).
+Cada entrega incrementa bl_info["version"] (atual 406).
 
 ## Preferencias globais
 
@@ -124,5 +124,7 @@ Cada entrega incrementa bl_info["version"] (atual 405).
 
 Commit em portugues e terceira pessoa ao concluir cada etapa validada,
 sem esperar novo pedido do usuario. Push somente a pedido explicito.
+Marca Archy Builder; pacote cabinet_creator, IDs, preferencias, nomes de
+modificadores e tipos CabinetCreator* persistidos continuam compativeis.
 Fora do git: dist/, *.blend1, __pycache__. Nome antigo "Chapa G3"
 (tag chapa-g3); props de Object/Scene ficam. Preserve mudancas pendentes.

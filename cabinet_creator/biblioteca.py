@@ -29,20 +29,21 @@ _esquadrias = None
 # Cada preset vira um .blend proprio dentro da pasta da biblioteca.
 # Um arquivo por preset evita ter que reabrir e mesclar um .blend
 # compartilhado a cada gravacao.
+# Nome tecnico legado; caminhos ja' configurados nao mudam com a marca.
 SUBPASTA_BIB = "Cabinet Creator"
 # Raiz UNICA dos catalogos do Asset Browser. Trocar o CAMINHO de um
 # catalogo e' seguro desde que o UUID nao mude: o .blend guarda o UUID,
 # e e' por ele que o Blender reencontra o asset. Por isso as raizes
 # antigas sao RENOMEADAS (mesmo UUID), nunca recriadas.
-CAT_RAIZ = "Cabinet Creator"
-RAIZES_ANTIGAS = ("Chapa G3",)
+CAT_RAIZ = "Archy Builder"
+RAIZES_ANTIGAS = ("Cabinet Creator", "Chapa G3")
 
 # Uma unica biblioteca de assets. Os nomes abaixo sao os que o addon ja'
 # registrou em versoes anteriores e agora precisa recolher.
-NOME_BIBLIOTECA = "Cabinet Creator"
+NOME_BIBLIOTECA = "Archy Builder"
 BIBLIOTECAS_ANTIGAS = (
     "Chapa G3 (fabrica)", "Chapa G3 (equipe)",
-    "Cabinet Creator (fabrica)", "Cabinet Creator (equipe)",
+    "Cabinet Creator", "Cabinet Creator (fabrica)", "Cabinet Creator (equipe)",
 )
 CAT_CHAPAS = CAT_RAIZ + "/Chapas"
 CAT_MODULOS = CAT_RAIZ + "/Modulos"
@@ -68,7 +69,7 @@ def pasta_biblioteca():
     try:
         os.makedirs(destino, exist_ok=True)
     except Exception as e:
-        print("[Cabinet Creator] biblioteca:", e)
+        print("[Archy Builder] biblioteca:", e)
     return destino
 
 
@@ -90,7 +91,7 @@ def registrar_bibliotecas(silencioso=True):
                 libs.remove(libs[i])
             except Exception as e:
                 if not silencioso:
-                    print("[Cabinet Creator] remover biblioteca antiga:", e)
+                    print("[Archy Builder] remover biblioteca antiga:", e)
 
     ja = any(os.path.normcase(os.path.normpath(bpy.path.abspath(l.path))) == alvo
              for l in libs if l.path)
@@ -101,7 +102,7 @@ def registrar_bibliotecas(silencioso=True):
             registradas.append(NOME_BIBLIOTECA)
         except Exception as e:
             if not silencioso:
-                print("[Cabinet Creator] registro falhou:", e)
+                print("[Archy Builder] registro falhou:", e)
 
     # a cascata tem de existir ANTES do primeiro save, senao o Asset
     # Browser abre sem nenhuma pasta
@@ -109,7 +110,7 @@ def registrar_bibliotecas(silencioso=True):
         _garantir_catalogos(caminho)
     except Exception as e:
         if not silencioso:
-            print("[Cabinet Creator] catalogos:", e)
+            print("[Archy Builder] catalogos:", e)
     return registradas
 
 
@@ -128,7 +129,7 @@ def caminhos_catalogo():
     try:
         arvores.append(_niveis_do_indice())
     except Exception as e:
-        print("[Cabinet Creator] niveis do indice:", e)
+        print("[Archy Builder] niveis do indice:", e)
     for arv in arvores:
         for n1, filhos in arv.items():
             caminhos.append("%s/%s" % (CAT_RAIZ, n1))
@@ -144,7 +145,7 @@ def caminhos_catalogo():
             for k in range(1, len(trilha) + 1):
                 caminhos.append(catalogo_de(*trilha[:k]))
     except Exception as e:
-        print("[Cabinet Creator] niveis do indice:", e)
+        print("[Archy Builder] niveis do indice:", e)
     return list(dict.fromkeys(caminhos))
 
 
@@ -310,7 +311,7 @@ def _pixels_png(caminho, lado=LADO_PREVIEW):
             img.scale(lado, lado)
         return list(img.pixels)
     except Exception as e:
-        print("[Cabinet Creator] preview:", e)
+        print("[Archy Builder] preview:", e)
         return None
     finally:
         if img is not None:
@@ -414,7 +415,7 @@ class OBJECT_OT_regerar_previews(Operator):
             else:
                 falhas.append("%s: %s" % (it.get("nome", "?"), msg))
         for f in falhas:
-            print("[Cabinet Creator] preview:", f)
+            print("[Archy Builder] preview:", f)
         if falhas:
             self.report({'WARNING'},
                         "%d preview(s) gravada(s), %d sem foto -- salve o "
@@ -444,7 +445,7 @@ class OBJECT_OT_refiliar_catalogos(Operator):
             else:
                 falhas.append("%s: %s" % (it.get("nome", "?"), msg))
         for f in falhas:
-            print("[Cabinet Creator] refiliar:", f)
+            print("[Archy Builder] refiliar:", f)
         if falhas:
             self.report({'WARNING'},
                         "%d movido(s), %d falha(s) -- ver console"
@@ -486,7 +487,7 @@ def salvar_na_biblioteca(objs, nome, como_colecao, niveis=None):
         col.asset_mark()
         if col.asset_data:
             col.asset_data.catalog_id = ids_cat[cam_cat]
-            col.asset_data.description = "Modulo G3 - %d peca(s)" % len(objs)
+            col.asset_data.description = "Modulo Archy Builder - %d peca(s)" % len(objs)
             col.asset_data.tags.new("chapa-g3")
         blocos.add(col)
     else:
@@ -683,7 +684,7 @@ def _ler_indice(pasta, estrito=False):
     except Exception as e:
         if estrito:
             raise
-        print("[Cabinet Creator] indice ilegivel:", e)
+        print("[Archy Builder] indice ilegivel:", e)
         return []
 
 
@@ -693,7 +694,7 @@ def _gravar_indice(pasta, itens):
                          json.dumps(itens, ensure_ascii=False, indent=1) + "\n")
         _biblioteca_faixa.invalidar()
     except Exception as e:
-        print("[Cabinet Creator] nao gravei o indice:", e)
+        print("[Archy Builder] nao gravei o indice:", e)
 
 
 def indice_completo():
@@ -1078,7 +1079,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             self._handler_aviso = bpy.types.SpaceView3D.draw_handler_add(
                 self._desenhar_aviso, (), 'WINDOW', 'POST_PIXEL')
         except Exception as e:
-            print("[Cabinet Creator] preview do arraste:", e)
+            print("[Archy Builder] preview do arraste:", e)
             self._encerrar_visual(context)
             self._apagar()
             self._restaurar_selecao(context)
@@ -1133,7 +1134,7 @@ class OBJECT_OT_arrastar_preset(Operator):
                                          self._raizes[0] if self._modulo_unico else None)
             _atualizar_item(self.pasta, self.arquivo, {CHAVE_CAIXA: registro})
         except Exception as e:
-            print("[Cabinet Creator] caixa do preset nao gravada:", e)
+            print("[Archy Builder] caixa do preset nao gravada:", e)
 
     def _esperar_carga(self, context):
         """Solto: o wireframe fica parado com "Carregando..." e o .blend
@@ -1221,7 +1222,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             _gaveta._texto_cabivel_gaveta(x, y, texto, largura,
                                          tamanho=13 * escala, cor=(1, 1, 1, 1))
         except Exception as e:
-            print("[Cabinet Creator] aviso de posicionamento:", e)
+            print("[Archy Builder] aviso de posicionamento:", e)
         finally:
             gpu.state.blend_set('NONE')
 
@@ -1322,7 +1323,7 @@ class OBJECT_OT_arrastar_preset(Operator):
             batch_for_shader(
                 shader, 'LINES', {"pos": linhas_mira}).draw(shader)
         except Exception as e:
-            print("[Cabinet Creator] desenho do preview:", e)
+            print("[Archy Builder] desenho do preview:", e)
         finally:
             try:
                 gpu.state.line_width_set(1.0)
@@ -1374,7 +1375,7 @@ class OBJECT_OT_arrastar_preset(Operator):
                 normal = normal_hit.copy()
                 self._em_superficie = True
         except Exception as e:
-            print("[Cabinet Creator] raycast do arraste:", e)
+            print("[Archy Builder] raycast do arraste:", e)
         if alvo is None:
             alvo = intersect_line_plane(
                 origem, origem + direcao * 1000.0,
@@ -2087,7 +2088,7 @@ def _icone_fatia_barra(indice, ativo, ultimo):
             preview.image_size = tamanho
             preview.image_pixels_float = pixels
         except Exception as e:
-            print("[Cabinet Creator] barra:", e)
+            print("[Archy Builder] barra:", e)
             return 0
     try:
         return colecao[chave].icon_id
@@ -2188,7 +2189,7 @@ def _tiles_foto(pasta, png, lado):
                 try:
                     pv = colecao.new(base + "%d:%d" % (i, j))
                 except Exception as e:
-                    print("[Cabinet Creator] foto:", e)
+                    print("[Archy Builder] foto:", e)
                     return None
                 tam = (FOTO_TILE_PX, FOTO_TILE_PX)
                 pv.icon_size = tam
@@ -2200,7 +2201,7 @@ def _tiles_foto(pasta, png, lado):
                  for i in range(lado)]
                 for j in range(lado - 1, -1, -1)]
     except Exception as e:
-        print("[Cabinet Creator] foto:", e)
+        print("[Archy Builder] foto:", e)
         return None
 
 
@@ -2272,7 +2273,7 @@ def _icone_wireframe(context, modo, largura, altura, profundidade, folhas=0):
                     del colecao[chave]
                 except Exception:
                     pass
-            print("[Cabinet Creator] wireframe:", e)
+            print("[Archy Builder] wireframe:", e)
             return 0
     _registrar_uso_wireframe(chave, colecao)
     return colecao[chave].icon_id
@@ -2322,7 +2323,7 @@ def _ocupacao_alpha_png(caminho):
         return max((max_x - min_x + 1) / largura,
                    (max_y - min_y + 1) / altura)
     except Exception as e:
-        print("[Cabinet Creator] leitura do alfa:", e)
+        print("[Archy Builder] leitura do alfa:", e)
         return 0.0
     finally:
         if imagem is not None:
@@ -2925,7 +2926,7 @@ class OBJECT_OT_salvar_biblioteca(Operator):
             okp, msgp = aplicar_preview_png(
                 arq, os.path.join(pasta_biblioteca(), png))
             if not okp:
-                print("[Cabinet Creator] preview do asset:", msgp)
+                print("[Archy Builder] preview do asset:", msgp)
             registrar_no_indice(pasta_biblioteca(), self.nome, arq, *niveis,
                                 "modulo" if self.como_modulo else "objeto")
         except Exception as e:
@@ -2964,10 +2965,10 @@ def _apontar_asset_browser():
                     try:
                         params.asset_library_reference = NOME_BIBLIOTECA
                     except Exception as e:
-                        print("[Cabinet Creator] biblioteca:", e)
+                        print("[Archy Builder] biblioteca:", e)
                 area.tag_redraw()
     except Exception as e:
-        print("[Cabinet Creator] asset browser:", e)
+        print("[Archy Builder] asset browser:", e)
     return None
 
 
@@ -3002,7 +3003,7 @@ class OBJECT_OT_abrir_asset_browser(Operator):
                     bpy.ops.screen.area_close()
                 return {'FINISHED'}
             except Exception as e:
-                print("[Cabinet Creator] fechar browser:", e)
+                print("[Archy Builder] fechar browser:", e)
                 self.report({'WARNING'}, "Feche a area a mao")
                 return {'CANCELLED'}
 
@@ -3018,7 +3019,7 @@ class OBJECT_OT_abrir_asset_browser(Operator):
                 bpy.ops.screen.area_split(direction='HORIZONTAL',
                                           factor=FRACAO_ASSET_BROWSER)
         except Exception as e:
-            print("[Cabinet Creator] dividir area:", e)
+            print("[Archy Builder] dividir area:", e)
             self.report({'WARNING'}, "Nao consegui abrir a biblioteca")
             return {'CANCELLED'}
 
@@ -3031,7 +3032,7 @@ class OBJECT_OT_abrir_asset_browser(Operator):
             nova.type = 'FILE_BROWSER'
             nova.ui_type = 'ASSETS'
         except Exception as e:
-            print("[Cabinet Creator] asset browser:", e)
+            print("[Archy Builder] asset browser:", e)
             self.report({'WARNING'}, "Troque o editor para Asset Browser")
             return {'CANCELLED'}
         # params so' nasce depois do primeiro desenho da area

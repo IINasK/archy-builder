@@ -8,7 +8,7 @@
 
 E' a biblioteca DA EMPRESA -- a unica. `pasta_biblioteca()` aponta para
 ca' e o Blender a registra como a unica biblioteca de assets do add-on,
-chamada `Cabinet Creator`. Salvar pela UI grava aqui.
+chamada `Archy Builder`. Salvar pela UI grava aqui.
 
 Nao existe mais o par fabrica/equipe: era ele que produzia duas entradas
 no seletor do Asset Browser. O cadeado virou por item (`bloqueado` no
@@ -58,9 +58,9 @@ Lista JSON, `indent=1`, `ensure_ascii=False`. Cada item:
 - Os `.blend` guardam o UUID do catalogo no `asset_data`. NAO troque os
   UUIDs existentes, senao os assets somem do catalogo no Asset Browser.
 - O arquivo e' GERADO por `_garantir_catalogos()`: a cascata inteira da
-  `ARVORE` sob a raiz UNICA `Cabinet Creator`. Nao edite a mao — rode a
+  `ARVORE` sob a raiz UNICA `Archy Builder`. Nao edite a mao — rode a
   funcao apontando para esta pasta e commite o resultado.
-- Raizes antigas (`RAIZES_ANTIGAS`, hoje `Chapa G3`) sao RENOMEADAS
+- Raizes antigas (`RAIZES_ANTIGAS`, `Cabinet Creator` e `Chapa G3`) sao RENOMEADAS
   mantendo o UUID. Renomear o caminho e' seguro; trocar o UUID nao.
 - O nivel 1 e' exatamente o do painel N (chaves da `ARVORE`). Os
   catalogos por TIPO (`Chapas`/`Modulos`) so' existem como fallback de

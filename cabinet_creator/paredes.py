@@ -961,7 +961,7 @@ def desenhar_guias(context):
                             linha.normalized() if linha.length > 1 else Vector((1, 0)),
                             mm_por_px))
     except Exception as e:
-        print("[Cabinet Creator] guias da parede:", e)
+        print("[Archy Builder] guias da parede:", e)
     finally:
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
@@ -1009,7 +1009,7 @@ def _desenhar_face_alvo(arraste, tela, realce, regiao, rv3d):
             shader.uniform_float('color', (*realce[:3], 1.0))
             batch_for_shader(shader, 'LINES', {'pos': pares}).draw(shader)
     except Exception as e:
-        print("[Cabinet Creator] realce da parede:", e)
+        print("[Archy Builder] realce da parede:", e)
     finally:
         gpu.state.line_width_set(1.0)
         gpu.state.blend_set('NONE')
@@ -1449,7 +1449,7 @@ class VIEW3D_GT_guia_parede(Gizmo):
 
 class VIEW3D_GGT_guias_parede(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_guias_parede'
-    bl_label = 'Guias da parede Cabinet Creator'
+    bl_label = 'Guias da parede Archy Builder'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}

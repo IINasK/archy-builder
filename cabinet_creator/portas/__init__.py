@@ -729,7 +729,7 @@ def _espessura_da_moldura_mudou(peca, espessura):
         return False
     erro = _editar_parametro_porta(bpy.context, grupo, 'moldura_mm', espessura)
     if erro:
-        print("[Cabinet Creator] espessura da moldura:", erro)
+        print("[Archy Builder] espessura da moldura:", erro)
         return False
     return True
 
@@ -1454,7 +1454,7 @@ def atualizar_do_conjunto(conj):
             _grupo_portas(f) in pendentes for f in
             [g.get('porta_ancora_%d' % i) for i in range(4)] + [g.get('porta_apoio_folha')])]
         if not livres:
-            print("[Cabinet Creator] ciclo entre portas de apoio")
+            print("[Archy Builder] ciclo entre portas de apoio")
             break
         ordenados.extend(livres)
         pendentes = [g for g in pendentes if g not in livres]
@@ -1486,7 +1486,7 @@ def atualizar_do_conjunto(conj):
             _aplicar_portas(bpy.context, grupo, matriz, conj,
                             largura, altura, dict(parametros))
         except (ValueError, KeyError, TypeError) as e:
-            print("[Cabinet Creator] porta vinculada:", e)
+            print("[Archy Builder] porta vinculada:", e)
 
 
 def atualizar_portas_do_conjunto(conj, sistemas=True):
@@ -1905,7 +1905,7 @@ def _espessura_da_folha_mudou(folha, espessura):
         return False
     erro = _editar_parametro_porta(bpy.context, grupo, 'espessura_mm', espessura)
     if erro:
-        print("[Cabinet Creator] espessura da porta:", erro)
+        print("[Archy Builder] espessura da porta:", erro)
         return False
     return True
 

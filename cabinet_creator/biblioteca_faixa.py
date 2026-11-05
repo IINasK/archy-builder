@@ -112,7 +112,7 @@ def configurar_pendentes():
             continue
         estado['tentativas'] += 1
         if estado['tentativas'] > 100:
-            print('[Cabinet Creator] nao foi possivel preparar a biblioteca superior')
+            print('[Archy Builder] nao foi possivel preparar a biblioteca superior')
             fechar(janela, screen)
             continue
         principal = next((a for a in screen.areas
@@ -783,7 +783,7 @@ def _ajustar_alturas():
                     _mover_cursor(janela, *estado['mouse'])
                 janela.screen[CHAVE_RECOLHIDA] = estado['recolhida_antes']
                 _alturas[0].pop(janela.screen.name, None)
-                print('[Cabinet Creator] mova a fronteira nativa para ajustar a altura')
+                print('[Archy Builder] mova a fronteira nativa para ajustar a altura')
     return 0.02 if _alturas[0] else None
 
 

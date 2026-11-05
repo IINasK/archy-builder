@@ -481,7 +481,7 @@ def _malha_modelo_usuario(arquivo, carregar=True):
         with bpy.data.libraries.load(caminho) as (de, para):
             para.meshes = list(de.meshes)
     except (OSError, RuntimeError) as e:
-        print('[Cabinet Creator] modelo de puxador:', e)
+        print('[Archy Builder] modelo de puxador:', e)
         return atual
     novas = [m for m in bpy.data.meshes if m not in antes]
     if not novas:

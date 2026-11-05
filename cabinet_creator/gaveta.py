@@ -297,7 +297,7 @@ def _fechar_gavetas_registradas():
                                            area=painel):
                 bpy.ops.screen.area_close()
         except Exception as e:
-            print("[Cabinet Creator] fechar gaveta ao desativar:", e)
+            print("[Archy Builder] fechar gaveta ao desativar:", e)
 
 
 def _retangulo_gaveta(x, y, largura, altura, cor):
@@ -2604,7 +2604,7 @@ def _desenhar_foto_gaveta(it, x, y, w, h):
         shader.uniform_sampler('image', textura)
         batch.draw(shader)
     except Exception as e:
-        print('[Cabinet Creator] foto na gaveta:', e)
+        print('[Archy Builder] foto na gaveta:', e)
         _texto_gaveta(x + 8, y + h / 2, 'Foto indisponivel', 11)
 
 

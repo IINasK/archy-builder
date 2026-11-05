@@ -1471,7 +1471,7 @@ def _gavetas_do_plano(context, conj, g):
         try:
             return _gavetas.criar_gavetas(context, conj, margens, p, local_ref)
         except ValueError as erro:
-            print('[Cabinet Creator] cesto do Promob em %s: %s' % (conj.name, erro))
+            print('[Archy Builder] cesto do Promob em %s: %s' % (conj.name, erro))
             return None
     cobre = x0 - min(f['lo'][0] for f in fs)
     sobreposta = cobre > 1.0
@@ -1497,7 +1497,7 @@ def _gavetas_do_plano(context, conj, g):
     try:
         return _gavetas.criar_gavetas(context, conj, margens, p, local_ref)
     except ValueError as erro:
-        print('[Cabinet Creator] gavetas do Promob em %s: %s' % (conj.name, erro))
+        print('[Archy Builder] gavetas do Promob em %s: %s' % (conj.name, erro))
         return None
 
 

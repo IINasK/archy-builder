@@ -69,7 +69,7 @@ def verificar_periodicamente():
         _paredes_edicao.verificar()
     except Exception as erro:
         _paredes_edicao.encerrar()
-        print('[Cabinet Creator] edicao de parede:', erro)
+        print('[Archy Builder] edicao de parede:', erro)
     sincronizar_contornos()
     if not _chapas._ocupado[0] and not _ha_modal_ativo():
         try:
@@ -93,7 +93,7 @@ def verificar_periodicamente():
             _ferragens.ocultar_pecas_do_rig()
             _paredes.atualizar_guias()
         except Exception as e:
-            print("[Cabinet Creator] erro no timer:", e)
+            print("[Archy Builder] erro no timer:", e)
     return INTERVALO_TIMER
 
 
@@ -217,7 +217,7 @@ def sincronizar_contornos(devolver=False):
                         _contornos_desligados.discard(espaco.as_pointer())
                         espaco.overlay.show_outline_selected = True
         except Exception as e:
-            print("[Cabinet Creator] contorno:", e)
+            print("[Archy Builder] contorno:", e)
         return
     try:
         janelas = bpy.context.window_manager.windows
@@ -244,7 +244,7 @@ def sincronizar_contornos(devolver=False):
                 if novo is not None:
                     overlay.show_outline_selected = novo
         except Exception as e:
-            print("[Cabinet Creator] contorno:", e)
+            print("[Archy Builder] contorno:", e)
 
 
 @bpy.app.handlers.persistent

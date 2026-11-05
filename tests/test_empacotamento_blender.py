@@ -28,7 +28,7 @@ class TestEmpacotamento(unittest.TestCase):
              patch.object(build,'PKG',str(self.pkg)), \
              patch.object(build,'DIST',str(self.raiz/'dist')), contextlib.redirect_stdout(io.StringIO()):
             build.main()
-        return self.raiz/'dist'/'cabinet_creator.zip'
+        return self.raiz/'dist'/'archy_builder.zip'
 
     def test_pacote_inclui_licenca_oficial_sem_backups_ou_temporarios(self):
         for nome in ('__init__.py','modelo.blend','modelo.blend1','modelo.blend2','codigo.pyc','parcial.tmp'):

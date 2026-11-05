@@ -274,7 +274,7 @@ def _acompanhar():
                 except Exception as erro:
                     # O transformador ainda possui o cursor. Conservar o
                     # estado ate' confirmar/Esc garante que ele seja devolvido.
-                    print('[Cabinet Creator] resize:', erro)
+                    print('[Archy Builder] resize:', erro)
                     estado['erro'] = str(erro)
                     estado['ultimo'] = tuple(bpy.context.scene.cursor.location)
                     _hud._edicao_hud[0] = None

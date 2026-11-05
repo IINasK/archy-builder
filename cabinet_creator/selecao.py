@@ -448,7 +448,7 @@ class OBJECT_OT_selecionar(Operator):
                 toggle=self.toggle, deselect_all=self.deselect_all,
                 select_passthrough=self.select_passthrough)
         except Exception as e:
-            print("[Cabinet Creator] selecao:", e)
+            print("[Archy Builder] selecao:", e)
             return {'CANCELLED'}
         if 'PASS_THROUGH' in r or 'CANCELLED' in r:
             return r

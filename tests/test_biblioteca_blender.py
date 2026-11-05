@@ -16,6 +16,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import bpy
 from mathutils import Vector
@@ -415,7 +416,7 @@ class TestIndice(BaseBiblioteca):
         self.assertIn("Sapateiras", addon.biblioteca._filhos_n3("Armarios", "Quarto"))
         self.assertEqual(addon.biblioteca._conta(addon.biblioteca.indice_completo(), "Armarios",
                                       "Quarto", "Sapateiras"), 1)
-        self.assertIn("Cabinet Creator/Armarios/Quarto/Sapateiras",
+        self.assertIn("Archy Builder/Armarios/Quarto/Sapateiras",
                       addon.biblioteca.caminhos_catalogo())
 
     def test_achar_item_exige_pasta_e_arquivo(self):
@@ -452,6 +453,52 @@ class TestIndice(BaseBiblioteca):
 
 # ====================================================== CATALOGOS
 class TestCatalogos(BaseBiblioteca):
+    def test_registro_renomeia_biblioteca_legada_sem_duplicar_pasta(self):
+        B = addon.biblioteca
+        libs = bpy.context.preferences.filepaths.asset_libraries
+        antes = [(l.name, l.path) for l in libs]
+        try:
+            for nome in ('Cabinet Creator', 'Cabinet Creator (equipe)'):
+                bpy.ops.preferences.asset_library_add(directory=self.pasta)
+                libs[-1].name = nome
+            pessoal = os.path.join(self.tmp, 'pessoal')
+            os.makedirs(pessoal)
+            bpy.ops.preferences.asset_library_add(directory=pessoal)
+            libs[-1].name = 'Assets pessoais'
+            B.registrar_bibliotecas()
+            B.registrar_bibliotecas()
+            caminho = os.path.normcase(os.path.normpath(self.pasta))
+            iguais = [l.name for l in libs if os.path.normcase(os.path.normpath(l.path)) == caminho]
+            self.assertEqual(iguais, ['Archy Builder'])
+            self.assertTrue(any(l.name == 'Assets pessoais' and l.path == pessoal for l in libs))
+        finally:
+            for l in list(libs):
+                libs.remove(l)
+            for nome, pasta in antes:
+                bpy.ops.preferences.asset_library_add(directory=pasta)
+                libs[-1].name = nome
+
+    def test_marca_nova_migra_catalogos_antigos_sem_trocar_uuid(self):
+        B = addon.biblioteca
+        self.assertEqual(B.NOME_BIBLIOTECA, 'Archy Builder')
+        self.assertEqual(B.CAT_RAIZ, 'Archy Builder')
+        for antiga in ('Cabinet Creator', 'Chapa G3'):
+            with self.subTest(antiga=antiga):
+                pasta = os.path.join(self.tmp, antiga)
+                os.makedirs(pasta)
+                arquivo = os.path.join(pasta, ARQ_CATS)
+                uid = '60606060-1111-4222-8333-444444444444'
+                with open(arquivo, 'w', encoding='utf-8') as f:
+                    f.write('VERSION 1\n\n%s:%s/Chapas/Avulsas:legado\n' % (uid, antiga))
+                B._garantir_catalogos(pasta)
+                cats = ler_cats(pasta)
+                self.assertEqual(cats['Archy Builder/Chapas/Avulsas'], uid)
+                self.assertNotIn(antiga + '/Chapas/Avulsas', cats)
+                antes = Path(arquivo).read_bytes()
+                B._garantir_catalogos(pasta)
+                self.assertEqual(Path(arquivo).read_bytes(), antes)
+        self.assertIn('Cabinet Creator', B.BIBLIOTECAS_ANTIGAS)
+
     def test_catalogo_de_monta_o_caminho_mais_fundo(self):
         R = addon.biblioteca.CAT_RAIZ
         self.assertEqual(addon.biblioteca.catalogo_de("Armarios", "Sala", "Cantos"),
@@ -481,8 +528,8 @@ class TestCatalogos(BaseBiblioteca):
         addon.biblioteca.registrar_no_indice(self.pasta, "X", "X.blend", "Armarios",
                                   "Lavanderia", "Tanques", "objeto")
         cams = addon.biblioteca.caminhos_catalogo()
-        self.assertIn("Cabinet Creator/Armarios/Lavanderia", cams)
-        self.assertIn("Cabinet Creator/Armarios/Lavanderia/Tanques", cams)
+        self.assertIn("Archy Builder/Armarios/Lavanderia", cams)
+        self.assertIn("Archy Builder/Armarios/Lavanderia/Tanques", cams)
 
     def test_migrar_raiz(self):
         R = addon.biblioteca.CAT_RAIZ
@@ -527,14 +574,14 @@ class TestCatalogos(BaseBiblioteca):
         os.makedirs(pasta)
         u_sala = "11111111-1111-1111-1111-111111111111"
         with open(os.path.join(pasta, ARQ_CATS), "w", encoding="utf-8") as f:
-            f.write("VERSION 1\n\n%s:Cabinet Creator/Armarios/Sala:x\n"
+            f.write("VERSION 1\n\n%s:Archy Builder/Armarios/Sala:x\n"
                     % u_sala)
-        ids = addon.biblioteca._garantir_catalogos(pasta, extras=("Cabinet Creator/Extra",
+        ids = addon.biblioteca._garantir_catalogos(pasta, extras=("Archy Builder/Extra",
                                                        ""))
         cats = ler_cats(pasta)
-        self.assertEqual(cats["Cabinet Creator/Armarios/Sala"], u_sala)
-        self.assertEqual(ids["Cabinet Creator/Armarios/Sala"], u_sala)
-        self.assertIn("Cabinet Creator/Extra", cats)
+        self.assertEqual(cats["Archy Builder/Armarios/Sala"], u_sala)
+        self.assertEqual(ids["Archy Builder/Armarios/Sala"], u_sala)
+        self.assertIn("Archy Builder/Extra", cats)
         for cam in addon.biblioteca.caminhos_catalogo():
             self.assertIn(cam, cats)
         self.assertEqual(len(set(cats.values())), len(cats))
@@ -542,8 +589,8 @@ class TestCatalogos(BaseBiblioteca):
         self.assertTrue(bruto.startswith(b"VERSION 1\n"))
         self.assertNotIn(b"\r\n", bruto)
         # nome simples = caminho com tracos
-        self.assertIn(("%s:Cabinet Creator/Armarios/Sala:"
-                       "Cabinet Creator-Armarios-Sala\n" % u_sala).encode(),
+        self.assertIn(("%s:Archy Builder/Armarios/Sala:"
+                       "Archy Builder-Armarios-Sala\n" % u_sala).encode(),
                       bruto)
         # segunda passada: nenhum UUID novo
         self.assertEqual(addon.biblioteca._garantir_catalogos(pasta), ids)
@@ -582,7 +629,7 @@ class TestGravacao(BaseBiblioteca):
         self.assertEqual(os.path.dirname(arq), self.pasta)
         self.assertEqual(os.path.basename(arq), "Placa_Teste.blend")
         self.assertTrue(os.path.exists(arq))
-        u = ler_cats(self.pasta)["Cabinet Creator/Portas/Abrir"]
+        u = ler_cats(self.pasta)["Archy Builder/Portas/Abrir"]
         lidos = dict(ler_blend(arq))
         self.assertIn("Placa Teste", lidos)
         info = lidos["Placa Teste"]
@@ -615,7 +662,7 @@ class TestGravacao(BaseBiblioteca):
         self.assertEqual(nome, "Modulo Teste")
         self.assertTrue(info["asset"])
         self.assertEqual(info["catalogo"], ler_cats(self.pasta)[
-            "Cabinet Creator/Armarios/Sala/Cantos"])
+            "Archy Builder/Armarios/Sala/Cantos"])
         objs = {n: i for n, i in lidos if i["tipo_id"] == "Object"}
         self.assertEqual(set(objs), {"Lado A", "Lado B"})
         for i in objs.values():
@@ -634,7 +681,7 @@ class TestGravacao(BaseBiblioteca):
         antes = dict(ler_blend(cam))
         ok, msg = addon.biblioteca.refiliar_preset(cam, ("Portas", "Abrir", ""))
         self.assertTrue(ok, msg)
-        self.assertEqual(msg, "Cabinet Creator/Portas/Abrir")
+        self.assertEqual(msg, "Archy Builder/Portas/Abrir")
         depois_cats = ler_cats(self.pasta)
         # nenhum UUID existente mudou
         for c, u in uuids_antes.items():
@@ -645,7 +692,7 @@ class TestGravacao(BaseBiblioteca):
             novo = depois[nome]
             self.assertTrue(novo["asset"])
             self.assertEqual(novo["catalogo"],
-                             depois_cats["Cabinet Creator/Portas/Abrir"])
+                             depois_cats["Archy Builder/Portas/Abrir"])
             self.assertEqual(novo["props"], info["props"])
             self.assertEqual(novo["vertices"], info["vertices"])
 
@@ -655,11 +702,11 @@ class TestGravacao(BaseBiblioteca):
         ok, msg = addon.biblioteca.refiliar_preset(cam, ("Armarios", "Lavanderia", ""))
         self.assertTrue(ok, msg)
         cats = ler_cats(self.pasta)
-        self.assertIn("Cabinet Creator/Armarios/Lavanderia", cats)
+        self.assertIn("Archy Builder/Armarios/Lavanderia", cats)
         lidos = ler_blend(cam)
         col = [i for n, i in lidos if i["tipo_id"] == "Collection"][0]
         self.assertEqual(col["catalogo"],
-                         cats["Cabinet Creator/Armarios/Lavanderia"])
+                         cats["Archy Builder/Armarios/Lavanderia"])
         # as chapas do modulo continuam la', com marcador e UID
         chapas = [i for n, i in lidos
                   if addon.chapas.MARCA_CHAPA in i["props"]]
@@ -717,7 +764,7 @@ class TestGravacao(BaseBiblioteca):
             self.assertAlmostEqual(a, b, delta=0.02)
         # catalogo nao foi tocado pela preview
         self.assertEqual(info["catalogo"], ler_cats(self.pasta)[
-            "Cabinet Creator/Chapas/Avulsas"])
+            "Archy Builder/Chapas/Avulsas"])
 
     def test_aplicar_preview_png_recusa_sem_arquivos(self):
         self.criar_presets_de_teste()
@@ -798,7 +845,7 @@ class TestOperadores(BaseBiblioteca):
         self.assertEqual((item[0]["n1"], item[0]["n2"], item[0]["n3"],
                           item[0]["tipo"]),
                          ("Chapas", "Avulsas", "", "objeto"))
-        u = ler_cats(self.pasta)["Cabinet Creator/Chapas/Avulsas"]
+        u = ler_cats(self.pasta)["Archy Builder/Chapas/Avulsas"]
         assets = [i for _n, i in ler_blend(arq) if i["asset"]]
         self.assertEqual(len(assets), 1)
         self.assertEqual(assets[0]["catalogo"], u)
@@ -936,7 +983,7 @@ class TestOperadores(BaseBiblioteca):
             'EXEC_DEFAULT', pasta=self.pasta, arquivo=arq,
             nome=NOME_CHAPA_T, n1="Portas", n2="Abrir", n3="")
         self.assertEqual(r, {'FINISHED'})
-        u = ler_cats(self.pasta)["Cabinet Creator/Portas/Abrir"]
+        u = ler_cats(self.pasta)["Archy Builder/Portas/Abrir"]
         assets = [i for _n, i in ler_blend(os.path.join(self.pasta, arq))
                   if i["asset"]]
         self.assertEqual(len(assets), 1)
@@ -1380,12 +1427,12 @@ class TestOperadoresDeLote(InsercaoBase):
         self.assertEqual(r, {'FINISHED'})
         cats = ler_cats(self.pasta)
         self.assertEqual(self.catalogo_no_arquivo(CHAPA_T)["catalogo"],
-                         cats["Cabinet Creator/Portas/Abrir"])
+                         cats["Archy Builder/Portas/Abrir"])
         nicho = self.catalogo_no_arquivo(NICHO_T)
         self.assertEqual(nicho["tipo_id"], "Collection")
         # categoria nova vira catalogo e recebe o modulo
         self.assertEqual(nicho["catalogo"],
-                         cats["Cabinet Creator/Armarios/Lavanderia"])
+                         cats["Archy Builder/Armarios/Lavanderia"])
         # as chapas continuam dentro do .blend, com UID
         chapas = [i for _n, i in ler_blend(os.path.join(self.pasta, NICHO_T))
                   if addon.chapas.MARCA_CHAPA in i["props"]]
@@ -1405,7 +1452,7 @@ class TestOperadoresDeLote(InsercaoBase):
         self.assertEqual(r, {'FINISHED'})
         self.assertEqual(self.catalogo_no_arquivo(CHAPA_T)["catalogo"],
                          ler_cats(self.pasta)[
-                             "Cabinet Creator/Puxadores/Perfil"])
+                             "Archy Builder/Puxadores/Perfil"])
         self.assertFalse(os.path.exists(
             os.path.join(self.pasta, "Fantasma.blend")))
 

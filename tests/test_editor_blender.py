@@ -1,4 +1,4 @@
-"""Identidade nativa, persistencia e ponte de comandos do editor Cabinet Creator."""
+"""Identidade nativa, persistencia e ponte de comandos do editor Archy Builder."""
 import os
 import sys
 import tempfile
@@ -66,6 +66,54 @@ class TestEditor(unittest.TestCase):
         with self.contexto():
             self.assertTrue(X.NODE_GGT_cabinet_gaveta.poll(bpy.context))
             self.assertFalse(addon.gaveta_eventos.VIEW3D_GGT_cabinet_gaveta.poll(bpy.context))
+
+    def test_marca_nova_preserva_identificadores_e_preferencias(self):
+        self.assertEqual(addon.bl_info['name'], 'Archy Builder')
+        self.assertEqual(addon.bl_info['doc_url'], 'https://github.com/IINasK/archy-builder')
+        for trecho in ('Moveis planejados', 'marcenaria', 'arquitetura', 'interiores'):
+            self.assertIn(trecho, addon.bl_info['description'])
+        self.assertEqual(X.CABINET_NT_menu.bl_label, 'Archy Builder')
+        self.assertEqual(X.CABINET_NT_biblioteca.bl_label, 'Biblioteca Archy Builder')
+        self.assertEqual(X.TIPO_MENU, 'CabinetCreatorMenu')
+        self.assertEqual(X.TIPO_BIBLIOTECA, 'CabinetCreatorBiblioteca')
+        self.assertEqual(addon.opcoes.CabinetCreatorPreferences.bl_idname, 'cabinet_creator')
+        self.assertEqual(addon.instalacoes.CORTE, 'Cabinet Creator - Recorte ')
+        self.assertEqual(addon.instalacoes.FILTRO, 'Cabinet Creator - Superficie ')
+        self.assertEqual(addon.iluminacao.CORTE_TABICA, 'Cabinet Creator - Tabica ')
+        for classe in addon.CLASSES:
+            self.assertNotIn('Cabinet Creator', getattr(classe, 'bl_label', ''))
+
+    def test_arquivo_com_identidade_antiga_reabre_sem_converter_dados(self):
+        # A marca muda, mas tipo do editor, propriedades, malha e parentesco persistem.
+        arvore = self.menu.spaces.active.node_tree
+        arvore.name = 'Interface Cabinet Creator'
+        pai = bpy.data.objects.new('Modulo legado', None)
+        bpy.context.scene.collection.objects.link(pai)
+        pai['eh_conjunto_chapa'] = True
+        peca = bpy.data.objects['Cube']
+        peca.parent = pai
+        peca['eh_chapa'] = True
+        peca['chapa_uid'] = 'uid-legado-406'
+        malha = peca.data.name
+        vertices = [tuple(v.co) for v in peca.data.vertices]
+        nome_arvore = arvore.name
+        caminho = os.path.join(self.tmp.name, 'cabinet_creator_legado.blend')
+        bpy.ops.wm.save_as_mainfile(filepath=caminho)
+        self.menu = self.cena = None
+        pai = peca = arvore = None
+        bpy.ops.wm.open_mainfile(filepath=caminho, load_ui=True)
+        self.menu = G._area_gaveta(bpy.context.screen)
+        self.cena = F.viewport(bpy.context.screen)
+        self.assertEqual(self.menu.ui_type, 'CabinetCreatorMenu')
+        X.configurar(self.menu)
+        self.assertEqual(self.menu.spaces.active.node_tree.name, nome_arvore)
+        peca = bpy.data.objects['Cube']
+        self.assertEqual(peca.parent.name, 'Modulo legado')
+        self.assertTrue(peca.parent['eh_conjunto_chapa'])
+        self.assertTrue(peca['eh_chapa'])
+        self.assertEqual(peca['chapa_uid'], 'uid-legado-406')
+        self.assertEqual(peca.data.name, malha)
+        self.assertEqual([tuple(v.co) for v in peca.data.vertices], vertices)
 
     def test_identidade_independe_de_ponteiros_gravados_na_screen(self):
         bpy.context.screen[G._CHAVE_GAVETA] = '1'
@@ -346,4 +394,4 @@ resultado = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.
 addon.unregister()
 bpy.utils.unregister_class(OBJECT_OT_contexto_teste)
 if not resultado.wasSuccessful():
-    raise RuntimeError('Falha nos testes do editor Cabinet Creator')
+    raise RuntimeError('Falha nos testes do editor Archy Builder')

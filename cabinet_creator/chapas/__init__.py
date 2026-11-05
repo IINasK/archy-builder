@@ -681,7 +681,7 @@ def normalizar_chapas(objs=None):
     try:
         aplicar_adjacencia()
     except Exception as e:
-        print("[Cabinet Creator] adjacencia:", e)
+        print("[Archy Builder] adjacencia:", e)
 
     return [o for o, _a, _b, _c in alvos]
 
@@ -758,7 +758,7 @@ def absorver_edicoes_de_malha():
                         and filho.name not in anteriores):
                     _puxadores.posicionar_puxador(filho)
         except Exception as e:
-            print("[Cabinet Creator] absorver edicao:", e)
+            print("[Archy Builder] absorver edicao:", e)
 
 
 def _alinhar_plano_da_chapa(obj):
@@ -1193,7 +1193,7 @@ def _separar_copias_no_timer():
         if not _eventos._desfazendo[0]:
             separar_copias()
     except Exception as erro:
-        print("[Cabinet Creator] separar copias:", erro)
+        print("[Archy Builder] separar copias:", erro)
     return None
 
 

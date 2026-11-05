@@ -1,6 +1,6 @@
 # Como contribuir
 
-Obrigado por ajudar a melhorar o Cabinet Creator. O projeto e' gratuito,
+Obrigado por ajudar a melhorar o Archy Builder. O projeto e' gratuito,
 esta' em desenvolvimento e aceita relatos, sugestoes e pull requests.
 
 ## Relatar um problema

@@ -1,3 +1,10 @@
+# Referencia historica do Archy Builder
+
+O texto abaixo conserva o nome e o desenho de interface da epoca do
+Cabinet Creator. O padrao atual esta' em [DESIGN.md](../DESIGN.md).
+
+---
+
 # Planejamento: wireframe dinamico no painel N
 
 ## 1. Objetivo deste documento

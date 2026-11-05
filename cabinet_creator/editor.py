@@ -13,13 +13,13 @@ _keymaps = [[]]
 
 class CABINET_NT_menu(NodeTree):
     bl_idname = TIPO_MENU
-    bl_label = 'Cabinet Creator'
+    bl_label = 'Archy Builder'
     bl_icon = 'NODETREE'
 
 
 class CABINET_NT_biblioteca(NodeTree):
     bl_idname = TIPO_BIBLIOTECA
-    bl_label = 'Biblioteca Cabinet Creator'
+    bl_label = 'Biblioteca Archy Builder'
     bl_icon = 'ASSET_MANAGER'
 
 
@@ -37,7 +37,7 @@ def configurar(area, tipo=TIPO_MENU):
     arvore = next((a for a in bpy.data.node_groups
                    if a.bl_idname == tipo and a.get(MARCA_INTERFACE)), None)
     if arvore is None:
-        arvore = bpy.data.node_groups.new('Interface ' + ('Cabinet Creator' if tipo == TIPO_MENU else 'Biblioteca Cabinet Creator'), tipo)
+        arvore = bpy.data.node_groups.new('Interface ' + ('Archy Builder' if tipo == TIPO_MENU else 'Biblioteca Archy Builder'), tipo)
         arvore[MARCA_INTERFACE] = True
         arvore.use_fake_user = True
     espaco.node_tree = arvore
@@ -100,7 +100,7 @@ def pode_executar(identificador):
 
 class NODE_GGT_cabinet_gaveta(_gaveta_eventos._GizmosGaveta, GizmoGroup):
     bl_idname = 'NODE_GGT_cabinet_gaveta'
-    bl_label = 'Cabinet Creator'
+    bl_label = 'Archy Builder'
     bl_space_type = 'NODE_EDITOR'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE'}

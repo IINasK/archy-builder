@@ -621,7 +621,7 @@ def _atualizar_modulo(modulo):
         _modulos.sincronizar_medidas_conjunto(modulo)
         _modulos.atualizar_sistemas_do_conjunto(modulo)
     except Exception as e:
-        print("[Cabinet Creator] atualizar modulo:", e)
+        print("[Archy Builder] atualizar modulo:", e)
 
 
 def desagregar(C):

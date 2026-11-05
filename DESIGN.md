@@ -1,4 +1,4 @@
-# DESIGN.md — como desenhar UI no Cabinet Creator
+# DESIGN.md — como desenhar UI no Archy Builder
 
 > **REGRA DESTE ARQUIVO:** NAO pode passar de 200 linhas.
 >
@@ -10,7 +10,7 @@
 
 ## 1. A gaveta NAO e' um painel do Blender
 
-A UI vive no **editor Cabinet Creator**, subtipo nativo `NODE_EDITOR`
+A UI vive no **editor Archy Builder**, subtipo nativo `NODE_EDITOR`
 (`CabinetCreatorMenu`, v365). O subtipo salva sua identidade no .blend;
 toolbar, regiao N e overlays ficam desligados. Header nativo conserva o
 seletor de editor. Corpo sem `UILayout`: GPU e gizmos reutilizam o layout
@@ -140,7 +140,7 @@ Regra de ouro, com teste: widget nenhum termina fora de
 `min(largura - 12, 552)`.
 
 **Biblioteca no topo (versao 229; referencia do usuario em 13/10/2026).**
-Editor `Biblioteca Cabinet Creator` dedicado, atravessando menu e cena. Primeiro split
+Editor `Biblioteca Archy Builder` dedicado, atravessando menu e cena. Primeiro split
 HORIZONTAL, depois VERTICAL na parte inferior. A faixa tem Modulos |
 Materiais, categorias em abas por nivel e UMA fila de fotos com nome e
 tooltip. Abas compactas: altura 18, passo 20, fonte 10, intervalo 2 px

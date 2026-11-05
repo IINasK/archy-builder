@@ -1251,7 +1251,7 @@ def absorver_conjuntos(no_timer=False):
         try:
             sincronizar_medidas_conjunto(conj)
         except Exception as e:
-            print("[Cabinet Creator] sincronizar:", e)
+            print("[Archy Builder] sincronizar:", e)
 
 
 def _grupo_ativo(context):
@@ -1320,7 +1320,7 @@ def _sincronizar_medidas_ativas():
             if any(abs(a - b) > 0.01 for a, b in zip(real, campos)):
                 sincronizar_grupo(context)
     except Exception as e:
-        print("[Cabinet Creator] sincronizar medidas:", e)
+        print("[Archy Builder] sincronizar medidas:", e)
 
 
 def _upd_grupo_dim(self, context):

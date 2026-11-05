@@ -1,4 +1,4 @@
-"""Empacota o add-on em dist/cabinet_creator.zip."""
+"""Empacota Archy Builder mantendo cabinet_creator como pacote compativel."""
 import os, zipfile, shutil
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
@@ -8,7 +8,7 @@ DIST = os.path.join(RAIZ, "dist")
 
 def main():
     os.makedirs(DIST, exist_ok=True)
-    destino = os.path.join(DIST, "cabinet_creator.zip")
+    destino = os.path.join(DIST, "archy_builder.zip")
     if os.path.exists(destino):
         os.remove(destino)
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:

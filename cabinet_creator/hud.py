@@ -1069,7 +1069,7 @@ def _animar_piscada():
                 if area.type == 'VIEW_3D':
                     area.tag_redraw()
     except Exception as e:
-        print("[Cabinet Creator] piscada:", e)
+        print("[Archy Builder] piscada:", e)
         return None
     if time.time() - _piscada_hud[0] > DURACAO_PISCADA_HUD:
         return None
@@ -1583,7 +1583,7 @@ class VIEW3D_GT_hud_cabinet(Gizmo):
 
 class VIEW3D_GGT_hud_cabinet(GizmoGroup):
     bl_idname = 'VIEW3D_GGT_hud_cabinet'
-    bl_label = 'Medidas espaciais Cabinet Creator'
+    bl_label = 'Medidas espaciais Archy Builder'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT'}
@@ -1607,7 +1607,7 @@ class VIEW3D_GGT_correntes_cabinet(GizmoGroup):
     """Corrente no meio de cada ligacao de adjacencia cujas pecas se
     separaram: botao nativo (icone do tema, tooltip, hover) em pixels."""
     bl_idname = 'VIEW3D_GGT_correntes_cabinet'
-    bl_label = 'Correntes de adjacencia Cabinet Creator'
+    bl_label = 'Correntes de adjacencia Archy Builder'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE', 'SHOW_MODAL_ALL'}

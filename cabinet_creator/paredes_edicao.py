@@ -1946,7 +1946,7 @@ class OBJECT_OT_observar_parede(Operator):
 
 class VIEW3D_MT_parede_cabinet(Menu):
     bl_idname = 'VIEW3D_MT_parede_cabinet'
-    bl_label = 'Cabinet Creator'
+    bl_label = 'Archy Builder'
 
     def draw(self, context):
         op = self.layout.operator('object.cabinet_editar_parede', text='Editar parede')

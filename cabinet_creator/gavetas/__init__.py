@@ -2167,7 +2167,7 @@ class AssistenteDoVao:
                 shader.uniform_float('color', (*tema.view_3d.object_active, 1.0))
                 batch_for_shader(shader, 'POINTS', {'pos': marcas}).draw(shader)
         except Exception as e:
-            print("[Cabinet Creator] previa das %s:" % self.ITEM[1], e)
+            print("[Archy Builder] previa das %s:" % self.ITEM[1], e)
         finally:
             gpu.state.line_width_set(1.0)
             gpu.state.point_size_set(1.0)

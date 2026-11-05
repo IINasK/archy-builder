@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/boas-vindas.svg" alt="Cabinet Creator - moveis planejados dentro do Blender" width="100%">
+  <img src="docs/boas-vindas.svg" alt="Archy Builder - moveis planejados, arquitetura e interiores no Blender" width="100%">
 </p>
 
 <p align="center">
@@ -12,14 +12,16 @@
 <p align="center">
   <a href="#comece-aqui">Comece aqui</a> &nbsp; | &nbsp;
   <a href="#o-que-voce-pode-criar">Recursos</a> &nbsp; | &nbsp;
-  <a href="https://github.com/IINasK/cabinet-creator/issues">Relatar um problema</a> &nbsp; | &nbsp;
+  <a href="https://github.com/IINasK/archy-builder/issues">Relatar um problema</a> &nbsp; | &nbsp;
   <a href="CONTRIBUIR.md">Contribuir</a>
 </p>
 
-# Bem-vindo ao Cabinet Creator
+# Bem-vindo ao Archy Builder
 
-Um add-on para criar e organizar **moveis planejados no Blender**: armarios,
-chapas, portas, gavetas, prateleiras e a relacao desses elementos com o ambiente.
+Um add-on gratuito para **moveis planejados, marcenaria, arquitetura e
+interiores no Blender**. Crie armarios, chapas, portas, gavetas e prateleiras,
+organize ambientes e integre o mobiliario a paredes, pisos, tetos e instalacoes
+em desenvolvimento.
 
 **O projeto e' completamente gratuito e esta' em desenvolvimento ativo.**
 Voce pode estudar, copiar, modificar, redistribuir e usar o conteudo autoral
@@ -53,8 +55,8 @@ O add-on nao substitui a verificacao tecnica de um projeto executivo.
 Use **Code -> Download ZIP** no GitHub e extraia o arquivo, ou clone:
 
 ```sh
-git clone https://github.com/IINasK/cabinet-creator.git
-cd cabinet-creator
+git clone https://github.com/IINasK/archy-builder.git
+cd archy-builder
 ```
 
 ### 2. Gere o arquivo instalavel
@@ -65,7 +67,7 @@ Com Python 3 disponivel, execute na pasta do projeto:
 python build.py
 ```
 
-O comando cria **`dist/cabinet_creator.zip`**, incluindo a biblioteca e a licenca.
+O comando cria **`dist/archy_builder.zip`**, incluindo a biblioteca e a licenca.
 Esse e' o ZIP instalavel; o ZIP de codigo-fonte do GitHub precisa ser extraido
 e empacotado antes.
 
@@ -78,16 +80,24 @@ No Windows, se nao houver Python no PATH, pode usar o Python do Blender:
 ### 3. Instale no Blender
 
 Abra **Edit -> Preferences** e escolha **Install from Disk** nas opcoes
-de complementos/extensoes da sua versao. Selecione `cabinet_creator.zip`
-e habilite **Cabinet Creator**.
+de complementos/extensoes da sua versao. Selecione `archy_builder.zip`
+e habilite **Archy Builder**.
 
 Os testes automatizados cobrem **Blender 4.2 e 5.2**. Os presets salvos
 no Blender 5.x podem nao abrir no 4.2; a compatibilidade do codigo e da
 biblioteca e' verificada separadamente.
 
+### Compatibilidade com projetos anteriores
+
+Archy Builder e' o novo nome do Cabinet Creator (antes Chapa G3).
+A pasta tecnica `cabinet_creator`, preferencias, atalhos, propriedades e
+tipos de editor foram preservados para continuar abrindo projetos antigos.
+Instale a atualizacao sobre o add-on existente; nao e' necessario recriar
+moveis ou converter seus arquivos. Catalogos conservam seus UUIDs.
+
 ### 4. Experimente
 
-Abra o editor **Cabinet Creator** pelo seletor de editores do Blender.
+Abra o editor **Archy Builder** pelo seletor de editores do Blender.
 Explore as abas de modulos, portas, fundos, gavetas, prateleiras/divisorias,
 puxadores e alvenaria. A selecao determina os controles apresentados.
 
@@ -95,7 +105,7 @@ puxadores e alvenaria. A selecao determina os controles apresentados.
 
 Voce e' bem-vindo para testar, sugerir melhorias ou enviar alteracoes.
 
-- **Encontrou um bug?** Abra uma [issue](https://github.com/IINasK/cabinet-creator/issues/new)
+- **Encontrou um bug?** Abra uma [issue](https://github.com/IINasK/archy-builder/issues/new)
   com a versao do Blender, os passos para reproduzir e o resultado esperado.
 - **Quer melhorar o codigo?** Leia [CONTRIBUIR.md](CONTRIBUIR.md) e o
   [mapa de arquitetura](ARQUITETURA.md), depois envie um pull request.
@@ -123,6 +133,6 @@ Creditos sao bem-vindos, mas nao sao exigidos pela CC0.
 
 A dedicacao nao altera licencas ou direitos de terceiros, nem direitos
 sobre marcas e patentes. O Blender e' um projeto independente e mantem
-sua propria licenca. O Cabinet Creator e' fornecido sem garantias.
+sua propria licenca. O Archy Builder e' fornecido sem garantias.
 
 [Texto integral CC0](LICENSE) &nbsp; | &nbsp; [Escopo e creditos](NOTICE)

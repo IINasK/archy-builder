@@ -1,3 +1,11 @@
+# Arquivo historico do Archy Builder
+
+Este documento conserva os nomes Cabinet Creator e Chapa G3 usados nas
+etapas anteriores. A apresentacao atual e as instrucoes de instalacao
+estao no [README](../README.md).
+
+---
+
 # Historico da documentacao
 
 Registro preservado da documentacao anterior. Descricoes abaixo refletem

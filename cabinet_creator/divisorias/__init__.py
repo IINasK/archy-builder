@@ -614,7 +614,7 @@ def atualizar_dependentes():
             except ValueError as erro:
                 # vao que deixou de caber: sem isto o timer falhava todo
                 # ciclo e parava o resto da manutencao
-                print("[Cabinet Creator] divisorias:", erro)
+                print("[Archy Builder] divisorias:", erro)
     pendentes = []
     for grupo in list(bpy.data.objects):
         dono = (_gavetas if _gavetas.MARCA_GRUPO in grupo else

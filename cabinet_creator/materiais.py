@@ -107,7 +107,7 @@ def ler_materiais(estrito=False):
     except Exception as e:
         if estrito:
             raise
-        print("[Cabinet Creator] materiais ilegiveis:", e)
+        print("[Archy Builder] materiais ilegiveis:", e)
         return _padrao()
     _cache[0] = (caminho, mtime, itens)
     return [dict(it) for it in itens]

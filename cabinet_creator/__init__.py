@@ -1,15 +1,15 @@
 bl_info = {
-    "name": "Cabinet Creator",
+    "name": "Archy Builder",
     "author": "Douglas",
-    "version": (405, 0, 0),
+    "version": (406, 0, 0),
     "blender": (4, 0, 0),
-    "location": "Editor Cabinet Creator / View3D > gaveta esquerda",
-    "doc_url": "",
-    "description": "Armarios parametricos: chapas com malha editavel e espessura imune a escala",
+    "location": "Editor Archy Builder / View3D > gaveta esquerda",
+    "doc_url": "https://github.com/IINasK/archy-builder",
+    "description": "Moveis planejados, marcenaria, arquitetura e interiores no Blender",
     "category": "Object",
 }
 
-"""Cabinet Creator: moveis planejados no Blender.
+"""Archy Builder: moveis planejados, arquitetura e interiores no Blender.
 
 O add-on e' um PACOTE: cada area mora no seu modulo (mapa em ARQUITETURA.md).
 Aqui ficam so' o bl_info, a ordem de carga, a ligacao entre os modulos e o

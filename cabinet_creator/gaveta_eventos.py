@@ -418,7 +418,7 @@ def _modelo_do_criador(op, context, it, indice):
 class OBJECT_OT_interagir_gaveta(Operator):
     """Recebe clique e arraste diretamente na interface independente."""
     bl_idname = "object.cabinet_interagir_gaveta"
-    bl_label = "Interagir com Gaveta Cabinet Creator"
+    bl_label = "Interagir com Gaveta Archy Builder"
     dica: StringProperty(options={'SKIP_SAVE'})
 
     @classmethod
@@ -1148,7 +1148,7 @@ class OBJECT_OT_interagir_gaveta(Operator):
 class OBJECT_OT_opcoes_gaveta(Operator):
     """Opcoes: unidade padrao, linhas e rotulos das medidas"""
     bl_idname = "object.cabinet_opcoes_gaveta"
-    bl_label = "Opcoes do Cabinet Creator"
+    bl_label = "Opcoes do Archy Builder"
 
     def execute(self, context):
         tela = context.screen
@@ -1165,7 +1165,7 @@ class OBJECT_OT_opcoes_gaveta(Operator):
 class OBJECT_OT_alternar_gaveta(Operator):
     """Abre ou fecha a area exclusiva do addon a esquerda da viewport"""
     bl_idname = "object.cabinet_alternar_gaveta"
-    bl_label = "Alternar Gaveta Cabinet Creator"
+    bl_label = "Alternar Gaveta Archy Builder"
 
     @classmethod
     def poll(cls, context):
@@ -1438,7 +1438,7 @@ class _GizmosGaveta:
 
 class VIEW3D_GGT_cabinet_gaveta(_GizmosGaveta, GizmoGroup):
     bl_idname = 'VIEW3D_GGT_cabinet_gaveta'
-    bl_label = 'Alca Cabinet Creator'
+    bl_label = 'Alca Archy Builder'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'PERSISTENT', 'SCALE'}

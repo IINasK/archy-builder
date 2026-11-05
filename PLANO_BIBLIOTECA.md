@@ -7,7 +7,7 @@ em abas horizontais e uma fila de miniaturas abaixo.
 
 ## Disposicao aprovada pelo pedido
 
-A biblioteca ocupa uma faixa no topo de toda a regiao do Cabinet Creator:
+A biblioteca ocupa uma faixa no topo de toda a regiao do Archy Builder:
 acima TANTO do menu a esquerda QUANTO da viewport principal. O menu fica
 dedicado a editar o item selecionado. A biblioteca continua acessivel
 ao trocar entre Modulos, Portas, Gavetas, Prateleiras e Puxadores.

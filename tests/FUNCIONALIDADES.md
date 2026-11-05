@@ -1,4 +1,24 @@
-# Funcionalidades do Cabinet Creator e o teste de cada uma
+# Funcionalidades do Archy Builder e o teste de cada uma
+
+Identidade Archy Builder (406): nome, descricao de moveis planejados,
+marcenaria, arquitetura e interiores; editor, biblioteca, menus, mensagens,
+README, banner e GitHub. Pacote instalavel archy_builder.zip conserva a
+pasta cabinet_creator. Preferencias, operadores, propriedades, tipos de
+editor e prefixos persistidos de recorte/tabica permanecem inalterados.
+Suite editor: test_marca_nova_preserva_identificadores_e_preferencias e
+test_arquivo_com_identidade_antiga_reabre_sem_converter_dados conferem
+metadados/rotulos e salvam/reabrem cena temporaria com tipo de editor,
+arvore, propriedades, UID, parentesco e malha legados.
+Suite biblioteca: test_marca_nova_migra_catalogos_antigos_sem_trocar_uuid
+e test_registro_renomeia_biblioteca_legada_sem_duplicar_pasta cobrem as
+duas raizes antigas, UUID/idempotencia e registro unico, preservando
+bibliotecas pessoais. Empacotamento conserva o pacote interno e licencas.
+Validacao: foco editor/biblioteca/empacotamento, 218 testes; harness
+completo Blender 4.2/5.2, 3422 testes em 80 execucoes OK
+(dist/marca406-completo.log). Conferidos 744 arquivos do ZIP contra o
+fonte, os 100 UUIDs originais dos catalogos, espelhos, links e XML do
+banner. Projeto aberto e presets .blend preservados. Sem gestos GUI
+no Blender nesta entrega; rotulos registrados e layouts cobertos headless.
 
 Apresentacao publica e CC0 (405): README com boas-vindas, aviso de
 desenvolvimento, instalacao e contribuicao; historico anterior preservado.
@@ -1346,7 +1366,7 @@ Harness completo: 2006 testes em 48 execucoes, 2005 passaram; unica falha preexi
 (desvio 0.000677527 m, tolerancia 0.00005 m). Nao houve alteracao do teste.
 
 Edicao 2D de paredes (296): grupo contextual Paredes e menu direito
-Cabinet Creator, face clicada ou maior face voltada para a vista, Local
+Archy Builder, face clicada ou maior face voltada para a vista, Local
 View nativo e restauracao do isolamento/ocultacao anterior. Orbita/Walk/Fly
 saem; pan/zoom ficam. Modelo da biblioteca, quantidade/folgas/espacamento,
 previa no vao, contorno real com aberturas, obstaculos por altura/face e

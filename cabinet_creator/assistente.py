@@ -359,7 +359,7 @@ class OBJECT_OT_apanhar_vao_portas(Operator):
             _arame._desenhar_arame(bpy.context, pecas_arame, pontos_arame,
                             matriz=self._w.get('matriz'))
         except Exception as e:
-            print("[Cabinet Creator] previa do vao:", e)
+            print("[Archy Builder] previa do vao:", e)
         finally:
             try:
                 gpu.state.line_width_set(1.0)

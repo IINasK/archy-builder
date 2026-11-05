@@ -1485,7 +1485,7 @@ def _conferir_ferragens():
         _modulos.limpar_organizacao_vazia()
         _orcamento._limpar_comodos_vazios()
     except Exception as e:
-        print("[Cabinet Creator] ferragens:", e)
+        print("[Archy Builder] ferragens:", e)
     return None
 
 
@@ -1936,7 +1936,7 @@ class OBJECT_OT_arrastar_ferragem(Operator):
 
     def _refazer(self, context, erro):
         if erro:
-            print("[Cabinet Creator] ferragem:", erro)
+            print("[Archy Builder] ferragem:", erro)
         # refazer a porta mexe na selecao: as ferragens continuam a dela
         _aplicar_selecao_ferragens(context, self._estado)
 
