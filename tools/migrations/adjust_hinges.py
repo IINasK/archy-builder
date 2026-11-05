@@ -5,7 +5,7 @@ import bpy
 
 RAIZ = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, RAIZ)
-import cabinet_creator as addon
+import archy_builder as addon
 from tools.migrations.adjust_fits import (carregar, limpar, digital, estado,
                                      conferir, publicar, caminho_da_peca)
 from tools.migrations.adjust_fits import validar_destino
@@ -83,7 +83,7 @@ def preparar(biblioteca, destino):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--destino', required=True)
-    p.add_argument('--biblioteca', default=os.path.join(RAIZ, 'cabinet_creator', 'biblioteca'))
+    p.add_argument('--biblioteca', default=os.path.join(RAIZ, 'archy_builder', 'biblioteca'))
     p.add_argument('--aplicar', action='store_true')
     a = p.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     destino, biblioteca = os.path.abspath(a.destino), os.path.abspath(a.biblioteca)

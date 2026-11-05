@@ -1,8 +1,8 @@
-"""Empacota Archy Builder mantendo cabinet_creator como pacote compativel."""
+"""Empacota Archy Builder com a raiz instalavel archy_builder."""
 import os, zipfile, shutil
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PKG = os.path.join(RAIZ, "cabinet_creator")
+PKG = os.path.join(RAIZ, "archy_builder")
 DIST = os.path.join(RAIZ, "dist")
 
 
@@ -13,7 +13,7 @@ def main():
         os.remove(destino)
     with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
         for nome in ("LICENSE", "NOTICE"):
-            z.write(os.path.join(RAIZ, nome), "cabinet_creator/" + nome)
+            z.write(os.path.join(RAIZ, nome), "archy_builder/" + nome)
         for base, dirs, arquivos in os.walk(PKG):
             dirs[:] = [d for d in dirs if d != "__pycache__"]
             for a in arquivos:

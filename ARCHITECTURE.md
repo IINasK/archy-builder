@@ -4,7 +4,7 @@ Read the root instructions, then only the owner guide below. AGENTS.md and
 CLAUDE.md are mirrors. Canonical technical paths use English; existing public
 Python names and persisted identifiers remain compatible.
 
-| Task | Owner under cabinet_creator/ | Guide | Harness suites |
+| Task | Owner under archy_builder/ | Guide | Harness suites |
 |---|---|---|---|
 | Panel mesh, thickness, Tab, A1..An, individual angles | cabinetry/panels/, shapes.py, fronts.py; core/geometry.py | cabinetry/panels/AGENTS.md | formas, geometria, frentes, hud |
 | Cabinet body, bounds, resize, Outliner collections | cabinetry/cabinets/ | cabinetry/cabinets/AGENTS.md | armarios, operadores, organizacao |
@@ -26,24 +26,26 @@ Python names and persisted identifiers remain compatible.
 | Build and local Blender link | ../tools/development/ | ../tools/development/AGENTS.md | empacotamento |
 | Harness, regression scenes and count floors | ../tests/ | ../tests/AGENTS.md | cobertura and changed suites |
 
-Guide links above are repository paths under cabinet_creator/ unless prefixed
+Guide links above are repository paths under archy_builder/ unless prefixed
 with ../. No sector owns another sector's geometry. Sidebar is UI, drawers are
 furniture. Temporary previews contain numeric data, not scene RNA.
 
 ## Loading and compatibility
 
-The installable root remains cabinet_creator because Blender saves its preference
-key. Its __init__.py explicitly imports each implementation in dependency order,
+The installable root and Blender preference key are archy_builder. The user
+authorized retiring the previous package identity before public use; no old-root
+import shim or preference migration is installed. Its __init__.py explicitly
+imports each implementation in dependency order,
 registers its historical module alias immediately, and links `_name` references
 after all implementations load. `_MODULOS` is the explicit reload/registration
 inventory; `_MODULE_ALIASES` maps historical API names to those same objects.
 
-The 407 -> 408 source-layout transition requires one Blender restart: modules
-already loaded from removed source paths cannot use ordinary F3 reload. Saved
-projects require no conversion. Reload within the new layout is tested.
+The package rename requires restarting Blender and installing the current ZIP,
+or relinking the development package. An already loaded old package cannot use
+ordinary F3 reload across this change. Reload within archy_builder is tested.
 
 There is ONE implementation per module. For example:
-`cabinet_creator.portas is cabinet_creator.cabinetry.doors`.
+`archy_builder.portas is archy_builder.cabinetry.doors`.
 Monkeypatches at either import reach all consumers; reload preserves module
 identity and then relinks consumers. No facade copies, plugin discovery or
 service locator is introduced. Canonical English imports are preferred for new
@@ -71,11 +73,11 @@ not from their newly nested source directory.
 Maintenance lives outside the installable add-on. Tools prepare in disposable
 directories, validate and back up before explicitly publishing. Never test them
 against the real library. Build runs from any working directory and produces
-dist/archy_builder.zip containing cabinet_creator, LICENSE and NOTICE.
+dist/archy_builder.zip containing archy_builder, LICENSE and NOTICE.
 
 ## Navigation and validation
 
-Start with `rg -n '^def |^class ' cabinet_creator/<sector>/<owner>` or a function
+Start with `rg -n '^def |^class ' archy_builder/<sector>/<owner>` or a function
 name. Read the implementation and only its direct dependencies. Local guides
 capture safety contracts; docs/reference retains detailed historical decisions.
 Root guides <=200 lines, sector guides <=120, exact AGENTS/CLAUDE mirrors.

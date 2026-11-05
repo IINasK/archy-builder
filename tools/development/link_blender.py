@@ -6,7 +6,7 @@ altera o add-on, sem copiar nada. Junction no Windows nao exige admin.
 import os, subprocess, sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ORIGEM = os.path.join(RAIZ, "cabinet_creator")
+ORIGEM = os.path.join(RAIZ, "archy_builder")
 
 APPDATA = os.environ.get("APPDATA", "")
 BASE = os.path.join(APPDATA, "Blender Foundation", "Blender")
@@ -27,7 +27,7 @@ def main():
     versao = sys.argv[1] if len(sys.argv) > 1 else vs[-1]
     addons = os.path.join(BASE, versao, "scripts", "addons")
     os.makedirs(addons, exist_ok=True)
-    alvo = os.path.join(addons, "cabinet_creator")
+    alvo = os.path.join(addons, "archy_builder")
 
     # lexists: junction QUEBRADO (repositorio mudou de lugar) tambem sai
     if os.path.lexists(alvo):

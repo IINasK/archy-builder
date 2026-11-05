@@ -1,6 +1,6 @@
 """Extract light sliding-door track sections from the user source scene.
 
-Adds LEVE to cabinet_creator/ferragens/trilho_moldura.json, preserving the
+Adds LEVE to archy_builder/ferragens/trilho_moldura.json, preserving the
 heavy-track sections. Requires the named sample board and evaluated U profiles.
 Section coordinates are millimeters from the back and the board face."""
 from pathlib import Path
@@ -11,7 +11,7 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens',
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens',
                        'trilho_moldura.json')
 CHAPA, PERFIL = 'Base.002', 'Trilho inferior.001'
 TOL = 1e-4          # m

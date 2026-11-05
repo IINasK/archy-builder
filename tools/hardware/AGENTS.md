@@ -2,7 +2,7 @@
 
 Mirror this guide in `CLAUDE.md`; follow `../AGENTS.md`.
 Extractors require named objects in a disposable source scene. Most scripts
-execute immediately on import and write directly to `cabinet_creator/ferragens`.
+execute immediately on import and write directly to `archy_builder/ferragens`.
 Never import them for discovery or execute them against real assets in tests.
 
 Keep the existing `.blend`/`.json` resource basenames and serialized schema.

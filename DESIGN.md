@@ -11,7 +11,7 @@
 ## 1. A gaveta NAO e' um painel do Blender
 
 A UI vive no **editor Archy Builder**, subtipo nativo `NODE_EDITOR`
-(`CabinetCreatorMenu`, v365). O subtipo salva sua identidade no .blend;
+(`ArchyBuilderMenu`, v365). O subtipo salva sua identidade no .blend;
 toolbar, regiao N e overlays ficam desligados. Header nativo conserva o
 seletor de editor. Corpo sem `UILayout`: GPU e gizmos reutilizam o layout
 atual. Arvore vazia propria habilita os gizmos no 4.2, sem nos do usuario.
@@ -20,7 +20,7 @@ Comandos de cena usam `editor.executar`; texto/arraste ficam na origem.
 Consequencia direta: **nada de `layout.prop`, `layout.operator`,
 `row()`, `column()`, `grid_flow`, `ui_units_x`, `scale_x`** — essas
 APIs nao existem aqui. Quem vier do painel N legado
-(`VIEW3D_PT_cabinet_creator`, no arquivo mas NAO registrado) vai
+(`VIEW3D_PT_archy_builder`, no arquivo mas NAO registrado) vai
 tentar usa-las por reflexo.
 
 Em troca, aqui `blf.dimensions()` **mede texto de verdade**: nao

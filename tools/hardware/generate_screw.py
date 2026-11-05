@@ -1,7 +1,7 @@
 """Generate the standard countersunk 3.5 x 14 mm hardware screw.
 
 Run in background Blender 4.2 to preserve the oldest supported asset format.
-Writes cabinet_creator/ferragens/parafuso.blend. Stored mesh names, version,
+Writes archy_builder/ferragens/parafuso.blend. Stored mesh names, version,
 provenance and wireframe exclusion attributes remain compatible with saved scenes."""
 from pathlib import Path
 import math
@@ -12,7 +12,7 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
 NOME = 'Parafuso Chipboard 3,5x14 Chata'
 MATERIAL = 'Aco Bicromatizado'
 SEGMENTOS = 24

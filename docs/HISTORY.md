@@ -179,7 +179,7 @@ O interior aparece em arestas reais cinza semitransparentes atras das frentes.
 Cotas ficam junto da peca selecionada; a representacao nao altera malhas.
 
 ```
-cabinet_creator/
+archy_builder/
   __init__.py        # carga, ligacao e registro
   chapas/            # malha e espessura da peca
   modulos/           # corpo, envelope e dependentes
@@ -195,7 +195,7 @@ cabinet_creator/
   biblioteca/        # presets de fabrica (viajam com o add-on)
     *.blend
     indice.json      # catalogo dos presets (niveis sem limite)
-build.py             # gera dist/cabinet_creator.zip
+build.py             # gera dist/archy_builder.zip
 tools/development/link_blender.py  # liga a pasta do projeto ao Blender (junction)
 ```
 
@@ -205,12 +205,12 @@ os nomes publicos anteriores; cada um possui instrucoes AGENTS.md/CLAUDE.md.
 
 ## Desenvolvimento
 
-1. `python tools/development/link_blender.py` — cria um junction de `cabinet_creator/` para a
+1. `python tools/development/link_blender.py` — cria um junction de `archy_builder/` para a
    pasta de add-ons do Blender. A partir dai, editar o codigo aqui altera
    o add-on carregado.
 2. No Blender, recarregue o add-on (desabilitar/habilitar em Preferences,
    ou reiniciar).
-3. `python tools/development/build.py` — empacota `dist/cabinet_creator.zip` para instalar em outras
+3. `python tools/development/build.py` — empacota `dist/archy_builder.zip` para instalar em outras
    maquinas.
 
 ## Conceitos centrais
@@ -248,7 +248,7 @@ nas propriedades existentes, sem um segundo modelo de dados para a UI.
 Os campos permitem arrastar ou clicar para digitar; Enter confirma e Esc
 restaura. As malhas modeladas e os materiais devem ser preservados.
 
-Para trabalhar no codigo: [guia de portas](../cabinet_creator/cabinetry/doors/AGENTS.md),
+Para trabalhar no codigo: [guia de portas](../archy_builder/cabinetry/doors/AGENTS.md),
 [guia de interface](../docs/reference/interface.md) e
 [mapa completo](../ARCHITECTURE.md).
 

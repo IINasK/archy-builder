@@ -20,14 +20,14 @@ import bpy  # noqa: F401  (o executor roda tudo dentro do Blender)
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(AQUI))
-import cabinet_creator as addon  # noqa: E402
+import archy_builder as addon  # noqa: E402
 
 # Classe -> por que ainda nao tem teste. So' pode ENCOLHER: ao cobrir
 # uma delas, apague a linha (o teste abaixo cobra isso).
 SEM_TESTE_ACEITO = {
     'OBJECT_OT_abrir_asset_browser':
         "so' o painel legado (nao registrado) chama; divide area",
-    'VIEW3D_AST_cabinet_creator': 'AssetShelf: arraste nativo do Blender',
+    'VIEW3D_AST_archy_builder': 'AssetShelf: arraste nativo do Blender',
     'OBJECT_OT_registrar_bibliotecas':
         'mexe nas preferencias do USUARIO (asset_libraries)',
     'OBJECT_OT_modo_medidas':
@@ -54,7 +54,7 @@ def _chaves(classe):
         chaves.add(idname.split('.', 1)[1])      # cabinet_xxx
     elif idname and idname not in (classe.__name__, addon.__name__):
         # o bl_idname das Preferencias e' o nome do PACOTE, que aparece em
-        # todo 'import cabinet_creator': contaria como teste sem ser
+        # todo 'import archy_builder': contaria como teste sem ser
         chaves.add(idname)
     return chaves
 

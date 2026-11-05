@@ -250,7 +250,7 @@ def preparar(biblioteca,destino):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--destino',required=True)
-    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'cabinet_creator','biblioteca'));p.add_argument('--aplicar',action='store_true')
+    p.add_argument('--biblioteca',default=os.path.join(RAIZ,'archy_builder','biblioteca'));p.add_argument('--aplicar',action='store_true')
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     validar_destino(a.biblioteca,a.destino)
     if a.aplicar:

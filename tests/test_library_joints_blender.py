@@ -265,7 +265,7 @@ class TestSoldasBiblioteca(unittest.TestCase):
     def test_preset_complexo_reabre_em_temporario_com_estado_protegido_identico(self):
         if bpy.app.version < (5,):
             self.skipTest('Biblioteca 5.x nao abre em Blender 4.2')
-        fonte = Path(__file__).resolve().parents[1] / 'cabinet_creator/biblioteca/Armario_Quarto_08_600x2503x550.blend'
+        fonte = Path(__file__).resolve().parents[1] / 'archy_builder/biblioteca/Armario_Quarto_08_600x2503x550.blend'
         digital = migracao.base.digital(fonte)
         copia = self.raiz / 'copia.blend'
         shutil.copy2(fonte, copia)

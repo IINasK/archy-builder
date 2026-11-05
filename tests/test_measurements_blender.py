@@ -4,7 +4,7 @@ from unittest.mock import patch
 import bpy
 from types import SimpleNamespace
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 G=addon.gaveta_desenho
 
 

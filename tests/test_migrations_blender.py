@@ -22,7 +22,7 @@ import bpy
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
-import cabinet_creator as addon
+import archy_builder as addon
 import tools.migrations.adjust_fits as base
 import tools.library.integrate_dxf_library as integracao
 
@@ -172,7 +172,7 @@ class TestMigracoes(unittest.TestCase):
             scope = {'__file__': str(source), 'Path': Path, 'os': os}
             exec(compile(ast.Module(body=paths, type_ignores=[]), str(source), 'exec'), scope)
             with self.subTest(script=relative):
-                self.assertEqual(Path(scope[variable]), RAIZ / 'cabinet_creator' / expected)
+                self.assertEqual(Path(scope[variable]), RAIZ / 'archy_builder' / expected)
 
     def test_publicacao_confere_todos_os_hashes_antes_da_primeira_escrita(self):
         self.preparar_arquivos();antes = self.hashes()

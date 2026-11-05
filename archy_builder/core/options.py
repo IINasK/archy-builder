@@ -96,7 +96,7 @@ def _numero_na_unidade(mm):
     return '%g' % round(mm / fator, casas + 2)
 
 
-class CabinetCreatorPreferences(bpy.types.AddonPreferences):
+class ArchyBuilderPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__.rsplit(".", 1)[0]
 
     pasta_biblioteca: bpy.props.StringProperty(

@@ -7,10 +7,10 @@ from bpy.types import Panel
 # apelidos depois de carregar todos (`_ligar_modulos`)
 _chapas = _modulos = _biblioteca = _portas = _gaveta = None
 
-class VIEW3D_PT_cabinet_creator(Panel):
+class VIEW3D_PT_archy_builder(Panel):
     # O cabecalho e' a barra de abas; nao repetir um titulo ao lado dela.
     bl_label = ""
-    bl_idname = "VIEW3D_PT_cabinet_creator"
+    bl_idname = "VIEW3D_PT_archy_builder"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Archy Builder"

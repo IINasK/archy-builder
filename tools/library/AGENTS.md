@@ -1,7 +1,7 @@
 # Library tools
 
 Mirror this guide in `CLAUDE.md`. Follow `../AGENTS.md` and the asset guide at
-`../../cabinet_creator/biblioteca/AGENTS.md` before working with library formats.
+`../../archy_builder/biblioteca/AGENTS.md` before working with library formats.
 
 - `import_dxf_library.py`: immediate DXF-to-preset import into the configured library.
 - `integrate_dxf_library.py`: resumable external staging, source hashes and publication.

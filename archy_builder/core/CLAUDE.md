@@ -21,7 +21,7 @@ because they are shared or because a file is long.
 
 - The root entry point owns the explicit import/alias map, load order,
   cross-module wiring, class registration and unregister cleanup.
-- Canonical English imports and legacy cabinet_creator.<Portuguese>
+- Canonical English imports and legacy archy_builder.<Portuguese>
   imports/attributes must resolve to the SAME module object.
 - Keep existing Portuguese functions, dependency placeholders and APIs.
   Resolve calls on the owning module; never copy another sector's function.
@@ -33,7 +33,7 @@ because they are shared or because a file is long.
 ## Contracts and pitfalls
 
 - Moving options.py changes __package__ and __file__. Preferences must still
-  use the installed root add-on identity, not cabinet_creator.core.
+  use the installed root add-on identity, not archy_builder.core.
 - The library default still resolves the existing company library. Never
   derive it from the new options.py directory or create a second library.
 - Code writing properties with update callbacks uses the existing busy

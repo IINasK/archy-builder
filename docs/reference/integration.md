@@ -7,13 +7,13 @@ Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
 em outra pasta. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
 
-Escopo: `cabinet_creator/integrations/native_conversion.py`, `importacao.py`, `paredes.py`,
+Escopo: `archy_builder/integrations/native_conversion.py`, `importacao.py`, `paredes.py`,
 `biblioteca.py` e scripts importar/integrar/ajustar/auditar/refinar da raiz.
 Nesta etapa, esses modulos e recursos continuam nos caminhos atuais.
 `biblioteca.py` usa `__file__` para fotos; `biblioteca/` guarda assets,
 nao e' pacote Python. Preservar imports/recarga.
 Para formatos, indice, catalogos e historico dos assets, ler explicitamente
-`cabinet_creator/biblioteca/CLAUDE.md`; nao manter outra copia desse contrato.
+`archy_builder/biblioteca/CLAUDE.md`; nao manter outra copia desse contrato.
 Frentes: ler `FRONT_GEOMETRY.md`; mudanca visivel: `DESIGN.md` e
 `docs/reference/interface.md`.
 

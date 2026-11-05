@@ -14,7 +14,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 INFERIOR = 'Arm\u00e1rio inferior'
 

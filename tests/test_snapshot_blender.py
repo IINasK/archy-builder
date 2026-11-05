@@ -21,7 +21,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 PASTA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'snapshots')
 ATUALIZAR = os.environ.get('CABINET_ATUALIZAR_SNAPSHOTS') == '1'

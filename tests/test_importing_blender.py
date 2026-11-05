@@ -9,7 +9,7 @@ import bmesh
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 
 def caixa(nome, dims, centro, rot_z=0.0):
@@ -1497,7 +1497,7 @@ class TestImportacao(unittest.TestCase):
     def test_canto_real_reduz_largura_em_etapas_sem_perder_referencia(self):
         if bpy.app.version < (5,):
             self.skipTest('Preset gravado no Blender 5.x')
-        lib=os.path.join(os.path.dirname(os.path.dirname(__file__)),'cabinet_creator','biblioteca')
+        lib=os.path.join(os.path.dirname(os.path.dirname(__file__)),'archy_builder','biblioteca')
         ns,_,erro=addon.biblioteca.inserir_preset(bpy.context,lib,
             'Canto_Sup_Medio_01_800x706x800.blend','modulo')
         self.assertFalse(erro)

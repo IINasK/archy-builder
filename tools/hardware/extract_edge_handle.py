@@ -14,7 +14,7 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
 NOME = 'Puxador Borda'
 ESPESSURA_PORTA = 0.018      # o modelo e' montado para porta de 18 mm
 COMPRIMENTO = 0.080

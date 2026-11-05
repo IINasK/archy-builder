@@ -1,5 +1,27 @@
 # Funcionalidades do Archy Builder e o teste de cada uma
 
+## Installable package identity (409)
+
+- The source folder, archive root, developer link and preference key now use
+  archy_builder. Native editor types and preference classes use ArchyBuilder;
+  newly created cut modifiers use the Archy Builder prefix. No old-root import
+  shim is installed, as authorized before public use.
+- test_preferencias_nativas_pertencem_ao_pacote_archy_builder registers an actual
+  Blender preference entry, resolves its concrete preference type, changes the
+  unit to CM and verifies the option reader observes it. The old source directory
+  must be absent. test_vinculo_de_desenvolvimento_usa_a_pasta_archy_builder checks
+  the exact junction source/destination in a temporary directory without linking
+  or changing an installed add-on. Packaging tests require a single new ZIP root.
+- Existing editor tests now save/reopen the new native editor identity, preserving
+  mesh, parent links and object properties. Installation and lighting tests cover
+  the updated cut names. Real library files were moved with identical contents.
+- Validation: targeted 302 tests in 16 executions, then full 3436 tests in 80
+  executions on Blender 4.2/5.2 passed (dist/rename409-targeted-confirmed.log,
+  dist/rename409-full.log). A unit assertion initially inspected an RNA instance's
+  bl_idname instead of its actual preference registration; the corrected scenario
+  verifies the concrete type, module key, RNA identity and effective option value.
+
+
 ## Source organization (408)
 
 - Scope: 44 runtime owners grouped under core, cabinetry, architecture, ui and
@@ -66,7 +88,7 @@ Projeto aberto e biblioteca real preservados; sem interacao GUI no Blender.
 Identidade Archy Builder (406): nome, descricao de moveis planejados,
 marcenaria, arquitetura e interiores; editor, biblioteca, menus, mensagens,
 README, banner e GitHub. Pacote instalavel archy_builder.zip conserva a
-pasta cabinet_creator. Preferencias, operadores, propriedades, tipos de
+pasta archy_builder. Preferencias, operadores, propriedades, tipos de
 editor e prefixos persistidos de recorte/tabica permanecem inalterados.
 Suite editor: test_marca_nova_preserva_identificadores_e_preferencias e
 test_arquivo_com_identidade_antiga_reabre_sem_converter_dados conferem
@@ -614,7 +636,7 @@ Validacao direcionada: 650 testes / 10 execucoes nos Blenders 4.2 e 5.2,
 tudo OK (pintura382-cenarios-finais.log). Gesto Ctrl+L na janela nao executado.
 Auditoria em cena descartavel: sete chapas receberam a cor, 104 malhas de
 ferragens conservaram metal e a selecao permaneceu. Renders externos/internos
-revisados em Backups/CabinetCreator/pintura382-auditoria/; projeto aberto e
+revisados em Backups/ArchyBuilder/pintura382-auditoria/; projeto aberto e
 biblioteca preservados. ZIP 382 conferido contra as 39 fontes Python.
 Harness completo: 2972 testes / 64 execucoes nos Blenders 4.2 e 5.2,
 tudo OK (pintura382-completo.log).
@@ -644,7 +666,7 @@ Validacao: 2836 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK
 (internos375-final.log). Textos finais e encaixe no painel estreito: mais
 56 testes direcionados nos dois Blenders (internos375-perguntas.log).
 Renders manter/esquerda/direita revisados; volume esperado e Mesh preservada
-em Backups/CabinetCreator/internos375-auditoria/ (PNG e resultado.json).
+em Backups/ArchyBuilder/internos375-auditoria/ (PNG e resultado.json).
 Snapshot comparado ao anterior: somente cabecalho muda; campos conservados.
 ZIP 375 conferido contra as 39 fontes Python; cena aberta preservada.
 
@@ -663,7 +685,7 @@ Cena aberta consultada so' em leitura: folhas ocultas e sem puxadores;
 nenhuma tentativa de revelar, reposicionar ou alterar o projeto real.
 Auditoria headless: renders GIRO, CORRER e exclusao/recriacao revisados;
 contagem final um puxador por folha. Evidencias externas em
-Backups/CabinetCreator/puxadores374-auditoria/ (PNG e resultado.json).
+Backups/ArchyBuilder/puxadores374-auditoria/ (PNG e resultado.json).
 Os gestos completos de mouse na janela real nao foram executados.
 Validacao final: 2798 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK;
 log externo puxadores374-completo.log. ZIP 374 conferido contra as fontes.
@@ -686,10 +708,10 @@ GUI +1: arrastar a barra da aba sem rolar biblioteca e cancelar; incluido,
 sem abrir janela nem executar o cenario nesta sessao.
 Auditoria do layout: primitivas do callback capturadas em cena temporaria,
 recortes/cores do tema, inicio/fim independentes e coluna livre conferidos
-nas imagens de rolagem373-auditoria/ em Backups/CabinetCreator. Exportacao
+nas imagens de rolagem373-auditoria/ em Backups/ArchyBuilder. Exportacao
 2D usa fonte aproximada, nao substitui teste dos gestos na janela real.
 Validacao final: 2784 testes / 64 execucoes no Blender 4.2 e 5.2, tudo OK.
-Log: Backups/CabinetCreator/rolagem373-entrega.log; pacote 373 conferido.
+Log: Backups/ArchyBuilder/rolagem373-entrega.log; pacote 373 conferido.
 
 Areas livres de criacao (372): areas_criacao.py e' o dono do volume/plano
 temporario. Um clique em face/interior ou plano da vista, sem exigir vertices;
@@ -715,7 +737,7 @@ Auditoria headless de geometria: cubo inicial 200 mm, volume ajustado
 473 x 600 x 964 mm, plano 473 x 964 mm e prateleira criada no vao direito.
 Renders revisados; corpo preservado e nenhum temporario restante. Renders
 usam os mesmos cantos numericos, sem afirmar validacao da interacao GPU.
-Evidencias externas: Backups/CabinetCreator/area372-entrega.log e
+Evidencias externas: Backups/ArchyBuilder/area372-entrega.log e
 area372-auditoria/ (PNG e resultado.json).
 
 Selecao e recorte de paredes (371): Object.ray_cast consulta SO' a malha
@@ -737,7 +759,7 @@ GUI +1: press/drag/release de tres vertices, snap sem teto, cursor devolvido
 e confirmacao pelo operador do menu. Cenario incluido; janela nao executada.
 Auditoria visual headless: inteiro normal e parcial cinza cortado; oito
 malhas originais preservadas, zero temporarios depois de sair. Artefatos
-em Backups/CabinetCreator/parede371-*; projeto aberto nao alterado.
+em Backups/ArchyBuilder/parede371-*; projeto aberto nao alterado.
 Validacao 371: 2732 testes em 62 execucoes (Blender 4.2/5.2), OK.
 ZIP verificado contra as 38 fontes Python; espelhos de instrucoes identicos.
 
@@ -825,7 +847,7 @@ Auditoria da janela e consulta nativa da cena confirmam Inferior 100 mm
 e o bloqueador real, sem mover objetos ou alterar a digitacao pendente.
 Gestos reais da correcao nao simulados; Blender aberto continua na 365.
 
-Editor proprio (365): CabinetCreatorMenu e CabinetCreatorBiblioteca sao
+Editor proprio (365): ArchyBuilderMenu e ArchyBuilderBiblioteca sao
 subtipos nativos NODE_EDITOR com arvore vazia propria para gizmos no 4.2.
 Suite editor cobre salvar/reabrir, identidade sem ponteiro, papeis distintos,
 arvores comuns intocadas, comando real na viewport com restauracao de
@@ -901,7 +923,7 @@ bloqueando o raio antigo, selecao BMesh, conectividade, orientacao, tolerancia,
 Backspace/Esc/direito, acoes do menu fora da viewport, parede girada,
 moveis de outra area/face, fonte nao editavel sem residuos, Local View
 anterior, ocultacao manual, restauro, exclusao, fonte movida e undo/redo.
-Cenario reproduzivel e renders antes/depois: `D:/Blender/Backups/CabinetCreator/`
+Cenario reproduzivel e renders antes/depois: `D:/Blender/Backups/ArchyBuilder/`
 `paredes361-cenario.blend`, `paredes361-antes.png`, `paredes361-depois.png`;
 script `paredes361-visual.py`. Render aplica os membros da Local View SO'
 aos hide_render da cena de teste; projeto do usuario nao foi modificado.
@@ -910,8 +932,8 @@ por bug/melhoria, com parametros e resultados, em dados temporarios.
 Pendencias anteriores commitadas ANTES desta implementacao: e786876 e
 564233d; sem push. Sem consulta ao Home Builder nesta etapa.
 Validacao final 361 (2026-10-27): 2578 testes em 60 execucoes, TUDO OK
-no Blender 4.2/5.2. Log: `D:/Blender/Backups/CabinetCreator/paredes361-completo.log`.
-Pacote dist/cabinet_creator.zip v361 conferido. Novas alteracoes sem commit;
+no Blender 4.2/5.2. Log: `D:/Blender/Backups/ArchyBuilder/paredes361-completo.log`.
+Pacote dist/archy_builder.zip v361 conferido. Novas alteracoes sem commit;
 ativacao na instancia aberta exige recarregar o add-on. Sem harness GUI
 de gestos reais: validacao visual por render na cena descartavel acima.
 
@@ -938,7 +960,7 @@ novo fundo herda escolhas exibidas e snap de profundidade religa existente,
 sem capacidade, menu responsivo/icone, undo/redo e guardas nativas.
 Conferencia visual: cena descartavel com tres modulos e lateral direita
 oculta SO' no render de auditoria, para ver os internos; PNG/.blend em
-`D:/Blender/Backups/CabinetCreator/fundos360-visual.*`. Cena do usuario e
+`D:/Blender/Backups/ArchyBuilder/fundos360-visual.*`. Cena do usuario e
 biblioteca preservadas; harness de gestos GUI nao executado.
 Espessuras comerciais: catalogos Arauco MDF Trupan/Melamina 2024 mostram
 6/9/12/15/18 mm (entre outras), nao 8 mm nesses produtos. Padrao novo 6 mm;
@@ -948,11 +970,11 @@ nova criacao; snapshot revisado semanticamente: so' as abas mudaram nos
 36 cenarios, conteudos identicos. Legado sem UID nao e' vinculo vazio:
 regressao exige UID preenchido e nao permite metadados/reencaixe novos.
 Validacao final 360 (2026-10-27): 2510 testes em 58 execucoes, TUDO OK
-no Blender 4.2/5.2. Log: `D:/Blender/Backups/CabinetCreator/fundos360-entrega.log`.
+no Blender 4.2/5.2. Log: `D:/Blender/Backups/ArchyBuilder/fundos360-entrega.log`.
 Prova adicional com handlers REAIS e transform.translate nativo nas duas
 versoes: 545 -> 465 mm; desassociar conserva 465 mm ao mover novamente.
-Scripts/logs: `D:/Blender/Backups/CabinetCreator/fundos360-handlers*`.
-Pacote dist/cabinet_creator.zip v360 conferido; ativacao na instancia ja'
+Scripts/logs: `D:/Blender/Backups/ArchyBuilder/fundos360-handlers*`.
+Pacote dist/archy_builder.zip v360 conferido; ativacao na instancia ja'
 aberta depende de recarregar o add-on. Sem alterar o projeto aberto.
 
 Solda unica por objetos (359): writer impede registros repetidos em
@@ -995,8 +1017,8 @@ a execucao. Reexecucao integral com fontes/recursos estaveis, sem enfraquecer
 a guarda; hashes dos assets publicados conferidos separadamente.
 Validacao final 359 (2026-10-27): 2450 testes em 56 execucoes, TUDO OK
 no Blender 4.2/5.2, incluindo a guarda de integridade. Log:
-`D:/Blender/Backups/CabinetCreator/soldas359-completo-estavel.log`.
-Pacote dist/cabinet_creator.zip conferido contra fontes e 265 blends
+`D:/Blender/Backups/ArchyBuilder/soldas359-completo-estavel.log`.
+Pacote dist/archy_builder.zip conferido contra fontes e 265 blends
 publicados. Harness GUI de gestos nao executado nesta entrega.
 
 Contorno na selecao mista (358): somar um objeto comum a modulo/porta
@@ -1012,7 +1034,7 @@ sem alterar selecao/ativo. Conferencia visual da janela existente via
 computer-use confirmou o Cube com contorno laranja e a blocagem visivel.
 O Blender estava minimizado; as capturas MCP pretas nao serviram de prova.
 Validacao 358 (2026-10-27): 2374 testes aprovados em 52 execucoes no 4.2/5.2;
-log `D:/Blender/Backups/CabinetCreator/contorno358-completo.log`.
+log `D:/Blender/Backups/ArchyBuilder/contorno358-completo.log`.
 Pacote atualizado e conferido; sem harness GUI de gestos automatizados.
 
 Tab/G do grupo (357): a saida atualiza os rigs em lote, com no maximo
@@ -1029,13 +1051,13 @@ Prova anterior: as duas regressoes falham na implementacao antiga
 Medicao 5.2, preset Armario_Quarto_08_600x2503x550, 276 objetos:
 saida do Tab 0.830 -> 0.425 s; saida + tres tiques + conferencia das
 ferragens 1.235 -> 0.815 s, com cProfile, sem interacao GUI.
-Logs em `D:/Blender/Backups/CabinetCreator/`: `perfil357-extra-antes.log`,
+Logs em `D:/Blender/Backups/ArchyBuilder/`: `perfil357-extra-antes.log`,
 `perfil357-extra-depois.log`, `tab357-prova-anterior.log`.
 Validacao 357 (2026-10-26): 2370 testes aprovados em 52 execucoes no 4.2/5.2;
 log `tab357-completo.log`. Auditoria visual em render isolado apos Tab/G:
 `tab357-visual.png`; perfis continuam unidos as portas e nos limites delas.
 Sem janela GUI nem alteracao da cena do usuario; o MCP estava indisponivel.
-Pacote `dist/cabinet_creator.zip` conferido com os cinco fontes alterados.
+Pacote `dist/archy_builder.zip` conferido com os cinco fontes alterados.
 
 Materiais pela selecao mestre (356): Shift conserva as pecas do grupo
 selecionadas, mas usa a chapa/folha clicada como objeto ativo. Ctrl+L >
@@ -1047,7 +1069,7 @@ OBJECT e folha de porta; confere materiais, selecao e geometria (piso 178).
 O nivel PORTA permanece de grupo mesmo com a folha mestre ativa; o contrato
 de Shift em test_portas_blender acompanha a selecao mestre nativa.
 Validacao 356 (2026-10-26): 2364 testes aprovados em 52 execucoes no 4.2/5.2.
-Log: `D:/Blender/Backups/CabinetCreator/materiais356-final-completo.log`.
+Log: `D:/Blender/Backups/ArchyBuilder/materiais356-final-completo.log`.
 Instancia aberta recebeu somente as tres funcoes de selecao, preservando
 o objeto ativo, a selecao e os 1146 objetos, sem reiniciar o registro.
 
@@ -1360,12 +1382,12 @@ distribuicao e edicao; nenhuma geometria e' encolhida para caber.
 Validacao 301 (2026-10-22): 322 testes dirigidos aprovados em 4.2/5.2.
 Harness completo: 2003 testes contabilizados, 46/48 execucoes aprovadas;
 persistem a bancada curva 5.2 e o limite de 300 s da biblioteca nas previews.
-Log: `D:/Blender/Backups/CabinetCreator/paredes301-completo.log`.
+Log: `D:/Blender/Backups/ArchyBuilder/paredes301-completo.log`.
 Auditoria na cena 5.2: cotas legiveis sobre parede branca/grade escura;
 previa na quina inferior direita terminou exatamente nos limites e a mira
 coincidiu com seu centro. Alvo sobre movel foi para vao livre adjacente.
 Os 347 objetos conservaram matrizes e vertices; selecao/vista restauradas.
-Backup: `D:/Blender/Backups/CabinetCreator/antes-paredes301.blend`.
+Backup: `D:/Blender/Backups/ArchyBuilder/antes-paredes301.blend`.
 
 Cadastro automatico do orcamento (300): medidas da geometria avaliada nos
 eixos do modulo, quantidades reais de folhas/gavetas, tipos de dobradica e
@@ -1377,10 +1399,10 @@ rotacao e leitura sem alteracoes, exclusao, dobradicas e materiais mistos.
 Validacao 300 (2026-10-21): 174 testes dirigidos aprovados em 4.2/5.2.
 Harness completo: 1985 testes contabilizados, 46/48 execucoes aprovadas;
 bancada curva 5.2 continua falhando e biblioteca 5.2 excedeu 300 segundos.
-Registro: `D:/Blender/Backups/CabinetCreator/orcamento300-completo.log`.
+Registro: `D:/Blender/Backups/ArchyBuilder/orcamento300-completo.log`.
 A repeticao isolada da biblioteca 5.2 aprovou a refiliacao, mas tambem
 excedeu 300 segundos, agora na regeneracao de previews. Sem reduzir o piso
-ou aumentar o limite: `D:/Blender/Backups/CabinetCreator/orcamento300-biblioteca.log`.
+ou aumentar o limite: `D:/Blender/Backups/ArchyBuilder/orcamento300-biblioteca.log`.
 
 Leitura frontal da parede (299): clique em porta seleciona modulo; duplo
 isola folha. Shift e PRESS/CLICK conservam selecao multipla; fora do modo,
@@ -1396,7 +1418,7 @@ na bancada curva 5.2. Uma execucao anterior acusou tambem redo de lote no 4.2:
 os dois modulos existem, mas a segunda Collection pode voltar sem vinculo
 com a cena. Reproduzido em 2/24 execucoes inclusive DESATIVANDO o interior;
 permanece pendente, sem ignorar teste ou enfraquecer suas assercoes. Logs em
-`D:/Blender/Backups/CabinetCreator/299-repeticao-*.log` e `299-sem-interior-*.log`.
+`D:/Blender/Backups/ArchyBuilder/299-repeticao-*.log` e `299-sem-interior-*.log`.
 
 Insercao e saida da parede (298): orbita devolve PERSP preservando o gesto;
 parede e modulos solidos com contornos pretos, estado visual restaurado.
@@ -1845,6 +1867,6 @@ ligado; circulos de face com raio 2 px/hover 3 px, area de clique preservada.
 - Auditoria visual headless com as coordenadas reais da HUD: antes, moldura estreita dentro da caixa de 649 mm; depois, contorno acompanha os 64.9 mm da madeira. Cena descartavel; projeto aberto e biblioteca real preservados. Gestos na interface ao vivo nao executados.
 - Validacao final: HUD 197 por versao; harness completo Blender 4.2/5.2 com 2956 testes em 64 execucoes, tudo OK. Pacote 381 conferido com 39 arquivos Python identicos ao fonte; espelhos e limites dos guias conferidos.
 
-- Offline tools relocation: `test_direct_cli_from_external_directory_keeps_help_read_only` launches four guarded tools from a temporary working directory without PYTHONPATH; expected exit 0, help output and no files created. `test_hardware_resources_stay_in_addon_after_relocation` evaluates only nine resource path declarations; expected paths stay in cabinet_creator/ferragens or cabinet_creator/fotos without running any extractor (migracoes).
+- Offline tools relocation: `test_direct_cli_from_external_directory_keeps_help_read_only` launches four guarded tools from a temporary working directory without PYTHONPATH; expected exit 0, help output and no files created. `test_hardware_resources_stay_in_addon_after_relocation` evaluates only nine resource path declarations; expected paths stay in archy_builder/ferragens or archy_builder/fotos without running any extractor (migracoes).
 
 - Explicit DXF inputs: `test_source_paths_are_explicit_before_preparing` invokes six CLI entry points without a source path; expected exit 2, a source-required message and no staging/library files created. Legacy source flags remain accepted; publication obtains source paths from its existing manifest (migracoes).

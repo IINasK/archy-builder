@@ -29,8 +29,8 @@ _esquadrias = None
 # Cada preset vira um .blend proprio dentro da pasta da biblioteca.
 # Um arquivo por preset evita ter que reabrir e mesclar um .blend
 # compartilhado a cada gravacao.
-# Nome tecnico legado; caminhos ja' configurados nao mudam com a marca.
-SUBPASTA_BIB = "Cabinet Creator"
+# Nome da pasta auxiliar para novos dados da biblioteca.
+SUBPASTA_BIB = "Archy Builder"
 # Raiz UNICA dos catalogos do Asset Browser. Trocar o CAMINHO de um
 # catalogo e' seguro desde que o UUID nao mude: o .blend guarda o UUID,
 # e e' por ele que o Blender reencontra o asset. Por isso as raizes
@@ -3069,9 +3069,9 @@ class OBJECT_OT_abrir_pasta_biblioteca(Operator):
 # menu Ver do Blender.
 
 
-class VIEW3D_AST_cabinet_creator(bpy.types.AssetShelf):
+class VIEW3D_AST_archy_builder(bpy.types.AssetShelf):
     """Prateleira com os presets: arraste o modulo direto para a cena."""
-    bl_idname = "VIEW3D_AST_cabinet_creator"
+    bl_idname = "VIEW3D_AST_archy_builder"
     bl_space_type = 'VIEW_3D'
     bl_options = {'STORE_ENABLED_CATALOGS_IN_PREFERENCES'}
     bl_default_preview_size = 96

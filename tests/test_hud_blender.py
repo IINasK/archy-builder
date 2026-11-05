@@ -14,7 +14,7 @@ import math
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 
 class _ContextoRegiao:
@@ -1647,7 +1647,7 @@ class TestHUD(unittest.TestCase):
         for nome in ('hud_pontos_apoio','hud_setas_quinas'):
             self.assertEqual(addon.gaveta.SUSPENSOS_OPCOES[nome],((True,'Ligado'),(False,'Desligado')))
             self.assertIn(nome,[linha[2] for linha in addon.gaveta.LINHAS_OPCOES])
-            self.assertTrue(addon.opcoes.CabinetCreatorPreferences.bl_rna.properties[nome].default)
+            self.assertTrue(addon.opcoes.ArchyBuilderPreferences.bl_rna.properties[nome].default)
 
     def test_volume_translate_nativo_vertice_base_b_e_estado_sem_ids(self):
         modulo = self.modulo()
@@ -3216,7 +3216,7 @@ class TestHUD(unittest.TestCase):
             self.assertTrue(any(w[4] == 'Origens no grupo' for w in widgets))
             escolhas = [w for w in widgets if w[5] and w[5][:2] == ('escolha','ocultar_origens_grupo')]
             self.assertEqual({(w[4],w[5][2]) for w in escolhas}, {('Ocultar',True),('Mostrar',False)})
-            prop = addon.opcoes.CabinetCreatorPreferences.bl_rna.properties['ocultar_origens_grupo']
+            prop = addon.opcoes.ArchyBuilderPreferences.bl_rna.properties['ocultar_origens_grupo']
             self.assertTrue(prop.default)
         finally:
             for n, v in antes.items():

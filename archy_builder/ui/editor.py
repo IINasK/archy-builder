@@ -5,8 +5,8 @@ from bpy.types import NodeTree, GizmoGroup
 from .. import gaveta_eventos as _gaveta_eventos
 
 _gaveta = _biblioteca_faixa = _eventos = None
-TIPO_MENU = 'CabinetCreatorMenu'
-TIPO_BIBLIOTECA = 'CabinetCreatorBiblioteca'
+TIPO_MENU = 'ArchyBuilderMenu'
+TIPO_BIBLIOTECA = 'ArchyBuilderBiblioteca'
 MARCA_INTERFACE = 'cabinet_interface'
 _keymaps = [[]]
 

@@ -1,6 +1,6 @@
 # Referencia das frentes
 
-`cabinet_creator/cabinetry/fronts.py` fornece a geometria compartilhada por portas,
+`archy_builder/cabinetry/fronts.py` fornece a geometria compartilhada por portas,
 puxadores, contorno, previa e transporte durante redimensionamento.
 O reconhecimento usa a propria Mesh local, independente do nome/categoria
 do armario. A pose fechada vem do rig existente; abrir ou mover nao muda

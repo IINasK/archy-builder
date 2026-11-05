@@ -12,7 +12,7 @@ import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, AQUI)
-import cabinet_creator as addon  # noqa: E402
+import archy_builder as addon  # noqa: E402
 
 
 def main():

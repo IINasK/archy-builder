@@ -5,7 +5,7 @@ description: Design and validate controls, thumbnails, dimensions and alerts in 
 
 # Archy Builder design
 
-Read the [UI guide](../../../cabinet_creator/ui/AGENTS.md) and applicable sections
+Read the [UI guide](../../../archy_builder/ui/AGENTS.md) and applicable sections
 of [DESIGN.md](../../../DESIGN.md). Use the Archy Builder editor. Layout produces
 the six-field tuple; drawing and hit testing consume the same tuple, and events
 dispatch to the action owner through the editor bridge. Reuse the existing verb,

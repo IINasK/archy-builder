@@ -11,7 +11,7 @@ from unittest.mock import patch
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 SETORES = {'chapas':'panels', 'modulos':'cabinets', 'portas':'doors',
            'gavetas':'drawers', 'prateleiras':'shelves', 'divisorias':'partitions'}
@@ -19,6 +19,24 @@ PASTA_ADDON_ORIGINAL = addon.opcoes._pasta_addon
 
 
 class TestOrganizacao(unittest.TestCase):
+    def test_preferencias_nativas_pertencem_ao_pacote_archy_builder(self):
+        self.assertEqual(addon.__name__, 'archy_builder')
+        self.assertEqual(Path(addon.__file__).parent.name, 'archy_builder')
+        self.assertFalse((Path(addon.__file__).parent.parent/'cabinet_creator').exists())
+        addons = bpy.context.preferences.addons
+        entrada = addons.new()
+        entrada.module = 'archy_builder'
+        try:
+            preferencias = entrada.preferences
+            self.assertIsNotNone(preferencias)
+            self.assertIsInstance(preferencias, addon.opcoes.ArchyBuilderPreferences)
+            self.assertEqual(entrada.module, 'archy_builder')
+            self.assertEqual(addon.opcoes._prefs().as_pointer(), preferencias.as_pointer())
+            preferencias.unidade_padrao = 'CM'
+            self.assertEqual(addon.opcoes._opcao('unidade_padrao'), 'CM')
+        finally:
+            addons.remove(entrada)
+
     def modulo_de_teste(self, internos=False):
         conjunto = addon.modulos.criar_armario(bpy.context, 'Teste coordenacao', 800, 700, 560,
                                                fundo=False)
@@ -155,22 +173,22 @@ class TestOrganizacao(unittest.TestCase):
         raiz = Path(addon.__file__).parent
         for nome in SETORES:
             with self.subTest(setor=nome):
-                modulo = importlib.import_module('cabinet_creator.' + nome)
+                modulo = importlib.import_module('archy_builder.' + nome)
                 self.assertIs(modulo, getattr(addon, nome))
                 self.assertIn(modulo, addon._MODULOS)
                 self.assertEqual(Path(modulo.__file__).resolve(),
                                  (raiz / 'cabinetry' / SETORES[nome] / '__init__.py').resolve())
                 self.assertFalse((raiz / (nome + '.py')).exists())
                 self.assertIs(modulo, importlib.import_module(
-                    'cabinet_creator.cabinetry.' + SETORES[nome]))
+                    'archy_builder.cabinetry.' + SETORES[nome]))
                 for valor in vars(modulo).values():
-                    if isinstance(valor, type) and valor.__module__.startswith('cabinet_creator.'):
+                    if isinstance(valor, type) and valor.__module__.startswith('archy_builder.'):
                         self.assertEqual(valor.__module__, modulo.__name__)
 
     def test_todos_os_aliases_tem_uma_unica_implementacao_inglesa(self):
         for nome, modulo in addon._MODULE_ALIASES.items():
             with self.subTest(alias=nome):
-                self.assertIs(importlib.import_module('cabinet_creator.' + nome), modulo)
+                self.assertIs(importlib.import_module('archy_builder.' + nome), modulo)
                 self.assertIs(importlib.import_module(modulo.__name__), modulo)
                 self.assertIs(getattr(addon, nome), modulo)
                 self.assertEqual(modulo.__name__.split('.')[1],
@@ -179,7 +197,7 @@ class TestOrganizacao(unittest.TestCase):
     def test_recursos_e_preferencias_continuam_na_raiz_instalavel(self):
         raiz = Path(addon.__file__).resolve().parent
         # Moving a source file must not create another library or preference key.
-        self.assertEqual(addon.opcoes.CabinetCreatorPreferences.bl_idname, addon.__name__)
+        self.assertEqual(addon.opcoes.ArchyBuilderPreferences.bl_idname, addon.__name__)
         self.assertEqual(Path(addon.ferragens.PASTA_FERRAGENS).resolve(), raiz/'ferragens')
         self.assertEqual(Path(addon.biblioteca.PASTA_FOTOS_PADRAO).resolve(), raiz/'fotos')
         # Capture before the fixture redirects the default to a temporary library.

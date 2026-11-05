@@ -12,7 +12,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-FERRAGENS = os.path.join(AQUI, 'cabinet_creator', 'ferragens')
+FERRAGENS = os.path.join(AQUI, 'archy_builder', 'ferragens')
 PARAFUSO = 'Parafuso Chipboard 3,5x14 Chata'
 FIXACAO = ('Dobradica Parafuso.001', 'Dobradica Parafuso.002',
            'Dobradica Parafuso.003', 'Dobradica Parafuso.004')

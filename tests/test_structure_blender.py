@@ -21,7 +21,7 @@ import bmesh
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 
 # Vocabulario fechado das acoes de widget. `_widgets_gaveta` devolve
@@ -37,9 +37,9 @@ VERBOS = frozenset({
 })
 
 # Classes definidas no modulo que NAO entram em CLASSES de proposito.
-# VIEW3D_PT_cabinet_creator e' o painel N legado: a gaveta o substituiu,
+# VIEW3D_PT_archy_builder e' o painel N legado: a gaveta o substituiu,
 # mas ele ficou no arquivo como referencia. Nao registre sem pedir.
-NAO_REGISTRADAS = frozenset({'VIEW3D_PT_cabinet_creator'})
+NAO_REGISTRADAS = frozenset({'VIEW3D_PT_archy_builder'})
 
 
 def classes_do_modulo():

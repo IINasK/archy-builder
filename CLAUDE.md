@@ -1,8 +1,8 @@
 # Archy Builder - project instructions
 
 AGENTS.md and CLAUDE.md are exact mirrors; update both. Maximum 200 lines.
-Use English for technical file/folder names and context guides. Existing
-Portuguese APIs and Portuguese ASCII UI remain compatibility contracts.
+Use English for file/folder names, UI, documentation, code annotations and commits.
+Existing serialized keys and internal API identifiers remain data contracts.
 Comments explain why. Do not translate persisted keys or operator identifiers.
 
 ## Read only the relevant sector
@@ -13,7 +13,7 @@ Visible UI also requires [DESIGN.md](DESIGN.md) and the
 [cabinet-design skill](docs/skills/cabinet-design/SKILL.md).
 Front geometry requires [FRONT_GEOMETRY.md](FRONT_GEOMETRY.md).
 Tests: [tests/AGENTS.md](tests/AGENTS.md). Assets:
-[library guide](cabinet_creator/biblioteca/AGENTS.md).
+[library guide](archy_builder/biblioteca/AGENTS.md).
 
 ## Package and boundaries
 
@@ -45,7 +45,7 @@ Use temporary scenes/fixtures; never modify the open project or real library.
 `--gui` OPENS Blender: only with the user releasing the PC NOW.
 Structural failures protect intentional decisions. Do not weaken them; requested
 architecture changes update the layout contract while preserving behavior.
-Test-count floors only rise. Increment bl_info['version'] for each delivery (408).
+Test-count floors only rise. Increment bl_info['version'] for each delivery (409).
 
 ## Global preferences
 
@@ -72,7 +72,7 @@ Test-count floors only rise. Increment bl_info['version'] for each delivery (408
    `cabinet_ambiente_uid`, `cabinet_ambiente_nome`, `cabinet_tipo_superficie`,
    `cabinet_face_apoio`, `cabinet_instalacao_*`, `cabinet_apoio_instalacao`,
    `prateleira_*`, `prateleiras_*`, `forma_edicao`, `chapa_edicao`.
-   Retain cabinet_creator preferences/package and persisted editor type names.
+   The installable package/preferences key is archy_builder; editor types use ArchyBuilder.
    Legacy CAD property/API spellings are compatibility data, not product branding.
 3. Markers are ID props (`MARCA_CHAPA in obj`); bpy.props are RNA and do not
    appear in `"x" in obj`. Never interchange these checks.
@@ -132,7 +132,7 @@ Test-count floors only rise. Increment bl_info['version'] for each delivery (408
 
 ## Git and user data
 
-Commit each validated stage automatically, Portuguese third person; push only
+Commit each validated stage automatically, with an English message; push only
 on explicit request. Preserve pending edits. Ignore dist/, *.blend1, __pycache__.
 Original asset directory/file names stay unchanged: they are user/library data,
 not source layout. Do not run maintenance against the real library.

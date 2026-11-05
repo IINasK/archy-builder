@@ -14,7 +14,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
 
 RAIZ, PORTA, CONTROLE = 'Hinge Empty', 'Door Left', 'door controller'
 LATERAL = 'Left table'                          # a chapa onde a base prende

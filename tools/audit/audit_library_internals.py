@@ -257,7 +257,7 @@ def auditar(biblioteca, destino):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--biblioteca', default=str(RAIZ / 'cabinet_creator/biblioteca'))
+    parser.add_argument('--biblioteca', default=str(RAIZ / 'archy_builder/biblioteca'))
     parser.add_argument('--destino', required=True)
     args = parser.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
     auditar(args.biblioteca, args.destino)

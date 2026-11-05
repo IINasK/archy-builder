@@ -1,7 +1,7 @@
 > Historical technical notes. Current instructions: [architecture](../../ARCHITECTURE.md) and local sector guides. Source paths below are retained only where historically relevant.
 
 # Setor montagem e associacoes
-Consulta explicita para `cabinet_creator/cabinetry/welding.py`, `paredes.py`,
+Consulta explicita para `archy_builder/cabinetry/welding.py`, `paredes.py`,
 `ambientes.py`, `orcamento.py` e a filiacao em `modulos/`. Este guia nao e' herdado
 por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 ## Onde alterar
@@ -14,7 +14,7 @@ por arquivos em outras pastas. Pares AGENTS.md/CLAUDE.md identicos.
 | Vista 2D/Local View, previa e distribuir modelos | `paredes_edicao.py` | paredes_edicao, gaveta |
 | Cotas de modulo, larguras fixas, redistribuir/trocar modelo | `paredes_composicao.py` | paredes_composicao, hud |
 | Comodo e arquivo vendido | `orcamento.py` | orcamento |
-Leia tambem `cabinet_creator/cabinetry/cabinets/AGENTS.md` para envelope, Collections
+Leia tambem `archy_builder/cabinetry/cabinets/AGENTS.md` para envelope, Collections
 compartilhadas e dependentes; `docs/reference/interface.md` para precedencia de clique e gizmos.
 Paredes exigem tambem [integracao](integration.md): gesto DIREITO,
 associacao a' face real, deslizamento G/R e guias editaveis pertencem la'.

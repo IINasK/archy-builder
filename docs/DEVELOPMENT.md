@@ -29,10 +29,11 @@ Restart Blender and enable Archy Builder. The link reads source directly from
 the checkout. The script refuses to replace a regular installation directory
 which may contain user presets. Work in a disposable scene, not a live project.
 
-After updating from version 407 or earlier to this layout, restart Blender once.
-F3 Reload Scripts in an already loaded older session still refers to removed
-source paths. Save your work and restart; no .blend migration is required.
-F3 reload within the new layout is covered by the organization suite.
+The installable package is archy_builder as of version 409. An earlier development
+installation must be disabled and replaced by the current ZIP or development link,
+then Blender restarted. F3 cannot reload across the root package rename. No shim
+or migration for the previous package is shipped; this change was authorized
+before public use. F3 within the current package is covered by the organization suite.
 
 ## Build the installation package
 
@@ -49,8 +50,8 @@ If Python is absent from PATH, use Blender's bundled interpreter:
 ```
 
 The package includes the library, LICENSE and NOTICE, excluding caches, backups
-and temporary files. Its cabinet_creator root and saved editor/preference
-identifiers remain unchanged for compatibility with existing .blend files.
+and temporary files. Its single root is archy_builder; the preference key and
+native editor identifiers use the same Archy Builder identity.
 
 ## Validate changes
 
@@ -67,12 +68,12 @@ See [tests/AGENTS.md](../tests/AGENTS.md).
 
 ## Repository sectors
 
-- cabinet_creator/core: preferences, lifecycle, geometry utilities.
-- cabinet_creator/cabinetry: panels, cabinet bodies, doors, drawers, shelves,
+- archy_builder/core: preferences, lifecycle, geometry utilities.
+- archy_builder/cabinetry: panels, cabinet bodies, doors, drawers, shelves,
   partitions, hardware, handles, backs and welding.
-- cabinet_creator/architecture: masonry, rooms, wall editing, openings and lights.
-- cabinet_creator/ui: editor, sidebar, selection, HUD and shared creation controls.
-- cabinet_creator/integrations: catalogs, materials, DXF conversion and estimates.
+- archy_builder/architecture: masonry, rooms, wall editing, openings and lights.
+- archy_builder/ui: editor, sidebar, selection, HUD and shared creation controls.
+- archy_builder/integrations: catalogs, materials, DXF conversion and estimates.
 - tools: development, library preparation, hardware extraction, audit, migrations.
 - tests: headless regressions, snapshots and authorized interaction scenarios.
 - docs: developer/reference/planning documentation and project design skill.
@@ -91,5 +92,5 @@ Contribute only content you can publish under CC0. Preserve external licenses
 and provenance as described in [NOTICE](../NOTICE).
 
 - [Architecture](../ARCHITECTURE.md)
-- [Library contract](../cabinet_creator/biblioteca/AGENTS.md)
+- [Library contract](../archy_builder/biblioteca/AGENTS.md)
 - [Historical documentation](HISTORY.md)

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, Mock
 import bpy
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-import cabinet_creator as addon
+import archy_builder as addon
 F = addon.biblioteca_faixa
 PASTA = tempfile.mkdtemp(prefix='cabinet_faixa_')
 addon.opcoes._pasta_addon = lambda: PASTA
@@ -75,7 +75,7 @@ class TestFaixa(unittest.TestCase):
         tela.pop(F.CHAVE_LUGAR, None)
         # padrao (pedido do usuario): na lateral esquerda, dentro do menu
         self.assertEqual(addon.opcoes.OPCOES_INTERNAS['biblioteca_lugar'], 'MENU')
-        self.assertEqual(addon.opcoes.CabinetCreatorPreferences.__annotations__[
+        self.assertEqual(addon.opcoes.ArchyBuilderPreferences.__annotations__[
             'biblioteca_lugar'].keywords['default'], 'MENU')
         self.assertTrue(F.acoplada(tela))
         self.assertIn(F.OBJECT_OT_lugar_biblioteca, addon.CLASSES)

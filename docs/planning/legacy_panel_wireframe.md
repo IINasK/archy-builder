@@ -260,7 +260,7 @@ Nao faz parte desta funcionalidade:
 O add-on esta concentrado em:
 
 ```text
-cabinet_creator/__init__.py
+archy_builder/__init__.py
 ```
 
 Recursos existentes que devem ser reutilizados:
@@ -270,7 +270,7 @@ Recursos existentes que devem ser reutilizados:
 - `_colecao_previews()`;
 - remocao da colecao de previews em `unregister()`;
 - uso de `layout.template_icon()` nas miniaturas da biblioteca;
-- `VIEW3D_PT_cabinet_creator.desenhar_medidas()`;
+- `VIEW3D_PT_archy_builder.desenhar_medidas()`;
 - propriedades de chapa em `bpy.types.Object`;
 - propriedades de grupo em `bpy.types.Scene`;
 - propriedades de conjunto/modulo em `bpy.types.Object`.
@@ -903,7 +903,7 @@ Blender para as partes puramente matematicas.
 ### Etapa 10: finalizar integracao
 
 1. Incrementar `bl_info["version"]` conforme convencao do projeto.
-2. Executar `python -m py_compile cabinet_creator/__init__.py`.
+2. Executar `python -m py_compile archy_builder/__init__.py`.
 3. Recarregar o add-on no Blender.
 4. Executar a matriz de testes manuais.
 5. Atualizar documentacao curta do usuario, se necessario.

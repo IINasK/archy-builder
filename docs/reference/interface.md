@@ -3,12 +3,12 @@
 # Interface -- guia transversal
 Leitura EXPLICITA pela rota do indice/guia raiz para tarefas de interface.
 Este AGENTS.md esta' em documentos: NAO se aplica automaticamente ao codigo
-em `cabinet_creator/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
+em `archy_builder/`. Manter este arquivo e `CLAUDE.md` identicos, em ASCII.
 Caminhos abaixo partem da raiz do repositorio. Limite: 120 linhas.
-Escopo: `cabinet_creator/ui/sidebar.py`, `gaveta_desenho.py`, `gaveta_eventos.py`, `hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py`, `materiais.py` e `ambientes.py`.
+Escopo: `archy_builder/ui/sidebar.py`, `gaveta_desenho.py`, `gaveta_eventos.py`, `hud.py`, `selecao.py`, `eventos.py`, `editor.py`, `areas_criacao.py`, `visibilidade.py`, `opcoes.py`, `biblioteca_faixa.py`, `materiais.py` e `ambientes.py`.
 Nesta etapa, o menu permanece nos caminhos atuais; `gavetas/` e' o movel.
 Antes de mexer no visivel, ler `DESIGN.md`; contratos recusados estao la'.
-Assets/presets: ler `cabinet_creator/biblioteca/CLAUDE.md` e
+Assets/presets: ler `archy_builder/biblioteca/CLAUDE.md` e
 `docs/reference/integration.md`.
 Fundos (360): aba propria com campos/segmentos existentes e Criar Fundo
 no SOLTAR. UNPINNED desassocia na aba Fundos ou nos internos vinculados.
@@ -94,7 +94,7 @@ Suite = `tests/test_<suite>_blender.py`; `gui_*` = `tests/<suite>.py`.
 - Selecao 369: `selecao.objetos_na_camada` limita clique/Shift/porta/Tab a' View Layer nativa; pai fora dela nao vira ativo. Clique: keyconfig ADDON; objeto comum fica no CLICK
   nativo. `OBJECT_OT_selecionar.poll` recusa fora de Object Mode ou com
   `selecao_por_grupo` desligada; props SKIP_SAVE.
-## Gaveta e biblioteca (365: NODE_EDITOR CabinetCreatorMenu/Biblioteca, nunca VIEW_3D)
+## Gaveta e biblioteca (365: NODE_EDITOR ArchyBuilderMenu/Biblioteca, nunca VIEW_3D)
 - Abas (362): sem espaco (BLF/fonte 12/margem 18), suspenso fixo com aba atual; lista flutuante despacha `aba`. Prefixo dinamico. 375: seis abas; Prateleiras / Divisorias unificada, DIVISORIAS legado e' alias so' visual; controles seguem dono selecionado. areas_criacao guarda sessao numerica por cena: tipo -> volume/pontos -> quantidade -> lacuna opcional -> outro tipo/Sair, mesma area; undo/load/save/unregister descartam sessao, preservam criados.
 - Gaveta por CONTEXTO em toda aba: sem selecao, SO' criar laranja (Modulos:
   nada); criando, campos etapa a etapa, copia clicavel da caixa atendida

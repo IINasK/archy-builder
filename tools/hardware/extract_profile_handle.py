@@ -1,7 +1,7 @@
 """Extract the profile handle mesh, materials, textures and dimensions.
 
 Run with the user source scene in background Blender 4.2. Writes the existing
-puxador_perfil.blend/.json resource names in cabinet_creator/ferragens.
+puxador_perfil.blend/.json resource names in archy_builder/ferragens.
 Coordinates follow the handle edge: X along the edge, Y into the leaf, Z outward."""
 from pathlib import Path
 import json
@@ -12,7 +12,7 @@ import bpy
 from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens')
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens')
 PORTA, PUXADOR = 'Door Left', 'Aluminum handle Left'
 NOME = 'Puxador Perfil'
 NOME_MATERIAL = 'Aluminio Escovado'

@@ -107,7 +107,7 @@ def preparar(biblioteca,destino):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--destino',required=True);p.add_argument('--aplicar',action='store_true')
-    p.add_argument('--biblioteca',default=os.path.join(str(Path(__file__).resolve().parents[2]),'cabinet_creator','biblioteca'))
+    p.add_argument('--biblioteca',default=os.path.join(str(Path(__file__).resolve().parents[2]),'archy_builder','biblioteca'))
     a=p.parse_args(sys.argv[sys.argv.index('--')+1:])
     validar_destino(a.biblioteca, a.destino)
     if a.aplicar:

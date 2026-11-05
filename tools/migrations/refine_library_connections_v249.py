@@ -113,7 +113,7 @@ def preparar(biblioteca, destino):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--destino', required=True)
-    parser.add_argument('--biblioteca', default=os.path.join(RAIZ, 'cabinet_creator', 'biblioteca'))
+    parser.add_argument('--biblioteca', default=os.path.join(RAIZ, 'archy_builder', 'biblioteca'))
     parser.add_argument('--aplicar', action='store_true')
     args = parser.parse_args(sys.argv[sys.argv.index('--')+1:])
     destino, biblioteca = os.path.abspath(args.destino), os.path.abspath(args.biblioteca)

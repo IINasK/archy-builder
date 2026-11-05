@@ -14,7 +14,7 @@ import bpy
 
 RAIZ = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, RAIZ)
-import cabinet_creator as addon
+import archy_builder as addon
 
 
 def digital(caminho):
@@ -239,7 +239,7 @@ def publicar(destino):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--destino', required=True)
-    parser.add_argument('--biblioteca', default=os.path.join(RAIZ, 'cabinet_creator', 'biblioteca'))
+    parser.add_argument('--biblioteca', default=os.path.join(RAIZ, 'archy_builder', 'biblioteca'))
     parser.add_argument('--aplicar', action='store_true')
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     args = parser.parse_args(argv)

@@ -21,8 +21,8 @@ _biblioteca = None
 DONO = 'cabinet_instalacao_dono'
 IDENTIDADE = 'cabinet_instalacao_uid'
 # Prefixos persistidos nos .blend: trocar quebraria a limpeza dos cortes antigos.
-CORTE = 'Cabinet Creator - Recorte '
-FILTRO = 'Cabinet Creator - Superficie '
+CORTE = 'Archy Builder - Recorte '
+FILTRO = 'Archy Builder - Superficie '
 ATR_CORTE = 'cabinet_face_do_cortador'
 ALVO = '@instalacao'
 CHAVE_TIPO_MENU = 'cabinet_instalacoes_tipo'

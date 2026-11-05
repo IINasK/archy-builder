@@ -28,7 +28,7 @@ LARGURA = 'cabinet_largura_tabica'
 PROFUNDIDADE = 'cabinet_rebaixo'
 FONTE = 'cabinet_apoio_original_da_luz'
 # O nome identifica modificadores de forros salvos antes da troca da marca.
-CORTE_TABICA = 'Cabinet Creator - Tabica '
+CORTE_TABICA = 'Archy Builder - Tabica '
 GESSO = .015
 
 

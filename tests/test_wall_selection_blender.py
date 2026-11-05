@@ -12,7 +12,7 @@ import numpy as np
 from mathutils import Matrix, Vector, Quaternion
 
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 E=addon.paredes_edicao
 P=addon.paredes
 S=addon.paredes_selecao

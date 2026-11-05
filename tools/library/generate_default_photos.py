@@ -1,7 +1,7 @@
 """Generate default hardware and opening thumbnails.
 
 Requires an explicitly authorized foreground Blender session for viewport
-capture. Writes cabinet_creator/fotos/*.png, then closes Blender automatically.
+capture. Writes archy_builder/fotos/*.png, then closes Blender automatically.
 Importing this script registers the add-on and schedules capture immediately."""
 from pathlib import Path
 import os
@@ -13,9 +13,9 @@ from mathutils import Vector
 
 AQUI = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, AQUI)
-import cabinet_creator as addon  # noqa: E402
+import archy_builder as addon  # noqa: E402
 
-PASTA = os.path.join(AQUI, 'cabinet_creator', 'fotos')
+PASTA = os.path.join(AQUI, 'archy_builder', 'fotos')
 LADO_PNG = 256                   # a gaveta desenha ate' ~84 px
 # Cores no modo solido (cor do OBJETO): madeira, porta e metal separados
 COR_MODULO = (0.78, 0.62, 0.43, 1.0)

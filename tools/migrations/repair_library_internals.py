@@ -671,7 +671,7 @@ def publicar(destino):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--biblioteca',default=str(RAIZ/'cabinet_creator/biblioteca'))
+    parser.add_argument('--biblioteca',default=str(RAIZ/'archy_builder/biblioteca'))
     parser.add_argument('--fontes',help='Source DXF directory; required for preparation')
     parser.add_argument('--destino',required=True)
     parser.add_argument('--aplicar',action='store_true')

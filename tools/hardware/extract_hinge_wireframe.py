@@ -12,7 +12,7 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-JSON = os.path.join(AQUI, 'cabinet_creator', 'ferragens', 'dobradica_reta.json')
+JSON = os.path.join(AQUI, 'archy_builder', 'ferragens', 'dobradica_reta.json')
 ANGULO_VINCO = 30.0          # graus entre as faces para a aresta aparecer
 FORA = ('furo', 'controle')  # cortador e controlador: nao sao a peca
 ATRIBUTO_SEM_ARAME = 'cabinet_sem_arame'    # `arame.ATRIBUTO_SEM_ARAME`

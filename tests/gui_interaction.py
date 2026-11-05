@@ -24,7 +24,7 @@ from bpy_extras import view3d_utils
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(AQUI))
 sys.path.insert(0, AQUI)
-import cabinet_creator as addon  # noqa: E402
+import archy_builder as addon  # noqa: E402
 from interaction_harness import (rodar, esperar, viewport_principal, na_tela,  # noqa: E402
                          Pular)
 

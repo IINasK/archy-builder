@@ -1,6 +1,6 @@
 {
   "python.analysis.extraPaths": [
-    "./cabinet_creator"
+    "./archy_builder"
   ],
   "files.encoding": "utf8",
   "files.eol": "\n",

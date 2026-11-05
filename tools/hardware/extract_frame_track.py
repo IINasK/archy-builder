@@ -1,6 +1,6 @@
 """Extract heavy sliding-door frame track sections from the user source scene.
 
-Updates CIMA/BAIXO in cabinet_creator/ferragens/trilho_moldura.json without
+Updates CIMA/BAIXO in archy_builder/ferragens/trilho_moldura.json without
 removing LEVE. End-face polygons are recorded in millimeters for extrusion."""
 from pathlib import Path
 import json
@@ -10,7 +10,7 @@ import bmesh
 import bpy
 
 AQUI = str(Path(__file__).resolve().parents[2])
-DESTINO = os.path.join(AQUI, 'cabinet_creator', 'ferragens',
+DESTINO = os.path.join(AQUI, 'archy_builder', 'ferragens',
                        'trilho_moldura.json')
 TRILHOS = {'CIMA': 'Trilho superior', 'BAIXO': 'Trilho inferior'}
 TOL = 1e-4          # m

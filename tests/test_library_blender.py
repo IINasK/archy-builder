@@ -3,7 +3,7 @@
 Suite "biblioteca": indice.json, catalogos, gravacao de presets e insercao.
 
 SEGURANCA: a biblioteca real mora DENTRO do repositorio
-(cabinet_creator/biblioteca). Nenhum teste escreve la': cada teste
+(archy_builder/biblioteca). Nenhum teste escreve la': cada teste
 trabalha numa COPIA em pasta temporaria, e `addon.biblioteca.pasta_biblioteca` e'
 trocada antes mesmo do register() -- o timer que register() agenda
 (registrar_bibliotecas) tambem cairia numa pasta descartavel. No fim,
@@ -22,7 +22,7 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 
 PASTA_REAL = os.path.normpath(addon.opcoes._pasta_addon())
 ARQ_CATS = "blender_assets.cats.txt"

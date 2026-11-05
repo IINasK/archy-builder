@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import bpy,bmesh
 from mathutils import Vector,Matrix
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import cabinet_creator as addon
+import archy_builder as addon
 A=addon.ambientes;P=addon.paredes
 
 

@@ -268,7 +268,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--destino', required=True)
     parser.add_argument('--fontes', help='Source DXF directory; required for preparation')
-    parser.add_argument('--biblioteca', default=os.path.join(str(Path(__file__).resolve().parents[2]), 'cabinet_creator', 'biblioteca'))
+    parser.add_argument('--biblioteca', default=os.path.join(str(Path(__file__).resolve().parents[2]), 'archy_builder', 'biblioteca'))
     parser.add_argument('--aplicar', action='store_true')
     args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     if not args.aplicar and not args.fontes:
