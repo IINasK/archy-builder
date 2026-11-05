@@ -1,5 +1,22 @@
 # Funcionalidades do Archy Builder e o teste de cada uma
 
+Tutorial para usuarios (407): README descreve download do pacote pronto,
+instalacao do ZIP sem extrair, ativacao e primeiros passos. Sem comandos
+de desenvolvimento, instalacao do Blender, historico da marca ou convite
+para gerar/alterar codigo misturado ao fluxo do usuario. Guia separado
+docs/DESENVOLVIMENTO.md recebe clone, junction, build, testes e contribuicoes,
+com navegacao reciproca. Download aponta ao ZIP pronto de Releases.
+CONTRIBUIR trata relatos/sugestoes e encaminha devs ao guia especifico;
+banner destaca uso gratuito. Repositorio publico e LICENSE/NOTICE mantidos.
+Validacao por links, ancoras, XML, espelhos e empacotamento temporario.
+Confirmacao final: harness completo Blender 4.2/5.2, 3422 testes em 80
+execucoes OK (dist/tutorial407-completo-confirmacao.log); ZIP 407 com 744
+arquivos conferidos contra o fonte. A primeira execucao e uma repeticao
+isolada falharam no undo/redo de insercao em paredes no 4.2; a execucao
+direta seguinte passou (86), assim como tres execucoes descartaveis da
+versao 406. Oscilacao registrada, sem alterar logica ou enfraquecer testes.
+Projeto aberto e biblioteca real preservados; sem interacao GUI no Blender.
+
 Identidade Archy Builder (406): nome, descricao de moveis planejados,
 marcenaria, arquitetura e interiores; editor, biblioteca, menus, mensagens,
 README, banner e GitHub. Pacote instalavel archy_builder.zip conserva a

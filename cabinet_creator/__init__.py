@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Archy Builder",
     "author": "Douglas",
-    "version": (406, 0, 0),
+    "version": (407, 0, 0),
     "blender": (4, 0, 0),
     "location": "Editor Archy Builder / View3D > gaveta esquerda",
     "doc_url": "https://github.com/IINasK/archy-builder",

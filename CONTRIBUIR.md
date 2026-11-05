@@ -1,44 +1,27 @@
-# Como contribuir
+# Ajuda e sugestoes
 
-Obrigado por ajudar a melhorar o Archy Builder. O projeto e' gratuito,
-esta' em desenvolvimento e aceita relatos, sugestoes e pull requests.
+Voce pode ajudar a melhorar o Archy Builder relatando problemas e sugerindo
+melhorias na secao [Issues](https://github.com/IINasK/archy-builder/issues).
+
+Para modificar o programa e enviar codigo, consulte o
+[guia de desenvolvimento](docs/DESENVOLVIMENTO.md).
 
 ## Relatar um problema
 
-Abra uma issue informando:
+Informe:
 
-- Versao do Blender e sistema operacional.
-- Passos para reproduzir, desde a criacao de uma cena simples.
+- Versao do Blender, versao do Archy Builder e sistema operacional.
+- Passos para reproduzir o problema.
 - Resultado esperado e o que aconteceu.
-- Imagem ou arquivo minimo de exemplo, sem dados privados de clientes.
+- Imagem ou arquivo pequeno de exemplo, sem dados privados de clientes.
 
-## Alterar o codigo
+## Sugerir uma melhoria
 
-1. Faca um fork e crie uma branch para uma alteracao delimitada.
-2. Leia [AGENTS.md](AGENTS.md) e consulte o setor correspondente em
-   [ARQUITETURA.md](ARQUITETURA.md). Nao e' necessario carregar todos os guias.
-3. Preserve as malhas, materiais, propriedades publicas e arquivos existentes.
-4. Para corrigir um bug, inclua um teste que reproduza a falha. Para uma
-   melhoria, descreva os parametros e o resultado esperado.
-5. Registre o cenario em [tests/FUNCIONALIDADES.md](tests/FUNCIONALIDADES.md)
-   e execute as suites pertinentes. Antes da entrega, execute o harness completo.
-6. No pull request, explique o problema, a mudanca e o que foi testado.
+Descreva o que voce precisa fazer, como trabalha hoje e qual comportamento
+facilitaria seu trabalho. Imagens de referencia ajudam a explicar a ideia.
 
-Os testes usam cenas e pastas temporarias; nao escrevem na biblioteca real
-nem no projeto aberto. Testes que abrem uma janela do Blender exigem
-autorizacao de quem estiver usando o computador.
+## Acompanhar um relato
 
-Com o Blender disponivel:
-
-```sh
-blender --background --factory-startup --python tests/rodar_testes.py
-```
-
-O harness procura as instalacoes do Blender 4.2 e 5.2 no Windows. Consulte
-[tests/AGENTS.md](tests/AGENTS.md) para comandos por suite e por versao.
-
-## Licenca das contribuicoes
-
-Envie apenas conteudo que voce possa disponibilizar sob [CC0 1.0](LICENSE).
-Recursos externos precisam ter origem e licenca identificadas; preserve
-seus avisos. Veja tambem [NOTICE](NOTICE).
+Se ja' houver um relato do mesmo problema, acrescente suas informacoes nele.
+Quando for solicitado um novo teste, use uma copia do projeto para preservar
+seus arquivos de trabalho.
